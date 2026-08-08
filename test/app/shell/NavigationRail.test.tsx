@@ -1,0 +1,84 @@
+import { render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { AxisThemeProvider } from '../../../src/app/AxisThemeProvider';
+import { NavigationRail } from '../../../src/app/shell/NavigationRail';
+import type { ShellNavigationGroup } from '../../../src/app/shell/shellNavigation';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('Axis navigation rail', () => {
+  it('keeps disabled expandable items compatible with MUI tooltips', () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const groups: readonly ShellNavigationGroup[] = [
+      {
+        id: 'system-integrations',
+        label: 'System & Integrations',
+        order: 150,
+        items: [
+          {
+            id: 'disabled-parent',
+            label: 'Disabled Parent',
+            route: '/disabled-parent',
+            order: 10,
+            moduleName: 'backoffice',
+            category: 'platform',
+            icon: 'registry',
+            availability: 'UP',
+            perspectives: ['operations'],
+            contexts: [],
+            featureState: 'DISABLED',
+            depth: 0,
+            hasChildren: true,
+            local: false,
+          },
+          {
+            id: 'disabled-child',
+            parentId: 'disabled-parent',
+            label: 'Disabled Child',
+            route: '/disabled-parent/child',
+            order: 20,
+            moduleName: 'backoffice',
+            category: 'platform',
+            icon: 'registry',
+            availability: 'UP',
+            perspectives: ['operations'],
+            contexts: [],
+            featureState: 'DISABLED',
+            depth: 1,
+            hasChildren: false,
+            local: false,
+          },
+        ],
+      },
+    ];
+
+    render(
+      <AxisThemeProvider>
+        <NavigationRail
+          activePath="/dashboard"
+          compact={false}
+          favourites={new Set()}
+          groups={groups}
+          query=""
+          onNavigate={vi.fn()}
+          onQueryChange={vi.fn()}
+          onToggleFavourite={vi.fn()}
+        />
+      </AxisThemeProvider>,
+    );
+
+    expect(
+      screen.getByRole('button', { name: 'Collapse Disabled Parent' }),
+    ).toBeDisabled();
+    expect(consoleError).not.toHaveBeenCalledWith(
+      expect.stringContaining('disabled `button` child'),
+    );
+    expect(consoleWarn).not.toHaveBeenCalledWith(
+      expect.stringContaining('disabled `button` child'),
+    );
+  });
+});

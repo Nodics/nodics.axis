@@ -371,26 +371,28 @@ export function NavigationRail({
                           <Tooltip
                             title={`${itemExpanded ? 'Collapse' : 'Expand'} ${item.label}`}
                           >
-                            <IconButton
-                              aria-label={`${itemExpanded ? 'Collapse' : 'Expand'} ${item.label}`}
-                              aria-expanded={itemExpanded}
-                              disabled={unavailable || featureDisabled}
-                              size="small"
-                              sx={{ color: alpha('#ffffff', 0.56), mr: 0.25 }}
-                              onClick={() => {
-                                setCollapsedItems((current) => {
-                                  const next = new Set(current);
-                                  if (next.has(itemKey)) next.delete(itemKey);
-                                  else next.add(itemKey);
-                                  return next;
-                                });
-                              }}
-                            >
-                              <ShellIcon
-                                fontSize="small"
-                                name={itemExpanded ? 'chevron-up' : 'chevron-down'}
-                              />
-                            </IconButton>
+                            <Box component="span" sx={{ display: 'inline-flex' }}>
+                              <IconButton
+                                aria-label={`${itemExpanded ? 'Collapse' : 'Expand'} ${item.label}`}
+                                aria-expanded={itemExpanded}
+                                disabled={unavailable || featureDisabled}
+                                size="small"
+                                sx={{ color: alpha('#ffffff', 0.56), mr: 0.25 }}
+                                onClick={() => {
+                                  setCollapsedItems((current) => {
+                                    const next = new Set(current);
+                                    if (next.has(itemKey)) next.delete(itemKey);
+                                    else next.add(itemKey);
+                                    return next;
+                                  });
+                                }}
+                              >
+                                <ShellIcon
+                                  fontSize="small"
+                                  name={itemExpanded ? 'chevron-up' : 'chevron-down'}
+                                />
+                              </IconButton>
+                            </Box>
                           </Tooltip>
                         ) : null}
                         {!item.local ? (
