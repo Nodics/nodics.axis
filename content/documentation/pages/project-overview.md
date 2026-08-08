@@ -71,11 +71,12 @@ policy consumption, protected routing, logout, and failure recovery.
 
 ## Start locally
 
-Start Nodics in a separate terminal:
+Start the Nodics Kickoff backend servers in separate terminals:
 
 ```bash
-cd ../nodics
-npm start -- ENV=startioLocal SERVER=monoServer
+cd ../nodics.kickoff
+npm run start:platform
+npm run start:wcms
 ```
 
 Install and start Axis:

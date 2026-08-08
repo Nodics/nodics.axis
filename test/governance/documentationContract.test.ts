@@ -43,7 +43,7 @@ describe('Axis distributed implementation documentation', () => {
       readonly generatedHashes: Readonly<Record<string, string>>;
       readonly releaseChecksum: string;
     };
-    expect(manifest.pack).toBe('nodicsaxis');
+    expect(manifest.pack).toBe('nodics.axis');
     for (const [relativePath, expectedHash] of Object.entries(
       manifest.generatedHashes,
     )) {

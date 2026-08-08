@@ -4,7 +4,7 @@ Axis renders an authorized, backend-provided list of documentation products
 under `/docs/*`. BackOffice aggregates the list from active module metadata;
 Axis does not hardcode product tabs or maintain another registry.
 
-- **Framework** renders the canonical `nodicsdocs` content pack through CMS.
+- **Framework** renders the canonical `nodics.docs` content pack through CMS.
 - **Swaggers** renders the active System-owned OpenAPI contract in an
   Axis-owned, searchable reference and links to the backend's standalone
   interactive Swagger UI. API descriptions are not copied into a content
@@ -104,7 +104,7 @@ employee to the public authentication journey.
 
 Axis documentation data is directly importable and committed under
 `data/core`. Its immutable release manifest is
-`manifest/docs-content-pack.json`. The manifest pack identity is `nodicsaxis`;
+`manifest/docs-content-pack.json`. The manifest pack identity is `nodics.axis`;
 the configured nImport pack code is `axisDocumentation`; and its CMS binding is
 `axisDocumentationSite` → `axisDocumentationContentCatalog`.
 
@@ -193,7 +193,7 @@ surfaces where it does not provide sufficient contrast.
 - Unsupported content blocks are not rendered.
 
 Binary image delivery is not yet owned by the CMS delivery contract. Image
-metadata is migrated and validated by `nodicsdocs`, while Axis presents a
+metadata is migrated and validated by `nodics.docs`, while Axis presents a
 non-executable placeholder until a governed CMS/DAM binary-delivery contract
 is implemented. Do not add repository file paths or ad-hoc static-file loaders
 to bypass that boundary.

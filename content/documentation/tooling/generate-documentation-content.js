@@ -405,7 +405,7 @@ const articleRecords = Object.fromEntries(
         blocks: page.blocks,
         searchText: navigationItems[index].searchText,
         source: {
-          repository: 'nodicsaxis',
+          repository: 'nodics.axis',
           path: `content/documentation/${page.source}`,
           evidence: page.evidence,
           hash: page.sourceHash,

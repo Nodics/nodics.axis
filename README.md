@@ -28,11 +28,13 @@ it does not proxy business operations or maintain a second module registry.
 
 ## Local setup
 
-Use Node.js 24 with npm 10 or 11. Start Nodics separately:
+Use Node.js 24 with npm 10 or 11. Start the Nodics Kickoff backend servers
+separately:
 
 ```bash
-cd ../nodics
-npm start -- ENV=startioLocal SERVER=monoServer
+cd ../nodics.kickoff
+npm run start:platform
+npm run start:wcms
 ```
 
 Then install and start Axis:
