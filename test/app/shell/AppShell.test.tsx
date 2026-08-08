@@ -7,12 +7,18 @@ import { AppShell } from '../../../src/app/shell/AppShell';
 import { AxisThemeProvider } from '../../../src/app/AxisThemeProvider';
 
 let scrollTo = vi.fn();
+let mainScrollTo = vi.fn();
 let scrollIntoView = vi.fn();
 
 beforeEach(() => {
   scrollTo = vi.fn();
+  mainScrollTo = vi.fn();
   scrollIntoView = vi.fn();
   vi.stubGlobal('scrollTo', scrollTo);
+  Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+    configurable: true,
+    value: mainScrollTo,
+  });
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
     configurable: true,
     value: scrollIntoView,
@@ -26,7 +32,7 @@ afterEach(() => {
 });
 
 describe('Axis application shell navigation', () => {
-  it('starts each newly selected page at the top without overriding anchor navigation', async () => {
+  it('starts each newly selected page at the top of the content pane without moving the navigation rail', async () => {
     const user = userEvent.setup();
     render(
       <AxisThemeProvider>
@@ -37,9 +43,11 @@ describe('Axis application shell navigation', () => {
         </MemoryRouter>
       </AxisThemeProvider>,
     );
+    mainScrollTo.mockClear();
     await user.click(screen.getByRole('link', { name: 'Open second page' }));
 
-    expect(scrollTo).toHaveBeenCalledWith({
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(mainScrollTo).toHaveBeenCalledWith({
       behavior: 'auto',
       left: 0,
       top: 0,

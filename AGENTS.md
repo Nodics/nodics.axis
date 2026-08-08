@@ -50,6 +50,13 @@ backend.
   not inspect module data folders, discover releases, calculate installation
   state, sequence imports, connect to a database, or become a second import
   authority.
+- Axis must not own backend-importable CMS or documentation data. Catalogs,
+  Sites, pages, components, routes, renderer mappings, documentation markdown
+  destined for database import, and generated content-pack manifests belong to
+  backend modules or backend content repositories such as
+  `nodics.platform/modules/axis`, `nodics.docs`, or customer documentation
+  packages.
+  Axis owns the executable React renderers that consume those backend contracts.
 
 ## Documentation and verification
 

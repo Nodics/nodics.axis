@@ -1,6 +1,6 @@
 import { AppBar, Box, Drawer, Toolbar, useMediaQuery, useTheme } from '@mui/material';
 import type { PropsWithChildren } from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 
 import type { AxisNavigationItem } from '../../bootstrap/publicBootstrap';
@@ -74,6 +74,7 @@ export function AppShell({
   const navigate = useNavigate();
   const location = useLocation();
   const { mode, toggleMode } = useAxisAppearance();
+  const mainScrollRef = useRef<HTMLElement | null>(null);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [navigationCompact, setNavigationCompact] = useState(false);
   const [navigationRailWidth, setNavigationRailWidth] = useState(() =>
@@ -224,7 +225,9 @@ export function AppShell({
 
   useEffect(() => {
     if (location.hash) return;
-    window.scrollTo({ behavior: 'auto', left: 0, top: 0 });
+    if (typeof mainScrollRef.current?.scrollTo === 'function') {
+      mainScrollRef.current.scrollTo({ behavior: 'auto', left: 0, top: 0 });
+    }
   }, [location.hash, location.pathname]);
 
   const navigateTo = (route: string) => {
@@ -244,7 +247,7 @@ export function AppShell({
   };
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100dvh' }}>
+    <Box sx={{ display: 'flex', height: '100dvh', overflow: 'hidden' }}>
       <AppBar
         color="inherit"
         elevation={0}
@@ -309,6 +312,9 @@ export function AppShell({
             sx: {
               borderRight: '1px solid',
               borderColor: 'divider',
+              height: '100dvh',
+              maxHeight: '100dvh',
+              overflow: 'hidden',
               overflowX: 'hidden',
               position: 'relative',
               transition: (currentTheme) =>
@@ -412,7 +418,10 @@ export function AppShell({
       <Box
         sx={{
           flexGrow: 1,
+          height: '100dvh',
+          maxHeight: '100dvh',
           minWidth: 0,
+          overflow: 'hidden',
           pt: `${String(axisTokens.spacing.header)}px`,
           transition: (currentTheme) =>
             currentTheme.transitions.create('width', {
@@ -423,7 +432,17 @@ export function AppShell({
           },
         }}
       >
-        <Box component="main" id="main-content">
+        <Box
+          component="main"
+          id="main-content"
+          ref={mainScrollRef}
+          sx={{
+            height: `calc(100dvh - ${String(axisTokens.spacing.header)}px)`,
+            overflowX: 'hidden',
+            overflowY: 'auto',
+            scrollBehavior: 'auto',
+          }}
+        >
           {children}
         </Box>
       </Box>

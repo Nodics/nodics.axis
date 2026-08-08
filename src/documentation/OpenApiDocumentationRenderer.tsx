@@ -126,6 +126,27 @@ export function OpenApiDocumentationRenderer({
                 eyebrow="Live backend contract"
                 title={reference.data?.title ?? 'Nodics API reference'}
               />
+              <Stack
+                direction="row"
+                spacing={0.75}
+                sx={{ flexWrap: 'wrap', justifyContent: { md: 'flex-end' } }}
+              >
+                <Chip
+                  label={`Runtime: ${connection.moduleName}`}
+                  size="small"
+                  variant="outlined"
+                />
+                <Chip
+                  label={`Environment: ${connection.environment}`}
+                  size="small"
+                  variant="outlined"
+                />
+                <Chip
+                  color={connection.state === 'UP' ? 'success' : 'warning'}
+                  label={connection.state}
+                  size="small"
+                />
+              </Stack>
             </Stack>
           </Box>
           <Box sx={{ bgcolor: 'action.hover', p: { xs: 1.5, md: 2 } }}>
