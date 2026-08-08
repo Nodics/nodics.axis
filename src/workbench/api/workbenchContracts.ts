@@ -122,6 +122,9 @@ export interface WorkbenchFilterGroup {
 export interface WorkbenchSchema {
   readonly moduleName: string;
   readonly connectionModuleName?: string | undefined;
+  readonly connectionInstanceId?: string | undefined;
+  readonly connectionServer?: string | undefined;
+  readonly connectionEnvironment?: string | undefined;
   readonly schemaName: string;
   readonly label: string;
   readonly description: string;

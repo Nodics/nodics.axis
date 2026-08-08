@@ -12,6 +12,7 @@ import type { AxisSort } from '../app/table/axisTableSorting';
 import {
   selectModuleConnection,
   type AxisAuthenticatedBootstrap,
+  type AxisModuleConnection,
   type AxisNavigationLifecycleAction,
   type AxisNavigationItem,
 } from '../bootstrap/publicBootstrap';
@@ -95,6 +96,21 @@ function workbenchConnectionModuleName(schema: WorkbenchSchema): string {
   return schema.connectionModuleName ?? schema.moduleName;
 }
 
+function selectWorkbenchSchemaConnection(
+  bootstrap: AxisAuthenticatedBootstrap,
+  schema: WorkbenchSchema,
+): AxisModuleConnection | undefined {
+  const moduleName = workbenchConnectionModuleName(schema);
+  const connections = bootstrap.moduleConnections[moduleName] ?? [];
+  return (
+    connections.find(
+      (connection) =>
+        schema.connectionInstanceId !== undefined &&
+        connection.instanceId === schema.connectionInstanceId,
+    ) ?? selectModuleConnection(bootstrap, moduleName)
+  );
+}
+
 interface OpenedReferenceRecord {
   readonly record: WorkbenchRecord;
   readonly reference: string;
@@ -150,9 +166,9 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
   );
   const connections = useMemo(
     () =>
-      Object.keys(props.bootstrap.moduleConnections)
-        .map((moduleName) => selectModuleConnection(props.bootstrap, moduleName))
-        .filter((connection) => connection !== undefined),
+      Object.values(props.bootstrap.moduleConnections).flatMap((moduleConnections) => [
+        ...moduleConnections,
+      ]),
     [props.bootstrap],
   );
   const connectionKey = useMemo(
@@ -179,10 +195,10 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
     ? schemaWithValidQueryCapabilities(selectedSchema)
     : undefined;
   const recordConnection = normalizedSelectedSchema
-    ? selectModuleConnection(
-        props.bootstrap,
-        workbenchConnectionModuleName(normalizedSelectedSchema),
-      )
+    ? selectWorkbenchSchemaConnection(props.bootstrap, normalizedSelectedSchema)
+    : undefined;
+  const routeOwnerConnection = props.routeNavigation
+    ? selectModuleConnection(props.bootstrap, props.routeNavigation.moduleName)
     : undefined;
   const routeParentLabel =
     props.routeNavigation?.parentId !== undefined
@@ -213,6 +229,8 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
       'schema-workbench',
       'records',
       props.runtime.enterpriseCode,
+      recordConnection?.instanceId,
+      recordConnection?.endpoint,
       normalizedSelectedSchema?.moduleName,
       normalizedSelectedSchema?.schemaName,
       recordSearch,
@@ -254,10 +272,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
           ? schemaWithValidQueryCapabilities(schema)
           : undefined;
         const connection = normalizedSchema
-          ? selectModuleConnection(
-              props.bootstrap,
-              workbenchConnectionModuleName(normalizedSchema),
-            )
+          ? selectWorkbenchSchemaConnection(props.bootstrap, normalizedSchema)
           : undefined;
         const filters = relatedRecordPanelFilter(selectedRecord, panel);
         const enabled = Boolean(
@@ -289,6 +304,8 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
         'related-records',
         props.runtime.enterpriseCode,
         input.panel.id,
+        input.connection?.instanceId,
+        input.connection?.endpoint,
         input.schema?.moduleName,
         input.schema?.schemaName,
         JSON.stringify(input.filters ?? null),
@@ -571,8 +588,17 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
   const deepLinkTarget = useMemo(
     () =>
       resolveWorkbenchDeepLinkTarget(location.search, schemas.data ?? []) ??
-      resolveWorkbenchRouteTarget(props.routeSchema, schemas.data ?? []),
-    [location.search, props.routeSchema, schemas.data],
+      resolveWorkbenchRouteTarget(props.routeSchema, schemas.data ?? [], {
+        environment: routeOwnerConnection?.environment,
+        server: routeOwnerConnection?.server,
+      }),
+    [
+      location.search,
+      props.routeSchema,
+      routeOwnerConnection?.environment,
+      routeOwnerConnection?.server,
+      schemas.data,
+    ],
   );
   useEffect(() => {
     if (!deepLinkTarget || consumedDeepLinkKey.current === deepLinkTarget.key) return;
@@ -602,9 +628,9 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
         model: Readonly<Record<string, unknown>>,
       ) => {
         const normalizedSchema = schemaWithValidQueryCapabilities(schema);
-        const connection = selectModuleConnection(
+        const connection = selectWorkbenchSchemaConnection(
           props.bootstrap,
-          normalizedSchema.moduleName,
+          normalizedSchema,
         );
         if (!connection) {
           return Promise.reject(new Error('The related schema module is unavailable'));
@@ -625,9 +651,9 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
         },
       ) => {
         const normalizedSchema = schemaWithValidQueryCapabilities(schema);
-        const connection = selectModuleConnection(
+        const connection = selectWorkbenchSchemaConnection(
           props.bootstrap,
-          normalizedSchema.moduleName,
+          normalizedSchema,
         );
         if (!connection) {
           return Promise.reject(new Error('The related schema module is unavailable'));
@@ -648,9 +674,9 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
         );
         if (!schema) return undefined;
         const normalizedSchema = schemaWithValidQueryCapabilities(schema);
-        const connection = selectModuleConnection(
+        const connection = selectWorkbenchSchemaConnection(
           props.bootstrap,
-          normalizedSchema.moduleName,
+          normalizedSchema,
         );
         if (!connection) {
           throw new Error('The related schema module is unavailable');
@@ -674,9 +700,9 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
         model: Readonly<Record<string, unknown>>,
       ) => {
         const normalizedSchema = schemaWithValidQueryCapabilities(schema);
-        const connection = selectModuleConnection(
+        const connection = selectWorkbenchSchemaConnection(
           props.bootstrap,
-          normalizedSchema.moduleName,
+          normalizedSchema,
         );
         if (!connection) {
           return Promise.reject(new Error('The related schema module is unavailable'));

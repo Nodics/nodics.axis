@@ -25,6 +25,11 @@ export interface WorkbenchDeepLinkTarget {
   readonly schema: WorkbenchSchema;
 }
 
+export interface WorkbenchRouteConnectionPreference {
+  readonly environment?: string | undefined;
+  readonly server?: string | undefined;
+}
+
 export function resolveWorkbenchDeepLinkTarget(
   search: string,
   schemas: readonly WorkbenchSchema[],
@@ -53,13 +58,15 @@ export function resolveWorkbenchDeepLinkTarget(
 export function resolveWorkbenchRouteTarget(
   routeSchema: WorkbenchRouteSchemaSelection | undefined,
   schemas: readonly WorkbenchSchema[],
+  connectionPreference?: WorkbenchRouteConnectionPreference,
 ): WorkbenchDeepLinkTarget | undefined {
   if (!routeSchema) return undefined;
-  const schema = schemas.find(
+  const candidates = schemas.filter(
     (candidate) =>
       candidate.moduleName === routeSchema.moduleName &&
       candidate.schemaName === routeSchema.schemaName,
   );
+  const schema = selectPreferredRouteSchema(candidates, connectionPreference);
   if (!schema) return undefined;
   const mode =
     routeSchema.mode === 'create' && schema.operations.includes('create')
@@ -70,6 +77,33 @@ export function resolveWorkbenchRouteTarget(
     ...(mode ? { mode } : {}),
     schema,
   });
+}
+
+function selectPreferredRouteSchema(
+  schemas: readonly WorkbenchSchema[],
+  connectionPreference?: WorkbenchRouteConnectionPreference,
+): WorkbenchSchema | undefined {
+  if (schemas.length === 0) return undefined;
+  if (!connectionPreference) return schemas[0];
+  return (
+    schemas.find(
+      (schema) =>
+        connectionPreference.server !== undefined &&
+        schema.connectionServer === connectionPreference.server &&
+        schema.connectionEnvironment === connectionPreference.environment,
+    ) ??
+    schemas.find(
+      (schema) =>
+        connectionPreference.server !== undefined &&
+        schema.connectionServer === connectionPreference.server,
+    ) ??
+    schemas.find(
+      (schema) =>
+        connectionPreference.environment !== undefined &&
+        schema.connectionEnvironment === connectionPreference.environment,
+    ) ??
+    schemas[0]
+  );
 }
 
 export function schemaFieldNames(schema: WorkbenchSchema): ReadonlySet<string> {

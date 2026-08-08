@@ -69,6 +69,7 @@ function summarize(target: WorkbenchDeepLinkTarget | undefined) {
     mode: target.mode,
     moduleName: target.schema.moduleName,
     schemaName: target.schema.schemaName,
+    connectionServer: target.schema.connectionServer,
   };
 }
 
@@ -85,6 +86,7 @@ describe('resolveWorkbenchDeepLinkTarget', () => {
       mode: undefined,
       moduleName: 'media',
       schemaName: 'mediaFolder',
+      connectionServer: undefined,
     });
   });
 
@@ -100,6 +102,7 @@ describe('resolveWorkbenchDeepLinkTarget', () => {
       mode: 'create',
       moduleName: 'media',
       schemaName: 'mediaFolder',
+      connectionServer: undefined,
     });
 
     expect(
@@ -113,6 +116,7 @@ describe('resolveWorkbenchDeepLinkTarget', () => {
       mode: undefined,
       moduleName: 'media',
       schemaName: 'mediaFolder',
+      connectionServer: undefined,
     });
   });
 
@@ -144,6 +148,36 @@ describe('resolveWorkbenchRouteTarget', () => {
       mode: undefined,
       moduleName: 'cms',
       schemaName: 'cmsNavigationNode',
+      connectionServer: undefined,
+    });
+  });
+
+  it('prefers the route owner runtime when duplicate technical schemas exist', () => {
+    const platformCatalog = {
+      ...schema('catalog', 'catalog', ['search', 'read']),
+      connectionServer: 'platformServer',
+      connectionEnvironment: 'kickoffLocal',
+    };
+    const wcmsCatalog = {
+      ...schema('catalog', 'catalog', ['search', 'read']),
+      connectionServer: 'wcmsServer',
+      connectionEnvironment: 'kickoffLocal',
+    };
+
+    expect(
+      summarize(
+        resolveWorkbenchRouteTarget(
+          { moduleName: 'catalog', schemaName: 'catalog' },
+          [platformCatalog, wcmsCatalog],
+          { environment: 'kickoffLocal', server: 'wcmsServer' },
+        ),
+      ),
+    ).toEqual({
+      key: 'catalog:catalog:browse:route',
+      mode: undefined,
+      moduleName: 'catalog',
+      schemaName: 'catalog',
+      connectionServer: 'wcmsServer',
     });
   });
 
@@ -160,6 +194,7 @@ describe('resolveWorkbenchRouteTarget', () => {
       mode: undefined,
       moduleName: 'cms',
       schemaName: 'cmsRestriction',
+      connectionServer: undefined,
     });
   });
 
@@ -176,6 +211,7 @@ describe('resolveWorkbenchRouteTarget', () => {
       mode: undefined,
       moduleName: 'kycSchema',
       schemaName: 'kycVerificationCase',
+      connectionServer: undefined,
     });
   });
 });

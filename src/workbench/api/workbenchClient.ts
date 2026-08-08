@@ -151,6 +151,9 @@ export async function loadWorkbenchSchemas(
         Object.freeze({
           ...schema,
           connectionModuleName: connection.moduleName,
+          connectionInstanceId: connection.instanceId,
+          connectionServer: connection.server,
+          connectionEnvironment: connection.environment,
         }),
       );
     }),

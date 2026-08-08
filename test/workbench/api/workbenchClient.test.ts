@@ -18,6 +18,7 @@ const connection: AxisModuleConnection = {
   instanceId: 'profile-1',
   endpoint: 'https://profile.example.com/nodics/profile',
   environment: 'local',
+  server: 'platformServer',
   state: 'UP',
 };
 const configuration = {
@@ -93,6 +94,9 @@ describe('Schema Workbench API client', () => {
         label: 'Address',
         moduleName: 'profile',
         connectionModuleName: 'profile',
+        connectionInstanceId: 'profile-1',
+        connectionServer: 'platformServer',
+        connectionEnvironment: 'local',
       }),
     ]);
 

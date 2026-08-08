@@ -178,6 +178,7 @@ export interface AxisModuleConnection {
   readonly instanceId: string;
   readonly endpoint: string;
   readonly environment: string;
+  readonly server?: string | undefined;
   readonly state: AxisModuleAvailability;
 }
 
@@ -1014,12 +1015,14 @@ function parseModuleContext(modulesValue: unknown): {
         lease.endpoint !== undefined &&
         environment
       ) {
+        const server = optionalText(lease.server, `${moduleName} server`);
         moduleConnections.push(
           Object.freeze({
             moduleName,
             instanceId: text(lease.instanceId, `${moduleName} instanceId`),
             endpoint: baseUrl(lease.endpoint, `${moduleName} endpoint`),
             environment,
+            ...(server === undefined ? {} : { server }),
             state: availabilityState(lease.state),
           }),
         );
