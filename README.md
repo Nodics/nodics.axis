@@ -57,7 +57,14 @@ functional-module registry contract:
 ```bash
 npm run smoke:live
 AXIS_EXPECT_MODULES=1 npm run smoke:live
+AXIS_EXPECT_MODULES=1 AXIS_EXPECT_DOCUMENTATION=1 npm run smoke:live
+AXIS_EXPECT_MODULES=1 AXIS_EXPECT_DOCUMENTATION=1 AXIS_CRON_LIFECYCLE=1 npm run smoke:live
 ```
+
+The documentation gate checks that Framework, Axis, and Kickoff documentation
+packs are current through WCMS. The Cron lifecycle gate is intentionally opt-in
+because it registers, activates, deactivates, and deregisters the optional Cron
+functional module.
 
 ## Documentation
 

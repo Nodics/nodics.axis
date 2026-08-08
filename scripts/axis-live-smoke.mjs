@@ -18,6 +18,9 @@ const loginId = process.env.AXIS_LOGIN_ID || 'admin';
 const password = process.env.AXIS_PASSWORD || 'adminPassword';
 const browserOrigin = process.env.AXIS_BROWSER_ORIGIN || axisUrl;
 const strictModules = process.env.AXIS_EXPECT_MODULES === '1';
+const verifyDocumentationPacks = process.env.AXIS_EXPECT_DOCUMENTATION === '1';
+const runCronLifecycle = process.env.AXIS_CRON_LIFECYCLE === '1';
+const wcmsUrl = process.env.AXIS_WCMS_URL || 'http://127.0.0.1:4310';
 
 const axisRoutes = [
   '/',
@@ -32,6 +35,11 @@ const axisRoutes = [
 ];
 const requiredModules = ['nodics.core', 'nodics.platform', 'nodics.wcms'];
 const optionalObservedModules = ['nodics.cron'];
+const documentationPacks = [
+  'nodicsDocumentation',
+  'axisDocumentation',
+  'kickoffDocumentation',
+];
 
 function endpoint(baseUrl, path) {
   return new URL(path, baseUrl).toString();
@@ -91,6 +99,110 @@ function assertModule(modules, functionalModule, expected) {
   return module;
 }
 
+async function loadModuleRegistry(authorizedHeaders) {
+  const registeredBody = await requestJson(
+    endpoint(
+      platformUrl,
+      `/nodics/backoffice/v0/runtime/modules/registrations?project=${encodeURIComponent(projectCode)}`,
+    ),
+    { headers: authorizedHeaders },
+  );
+  const availableBody = await requestJson(
+    endpoint(
+      platformUrl,
+      `/nodics/backoffice/v0/runtime/modules/available?project=${encodeURIComponent(projectCode)}`,
+    ),
+    { headers: authorizedHeaders },
+  );
+  return {
+    registeredModules: listModules(registeredBody),
+    availableModules: listModules(availableBody),
+  };
+}
+
+async function applyLifecycleAction(module, action, authorizedHeaders) {
+  const body = JSON.stringify({
+    expectedRevision: module.catalogueRevision,
+    project: projectCode,
+    reason: `Axis live smoke ${action} verification for ${module.functionalModule}.`,
+  });
+  const response = await requestJson(
+    endpoint(
+      platformUrl,
+      `/nodics/backoffice/v0/runtime/modules/registrations/${encodeURIComponent(
+        module.functionalModule,
+      )}/${action}?project=${encodeURIComponent(projectCode)}`,
+    ),
+    {
+      body,
+      headers: authorizedHeaders,
+      method: 'POST',
+    },
+  );
+  return resultPayload(response);
+}
+
+async function verifyDocumentationContentPacks(authorizedHeaders) {
+  for (const packCode of documentationPacks) {
+    const body = await requestJson(
+      endpoint(
+        wcmsUrl,
+        `/nodics/system/v0/content-packs/${encodeURIComponent(packCode)}`,
+      ),
+      { headers: authorizedHeaders },
+    );
+    const status = resultPayload(body);
+    if (status?.state !== 'CURRENT') {
+      throw new Error(
+        `${packCode} documentation pack is ${String(status?.state)} instead of CURRENT`,
+      );
+    }
+    console.log(
+      `PASS documentation pack ${packCode} is CURRENT (${status.installedVersion})`,
+    );
+  }
+}
+
+async function verifyCronLifecycle(authorizedHeaders) {
+  let registry = await loadModuleRegistry(authorizedHeaders);
+  let cronModule =
+    registry.availableModules.find(
+      (module) => module.functionalModule === 'nodics.cron',
+    ) ||
+    registry.registeredModules.find(
+      (module) => module.functionalModule === 'nodics.cron',
+    );
+  if (!cronModule) {
+    throw new Error('nodics.cron was not observed for lifecycle verification');
+  }
+
+  if (cronModule.registrationState !== 'REGISTERED') {
+    await applyLifecycleAction(cronModule, 'register', authorizedHeaders);
+    registry = await loadModuleRegistry(authorizedHeaders);
+    cronModule = assertModule(registry.registeredModules, 'nodics.cron', 'registered');
+    console.log('PASS cron lifecycle register');
+  }
+
+  if (cronModule.enabled !== true) {
+    cronModule = await applyLifecycleAction(cronModule, 'activate', authorizedHeaders);
+    if (cronModule.enabled !== true) {
+      throw new Error('nodics.cron did not activate');
+    }
+    console.log('PASS cron lifecycle activate');
+  }
+
+  cronModule = await applyLifecycleAction(cronModule, 'deactivate', authorizedHeaders);
+  if (cronModule.enabled !== false) {
+    throw new Error('nodics.cron did not deactivate');
+  }
+  console.log('PASS cron lifecycle deactivate');
+
+  await applyLifecycleAction(cronModule, 'deregister', authorizedHeaders);
+  registry = await loadModuleRegistry(authorizedHeaders);
+  assertModule(registry.availableModules, 'nodics.cron', 'available');
+  console.log('PASS cron lifecycle deregister returns module to available');
+}
+
 async function main() {
   console.log('Axis live smoke started');
   console.log(`Axis: ${axisUrl}`);
@@ -124,23 +236,8 @@ async function main() {
     Authorization: `Bearer ${authToken}`,
     'x-enterprise-code': enterpriseCode,
   };
-  const registeredBody = await requestJson(
-    endpoint(
-      platformUrl,
-      `/nodics/backoffice/v0/runtime/modules/registrations?project=${encodeURIComponent(projectCode)}`,
-    ),
-    { headers: authorizedHeaders },
-  );
-  const availableBody = await requestJson(
-    endpoint(
-      platformUrl,
-      `/nodics/backoffice/v0/runtime/modules/available?project=${encodeURIComponent(projectCode)}`,
-    ),
-    { headers: authorizedHeaders },
-  );
-
-  const registeredModules = listModules(registeredBody);
-  const availableModules = listModules(availableBody);
+  const { registeredModules, availableModules } =
+    await loadModuleRegistry(authorizedHeaders);
   console.log(
     `PASS module registry reachable (${registeredModules.length} registered, ${availableModules.length} available)`,
   );
@@ -171,6 +268,22 @@ async function main() {
   } else {
     console.log(
       'PASS strict module assertions skipped; set AXIS_EXPECT_MODULES=1 to enable',
+    );
+  }
+
+  if (verifyDocumentationPacks) {
+    await verifyDocumentationContentPacks(authorizedHeaders);
+  } else {
+    console.log(
+      'PASS documentation pack assertions skipped; set AXIS_EXPECT_DOCUMENTATION=1 to enable',
+    );
+  }
+
+  if (runCronLifecycle) {
+    await verifyCronLifecycle(authorizedHeaders);
+  } else {
+    console.log(
+      'PASS cron lifecycle mutation skipped; set AXIS_CRON_LIFECYCLE=1 to enable',
     );
   }
 
