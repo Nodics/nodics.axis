@@ -68,10 +68,9 @@ manifests for Axis are owned by the backend Platform `axis` module at
 `nodics.ai/nodics.platform/modules/axis`.
 
 Axis must not package database import data. When detailed documentation content
-changes, update the Platform `axis` module's canonical source under
-`data/core/source/documentation`, regenerate its backend-owned content pack,
-import it through the governed Nodics process, and let Axis render the
-CMS-delivered result.
+changes, update the backend Platform `axis` module's canonical documentation
+source, regenerate its backend-owned content pack, import it through the
+governed Nodics process, and let Axis render the CMS-delivered result.
 
 After changing implemented behavior or documentation:
 

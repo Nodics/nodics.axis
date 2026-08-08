@@ -14,20 +14,20 @@ const availability = {
 };
 const modules: readonly ModuleHealthSummary[] = [
   {
-    moduleName: 'gCore',
+    moduleName: 'nodics.platform',
     displayName: 'Core Capabilities',
     moduleKind: 'group',
-    environments: ['startioLocal'],
+    environments: ['kickoffLocal'],
     servers: ['monoServer'],
     availability,
   },
   {
     moduleName: 'profile',
     displayName: 'Profile and Identity',
-    parentModule: 'gCore',
-    canonicalIdentity: 'nodics/gCore/profile',
+    parentModule: 'nodics.platform',
+    canonicalIdentity: 'nodics.platform/modules/profile',
     moduleKind: 'capability',
-    environments: ['startioLocal'],
+    environments: ['kickoffLocal'],
     servers: ['monoServer'],
     availability,
   },
@@ -62,7 +62,7 @@ describe('ModuleHealthTree', () => {
       <ModuleHealthTree
         modules={modules}
         onSelect={() => undefined}
-        search="nodics/gCore/profile"
+        search="nodics.platform/modules/profile"
         stateColor={() => 'success'}
       />,
     );

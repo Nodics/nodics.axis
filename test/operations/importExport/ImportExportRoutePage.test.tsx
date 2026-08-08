@@ -30,42 +30,42 @@ const bootstrap: AxisAuthenticatedBootstrap = {
     source: 'DEFAULT',
   },
   navigation: [],
-  environments: ['startioLocal'],
+  environments: ['kickoffLocal'],
   moduleCatalog: {},
   moduleConnections: {
     import: [
       {
         moduleName: 'import',
-        instanceId: 'startioLocal:monoServer:import:0',
+        instanceId: 'kickoffLocal:monoServer:import:0',
         endpoint: 'http://localhost:3000/nodics/import',
-        environment: 'startioLocal',
+        environment: 'kickoffLocal',
         state: 'UP',
       },
     ],
     media: [
       {
         moduleName: 'media',
-        instanceId: 'startioLocal:monoServer:media:0',
+        instanceId: 'kickoffLocal:monoServer:media:0',
         endpoint: 'http://localhost:3000/nodics/media',
-        environment: 'startioLocal',
+        environment: 'kickoffLocal',
         state: 'UP',
       },
     ],
     system: [
       {
         moduleName: 'system',
-        instanceId: 'startioLocal:monoServer:system:0',
+        instanceId: 'kickoffLocal:monoServer:system:0',
         endpoint: 'http://localhost:3000/nodics/system',
-        environment: 'startioLocal',
+        environment: 'kickoffLocal',
         state: 'UP',
       },
     ],
     profile: [
       {
         moduleName: 'profile',
-        instanceId: 'startioLocal:monoServer:profile:0',
+        instanceId: 'kickoffLocal:monoServer:profile:0',
         endpoint: 'http://localhost:3000/nodics/profile',
-        environment: 'startioLocal',
+        environment: 'kickoffLocal',
         state: 'UP',
       },
     ],
@@ -77,8 +77,8 @@ const bootstrap: AxisAuthenticatedBootstrap = {
 const currentRelease = {
   moduleName: 'cronjob',
   displayName: 'Scheduled Jobs',
-  parentModule: 'gCore',
-  canonicalIdentity: 'gCore/cronjob',
+  parentModule: 'nodics.platform',
+  canonicalIdentity: 'nodics.cron/modules/cronjob',
   dataType: 'core',
   version: '1.0.0',
   description: 'Scheduled Jobs core data',

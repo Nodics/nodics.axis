@@ -61,7 +61,7 @@ describe('Axis application shell navigation', () => {
           <AppShell
             catalog="axisContentCatalog"
             enterpriseCode="default"
-            environments={['startioLocal']}
+            environments={['kickoffLocal']}
             site="axisCmsSite"
             tenantCode="default"
           >
@@ -74,7 +74,7 @@ describe('Axis application shell navigation', () => {
     expect(
       screen.getByRole('button', {
         name: [
-          'Current context: Environment: Startio Local',
+          'Current context: Environment: Kickoff Local',
           'Tenant: Default',
           'Enterprise: Default',
           'Site: Axis CMS Site',

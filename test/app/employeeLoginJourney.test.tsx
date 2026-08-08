@@ -529,7 +529,7 @@ describe('employee login journey', () => {
                     {
                       moduleName: 'cms',
                       instanceId: 'runtime-1',
-                      environment: 'startioLocal',
+                      environment: 'kickoffLocal',
                       clientCallable: true,
                       endpoint: 'https://cms.example.com/nodics/cms',
                       state: 'UP',
@@ -691,7 +691,7 @@ describe('employee login journey', () => {
                     {
                       moduleName: 'cms',
                       instanceId: 'runtime-1',
-                      environment: 'startioLocal',
+                      environment: 'kickoffLocal',
                       clientCallable: true,
                       endpoint: 'https://cms.example.com/nodics/cms',
                       state: 'UP',
@@ -701,7 +701,7 @@ describe('employee login journey', () => {
                     {
                       moduleName: 'aiAssistant',
                       instanceId: 'runtime-1',
-                      environment: 'startioLocal',
+                      environment: 'kickoffLocal',
                       clientCallable: true,
                       endpoint: 'https://assistant.example.com/nodics/aiAssistant',
                       state: 'UP',
@@ -711,7 +711,7 @@ describe('employee login journey', () => {
                     {
                       moduleName: 'product',
                       instanceId: 'runtime-1',
-                      environment: 'startioLocal',
+                      environment: 'kickoffLocal',
                       clientCallable: true,
                       endpoint: 'https://product.example.com/nodics/product',
                       state: 'UP',
@@ -721,7 +721,7 @@ describe('employee login journey', () => {
                     {
                       moduleName: 'payment',
                       instanceId: 'runtime-1',
-                      environment: 'startioLocal',
+                      environment: 'kickoffLocal',
                       clientCallable: true,
                       endpoint: 'https://payment.example.com/nodics/payment',
                       state: 'UP',
@@ -1054,7 +1054,7 @@ describe('employee login journey', () => {
     expect(
       screen.getByRole('button', {
         name: [
-          'Current context: Environment: Startio Local',
+          'Current context: Environment: Kickoff Local',
           'Tenant: Default',
           'Enterprise: Enterprise A',
           'Site: Axis CMS Site',

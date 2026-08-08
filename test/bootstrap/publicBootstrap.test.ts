@@ -29,11 +29,11 @@ const document = {
 
 const authenticatedData = {
   modules: {
-    gContent: [
+    'nodics.wcms': [
       {
-        moduleName: 'gContent',
+        moduleName: 'nodics.wcms',
         displayName: 'Content',
-        canonicalIdentity: 'nodics/gContent',
+        canonicalIdentity: 'nodics.wcms',
         instanceId: 'runtime-0',
         clientCallable: false,
         moduleKind: 'group',
@@ -43,10 +43,10 @@ const authenticatedData = {
       {
         moduleName: 'cms',
         displayName: 'Content Management',
-        parentModule: 'gContent',
-        canonicalIdentity: 'nodics/gContent/cms',
+        parentModule: 'nodics.wcms',
+        canonicalIdentity: 'nodics.wcms/modules/cms',
         instanceId: 'runtime-1',
-        environment: 'startioLocal',
+        environment: 'kickoffLocal',
         clientCallable: true,
         endpoint: 'https://cms.example.com/nodics/cms',
         state: 'UP',
@@ -276,19 +276,19 @@ describe('Axis bootstrap clients', () => {
       'Bearer employee-access',
     );
     expect(result.axisPolicy.idleTimeoutSeconds).toBe(900);
-    expect(result.environments).toEqual(['startioLocal']);
+    expect(result.environments).toEqual(['kickoffLocal']);
     expect(result.tenantCode).toBe('default');
     expect(result.moduleCatalog.cms).toEqual({
       moduleName: 'cms',
       displayName: 'Content Management',
-      parentModule: 'gContent',
-      canonicalIdentity: 'nodics/gContent/cms',
+      parentModule: 'nodics.wcms',
+      canonicalIdentity: 'nodics.wcms/modules/cms',
       moduleKind: 'capability',
     });
-    expect(result.moduleCatalog.gContent).toEqual({
-      moduleName: 'gContent',
+    expect(result.moduleCatalog['nodics.wcms']).toEqual({
+      moduleName: 'nodics.wcms',
       displayName: 'Content',
-      canonicalIdentity: 'nodics/gContent',
+      canonicalIdentity: 'nodics.wcms',
       moduleKind: 'group',
     });
     expect(result.documentationSources).toEqual([
@@ -304,7 +304,7 @@ describe('Axis bootstrap clients', () => {
         moduleName: 'cms',
         instanceId: 'runtime-1',
         endpoint: 'https://cms.example.com/nodics/cms',
-        environment: 'startioLocal',
+        environment: 'kickoffLocal',
         state: 'UP',
       },
     ]);
@@ -424,7 +424,7 @@ describe('Axis bootstrap clients', () => {
                 {
                   moduleName: 'cms',
                   instanceId: 'unsafe',
-                  environment: 'startioLocal',
+                  environment: 'kickoffLocal',
                   clientCallable: true,
                   endpoint: 'https://user:secret@cms.example.com/nodics/cms',
                   state: 'UP',

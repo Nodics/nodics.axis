@@ -17,7 +17,7 @@ const connection: AxisModuleConnection = {
   moduleName: 'import',
   instanceId: 'local:monoServer:default:1',
   endpoint: 'http://localhost:3000/nodics/import',
-  environment: 'startioLocal',
+  environment: 'kickoffLocal',
   state: 'UP',
 };
 const configuration = {
@@ -29,21 +29,21 @@ const mediaConnection: AxisModuleConnection = {
   moduleName: 'media',
   instanceId: 'local:monoServer:media:1',
   endpoint: 'http://localhost:3000/nodics/media',
-  environment: 'startioLocal',
+  environment: 'kickoffLocal',
   state: 'UP',
 };
 const systemConnection: AxisModuleConnection = {
   moduleName: 'system',
   instanceId: 'local:monoServer:system:1',
   endpoint: 'http://localhost:3000/nodics/system',
-  environment: 'startioLocal',
+  environment: 'kickoffLocal',
   state: 'UP',
 };
 const release = {
   moduleName: 'profile',
   displayName: 'Employee Profiles',
-  parentModule: 'gCore',
-  canonicalIdentity: 'gCore/profile',
+  parentModule: 'nodics.platform',
+  canonicalIdentity: 'nodics.platform/modules/profile',
   dataType: 'core',
   version: '1.2.0',
   description: 'Profile baseline records',

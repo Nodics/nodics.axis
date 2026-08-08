@@ -14,8 +14,9 @@ import {
   TableRow,
   Typography,
 } from '@mui/material';
+import mermaid from 'mermaid';
 import type { ReactNode } from 'react';
-import { useEffect } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router';
 
 import { axisTokens } from '../../../../app/axisTheme';
@@ -27,6 +28,7 @@ const MAX_LIST_ITEMS = 200;
 const MAX_TABLE_ROWS = 200;
 const MAX_TEXT_LENGTH = 100_000;
 const MAX_IMAGE_SOURCE_LENGTH = 3_000_000;
+const MAX_DIAGRAM_LENGTH = 20_000;
 
 type DocumentationBlock = Readonly<Record<string, unknown>>;
 
@@ -78,9 +80,15 @@ function safeHref(value: string): string | undefined {
 
 function safeImageSource(value: unknown): string | undefined {
   if (typeof value !== 'string' || value.length > MAX_IMAGE_SOURCE_LENGTH) return;
-  return /^data:image\/(?:jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(value)
-    ? value
-    : undefined;
+  if (
+    /^data:image\/(?:jpeg|png|gif|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(value)
+  ) {
+    return value;
+  }
+  if (value.startsWith('/brand/') || value.startsWith('/docs-assets/')) {
+    return value;
+  }
+  return undefined;
 }
 
 function fragmentId(hash: string): string | undefined {
@@ -156,6 +164,125 @@ function headingVariant(level: number): 'h1' | 'h2' | 'h3' | 'h4' {
   if (level === 2) return 'h2';
   if (level === 3) return 'h3';
   return 'h4';
+}
+
+function DocumentationDiagramRenderer({
+  block,
+  blockKey,
+}: {
+  readonly block: DocumentationBlock;
+  readonly blockKey: string;
+}) {
+  const diagramId = useId().replace(/:/g, '');
+  const diagramText = text(block.text).slice(0, MAX_DIAGRAM_LENGTH);
+  const title = text(block.title, 'Documentation diagram');
+  const [svg, setSvg] = useState<string>();
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    let active = true;
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: 'strict',
+      theme: 'base',
+      themeVariables: {
+        background: '#ffffff',
+        fontFamily: 'Inter, Roboto, Arial, sans-serif',
+        primaryColor: '#fff7dc',
+        primaryBorderColor: '#f7c600',
+        primaryTextColor: '#242a31',
+        lineColor: '#6b7280',
+        secondaryColor: '#ecfdf5',
+        tertiaryColor: '#eff6ff',
+      },
+    });
+    mermaid
+      .render(`nodicsDocsDiagram${diagramId}`, diagramText)
+      .then((result) => {
+        if (!active) return;
+        setSvg(result.svg);
+        setError(undefined);
+      })
+      .catch(() => {
+        if (!active) return;
+        setSvg(undefined);
+        setError(
+          'Diagram could not be rendered. The source is shown below for troubleshooting.',
+        );
+      });
+    return () => {
+      active = false;
+    };
+  }, [diagramId, diagramText]);
+
+  return (
+    <Box
+      component="figure"
+      key={blockKey}
+      sx={{
+        bgcolor: 'background.paper',
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 2,
+        m: 0,
+        overflow: 'hidden',
+      }}
+    >
+      <Box
+        sx={{
+          bgcolor: 'action.hover',
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          px: 2,
+          py: 1.25,
+        }}
+      >
+        <Typography
+          component="figcaption"
+          sx={{ fontWeight: axisTokens.typography.weight.bold }}
+        >
+          {title}
+        </Typography>
+      </Box>
+      {svg ? (
+        <Box
+          dangerouslySetInnerHTML={{ __html: svg }}
+          sx={{
+            overflowX: 'auto',
+            p: 2,
+            '& svg': {
+              display: 'block',
+              height: 'auto',
+              maxWidth: '100%',
+              mx: 'auto',
+            },
+          }}
+        />
+      ) : null}
+      {error ? (
+        <Stack spacing={1.5} sx={{ p: 2 }}>
+          <Typography color="error.main">{error}</Typography>
+          <Box
+            component="pre"
+            sx={{
+              bgcolor: 'grey.900',
+              borderRadius: 1.5,
+              color: 'grey.100',
+              fontFamily: 'monospace',
+              fontSize: '0.8125rem',
+              lineHeight: 1.6,
+              m: 0,
+              overflowX: 'auto',
+              p: 2,
+              whiteSpace: 'pre',
+            }}
+          >
+            <code>{diagramText}</code>
+          </Box>
+        </Stack>
+      ) : null}
+    </Box>
+  );
 }
 
 function DocumentationBlockRenderer({
@@ -241,6 +368,9 @@ function DocumentationBlockRenderer({
         <code>{text(block.text)}</code>
       </Box>
     );
+  }
+  if (kind === 'diagram') {
+    return <DocumentationDiagramRenderer block={block} blockKey={key} />;
   }
   if (kind === 'table') {
     const headers = stringList(block.headers, 50);

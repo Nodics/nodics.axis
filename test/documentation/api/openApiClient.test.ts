@@ -7,7 +7,7 @@ const options = {
     moduleName: 'system',
     instanceId: 'mono/system',
     endpoint: 'http://localhost:3000',
-    environment: 'startioLocal',
+    environment: 'kickoffLocal',
     state: 'UP' as const,
   },
   openApiPath: '/nodics/system/v0/contract/openapi',

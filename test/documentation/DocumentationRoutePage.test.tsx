@@ -21,7 +21,7 @@ const connection = {
   moduleName: 'system',
   instanceId: 'mono/import',
   endpoint: 'http://localhost:3000',
-  environment: 'startioLocal',
+  environment: 'kickoffLocal',
   state: 'UP' as const,
 };
 const bootstrap = {
@@ -34,17 +34,17 @@ const bootstrap = {
     source: 'DEFAULT' as const,
   },
   navigation: [],
-  environments: ['startioLocal'],
+  environments: ['kickoffLocal'],
   moduleCatalog: {
-    gCore: {
-      moduleName: 'gCore',
+    'nodics.platform': {
+      moduleName: 'nodics.platform',
       displayName: 'Core Capabilities',
       moduleKind: 'group',
     },
     profile: {
       moduleName: 'profile',
       displayName: 'Profile and Identity',
-      parentModule: 'gCore',
+      parentModule: 'nodics.platform',
       moduleKind: 'capability',
     },
   },

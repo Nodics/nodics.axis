@@ -84,7 +84,7 @@ describe('Axis shell navigation composition', () => {
         label: 'Commerce Operations',
         route: '/commerce/operations',
         order: 500,
-        moduleName: 'gComm',
+        moduleName: 'nodics.commerce',
         category: 'commerce',
         icon: 'commerce',
         availability: 'UP',
@@ -93,7 +93,7 @@ describe('Axis shell navigation composition', () => {
       {
         id: 'pricing',
         parentId: 'commerce-operations',
-        parentModuleName: 'gComm',
+        parentModuleName: 'nodics.commerce',
         label: 'Pricing',
         route: '/commerce/operations/pricing',
         order: 520,
@@ -109,7 +109,7 @@ describe('Axis shell navigation composition', () => {
     expect(
       commerce?.items.map((item) => [item.moduleName, item.id, item.depth]),
     ).toEqual([
-      ['gComm', 'commerce-operations', 0],
+      ['nodics.commerce', 'commerce-operations', 0],
       ['pricing', 'pricing', 1],
     ]);
     expect(commerce?.items[0]?.hasChildren).toBe(true);

@@ -27,17 +27,17 @@ const runtime: AxisRuntimeConfig = {
 
 const mediaConnection = {
   moduleName: 'media',
-  instanceId: 'startioLocal:monoServer:media:0',
+  instanceId: 'kickoffLocal:monoServer:media:0',
   endpoint: 'http://localhost:3000/nodics/media',
-  environment: 'startioLocal',
+  environment: 'kickoffLocal',
   state: 'UP' as const,
 };
 
 const importConnection = {
   moduleName: 'import',
-  instanceId: 'startioLocal:monoServer:import:0',
+  instanceId: 'kickoffLocal:monoServer:import:0',
   endpoint: 'http://localhost:3000/nodics/import',
-  environment: 'startioLocal',
+  environment: 'kickoffLocal',
   state: 'UP' as const,
 };
 
@@ -104,7 +104,7 @@ const bootstrap: AxisAuthenticatedBootstrap = {
     ),
     navigationItem('media-sets', 'Media sets', '/media/sets', 256, 'media-management'),
   ],
-  environments: ['startioLocal'],
+  environments: ['kickoffLocal'],
   moduleCatalog: {},
   moduleConnections: {
     media: [mediaConnection],

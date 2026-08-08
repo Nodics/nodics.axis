@@ -11,7 +11,7 @@ const connection: AxisModuleConnection = {
   moduleName: 'backoffice',
   instanceId: 'local:monoServer:default:1',
   endpoint: 'http://localhost:3000/nodics/backoffice',
-  environment: 'startioLocal',
+  environment: 'kickoffLocal',
   state: 'UP',
 };
 const configuration = {
@@ -39,11 +39,11 @@ describe('module health client', () => {
             {
               moduleName: 'profile',
               displayName: 'Employee Profiles',
-              parentModule: 'gCore',
-              canonicalIdentity: 'gCore/profile',
+              parentModule: 'nodics.platform',
+              canonicalIdentity: 'nodics.platform/modules/profile',
               version: '1.0.0',
               moduleKind: 'module',
-              environments: ['startioLocal'],
+              environments: ['kickoffLocal'],
               servers: ['profileServer'],
               availability: {
                 state: 'DEGRADED',
@@ -66,8 +66,8 @@ describe('module health client', () => {
 
     expect(result[0]?.moduleName).toBe('profile');
     expect(result[0]?.displayName).toBe('Employee Profiles');
-    expect(result[0]?.parentModule).toBe('gCore');
-    expect(result[0]?.canonicalIdentity).toBe('gCore/profile');
+    expect(result[0]?.parentModule).toBe('nodics.platform');
+    expect(result[0]?.canonicalIdentity).toBe('nodics.platform/modules/profile');
     expect(result[0]?.availability.state).toBe('DEGRADED');
     const [url, options] = fetchImplementation.mock.calls[0]!;
     expect(url).toBeInstanceOf(URL);
@@ -97,7 +97,7 @@ describe('module health client', () => {
             {
               instanceId: 'local:profileServer:profileNode1:99',
               clientCallable: true,
-              environment: 'startioLocal',
+              environment: 'kickoffLocal',
               server: 'profileServer',
               node: 'profileNode1',
               version: '1.0.0',

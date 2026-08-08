@@ -76,7 +76,7 @@ const bootstrap: AxisAuthenticatedBootstrap = {
     source: 'DEFAULT',
   },
   navigation: [],
-  environments: ['startioLocal'],
+  environments: ['kickoffLocal'],
   moduleCatalog: {},
   moduleConnections: {},
   documentationSources: [],

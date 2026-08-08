@@ -11,7 +11,7 @@ const connection: AxisModuleConnection = {
   moduleName: 'media',
   instanceId: 'local:monoServer:media:1',
   endpoint: 'http://localhost:3000/nodics/media',
-  environment: 'startioLocal',
+  environment: 'kickoffLocal',
   state: 'UP',
 };
 

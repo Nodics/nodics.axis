@@ -6,7 +6,7 @@ const connection = {
   moduleName: 'system',
   instanceId: 'monoServer/import',
   endpoint: 'http://localhost:3000',
-  environment: 'startioLocal',
+  environment: 'kickoffLocal',
   state: 'UP' as const,
 };
 
