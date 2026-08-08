@@ -1,8 +1,8 @@
 {
-  "name": "nodicsaxis",
+  "name": "nodics.axis",
   "version": "0.1.0",
   "private": true,
-  "description": "Reusable Back Office frontend for Nodics-based customer projects",
+  "description": "Reusable Axis frontend for Nodics modular customer projects",
   "type": "module",
   "packageManager": "npm@11.6.2",
   "engines": {
@@ -25,12 +25,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Nodics/nodicsaxis.git"
+    "url": "git+https://github.com/Nodics/nodics.axis.git"
   },
   "bugs": {
-    "url": "https://github.com/Nodics/nodicsaxis/issues"
+    "url": "https://github.com/Nodics/nodics.axis/issues"
   },
-  "homepage": "https://github.com/Nodics/nodicsaxis#readme",
+  "homepage": "https://github.com/Nodics/nodics.axis#readme",
   "dependencies": {
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",

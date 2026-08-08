@@ -20,10 +20,16 @@ import { AssistantRoutePage } from '../assistant/AssistantRoutePage';
 import { WorkbenchRoutePage } from '../workbench/WorkbenchRoutePage';
 import { DocumentationRoutePage } from '../documentation/DocumentationRoutePage';
 import { ModuleHealthRoutePage } from '../operations/moduleHealth/ModuleHealthRoutePage';
+import { FunctionalModuleRegistryRoutePage } from '../operations/moduleRegistry/FunctionalModuleRegistryRoutePage';
+import { SystemIntegrationsDashboardRoutePage } from '../operations/systemIntegrations/SystemIntegrationsDashboardRoutePage';
+import { ContentDashboardRoutePage } from '../operations/contentExperience/ContentDashboardRoutePage';
+import { PublishingDashboardRoutePage } from '../operations/contentExperience/PublishingDashboardRoutePage';
 import { ImportExportRoutePage } from '../operations/importExport/ImportExportRoutePage';
 import { ComplianceManagementRoutePage } from '../operations/compliance/ComplianceManagementRoutePage';
 import { NotificationManagementRoutePage } from '../operations/notifications/NotificationManagementRoutePage';
 import { OrderLifecycleManagementRoutePage } from '../operations/orderLifecycle/OrderLifecycleManagementRoutePage';
+import { MediaManagementDashboardRoutePage } from '../operations/mediaManagement/MediaManagementDashboardRoutePage';
+import { MediaManagementRoutePage } from '../operations/mediaManagement/MediaManagementRoutePage';
 import { useIdleScreenLock } from '../auth/useIdleScreenLock';
 import {
   clearScreenLock,
@@ -209,6 +215,12 @@ export function App() {
   const moduleHealthNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'module-health' && item.moduleName === 'backoffice',
   );
+  const systemIntegrationsNavigation = authenticatedBootstrap?.navigation.find(
+    (item) => item.id === 'system-integrations' && item.moduleName === 'backoffice',
+  );
+  const moduleRegistryNavigation = authenticatedBootstrap?.navigation.find(
+    (item) => item.id === 'registry' && item.moduleName === 'backoffice',
+  );
   const importExportNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'imports-exports' && item.moduleName === 'backoffice',
   );
@@ -218,6 +230,14 @@ export function App() {
   const cmsWorkbenchNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'cms' && item.moduleName === 'cms',
   );
+  const contentDashboardNavigation =
+    authenticatedBootstrap?.navigation.find(
+      (item) => item.route === '/content' && item.group?.id === 'content',
+    ) ?? cmsWorkbenchNavigation;
+  const publishingDashboardNavigation =
+    authenticatedBootstrap?.navigation.find(
+      (item) => item.route === '/publishing' && item.group?.id === 'content',
+    ) ?? cmsWorkbenchNavigation;
   const currentNavigation = resolveCurrentNavigation(
     authenticatedBootstrap?.navigation,
     location.pathname,
@@ -405,6 +425,51 @@ export function App() {
   const cmsWorkbenchElement =
     cmsWorkbenchNavigation && currentWorkbenchSchema
       ? workbenchRouteElement(currentWorkbenchNavigation)
+      : sessionFallback;
+  const contentDashboardElement =
+    session && !locked && authenticatedBootstrap && contentDashboardNavigation
+      ? authenticatedShell(
+          ['UP', 'DEGRADED'].includes(contentDashboardNavigation.availability) ? (
+            <ContentDashboardRoutePage
+              accessToken={session.accessToken}
+              bootstrap={authenticatedBootstrap}
+              routeNavigation={contentDashboardNavigation}
+              runtime={runtime}
+            />
+          ) : (
+            <ModuleWorkspacePlaceholder item={contentDashboardNavigation} />
+          ),
+        )
+      : sessionFallback;
+  const mediaManagementDashboardElement =
+    session && !locked && authenticatedBootstrap && mediaManagementNavigation
+      ? authenticatedShell(
+          ['UP', 'DEGRADED'].includes(mediaManagementNavigation.availability) ? (
+            <MediaManagementDashboardRoutePage
+              accessToken={session.accessToken}
+              bootstrap={authenticatedBootstrap}
+              routeNavigation={mediaManagementNavigation}
+              runtime={runtime}
+            />
+          ) : (
+            <ModuleWorkspacePlaceholder item={mediaManagementNavigation} />
+          ),
+        )
+      : sessionFallback;
+  const publishingDashboardElement =
+    session && !locked && authenticatedBootstrap && publishingDashboardNavigation
+      ? authenticatedShell(
+          ['UP', 'DEGRADED'].includes(publishingDashboardNavigation.availability) ? (
+            <PublishingDashboardRoutePage
+              accessToken={session.accessToken}
+              bootstrap={authenticatedBootstrap}
+              routeNavigation={publishingDashboardNavigation}
+              runtime={runtime}
+            />
+          ) : (
+            <ModuleWorkspacePlaceholder item={publishingDashboardNavigation} />
+          ),
+        )
       : sessionFallback;
   const complianceNavigation = currentNavigation?.route.startsWith(
     '/compliance-management',
@@ -597,6 +662,67 @@ export function App() {
         }
       />
       <Route
+        path="/system-integrations"
+        element={
+          session &&
+          !locked &&
+          authenticatedBootstrap &&
+          systemIntegrationsNavigation ? (
+            authenticatedShell(
+              ['UP', 'DEGRADED'].includes(systemIntegrationsNavigation.availability) ? (
+                <SystemIntegrationsDashboardRoutePage
+                  bootstrap={authenticatedBootstrap}
+                  routeNavigation={systemIntegrationsNavigation}
+                />
+              ) : (
+                <ModuleWorkspacePlaceholder item={systemIntegrationsNavigation} />
+              ),
+            )
+          ) : (
+            <Navigate
+              replace
+              to={
+                session && !locked
+                  ? composition.defaultAuthenticatedPage
+                  : session
+                    ? '/lock-screen'
+                    : composition.defaultPublicPage
+              }
+            />
+          )
+        }
+      />
+      <Route
+        path="/registry"
+        element={
+          session && !locked && authenticatedBootstrap && moduleRegistryNavigation ? (
+            authenticatedShell(
+              ['UP', 'DEGRADED'].includes(moduleRegistryNavigation.availability) ? (
+                <FunctionalModuleRegistryRoutePage
+                  accessToken={session.accessToken}
+                  bootstrap={authenticatedBootstrap}
+                  routeNavigation={moduleRegistryNavigation}
+                  runtime={runtime}
+                />
+              ) : (
+                <ModuleWorkspacePlaceholder item={moduleRegistryNavigation} />
+              ),
+            )
+          ) : (
+            <Navigate
+              replace
+              to={
+                session && !locked
+                  ? composition.defaultAuthenticatedPage
+                  : session
+                    ? '/lock-screen'
+                    : composition.defaultPublicPage
+              }
+            />
+          )
+        }
+      />
+      <Route
         path="/operations/module-health"
         element={
           session && !locked && authenticatedBootstrap && moduleHealthNavigation ? (
@@ -690,18 +816,20 @@ export function App() {
         }
       />
       <Route
-        path="/media-management/*"
+        path="/media"
+        element={mediaManagementDashboardElement}
+      />
+      <Route
+        path="/media/*"
         element={
           session && !locked && authenticatedBootstrap && mediaManagementNavigation ? (
             authenticatedShell(
               ['UP', 'DEGRADED'].includes(mediaManagementNavigation.availability) ? (
-                page('/media-management', session.accessToken, {
-                  mediaManagement: {
-                    accessToken: session.accessToken,
-                    bootstrap: authenticatedBootstrap,
-                    runtime,
-                  },
-                })
+                <MediaManagementRoutePage
+                  accessToken={session.accessToken}
+                  bootstrap={authenticatedBootstrap}
+                  runtime={runtime}
+                />
               ) : (
                 <ModuleWorkspacePlaceholder item={mediaManagementNavigation} />
               ),
@@ -720,9 +848,9 @@ export function App() {
           )
         }
       />
-      <Route path="/content" element={cmsWorkbenchElement} />
+      <Route path="/content" element={contentDashboardElement} />
       <Route path="/content/*" element={cmsWorkbenchElement} />
-      <Route path="/publishing" element={cmsWorkbenchElement} />
+      <Route path="/publishing" element={publishingDashboardElement} />
       <Route path="/publishing/*" element={cmsWorkbenchElement} />
       <Route path="/compliance-management/*" element={complianceElement} />
       <Route path="/notifications/*" element={notificationElement} />
@@ -736,11 +864,13 @@ export function App() {
                 !item.route.startsWith('/notifications') &&
                 !item.route.startsWith('/content') &&
                 !item.route.startsWith('/docs') &&
-                !item.route.startsWith('/media-management') &&
+                !item.route.startsWith('/media') &&
                 !item.route.startsWith('/publishing') &&
                 ![
                   '/assistant',
+                  '/registry',
                   '/schema-workbench',
+                  '/system-integrations',
                   '/operations/module-health',
                   '/operations/imports-exports',
                   '/dashboard',

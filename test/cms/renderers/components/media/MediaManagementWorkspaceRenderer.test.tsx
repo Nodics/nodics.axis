@@ -57,6 +57,7 @@ const component: CmsComponentContract = {
 const runtime: AxisRuntimeConfig = {
   backofficeBaseUrl: 'http://localhost:3000',
   enterpriseCode: 'default',
+  projectCode: 'kickoff',
   clientContractVersion: 1,
   requestTimeoutMs: 1_000,
   browserSessionCsrfCookieName: 'csrf',

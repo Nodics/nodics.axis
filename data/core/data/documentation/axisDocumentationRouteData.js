@@ -137,7 +137,7 @@ module.exports = {
   record11: {
     code: 'axisDocsRoutemediamanagement',
     site: 'axisDocumentationSite',
-    path: '/docs/nodics-axis/media-management',
+    path: '/docs/nodics-axis/media',
     locale: 'en',
     channel: 'web',
     page: 'axisDocsPagemediamanagement',

@@ -38,6 +38,7 @@ export function buildRuntimeConfig(env: Record<string, string>): AxisRuntimeConf
   return parseRuntimeConfig({
     backofficeBaseUrl: required(env, 'AXIS_BACKOFFICE_BASE_URL'),
     enterpriseCode: required(env, 'AXIS_ENTERPRISE_CODE'),
+    projectCode: required(env, 'AXIS_PROJECT_CODE'),
     clientContractVersion: positiveInteger(env, 'AXIS_CLIENT_CONTRACT_VERSION'),
     requestTimeoutMs: positiveInteger(env, 'AXIS_REQUEST_TIMEOUT_MS'),
     browserSessionCsrfCookieName: required(

@@ -5,6 +5,7 @@ import { parseRuntimeConfig } from '../../src/runtime/runtimeConfig';
 const validConfig = {
   backofficeBaseUrl: 'https://backoffice.example.com/',
   enterpriseCode: 'default',
+  projectCode: 'kickoff',
   clientContractVersion: 1,
   requestTimeoutMs: 10_000,
   browserSessionCsrfCookieName: 'nodics_axis_csrf',
@@ -18,6 +19,7 @@ describe('parseRuntimeConfig', () => {
     expect(parseRuntimeConfig(validConfig)).toEqual({
       backofficeBaseUrl: 'https://backoffice.example.com',
       enterpriseCode: 'default',
+      projectCode: 'kickoff',
       clientContractVersion: 1,
       requestTimeoutMs: 10_000,
       browserSessionCsrfCookieName: 'nodics_axis_csrf',
@@ -35,6 +37,7 @@ describe('parseRuntimeConfig', () => {
     ],
     ['unsupported scheme', { ...validConfig, backofficeBaseUrl: 'file:///tmp/api' }],
     ['zero contract version', { ...validConfig, clientContractVersion: 0 }],
+    ['invalid project code', { ...validConfig, projectCode: 'not project' }],
     ['short timeout', { ...validConfig, requestTimeoutMs: 999 }],
     ['long timeout', { ...validConfig, requestTimeoutMs: 120_001 }],
     ['unknown field', { ...validConfig, password: 'must-not-be-here' }],

@@ -44,22 +44,22 @@ not authorize it.
 
 ## Implemented Axis behavior
 
-The implemented browser route is `/media-management/*`, but page composition is
+The implemented browser route is `/media/*`, but page composition is
 owned by the authenticated Axis CMS content catalog route at
-`/media-management`. The catalog maps `axis.page.media-management` to the Axis
+`/media`. The catalog maps `axis.page.media-management` to the Axis
 page renderer, `axis.template.media-management` to the template renderer, and
 `axis.component.media-management-workspace` to the reusable workspace component
 renderer. The renderer reads the current browser location and backend-published
 navigation to make each section route meaningful:
 
-- `/media-management` explains the full governed media operations area.
-- `/media-management/media` explains uploaded media records.
-- `/media-management/folders` explains media folder policy.
-- `/media-management/sets` explains logical media sets and variants.
-- `/media-management/formats` explains reusable presentation or processing
+- `/media` explains the full governed media operations area.
+- `/media/items` explains uploaded media records.
+- `/media/folders` explains media folder policy.
+- `/media/sets` explains logical media sets and variants.
+- `/media/formats` explains reusable presentation or processing
   formats.
-- `/media-management/usage` explains media references and usage tracing.
-- `/media-management/storage-delivery` explains provider policy and delivery
+- `/media/usage` explains media references and usage tracing.
+- `/media/storage-delivery` explains provider policy and delivery
   behavior.
 
 The active section shows three beginner-friendly blocks:
@@ -154,7 +154,7 @@ Media detail includes three operational checks:
 1. **Delivery preview** uses the nMedia content endpoint only when the media is
    public and in a deliverable lifecycle state.
 2. **Usage summary** checks nMedia `mediaReference` records for the selected
-   media code and links to `/media-management/usage?mediaCode=...` so the
+   media code and links to `/media/usage?mediaCode=...` so the
    employee can review where the file is used.
 3. **Lifecycle actions** expose retire or restore actions only when the
    generated media schema allows update for the employee session. Axis blocks
@@ -483,7 +483,7 @@ When adding a Media Management feature, verify:
 1. nMedia publishes the navigation or API contract.
 2. BackOffice filters the entry by permissions.
 3. Axis renders the route only when the authenticated bootstrap contains the
-   entry and the CMS content catalog resolves the `/media-management` page.
+   entry and the CMS content catalog resolves the `/media` page.
 4. Media record, folder, format, and set search use the nMedia-owned
    schema/workbench API and never a direct database or storage read.
 5. Storage policy inspection uses nMedia `/contexts` first, including

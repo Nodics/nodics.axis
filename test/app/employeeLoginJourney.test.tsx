@@ -9,6 +9,7 @@ import { validResolvedPage } from '../cms/fixtures/resolvedPage';
 const runtimeConfig = {
   backofficeBaseUrl: 'https://backoffice.example.com',
   enterpriseCode: 'enterprise-a',
+  projectCode: 'kickoff',
   clientContractVersion: 1,
   requestTimeoutMs: 10_000,
   browserSessionCsrfCookieName: 'nodics_axis_csrf',

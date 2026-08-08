@@ -1,6 +1,7 @@
 export interface AxisRuntimeConfig {
   readonly backofficeBaseUrl: string;
   readonly enterpriseCode: string;
+  readonly projectCode: string;
   readonly clientContractVersion: number;
   readonly requestTimeoutMs: number;
   readonly browserSessionCsrfCookieName: string;
@@ -63,6 +64,13 @@ function parseBoundedInteger(
   return parsed;
 }
 
+function parseIdentifier(value: unknown, fieldName: string): string {
+  if (typeof value !== 'string' || !/^[A-Za-z][A-Za-z0-9._-]{0,127}$/.test(value)) {
+    throw new Error(`${fieldName} must be a valid identifier`);
+  }
+  return value;
+}
+
 export function parseRuntimeConfig(value: unknown): AxisRuntimeConfig {
   if (!isRecord(value)) {
     throw new Error('Axis runtime configuration must be a JSON object');
@@ -71,6 +79,7 @@ export function parseRuntimeConfig(value: unknown): AxisRuntimeConfig {
   const allowedKeys = new Set([
     'backofficeBaseUrl',
     'enterpriseCode',
+    'projectCode',
     'clientContractVersion',
     'requestTimeoutMs',
     'browserSessionCsrfCookieName',
@@ -97,13 +106,8 @@ export function parseRuntimeConfig(value: unknown): AxisRuntimeConfig {
 
   return Object.freeze({
     backofficeBaseUrl: parseBaseUrl(value.backofficeBaseUrl, 'backofficeBaseUrl'),
-    enterpriseCode:
-      typeof value.enterpriseCode === 'string' &&
-      /^[A-Za-z][A-Za-z0-9_-]{0,127}$/.test(value.enterpriseCode)
-        ? value.enterpriseCode
-        : (() => {
-            throw new Error('enterpriseCode must be a valid enterprise identifier');
-          })(),
+    enterpriseCode: parseIdentifier(value.enterpriseCode, 'enterpriseCode'),
+    projectCode: parseIdentifier(value.projectCode, 'projectCode'),
     clientContractVersion: parsePositiveInteger(
       value.clientContractVersion,
       'clientContractVersion',

@@ -1201,7 +1201,7 @@ function MediaUsageSummaryPanel(props: {
         <Button
           component={RouterLink}
           size="small"
-          to={`/media-management/usage?mediaCode=${encodeURIComponent(props.mediaCode)}`}
+          to={`/media/usage?mediaCode=${encodeURIComponent(props.mediaCode)}`}
           variant="outlined"
         >
           Open usage
@@ -2194,7 +2194,7 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
     () =>
       props.bootstrap.navigation
         .filter((item) => item.moduleName === 'media')
-        .filter((item) => item.route.startsWith('/media-management'))
+        .filter((item) => item.route.startsWith('/media'))
         .sort((left, right) => left.order - right.order),
     [props.bootstrap.navigation],
   );
@@ -3034,7 +3034,7 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
                           <Button
                             component={RouterLink}
                             size="small"
-                            to="/media-management/usage"
+                            to="/media/usage"
                             variant="text"
                           >
                             Clear usage filter

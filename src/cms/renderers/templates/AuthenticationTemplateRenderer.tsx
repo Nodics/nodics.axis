@@ -15,10 +15,22 @@ export interface AuthenticationTemplateSlots {
 }
 
 export function AuthenticationTemplateRenderer({
+  showcaseBackgroundAsset,
+  showcaseLogoAsset,
   slots,
 }: {
+  readonly showcaseBackgroundAsset: string;
+  readonly showcaseLogoAsset: string;
   readonly slots: AuthenticationTemplateSlots;
 }) {
+  const showcaseBackgroundImage = `linear-gradient(90deg, ${alpha(
+    axisTokens.color.charcoal[950],
+    0.92,
+  )} 0%, ${alpha(axisTokens.color.charcoal[900], 0.78)} 58%, ${alpha(
+    axisTokens.color.charcoal[950],
+    0.68,
+  )} 100%), url('${showcaseBackgroundAsset}')`;
+
   return (
     <Box
       component="main"
@@ -35,13 +47,7 @@ export function AuthenticationTemplateRenderer({
       <Box
         sx={{
           bgcolor: axisTokens.color.charcoal[900],
-          backgroundImage: `linear-gradient(90deg, ${alpha(
-            axisTokens.color.charcoal[950],
-            0.92,
-          )} 0%, ${alpha(axisTokens.color.charcoal[900], 0.78)} 58%, ${alpha(
-            axisTokens.color.charcoal[950],
-            0.68,
-          )} 100%), url('/brand/axis-auth-microservices.jpg')`,
+          backgroundImage: showcaseBackgroundImage,
           backgroundPosition: '68% center',
           backgroundRepeat: 'no-repeat',
           backgroundSize: 'cover',
@@ -83,7 +89,22 @@ export function AuthenticationTemplateRenderer({
             zIndex: 1,
           }}
         >
-          <AxisMark reverse />
+          {showcaseLogoAsset === '/brand/favicon.svg' ? (
+            <AxisMark reverse />
+          ) : (
+            <Box
+              alt="Nodics Axis"
+              component="img"
+              src={showcaseLogoAsset}
+              sx={{
+                display: 'block',
+                maxHeight: 52,
+                maxWidth: 260,
+                objectFit: 'contain',
+                width: 'fit-content',
+              }}
+            />
+          )}
           {slots.showcase}
           <Typography variant="caption" sx={{ color: alpha('#ffffff', 0.64) }}>
             Secure employee access • Nodics contract governance

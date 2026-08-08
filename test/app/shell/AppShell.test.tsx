@@ -7,10 +7,16 @@ import { AppShell } from '../../../src/app/shell/AppShell';
 import { AxisThemeProvider } from '../../../src/app/AxisThemeProvider';
 
 let scrollTo = vi.fn();
+let scrollIntoView = vi.fn();
 
 beforeEach(() => {
   scrollTo = vi.fn();
+  scrollIntoView = vi.fn();
   vi.stubGlobal('scrollTo', scrollTo);
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    configurable: true,
+    value: scrollIntoView,
+  });
 });
 
 afterEach(() => {
@@ -374,6 +380,68 @@ describe('Axis application shell navigation', () => {
     ).toHaveAttribute('aria-expanded', 'true');
   });
 
+  it('keeps the active nested navigation item selected and in view', async () => {
+    const user = userEvent.setup();
+    render(
+      <AxisThemeProvider>
+        <MemoryRouter initialEntries={['/media/items']}>
+          <AppShell
+            navigation={[
+              {
+                id: 'cms',
+                label: 'Content',
+                route: '/content',
+                order: 10,
+                moduleName: 'cms',
+                category: 'content',
+                icon: 'cms',
+                availability: 'UP',
+              },
+              {
+                id: 'media-management',
+                parentId: 'cms',
+                parentModuleName: 'cms',
+                label: 'Media Management',
+                route: '/media',
+                order: 20,
+                moduleName: 'media',
+                category: 'content',
+                icon: 'media',
+                availability: 'UP',
+              },
+              {
+                id: 'media-items',
+                parentId: 'media-management',
+                parentModuleName: 'media',
+                label: 'Media Items',
+                route: '/media/items',
+                order: 30,
+                moduleName: 'media',
+                category: 'content',
+                icon: 'media',
+                availability: 'UP',
+              },
+            ]}
+          >
+            <div>Workspace</div>
+          </AppShell>
+        </MemoryRouter>
+      </AxisThemeProvider>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Open navigation' }));
+
+    const activeItem = screen.getByRole('button', { name: 'Media Items' });
+    expect(activeItem).toHaveClass('Mui-selected');
+    expect(scrollIntoView).toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Collapse Media Management' }));
+    expect(screen.getByRole('button', { name: 'Media Items' })).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Collapse Media Management' }),
+    ).toHaveAttribute('aria-expanded', 'true');
+  });
+
   it('provides bounded local favourites and recent destinations', async () => {
     const user = userEvent.setup();
     window.localStorage.setItem(
@@ -447,7 +515,7 @@ describe('Axis application shell navigation', () => {
               {
                 id: 'media',
                 label: 'Media',
-                route: '/media-management/media',
+                route: '/media/items',
                 order: 20,
                 moduleName: 'media',
                 category: 'content',

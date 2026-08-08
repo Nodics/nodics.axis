@@ -14,6 +14,27 @@ export function stringProperty(
   return value;
 }
 
+export function assetPathProperty(
+  component: CmsComponentContract,
+  name: string,
+  aliases: Readonly<Record<string, string>> = {},
+  fallback = '',
+): string {
+  const value = stringProperty(component, name, fallback);
+  if (!value) return '';
+  const resolved = aliases[value] ?? value;
+  if (
+    !resolved.startsWith('/') ||
+    resolved.startsWith('//') ||
+    resolved.includes('\\') ||
+    resolved.includes('://') ||
+    resolved.length > 512
+  ) {
+    throw new Error(`${component.code}.${name} must be a safe asset path`);
+  }
+  return resolved;
+}
+
 export function booleanProperty(
   component: CmsComponentContract,
   name: string,

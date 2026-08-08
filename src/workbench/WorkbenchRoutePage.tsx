@@ -586,9 +586,12 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
   }, [deepLinkTarget, selectWorkbenchSchema]);
   useEffect(() => {
     if (!props.routeSchema || schemas.isLoading || deepLinkTarget) return;
-    consumedDeepLinkKey.current = undefined;
-    setSelectedSchema(undefined);
-    setSelectedRecordKeys(Object.freeze([]));
+    const timeout = globalThis.setTimeout(() => {
+      consumedDeepLinkKey.current = undefined;
+      setSelectedSchema(undefined);
+      setSelectedRecordKeys(Object.freeze([]));
+    }, 0);
+    return () => globalThis.clearTimeout(timeout);
   }, [deepLinkTarget, props.routeSchema, schemas.isLoading]);
   const relationshipRuntime = useMemo(
     () => ({

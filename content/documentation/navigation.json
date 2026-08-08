@@ -139,7 +139,7 @@
     {
       "code": "media-management",
       "title": "Media Management Workspace",
-      "route": "/docs/nodics-axis/media-management",
+      "route": "/docs/nodics-axis/media",
       "section": "Axis Capabilities",
       "sectionOrder": 30,
       "order": 115,

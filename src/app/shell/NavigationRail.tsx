@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   Box,
@@ -55,7 +55,17 @@ export function NavigationRail({
   const [collapsedItems, setCollapsedItems] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  const itemElements = useRef(new Map<string, HTMLElement>());
   const normalizedQuery = query.trim().toLocaleLowerCase();
+  const allItems = useMemo(() => groups.flatMap((group) => group.items), [groups]);
+  const activeItemKey = useMemo(
+    () => activeNavigationItemKey(allItems, activePath),
+    [activePath, allItems],
+  );
+  const activeAncestorKeys = useMemo(
+    () => activeItemAncestorKeys(allItems, activeItemKey),
+    [allItems, activeItemKey],
+  );
   const visibleGroups = groups
     .map((group) => ({
       ...group,
@@ -64,9 +74,21 @@ export function NavigationRail({
         group.label,
         normalizedQuery,
         collapsedItems,
+        activeAncestorKeys,
       ),
     }))
     .filter((group) => group.items.length > 0);
+
+  useEffect(() => {
+    if (!activeItemKey) return;
+    const activeElement = itemElements.current.get(activeItemKey);
+    if (typeof activeElement?.scrollIntoView !== 'function') return;
+    activeElement.scrollIntoView({
+      behavior: 'auto',
+      block: 'nearest',
+      inline: 'nearest',
+    });
+  }, [activeItemKey]);
 
   return (
     <Stack
@@ -148,8 +170,18 @@ export function NavigationRail({
           </Typography>
         ) : null}
         {visibleGroups.map((group) => {
+          const groupContainsActiveNavigation =
+            activeItemKey !== undefined &&
+            group.items.some(
+              (item) =>
+                navigationItemKey(item.moduleName, item.id) === activeItemKey ||
+                activeAncestorKeys.has(navigationItemKey(item.moduleName, item.id)),
+            );
           const expanded =
-            compact || normalizedQuery !== '' || !collapsedGroups.has(group.id);
+            compact ||
+            normalizedQuery !== '' ||
+            groupContainsActiveNavigation ||
+            !collapsedGroups.has(group.id);
           return (
             <Box key={group.id} sx={{ mb: 1.5 }}>
               {!compact ? (
@@ -204,8 +236,12 @@ export function NavigationRail({
                     const unavailable = item.availability === 'UNAVAILABLE';
                     const featureDisabled = item.featureState === 'DISABLED';
                     const itemKey = navigationItemKey(item.moduleName, item.id);
+                    const itemSelected = itemKey === activeItemKey;
                     const itemExpanded =
-                      compact || normalizedQuery !== '' || !collapsedItems.has(itemKey);
+                      compact ||
+                      normalizedQuery !== '' ||
+                      activeAncestorKeys.has(itemKey) ||
+                      !collapsedItems.has(itemKey);
                     const assistantItem =
                       item.id === 'assistant' && item.moduleName === 'aiAssistant';
                     const assistantActive =
@@ -216,7 +252,11 @@ export function NavigationRail({
                         aria-label={item.label}
                         aria-level={item.depth + 1}
                         disabled={unavailable || featureDisabled}
-                        selected={activePath === item.route}
+                        ref={(element) => {
+                          if (element) itemElements.current.set(itemKey, element);
+                          else itemElements.current.delete(itemKey);
+                        }}
+                        selected={itemSelected}
                         sx={{
                           borderRadius: `${String(axisTokens.radius.small)}px`,
                           color: alpha('#ffffff', 0.74),
@@ -254,10 +294,9 @@ export function NavigationRail({
                       >
                         <ListItemIcon
                           sx={{
-                            color:
-                              activePath === item.route
-                                ? 'primary.main'
-                                : alpha('#ffffff', 0.5),
+                            color: itemSelected
+                              ? 'primary.main'
+                              : alpha('#ffffff', 0.5),
                             justifyContent: 'center',
                             minWidth: compact ? 0 : 36,
                           }}
@@ -426,6 +465,7 @@ function visibleNavigationItems(
   groupLabel: string,
   normalizedQuery: string,
   collapsedItems: ReadonlySet<string>,
+  activeAncestorKeys: ReadonlySet<string>,
 ): readonly ShellNavigationItem[] {
   if (!normalizedQuery) {
     const collapsedAncestors = new Set<string>();
@@ -441,7 +481,8 @@ function visibleNavigationItems(
       }
       if (
         item.hasChildren &&
-        collapsedItems.has(navigationItemKey(item.moduleName, item.id))
+        collapsedItems.has(navigationItemKey(item.moduleName, item.id)) &&
+        !activeAncestorKeys.has(navigationItemKey(item.moduleName, item.id))
       ) {
         collapsedAncestors.add(navigationItemKey(item.moduleName, item.id));
       }
@@ -472,4 +513,57 @@ function visibleNavigationItems(
   return items.filter((item) =>
     visibleIds.has(navigationParentKey(item.moduleName, item.id)),
   );
+}
+
+function activeNavigationItemKey(
+  items: readonly ShellNavigationItem[],
+  activePath: string,
+): string | undefined {
+  return [...items]
+    .filter((item) => routeMatches(activePath, item.route))
+    .sort(
+      (left, right) =>
+        normalizedRoute(right.route).length - normalizedRoute(left.route).length ||
+        right.depth - left.depth ||
+        left.order - right.order,
+    )
+    .map((item) => navigationItemKey(item.moduleName, item.id))[0];
+}
+
+function activeItemAncestorKeys(
+  items: readonly ShellNavigationItem[],
+  activeItemKey: string | undefined,
+): ReadonlySet<string> {
+  const ancestors = new Set<string>();
+  if (!activeItemKey) return ancestors;
+  const byKey = new Map(
+    items.map((item) => [navigationItemKey(item.moduleName, item.id), item]),
+  );
+  let current = byKey.get(activeItemKey);
+  while (current?.parentId) {
+    const parentKey = navigationItemKey(
+      current.parentModuleName ?? current.moduleName,
+      current.parentId,
+    );
+    if (ancestors.has(parentKey)) break;
+    ancestors.add(parentKey);
+    current = byKey.get(parentKey);
+  }
+  return ancestors;
+}
+
+function routeMatches(activePath: string, route: string): boolean {
+  const normalizedActivePath = normalizedRoute(activePath);
+  const normalizedItemRoute = normalizedRoute(route);
+  return (
+    normalizedActivePath === normalizedItemRoute ||
+    (normalizedItemRoute !== '/' &&
+      normalizedActivePath.startsWith(`${normalizedItemRoute}/`))
+  );
+}
+
+function normalizedRoute(route: string): string {
+  const [path] = route.split('#');
+  if (!path || path === '/') return '/';
+  return path.endsWith('/') ? path.slice(0, -1) : path;
 }

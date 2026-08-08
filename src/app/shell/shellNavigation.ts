@@ -33,9 +33,9 @@ const CATEGORY_GROUPS: Readonly<
     order: 500,
   },
   platform: {
-    id: 'operations',
-    label: 'Operations and Integration',
-    order: 600,
+    id: 'system-integrations',
+    label: 'System & Integrations',
+    order: 150,
   },
 });
 

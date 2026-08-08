@@ -16,6 +16,7 @@ import type { WorkbenchSchema } from '../../../src/workbench/api/workbenchContra
 const runtime: AxisRuntimeConfig = {
   backofficeBaseUrl: 'http://localhost:3000',
   enterpriseCode: 'default',
+  projectCode: 'kickoff',
   clientContractVersion: 1,
   requestTimeoutMs: 1_000,
   browserSessionCsrfCookieName: 'csrf',
@@ -71,46 +72,46 @@ const bootstrap: AxisAuthenticatedBootstrap = {
     source: 'DEFAULT',
   },
   navigation: [
-    navigationItem('media-management', 'Media Management', '/media-management', 250),
+    navigationItem('media-management', 'Media Management', '/media', 250),
     navigationItem(
       'media',
       'Media records',
-      '/media-management/media',
+      '/media/items',
       251,
       'media-management',
     ),
     navigationItem(
       'storage-delivery',
       'Storage and delivery',
-      '/media-management/storage-delivery',
+      '/media/storage-delivery',
       252,
       'media-management',
     ),
     navigationItem(
       'media-folders',
       'Media folders',
-      '/media-management/folders',
+      '/media/folders',
       253,
       'media-management',
     ),
     navigationItem(
       'media-formats',
       'Media formats',
-      '/media-management/formats',
+      '/media/formats',
       254,
       'media-management',
     ),
     navigationItem(
       'media-usage',
       'Media usage',
-      '/media-management/usage',
+      '/media/usage',
       255,
       'media-management',
     ),
     navigationItem(
       'media-sets',
       'Media sets',
-      '/media-management/sets',
+      '/media/sets',
       256,
       'media-management',
     ),
@@ -513,7 +514,7 @@ function fetchBodyText(init?: RequestInit): string {
   throw new TypeError('Expected test fetch body to be a JSON string.');
 }
 
-function renderPage(path = '/media-management/media') {
+function renderPage(path = '/media/items') {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
@@ -581,12 +582,12 @@ describe('MediaManagementRoutePage', () => {
       return Promise.resolve(json({}));
     });
 
-    const formats = renderPage('/media-management/formats');
+    const formats = renderPage('/media/formats');
 
     expect(await screen.findByRole('button', { name: 'Create format' })).toBeVisible();
     formats.unmount();
 
-    renderPage('/media-management/sets');
+    renderPage('/media/sets');
 
     expect(await screen.findByRole('button', { name: 'Create set' })).toBeVisible();
   });
@@ -1075,7 +1076,7 @@ describe('MediaManagementRoutePage', () => {
       return Promise.resolve(json({}));
     });
 
-    renderPage('/media-management/folders');
+    renderPage('/media/folders');
 
     expect((await screen.findAllByText('CMS assets')).length).toBeGreaterThan(0);
     expect(
@@ -1173,7 +1174,7 @@ describe('MediaManagementRoutePage', () => {
       return Promise.resolve(json({}));
     });
 
-    renderPage('/media-management/storage-delivery');
+    renderPage('/media/storage-delivery');
 
     expect(await screen.findByText('Providers')).toBeVisible();
     expect(screen.getByText('Active: local')).toBeVisible();
@@ -1268,7 +1269,7 @@ describe('MediaManagementRoutePage', () => {
         return Promise.resolve(json({}));
       });
 
-    renderPage('/media-management/folders');
+    renderPage('/media/folders');
 
     expect((await screen.findAllByText('CMS assets')).length).toBeGreaterThan(0);
     expect(screen.getByText(/Axis submits changes through the nMedia/i)).toBeVisible();
@@ -1405,7 +1406,7 @@ describe('MediaManagementRoutePage', () => {
         return Promise.resolve(json({}));
       });
 
-    renderPage('/media-management/folders');
+    renderPage('/media/folders');
 
     expect((await screen.findAllByText('CMS assets')).length).toBeGreaterThan(0);
 
@@ -1519,7 +1520,7 @@ describe('MediaManagementRoutePage', () => {
       return Promise.resolve(json({}));
     });
 
-    renderPage('/media-management/formats');
+    renderPage('/media/formats');
 
     expect((await screen.findAllByText('Desktop')).length).toBeGreaterThan(0);
     expect(screen.getByText('Format usage')).toBeVisible();
@@ -1635,7 +1636,7 @@ describe('MediaManagementRoutePage', () => {
         return Promise.resolve(json({}));
       });
 
-    renderPage('/media-management/sets');
+    renderPage('/media/sets');
 
     expect((await screen.findAllByText('Home hero set')).length).toBeGreaterThan(0);
     expect(screen.getByText('Set variants')).toBeVisible();

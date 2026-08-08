@@ -24,7 +24,9 @@ interface OrderLifecycleManagementRoutePageProps {
 const navigationParentModule = (item: AxisNavigationItem): string =>
   item.parentModuleName ?? item.moduleName;
 
-const hasNavigationParent = (item: AxisNavigationItem): item is AxisNavigationItem & {
+const hasNavigationParent = (
+  item: AxisNavigationItem,
+): item is AxisNavigationItem & {
   readonly parentId: string;
 } => item.parentId !== undefined && item.parentId.length > 0;
 
@@ -34,10 +36,7 @@ const sameParent = (left: AxisNavigationItem, right: AxisNavigationItem): boolea
   left.parentId === right.parentId &&
   navigationParentModule(left) === navigationParentModule(right);
 
-const isChildOf = (
-  item: AxisNavigationItem,
-  parent: AxisNavigationItem,
-): boolean =>
+const isChildOf = (item: AxisNavigationItem, parent: AxisNavigationItem): boolean =>
   item.parentId === parent.id && navigationParentModule(item) === parent.moduleName;
 
 const lifecycleText = (item: AxisNavigationItem): string =>
@@ -97,7 +96,11 @@ const commerceWorkspaceChips = (item: AxisNavigationItem): readonly string[] => 
       'No catalog-only refund action',
       'Order lifecycle owns reversal intent',
     ];
-  return ['Backend-owned authority', 'Safe operational evidence', 'Customer overrides remain configurable'];
+  return [
+    'Backend-owned authority',
+    'Safe operational evidence',
+    'Customer overrides remain configurable',
+  ];
 };
 
 const relatedCommerceWorkspaces = (
@@ -105,11 +108,12 @@ const relatedCommerceWorkspaces = (
   current: AxisNavigationItem,
 ): readonly AxisNavigationItem[] => {
   const children = navigation.filter((item) => isChildOf(item, current));
-  const related = children.length > 0
-    ? children
-    : hasNavigationParent(current)
-      ? navigation.filter((item) => sameParent(item, current))
-      : [];
+  const related =
+    children.length > 0
+      ? children
+      : hasNavigationParent(current)
+        ? navigation.filter((item) => sameParent(item, current))
+        : [];
   const scoped = isOrderLifecycleWorkspace(current)
     ? related.filter(isOrderLifecycleWorkspace)
     : related;
