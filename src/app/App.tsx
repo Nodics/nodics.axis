@@ -31,6 +31,7 @@ import { NotificationManagementRoutePage } from '../operations/notifications/Not
 import { OrderLifecycleManagementRoutePage } from '../operations/orderLifecycle/OrderLifecycleManagementRoutePage';
 import { MediaManagementDashboardRoutePage } from '../operations/mediaManagement/MediaManagementDashboardRoutePage';
 import { MediaManagementRoutePage } from '../operations/mediaManagement/MediaManagementRoutePage';
+import { ProcessWorkflowRoutePage } from '../operations/processWorkflow/ProcessWorkflowRoutePage';
 import { useIdleScreenLock } from '../auth/useIdleScreenLock';
 import {
   clearScreenLock,
@@ -570,6 +571,26 @@ export function App() {
           ),
         )
       : sessionFallback;
+  const processNavigation = currentNavigation?.route.startsWith('/process')
+    ? currentNavigation
+    : authenticatedBootstrap?.navigation.find(
+        (item) => item.id === 'process-workflows' && item.moduleName === 'process',
+      );
+  const processWorkflowElement =
+    session && !locked && authenticatedBootstrap && processNavigation
+      ? authenticatedShell(
+          ['UP', 'DEGRADED'].includes(processNavigation.availability) ? (
+            <ProcessWorkflowRoutePage
+              accessToken={session.accessToken}
+              bootstrap={authenticatedBootstrap}
+              navigation={processNavigation}
+              runtime={runtime}
+            />
+          ) : (
+            <ModuleWorkspacePlaceholder item={processNavigation} />
+          ),
+        )
+      : sessionFallback;
 
   return (
     <Routes>
@@ -921,6 +942,7 @@ export function App() {
       <Route path="/compliance-management/*" element={complianceElement} />
       <Route path="/notifications/*" element={notificationElement} />
       <Route path="/commerce/*" element={orderLifecycleElement} />
+      <Route path="/process/*" element={processWorkflowElement} />
       {session && !locked && authenticatedBootstrap
         ? authenticatedBootstrap.navigation
             .filter(
@@ -931,6 +953,7 @@ export function App() {
                 !item.route.startsWith('/content') &&
                 !item.route.startsWith('/docs') &&
                 !item.route.startsWith('/media') &&
+                !item.route.startsWith('/process') &&
                 !item.route.startsWith('/publishing') &&
                 !item.route.startsWith('/cron') &&
                 ![
