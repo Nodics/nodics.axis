@@ -73,13 +73,7 @@ const bootstrap: AxisAuthenticatedBootstrap = {
   },
   navigation: [
     navigationItem('media-management', 'Media Management', '/media', 250),
-    navigationItem(
-      'media',
-      'Media records',
-      '/media/items',
-      251,
-      'media-management',
-    ),
+    navigationItem('media', 'Media records', '/media/items', 251, 'media-management'),
     navigationItem(
       'storage-delivery',
       'Storage and delivery',
@@ -108,13 +102,7 @@ const bootstrap: AxisAuthenticatedBootstrap = {
       255,
       'media-management',
     ),
-    navigationItem(
-      'media-sets',
-      'Media sets',
-      '/media/sets',
-      256,
-      'media-management',
-    ),
+    navigationItem('media-sets', 'Media sets', '/media/sets', 256, 'media-management'),
   ],
   environments: ['startioLocal'],
   moduleCatalog: {},

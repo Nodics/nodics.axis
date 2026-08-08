@@ -213,11 +213,7 @@ export function ContentDashboardRoutePage({
     [accessToken, runtime.enterpriseCode, runtime.requestTimeoutMs],
   );
   const data = useQuery({
-    queryKey: [
-      'content-dashboard',
-      runtime.enterpriseCode,
-      connectionKey(connections),
-    ],
+    queryKey: ['content-dashboard', runtime.enterpriseCode, connectionKey(connections)],
     queryFn: () =>
       loadWorkbenchMetrics(connections, bootstrap, configuration, allMetrics),
   });

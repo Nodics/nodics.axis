@@ -35,6 +35,7 @@ separately:
 cd ../nodics.kickoff
 npm run start:platform
 npm run start:wcms
+npm run start:cron
 ```
 
 Then install and start Axis:
@@ -48,6 +49,15 @@ Axis is available at <http://localhost:3100>. Copy `.env.example` to `.env`
 when local configuration is required. Only public `AXIS_*` runtime values
 belong there; never place passwords, tokens, API keys, or other secrets in
 browser configuration.
+
+When the local backend and Axis are running, use the authenticated live smoke
+check to verify the browser routes, BackOffice bootstrap, Profile login, and
+functional-module registry contract:
+
+```bash
+npm run smoke:live
+AXIS_EXPECT_MODULES=1 npm run smoke:live
+```
 
 ## Documentation
 

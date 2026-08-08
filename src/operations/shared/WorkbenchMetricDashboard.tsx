@@ -33,6 +33,8 @@ function MetricCard({
   readonly loading: boolean;
   readonly metric: WorkbenchMetric;
 }) {
+  const metricReady = metric.status === 'ready';
+
   return (
     <Paper
       component="article"
@@ -84,14 +86,15 @@ function MetricCard({
           size="small"
           variant={metric.status === 'ready' ? 'filled' : 'outlined'}
         />
-        <Button
-          component={RouterLink}
-          size="small"
-          to={metric.route}
-          variant="text"
-        >
-          Open
-        </Button>
+        {metricReady ? (
+          <Button component={RouterLink} size="small" to={metric.route} variant="text">
+            Open
+          </Button>
+        ) : (
+          <Button disabled size="small" variant="text">
+            Unavailable
+          </Button>
+        )}
       </Stack>
     </Paper>
   );

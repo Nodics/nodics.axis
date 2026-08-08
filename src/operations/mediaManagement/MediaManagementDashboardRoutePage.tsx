@@ -70,7 +70,8 @@ const mediaMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Media formats',
     moduleName: 'media',
     schemaName: 'mediaFormat',
-    description: 'Approved format contracts for previews, images, documents, and files.',
+    description:
+      'Approved format contracts for previews, images, documents, and files.',
     route: '/media/formats',
     icon: 'schema',
   }),

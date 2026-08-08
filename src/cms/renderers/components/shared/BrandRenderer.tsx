@@ -1,10 +1,7 @@
 import { Stack, Typography } from '@mui/material';
 
 import { AxisMark } from '../../../../app/shell/AxisMark';
-import {
-  assetPathProperty,
-  stringProperty,
-} from '../../shared/rendererProperties';
+import { assetPathProperty, stringProperty } from '../../shared/rendererProperties';
 import type { CmsComponentRendererProps } from '../../shared/rendererTypes';
 
 const BRAND_ASSET_ALIASES = Object.freeze({

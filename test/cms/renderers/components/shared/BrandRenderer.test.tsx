@@ -47,9 +47,7 @@ describe('BrandRenderer', () => {
     render(<BrandRenderer component={brand} />);
 
     expect(screen.getByRole('img', { name: 'Nodics Axis' })).toBeVisible();
-    expect(screen.queryByRole('img', { name: 'Nodics Axis' })?.tagName).not.toBe(
-      'IMG',
-    );
+    expect(screen.queryByRole('img', { name: 'Nodics Axis' })?.tagName).not.toBe('IMG');
   });
 
   it('rejects unsafe logo asset paths from CMS data', () => {

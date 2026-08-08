@@ -19,6 +19,7 @@
     "format:check": "prettier --check .",
     "docs:generate": "node content/documentation/tooling/generate-documentation-content.js",
     "docs:check": "node content/documentation/tooling/generate-documentation-content.js --check",
+    "smoke:live": "node scripts/axis-live-smoke.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "verify": "npm run docs:check && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build"

@@ -52,9 +52,7 @@ export const dashboardCardPadding = {
   md: `${String(axisTokens.spacing.grid * 2.5)}px`,
 } as const;
 
-export function connectionKey(
-  connections: readonly AxisModuleConnection[],
-): string {
+export function connectionKey(connections: readonly AxisModuleConnection[]): string {
   return connections
     .map(
       (connection) =>

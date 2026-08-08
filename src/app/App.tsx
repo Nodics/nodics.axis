@@ -815,10 +815,7 @@ export function App() {
           )
         }
       />
-      <Route
-        path="/media"
-        element={mediaManagementDashboardElement}
-      />
+      <Route path="/media" element={mediaManagementDashboardElement} />
       <Route
         path="/media/*"
         element={

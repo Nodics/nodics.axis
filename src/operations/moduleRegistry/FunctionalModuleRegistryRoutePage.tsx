@@ -369,6 +369,9 @@ export function FunctionalModuleRegistryRoutePage(
     ? lifecycle.variables?.module.functionalModule
     : undefined;
   const pendingAction = lifecycle.isPending ? lifecycle.variables?.action : undefined;
+  const requiredRegistered = registered.filter((module) => module.required).length;
+  const optionalRegistered = registered.length - requiredRegistered;
+  const enabledRegistered = registered.filter((module) => module.enabled).length;
 
   if (!connection) {
     return (
@@ -411,6 +414,35 @@ export function FunctionalModuleRegistryRoutePage(
           <Alert severity="error">{loadError.message}</Alert>
         ) : (
           <Stack spacing={4}>
+            <Card variant="outlined">
+              <CardContent>
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  spacing={2}
+                  sx={{
+                    alignItems: { md: 'center' },
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <Box>
+                    <Typography component="h2" variant="h5">
+                      Project module state
+                    </Typography>
+                    <Typography color="text.secondary" variant="body2">
+                      Required modules are framework prerequisites. Optional modules can
+                      be registered and activated when their runtime server is observed.
+                    </Typography>
+                  </Box>
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                    <Chip color="success" label={`${enabledRegistered} enabled`} />
+                    <Chip label={`${requiredRegistered} required`} variant="outlined" />
+                    <Chip label={`${optionalRegistered} optional`} variant="outlined" />
+                    <Chip color="warning" label={`${available.length} waiting`} />
+                  </Stack>
+                </Stack>
+              </CardContent>
+            </Card>
+
             <Box>
               <Stack
                 direction={{ xs: 'column', sm: 'row' }}
@@ -437,8 +469,7 @@ export function FunctionalModuleRegistryRoutePage(
                     <ModuleCard
                       key={module.functionalModule}
                       disabled={
-                        lifecycle.isPending &&
-                        pendingModule === module.functionalModule
+                        lifecycle.isPending && pendingModule === module.functionalModule
                       }
                       module={module}
                       pendingAction={
@@ -482,8 +513,7 @@ export function FunctionalModuleRegistryRoutePage(
                     <ModuleCard
                       key={module.functionalModule}
                       disabled={
-                        lifecycle.isPending &&
-                        pendingModule === module.functionalModule
+                        lifecycle.isPending && pendingModule === module.functionalModule
                       }
                       module={module}
                       pendingAction={

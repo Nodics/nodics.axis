@@ -103,8 +103,7 @@ export function PublishingDashboardRoutePage({
   });
   const metrics = data.data;
   const readyCount = totalReadyMetrics(metrics);
-  const unavailableCount =
-    (metrics?.length ?? publishingMetrics.length) - readyCount;
+  const unavailableCount = (metrics?.length ?? publishingMetrics.length) - readyCount;
 
   return (
     <WorkspaceContainer>
