@@ -85,6 +85,22 @@ After changing implemented behavior or documentation:
 npm run verify
 ```
 
+For a first-time local walkthrough:
+
+1. start Platform and WCMS from `nodics.kickoff`;
+2. start Axis at <http://localhost:3100>;
+3. log in with the reference employee configured by the Kickoff bootstrap;
+4. open <http://localhost:3100/docs>;
+5. read Framework first, then Nodics Axis, then Nodics Kickoff;
+6. open Swaggers/OpenAPI to inspect the backend-published runtime/module API
+   reference;
+7. return to Module Registry, Imports and Exports, Content, Media, and Schema
+   Workbench to see the same contracts rendered as workspaces.
+
+This order matters. Axis should feel like a complete BackOffice product, but
+its documentation data and API authority still come from backend modules and
+customer projects.
+
 ## Extension boundary
 
 Add customer presentation through project-owned pages, focused renderers, typed
