@@ -105,8 +105,9 @@ token remains bounded by backend expiry and revocation policy.
 The root `.env` contains only public deployment values:
 
 ```dotenv
-AXIS_BACKOFFICE_BASE_URL=http://localhost:3000
+AXIS_BACKOFFICE_BASE_URL=http://localhost:4300
 AXIS_ENTERPRISE_CODE=default
+AXIS_PROJECT_CODE=nodics.kickoff
 AXIS_CLIENT_CONTRACT_VERSION=1
 AXIS_REQUEST_TIMEOUT_MS=10000
 AXIS_BROWSER_SESSION_CSRF_COOKIE_NAME=nodics_axis_csrf

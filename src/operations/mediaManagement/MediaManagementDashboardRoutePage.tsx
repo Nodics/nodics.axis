@@ -18,6 +18,7 @@ import {
   dashboardContentGap,
   loadWorkbenchMetrics,
   metricsById,
+  totalMetricValue,
   totalReadyMetrics,
   type WorkbenchMetric,
   type WorkbenchMetricDefinition,
@@ -195,6 +196,7 @@ export function MediaManagementDashboardRoutePage({
   const readyCount = totalReadyMetrics(metrics);
   const unavailableCount = (metrics?.length ?? allMetrics.length) - readyCount;
   const sourceContextCount = data.data?.sourceContextCount ?? 0;
+  const totalRecords = totalMetricValue(metrics);
 
   return (
     <WorkspaceContainer>
@@ -219,6 +221,9 @@ export function MediaManagementDashboardRoutePage({
               />
               <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
                 <Chip label={`${String(allMetrics.length)} metrics`} />
+                <Chip
+                  label={`${new Intl.NumberFormat().format(totalRecords)} records`}
+                />
                 <Chip color="success" label={`${String(readyCount)} live`} />
                 {unavailableCount > 0 ? (
                   <Chip

@@ -77,6 +77,7 @@ Start the Nodics Kickoff backend servers in separate terminals:
 cd ../nodics.kickoff
 npm run start:platform
 npm run start:wcms
+npm run start:cron
 ```
 
 Install and start Axis:
@@ -95,8 +96,9 @@ The repository includes a safe local `.env`; Git ignores it so each developer
 or deployment can use different values.
 
 ```dotenv
-AXIS_BACKOFFICE_BASE_URL=http://localhost:3000
+AXIS_BACKOFFICE_BASE_URL=http://localhost:4300
 AXIS_ENTERPRISE_CODE=default
+AXIS_PROJECT_CODE=nodics.kickoff
 AXIS_CLIENT_CONTRACT_VERSION=1
 AXIS_REQUEST_TIMEOUT_MS=10000
 AXIS_BROWSER_SESSION_CSRF_COOKIE_NAME=nodics_axis_csrf
@@ -113,8 +115,9 @@ Vite validates these values and generates `/axis-config.json`:
 
 ```json
 {
-  "backofficeBaseUrl": "http://localhost:3000",
+  "backofficeBaseUrl": "http://localhost:4300",
   "enterpriseCode": "default",
+  "projectCode": "nodics.kickoff",
   "clientContractVersion": 1,
   "requestTimeoutMs": 10000,
   "browserSessionCsrfCookieName": "nodics_axis_csrf",

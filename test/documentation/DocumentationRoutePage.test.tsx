@@ -9,7 +9,7 @@ import { DocumentationRoutePage } from '../../src/documentation/DocumentationRou
 const runtime = {
   backofficeBaseUrl: 'http://localhost:3000',
   enterpriseCode: 'default',
-  projectCode: 'kickoff',
+  projectCode: 'nodics.kickoff',
   clientContractVersion: 1,
   requestTimeoutMs: 1_000,
   browserSessionCsrfCookieName: 'csrf',

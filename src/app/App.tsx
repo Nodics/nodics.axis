@@ -22,6 +22,7 @@ import { DocumentationRoutePage } from '../documentation/DocumentationRoutePage'
 import { ModuleHealthRoutePage } from '../operations/moduleHealth/ModuleHealthRoutePage';
 import { FunctionalModuleRegistryRoutePage } from '../operations/moduleRegistry/FunctionalModuleRegistryRoutePage';
 import { SystemIntegrationsDashboardRoutePage } from '../operations/systemIntegrations/SystemIntegrationsDashboardRoutePage';
+import { CronDashboardRoutePage } from '../operations/cron/CronDashboardRoutePage';
 import { ContentDashboardRoutePage } from '../operations/contentExperience/ContentDashboardRoutePage';
 import { PublishingDashboardRoutePage } from '../operations/contentExperience/PublishingDashboardRoutePage';
 import { ImportExportRoutePage } from '../operations/importExport/ImportExportRoutePage';
@@ -224,6 +225,31 @@ export function App() {
   const importExportNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'imports-exports' && item.moduleName === 'backoffice',
   );
+  const cronNavigation =
+    authenticatedBootstrap?.navigation.find(
+      (item) => item.route === '/cron' || item.moduleName === 'cronjob',
+    ) ??
+    ({
+      id: 'cron',
+      label: 'Cron',
+      route: '/cron',
+      order: 0,
+      moduleName: 'cronjob',
+      category: 'operations',
+      icon: 'cronjob',
+      availability:
+        authenticatedBootstrap &&
+        selectModuleConnection(authenticatedBootstrap, 'cronjob')
+          ? 'UP'
+          : 'UNKNOWN',
+      perspectives: ['operations'],
+      contexts: ['scheduler'],
+      featureState: 'ACTIVE',
+      help: {
+        summary:
+          'Monitor scheduled job definitions, execution logs, and cron runtime health.',
+      },
+    } satisfies AxisNavigationItem);
   const mediaManagementNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'media-management' && item.moduleName === 'media',
   );
@@ -671,8 +697,10 @@ export function App() {
             authenticatedShell(
               ['UP', 'DEGRADED'].includes(systemIntegrationsNavigation.availability) ? (
                 <SystemIntegrationsDashboardRoutePage
+                  accessToken={session.accessToken}
                   bootstrap={authenticatedBootstrap}
                   routeNavigation={systemIntegrationsNavigation}
+                  runtime={runtime}
                 />
               ) : (
                 <ModuleWorkspacePlaceholder item={systemIntegrationsNavigation} />
@@ -783,6 +811,36 @@ export function App() {
         }
       />
       <Route
+        path="/cron"
+        element={
+          session && !locked && authenticatedBootstrap ? (
+            authenticatedShell(
+              selectModuleConnection(authenticatedBootstrap, 'cronjob') ? (
+                <CronDashboardRoutePage
+                  accessToken={session.accessToken}
+                  bootstrap={authenticatedBootstrap}
+                  routeNavigation={cronNavigation}
+                  runtime={runtime}
+                />
+              ) : (
+                <ModuleWorkspacePlaceholder item={cronNavigation} />
+              ),
+            )
+          ) : (
+            <Navigate
+              replace
+              to={
+                session && !locked
+                  ? composition.defaultAuthenticatedPage
+                  : session
+                    ? '/lock-screen'
+                    : composition.defaultPublicPage
+              }
+            />
+          )
+        }
+      />
+      <Route
         path="/docs/*"
         element={
           session && !locked && authenticatedBootstrap && documentationNavigation ? (
@@ -863,6 +921,7 @@ export function App() {
                 !item.route.startsWith('/docs') &&
                 !item.route.startsWith('/media') &&
                 !item.route.startsWith('/publishing') &&
+                !item.route.startsWith('/cron') &&
                 ![
                   '/assistant',
                   '/registry',

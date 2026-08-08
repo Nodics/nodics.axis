@@ -19,8 +19,8 @@
       "canonicalSource": "content/documentation/pages/project-overview.md",
       "destinationRoute": "/docs/nodics-axis",
       "disposition": "migrated",
-      "sourceHash": "4a988ab89c7e4092e0129811a0bf9adc336aff11703b3e114f837cd6818c5320",
-      "wordCount": 920,
+      "sourceHash": "7579d818d877ed5deee299b681cc6bd767346475ae7f19057e4dd82541884e7c",
+      "wordCount": 929,
       "headings": [
         "Boundaries",
         "Prerequisites",
@@ -187,8 +187,8 @@
       "canonicalSource": "content/documentation/pages/employee-login.md",
       "destinationRoute": "/docs/nodics-axis/employee-access",
       "disposition": "migrated",
-      "sourceHash": "66fe7b8b4a1d494575851de67d521be1d62b746202d60226599b7ea35057f77f",
-      "wordCount": 1075,
+      "sourceHash": "9a56cf0d03f5a515653f96a48b2c35ddca7eacd5d44a9d8f0ecdf7a2898a8b10",
+      "wordCount": 1077,
       "headings": [
         "Startup journey",
         "Password recovery",

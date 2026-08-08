@@ -17,6 +17,7 @@ import {
   dashboardContentGap,
   loadWorkbenchMetrics,
   metricsById,
+  totalMetricValue,
   totalReadyMetrics,
   type WorkbenchMetricDefinition,
 } from '../shared/workbenchMetricDashboardModel';
@@ -220,6 +221,7 @@ export function ContentDashboardRoutePage({
   const metrics = data.data;
   const readyCount = totalReadyMetrics(metrics);
   const unavailableCount = (metrics?.length ?? allMetrics.length) - readyCount;
+  const totalRecords = totalMetricValue(metrics);
 
   return (
     <WorkspaceContainer>
@@ -244,6 +246,9 @@ export function ContentDashboardRoutePage({
               />
               <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
                 <Chip label={`${String(allMetrics.length)} metrics`} />
+                <Chip
+                  label={`${new Intl.NumberFormat().format(totalRecords)} records`}
+                />
                 <Chip color="success" label={`${String(readyCount)} live`} />
                 {unavailableCount > 0 ? (
                   <Chip

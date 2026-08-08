@@ -5,7 +5,7 @@ import { parseRuntimeConfig } from '../../src/runtime/runtimeConfig';
 const validConfig = {
   backofficeBaseUrl: 'https://backoffice.example.com/',
   enterpriseCode: 'default',
-  projectCode: 'kickoff',
+  projectCode: 'nodics.kickoff',
   clientContractVersion: 1,
   requestTimeoutMs: 10_000,
   browserSessionCsrfCookieName: 'nodics_axis_csrf',
@@ -19,7 +19,7 @@ describe('parseRuntimeConfig', () => {
     expect(parseRuntimeConfig(validConfig)).toEqual({
       backofficeBaseUrl: 'https://backoffice.example.com',
       enterpriseCode: 'default',
-      projectCode: 'kickoff',
+      projectCode: 'nodics.kickoff',
       clientContractVersion: 1,
       requestTimeoutMs: 10_000,
       browserSessionCsrfCookieName: 'nodics_axis_csrf',

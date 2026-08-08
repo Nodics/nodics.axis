@@ -217,3 +217,15 @@ export function totalReadyMetrics(
 ): number {
   return (metrics ?? []).filter((metric) => metric.status === 'ready').length;
 }
+
+export function totalMetricValue(
+  metrics: readonly WorkbenchMetric[] | undefined,
+): number {
+  return (metrics ?? []).reduce(
+    (total, metric) =>
+      metric.status === 'ready' && typeof metric.value === 'number'
+        ? total + metric.value
+        : total,
+    0,
+  );
+}

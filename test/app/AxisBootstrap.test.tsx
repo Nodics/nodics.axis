@@ -8,7 +8,7 @@ import { validResolvedPage } from '../cms/fixtures/resolvedPage';
 const validConfig = {
   backofficeBaseUrl: 'http://localhost:3000',
   enterpriseCode: 'default',
-  projectCode: 'kickoff',
+  projectCode: 'nodics.kickoff',
   clientContractVersion: 1,
   requestTimeoutMs: 10_000,
   browserSessionCsrfCookieName: 'nodics_axis_csrf',

@@ -25,6 +25,8 @@ const axisRoutes = [
   '/media',
   '/media/items',
   '/media/folders',
+  '/cron',
+  '/system-integrations',
   '/system',
   '/system/modules',
 ];
@@ -48,7 +50,7 @@ async function requestJson(url, options = {}) {
   let body;
   try {
     body = text ? JSON.parse(text) : undefined;
-  } catch (error) {
+  } catch {
     throw new Error(`${url} returned non-JSON response: ${text.slice(0, 160)}`);
   }
   if (!response.ok) {

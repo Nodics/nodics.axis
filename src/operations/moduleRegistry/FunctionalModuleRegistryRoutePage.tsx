@@ -361,6 +361,14 @@ export function FunctionalModuleRegistryRoutePage(
     () => sortedModules(registeredModules.data ?? []),
     [registeredModules.data],
   );
+  const required = useMemo(
+    () => registered.filter((module) => module.required),
+    [registered],
+  );
+  const optional = useMemo(
+    () => registered.filter((module) => !module.required),
+    [registered],
+  );
   const available = useMemo(
     () => sortedModules(availableModules.data ?? []),
     [availableModules.data],
@@ -369,8 +377,8 @@ export function FunctionalModuleRegistryRoutePage(
     ? lifecycle.variables?.module.functionalModule
     : undefined;
   const pendingAction = lifecycle.isPending ? lifecycle.variables?.action : undefined;
-  const requiredRegistered = registered.filter((module) => module.required).length;
-  const optionalRegistered = registered.length - requiredRegistered;
+  const requiredRegistered = required.length;
+  const optionalRegistered = optional.length;
   const enabledRegistered = registered.filter((module) => module.enabled).length;
 
   if (!connection) {
@@ -426,18 +434,32 @@ export function FunctionalModuleRegistryRoutePage(
                 >
                   <Box>
                     <Typography component="h2" variant="h5">
-                      Project module state
+                      Project module lifecycle
                     </Typography>
                     <Typography color="text.secondary" variant="body2">
-                      Required modules are framework prerequisites. Optional modules can
-                      be registered and activated when their runtime server is observed.
+                      Register makes an observed optional module part of the project
+                      catalogue. Activate enables its Axis capabilities. Deactivate
+                      hides optional capabilities without removing runtime code.
+                      Deregister returns an optional module to the available list.
                     </Typography>
                   </Box>
                   <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                    <Chip color="success" label={`${enabledRegistered} enabled`} />
-                    <Chip label={`${requiredRegistered} required`} variant="outlined" />
-                    <Chip label={`${optionalRegistered} optional`} variant="outlined" />
-                    <Chip color="warning" label={`${available.length} waiting`} />
+                    <Chip
+                      color="success"
+                      label={`${String(enabledRegistered)} enabled`}
+                    />
+                    <Chip
+                      label={`${String(requiredRegistered)} required`}
+                      variant="outlined"
+                    />
+                    <Chip
+                      label={`${String(optionalRegistered)} optional`}
+                      variant="outlined"
+                    />
+                    <Chip
+                      color="warning"
+                      label={`${String(available.length)} waiting`}
+                    />
                   </Stack>
                 </Stack>
               </CardContent>
@@ -451,21 +473,66 @@ export function FunctionalModuleRegistryRoutePage(
               >
                 <Box>
                   <Typography component="h2" variant="h5">
-                    Registered modules
+                    Required modules
                   </Typography>
                   <Typography color="text.secondary" variant="body2">
-                    Functional modules currently part of the project catalogue.
+                    Framework prerequisites that are automatically registered and cannot
+                    be deactivated or deregistered.
                   </Typography>
                 </Box>
-                <Chip label={`${registered.length} registered`} />
+                <Chip label={`${String(required.length)} required`} />
               </Stack>
               <Stack spacing={2} sx={{ mt: 2 }}>
-                {registered.length === 0 ? (
+                {required.length === 0 ? (
                   <Alert severity="warning">
-                    No registered functional modules were returned for this project.
+                    No required functional modules were returned for this project.
                   </Alert>
                 ) : (
-                  registered.map((module) => (
+                  required.map((module) => (
+                    <ModuleCard
+                      key={module.functionalModule}
+                      disabled={
+                        lifecycle.isPending && pendingModule === module.functionalModule
+                      }
+                      module={module}
+                      pendingAction={
+                        pendingModule === module.functionalModule
+                          ? pendingAction
+                          : undefined
+                      }
+                      onAction={(nextModule, action) =>
+                        lifecycle.mutate({ action, module: nextModule })
+                      }
+                    />
+                  ))
+                )}
+              </Stack>
+            </Box>
+
+            <Box>
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={1}
+                sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
+              >
+                <Box>
+                  <Typography component="h2" variant="h5">
+                    Optional registered modules
+                  </Typography>
+                  <Typography color="text.secondary" variant="body2">
+                    Modules selected for this project. Activation controls whether Axis
+                    presents their business capabilities.
+                  </Typography>
+                </Box>
+                <Chip label={`${String(optional.length)} optional registered`} />
+              </Stack>
+              <Stack spacing={2} sx={{ mt: 2 }}>
+                {optional.length === 0 ? (
+                  <Alert severity="info">
+                    No optional functional modules are registered yet.
+                  </Alert>
+                ) : (
+                  optional.map((module) => (
                     <ModuleCard
                       key={module.functionalModule}
                       disabled={
