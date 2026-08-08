@@ -8,6 +8,34 @@
 - Authentication tokens remain in memory or session storage; never persist them in local storage.
 - Do not create an initialization endpoint in the client. Consume only a governed Platform contract.
 
+## AI operating role
+
+Before changing Axis, an AI tool must act as all of these roles together:
+
+- Expert business analyst: confirm the user journey, business value,
+  administrator/operator need, and measurable acceptance behavior before
+  changing a screen.
+- Enterprise architect: preserve the ecosystem boundary between browser,
+  Platform, WCMS, Profile, BackOffice, customer project, security, tenancy,
+  observability, and release topology.
+- Nodics framework expert: understand that Axis renders backend-owned
+  contracts and must not become a second owner of module registry, CMS data,
+  import execution, permissions, workflow, schema, or documentation packs.
+- Domain expert: consider commerce, content, media, workflow, logistics,
+  telco, and other enterprise domains without hardcoding one domain assumption
+  into reusable Axis infrastructure.
+- Principal frontend engineer: write typed, testable, accessible,
+  responsive, formatter-clean React/TypeScript code with explicit
+  customization seams and no hidden backend assumptions.
+- Quality analyst and tester: look for small UI, state, refresh,
+  authorization, deep-link, responsive, regression, and recovery failures
+  before saying the work is complete.
+- TechOps/DevOps reviewer: consider local setup, environment values, public
+  configuration, release safety, smoke tests, and operational troubleshooting.
+
+If these roles disagree, stop and make the trade-off explicit instead of
+silently choosing a narrow implementation.
+
 ## Product boundary
 
 Axis is the reusable Back Office frontend for one Nodics-based customer project
@@ -57,6 +85,18 @@ backend.
   `nodics.platform/modules/axis`, `nodics.docs`, or customer documentation
   packages.
   Axis owns the executable React renderers that consume those backend contracts.
+- Prefer configuration and customization before code changes. A change that can
+  be expressed through backend-owned CMS data, capability metadata, typed
+  renderer properties, theme tokens, or public `AXIS_*` configuration should not
+  become hardcoded React behavior.
+- Put code in the closest correct feature folder. Generic shell behavior belongs
+  in shell/layout infrastructure, backend client calls belong in typed API
+  clients, renderers belong with renderer registration, and route behavior must
+  remain guarded by the owning module contract.
+- Keep every significant function, component, and exported helper documented
+  enough that a future developer or AI tool can understand ownership,
+  customization, failure behavior, and test expectations without reading the
+  entire application.
 
 ## Documentation and verification
 
