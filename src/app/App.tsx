@@ -720,6 +720,7 @@ export function App() {
           )
         }
       />
+      <Route path="/system" element={<Navigate replace to="/system-integrations" />} />
       <Route
         path="/registry"
         element={
@@ -750,6 +751,7 @@ export function App() {
           )
         }
       />
+      <Route path="/system/modules" element={<Navigate replace to="/registry" />} />
       <Route
         path="/operations/module-health"
         element={
@@ -781,6 +783,10 @@ export function App() {
         }
       />
       <Route
+        path="/system/health"
+        element={<Navigate replace to="/operations/module-health" />}
+      />
+      <Route
         path="/operations/imports-exports"
         element={
           session && !locked && authenticatedBootstrap && importExportNavigation ? (
@@ -810,6 +816,11 @@ export function App() {
           )
         }
       />
+      <Route
+        path="/system/imports"
+        element={<Navigate replace to="/operations/imports-exports" />}
+      />
+      <Route path="/system/apis" element={<Navigate replace to="/docs/swaggers" />} />
       <Route
         path="/cron"
         element={

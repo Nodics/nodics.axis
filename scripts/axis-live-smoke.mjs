@@ -30,8 +30,9 @@ const axisRoutes = [
   '/media/folders',
   '/cron',
   '/system-integrations',
-  '/system',
-  '/system/modules',
+  '/registry',
+  '/operations/imports-exports',
+  '/docs/swaggers',
 ];
 const requiredModules = ['nodics.core', 'nodics.platform', 'nodics.wcms'];
 const optionalObservedModules = ['nodics.cron'];
