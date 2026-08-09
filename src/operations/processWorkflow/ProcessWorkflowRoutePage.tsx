@@ -5,6 +5,7 @@ import {
   Button,
   Chip,
   Divider,
+  MenuItem,
   Paper,
   Stack,
   TextField,
@@ -29,6 +30,7 @@ import {
   createProcessDefinition,
   createProcessTrigger,
   createSampleGraph,
+  executeProcessTrigger,
   cancelProcessInstance,
   cancelProcessTask,
   claimProcessTask,
@@ -52,6 +54,7 @@ import {
   type ProcessTrigger,
   type ProcessDefinitionVersion,
   type ProcessGraph,
+  type ProcessGraphNode,
 } from './api/processDefinitionClient';
 
 interface ProcessWorkflowRoutePageProps {
@@ -72,11 +75,11 @@ const emptyOperationsSummary: ProcessOperationsSummary = Object.freeze({
   triggers: Object.freeze([]),
 });
 const defaultProcessWorkspace = Object.freeze({
-    detail:
-      'Model, validate, publish, start, and version workflow definitions with backend governance.',
-    icon: 'workflow',
-    label: 'Definitions',
-    route: '/process/definitions',
+  detail:
+    'Model, validate, publish, start, and version workflow definitions with backend governance.',
+  icon: 'workflow',
+  label: 'Definitions',
+  route: '/process/definitions',
 });
 const processWorkspaces = Object.freeze([
   defaultProcessWorkspace,
@@ -102,6 +105,13 @@ const processWorkspaces = Object.freeze([
     route: '/process/designer',
   }),
 ]);
+const designerNodeTypes = Object.freeze([
+  'TASK',
+  'DECISION',
+  'ACTION',
+  'TIMER',
+  'SUB_PROCESS',
+] as const);
 
 function normalizeCode(value: string): string {
   return value
@@ -220,7 +230,9 @@ function ProcessWorkspaceCard({
       elevation={0}
       href={route}
       sx={{
-        bgcolor: active ? alpha(axisTokens.color.signatureGold, 0.12) : 'background.paper',
+        bgcolor: active
+          ? alpha(axisTokens.color.signatureGold, 0.12)
+          : 'background.paper',
         border: 1,
         borderColor: active ? 'primary.main' : 'divider',
         color: 'inherit',
@@ -633,6 +645,7 @@ function TriggerRelationshipView({
   disabled,
   onArchive,
   onCreate,
+  onExecute,
   onFieldChange,
   onUpdate,
   triggerCronJobCode,
@@ -643,6 +656,7 @@ function TriggerRelationshipView({
   readonly disabled: boolean;
   readonly onArchive: (triggerCode: string) => void;
   readonly onCreate: () => void;
+  readonly onExecute: (triggerCode: string) => void;
   readonly onFieldChange: (
     field: 'definitionCode' | 'cronJobCode' | 'scheduleExpression',
     value: string,
@@ -738,6 +752,13 @@ function TriggerRelationshipView({
                 </Stack>
                 <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap' }}>
                   <Button
+                    disabled={disabled || trigger.status !== 'ACTIVE'}
+                    onClick={() => onExecute(trigger.code)}
+                    variant="contained"
+                  >
+                    Execute trigger
+                  </Button>
+                  <Button
                     disabled={
                       disabled ||
                       trigger.status === 'ACTIVE' ||
@@ -767,12 +788,82 @@ function TriggerRelationshipView({
 }
 
 function VisualDesignerSkeleton({
+  disabled,
   graph,
+  onChange,
+  onSave,
 }: {
+  readonly disabled: boolean;
   readonly graph: ProcessGraph | undefined;
+  readonly onChange: (graph: ProcessGraph) => void;
+  readonly onSave: () => void;
 }) {
   const nodes = graph?.nodes ?? [];
   const transitions = graph?.transitions ?? [];
+  const [nodeCode, setNodeCode] = useState('');
+  const [nodeName, setNodeName] = useState('');
+  const [nodeType, setNodeType] = useState<(typeof designerNodeTypes)[number]>('TASK');
+  const [sourceCode, setSourceCode] = useState('');
+  const [targetCode, setTargetCode] = useState('');
+
+  const updateGraph = (nextGraph: ProcessGraph) => {
+    onChange({
+      nodes: Object.freeze([...nextGraph.nodes]),
+      transitions: Object.freeze([...nextGraph.transitions]),
+    });
+  };
+
+  const addNode = () => {
+    const code = normalizeCode(nodeCode);
+    if (!code || nodes.some((node) => node.code === code)) return;
+    const nextNode: ProcessGraphNode = {
+      code,
+      name: nodeName.trim() || code,
+      type: nodeType,
+      ...(nodeType === 'ACTION'
+        ? { action: { moduleName: 'nodics.process', operation: 'noop' } }
+        : {}),
+      ...(nodeType === 'TIMER' ? { timer: { delayMs: 0, autoContinue: true } } : {}),
+      ...(nodeType === 'SUB_PROCESS'
+        ? { subProcessDefinitionCode: 'replaceWithProcessDefinitionCode' }
+        : {}),
+    };
+    updateGraph({ nodes: [...nodes, nextNode], transitions });
+    setNodeCode('');
+    setNodeName('');
+  };
+
+  const deleteNode = (code: string) => {
+    const node = nodes.find((item) => item.code === code);
+    if (!node || ['START', 'END'].includes(node.type)) return;
+    updateGraph({
+      nodes: nodes.filter((item) => item.code !== code),
+      transitions: transitions.filter(
+        (transition) => transition.source !== code && transition.target !== code,
+      ),
+    });
+  };
+
+  const connectNodes = () => {
+    if (!sourceCode || !targetCode || sourceCode === targetCode) return;
+    const code = normalizeCode(`${sourceCode}_to_${targetCode}`);
+    if (transitions.some((transition) => transition.code === code)) return;
+    updateGraph({
+      nodes,
+      transitions: [...transitions, { code, source: sourceCode, target: targetCode }],
+    });
+  };
+
+  const designerIssues = [
+    nodes.length === 0 ? 'Create or select a graph before saving.' : undefined,
+    nodes.filter((node) => node.type === 'START').length !== 1
+      ? 'A valid workflow needs exactly one START node.'
+      : undefined,
+    nodes.filter((node) => node.type === 'END').length < 1
+      ? 'A valid workflow needs at least one END node.'
+      : undefined,
+  ].filter(Boolean);
+
   return (
     <Paper
       component="section"
@@ -786,10 +877,9 @@ function VisualDesignerSkeleton({
           <Chip label="Nodics-native first" variant="outlined" />
         </Stack>
         <Typography color="text.secondary">
-          The first designer slice should be simple for business users: drag a Start,
-          Task, Decision, Action, or End step; connect steps; save the draft; then let
-          nodics.process validate and publish. BPMN import/export can come later as an
-          adapter, not as runtime truth.
+          Add a step, connect it, save the draft, and then let nodics.process validate
+          and publish. This MVP intentionally keeps the canvas simple while proving the
+          backend-owned graph contract.
         </Typography>
         <Box
           sx={{
@@ -825,7 +915,10 @@ function VisualDesignerSkeleton({
             gap: 2,
             gridTemplateColumns: {
               xs: '1fr',
-              md: nodes.length > 0 ? `repeat(${String(Math.min(nodes.length, 4))}, minmax(0, 1fr))` : '1fr',
+              md:
+                nodes.length > 0
+                  ? `repeat(${String(Math.min(nodes.length, 4))}, minmax(0, 1fr))`
+                  : '1fr',
             },
             minHeight: 220,
             p: { xs: 2, md: 3 },
@@ -834,11 +927,13 @@ function VisualDesignerSkeleton({
           {nodes.length === 0 ? (
             <Stack spacing={1} sx={{ justifyContent: 'center', textAlign: 'center' }}>
               <ShellIcon name="workflow" />
-              <Typography variant="h6">Create or select a draft to see the canvas</Typography>
+              <Typography variant="h6">
+                Create or select a draft to see the canvas
+              </Typography>
               <Typography color="text.secondary">
-                The MVP designer starts as a safe read/write projection over backend graph
-                JSON. Axis can later add drag/drop while nodics.process remains the
-                validation authority.
+                The MVP designer starts as a safe read/write projection over backend
+                graph JSON. Axis can later add drag/drop while nodics.process remains
+                the validation authority.
               </Typography>
             </Stack>
           ) : (
@@ -871,11 +966,127 @@ function VisualDesignerSkeleton({
             ))
           )}
         </Box>
-        <Alert severity="info">
-          Next designer slice: add a canvas editor that updates draft graph JSON, runs
-          validation, and shows invalid edges before publish. Axis will never execute
-          the workflow locally.
-        </Alert>
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 2,
+            gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' },
+          }}
+        >
+          <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', p: 2 }}>
+            <Stack spacing={2}>
+              <Typography variant="h6">Add workflow step</Typography>
+              <TextField
+                disabled={disabled}
+                label="Step code"
+                onChange={(event) => setNodeCode(event.target.value)}
+                placeholder="approvalDecision"
+                value={nodeCode}
+              />
+              <TextField
+                disabled={disabled}
+                label="Step name"
+                onChange={(event) => setNodeName(event.target.value)}
+                placeholder="Approval decision"
+                value={nodeName}
+              />
+              <TextField
+                disabled={disabled}
+                label="Step type"
+                onChange={(event) =>
+                  setNodeType(event.target.value as (typeof designerNodeTypes)[number])
+                }
+                select
+                value={nodeType}
+              >
+                {designerNodeTypes.map((type) => (
+                  <MenuItem key={type} value={type}>
+                    {type}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <Button disabled={disabled || !normalizeCode(nodeCode)} onClick={addNode}>
+                Add step
+              </Button>
+            </Stack>
+          </Paper>
+          <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', p: 2 }}>
+            <Stack spacing={2}>
+              <Typography variant="h6">Connect workflow steps</Typography>
+              <TextField
+                disabled={disabled}
+                label="From step"
+                onChange={(event) => setSourceCode(event.target.value)}
+                select
+                value={sourceCode}
+              >
+                {nodes.map((node) => (
+                  <MenuItem key={node.code} value={node.code}>
+                    {node.name ?? node.code}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                disabled={disabled}
+                label="To step"
+                onChange={(event) => setTargetCode(event.target.value)}
+                select
+                value={targetCode}
+              >
+                {nodes.map((node) => (
+                  <MenuItem key={node.code} value={node.code}>
+                    {node.name ?? node.code}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <Button
+                disabled={disabled || !sourceCode || !targetCode}
+                onClick={connectNodes}
+              >
+                Connect steps
+              </Button>
+            </Stack>
+          </Paper>
+        </Box>
+        {nodes.length > 0 ? (
+          <Stack spacing={1}>
+            <Typography variant="h6">Step controls</Typography>
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+              {nodes.map((node) => (
+                <Button
+                  color="error"
+                  disabled={disabled || ['START', 'END'].includes(node.type)}
+                  key={node.code}
+                  onClick={() => deleteNode(node.code)}
+                  variant="outlined"
+                >
+                  Delete {node.name ?? node.code}
+                </Button>
+              ))}
+            </Stack>
+          </Stack>
+        ) : null}
+        {designerIssues.length > 0 ? (
+          <Alert severity="warning">{designerIssues.join(' ')}</Alert>
+        ) : (
+          <Alert severity="success">
+            The local graph shape is ready for backend validation. Save the draft, then
+            use Validate draft before publishing.
+          </Alert>
+        )}
+        <Stack direction="row" spacing={1}>
+          <Button
+            disabled={disabled || designerIssues.length > 0}
+            onClick={onSave}
+            variant="contained"
+          >
+            Save designer draft
+          </Button>
+          <Typography color="text.secondary" sx={{ alignSelf: 'center' }}>
+            Axis edits graph JSON only; nodics.process remains validation and runtime
+            authority.
+          </Typography>
+        </Stack>
       </Stack>
     </Paper>
   );
@@ -1016,6 +1227,10 @@ export function ProcessWorkflowRoutePage({
   const [triggerCronJobCode, setTriggerCronJobCode] = useState('');
   const [triggerScheduleExpression, setTriggerScheduleExpression] =
     useState('0 0 * * *');
+  const [designerGraphOverlay, setDesignerGraphOverlay] = useState<
+    | { readonly definitionCode: string | undefined; readonly graph: ProcessGraph }
+    | undefined
+  >();
 
   const configuration = useMemo<ProcessDefinitionClientConfiguration>(
     () => ({
@@ -1058,6 +1273,13 @@ export function ProcessWorkflowRoutePage({
     setEditName(definition.name);
     setEditDescription(definition.description ?? '');
     setEditCategory(definition.category ?? 'operations');
+    setDesignerGraphOverlay({
+      definitionCode: definition.code,
+      graph: definition.graph ?? {
+        nodes: Object.freeze([]),
+        transitions: Object.freeze([]),
+      },
+    });
   };
 
   const createDraft = useMutation({
@@ -1107,6 +1329,7 @@ export function ProcessWorkflowRoutePage({
     },
     onSuccess: async () => {
       setSelectedCode(undefined);
+      setDesignerGraphOverlay(undefined);
       await invalidate();
     },
   });
@@ -1115,6 +1338,18 @@ export function ProcessWorkflowRoutePage({
     definitions.data?.find((definition) => definition.code === selectedCode) ??
     definitions.data?.[0];
   const selectedIsDraft = selectedDefinition?.status === 'DRAFT';
+  const selectedOverlay =
+    designerGraphOverlay &&
+    designerGraphOverlay.definitionCode === selectedDefinition?.code
+      ? designerGraphOverlay
+      : undefined;
+  const designerGraph =
+    selectedOverlay !== undefined
+      ? selectedOverlay.graph
+      : (selectedDefinition?.graph ?? {
+          nodes: Object.freeze([]),
+          transitions: Object.freeze([]),
+        });
 
   const versions = useQuery({
     enabled: Boolean(processConnection && selectedDefinition),
@@ -1166,6 +1401,7 @@ export function ProcessWorkflowRoutePage({
           name: editName.trim() || selectedDefinition.name,
           description: editDescription.trim(),
           category: editCategory.trim() || 'operations',
+          graph: designerGraph,
         },
       );
     },
@@ -1276,6 +1512,14 @@ export function ProcessWorkflowRoutePage({
     onSuccess: invalidate,
   });
 
+  const executeTrigger = useMutation({
+    mutationFn: async (triggerCode: string) => {
+      if (!processConnection) throw new Error('Process API is unavailable');
+      return executeProcessTrigger(processConnection, configuration, triggerCode);
+    },
+    onSuccess: invalidate,
+  });
+
   const definitionCount = definitions.data?.length ?? 0;
   const draftCount =
     definitions.data?.filter((definition) => definition.status === 'DRAFT').length ?? 0;
@@ -1310,6 +1554,7 @@ export function ProcessWorkflowRoutePage({
     cancelInstance.isPending ||
     createTrigger.isPending ||
     activateTrigger.isPending ||
+    executeTrigger.isPending ||
     archiveTrigger.isPending;
   const latestError =
     createDraft.error ??
@@ -1677,6 +1922,7 @@ export function ProcessWorkflowRoutePage({
             disabled={busy}
             onArchive={(triggerCode) => archiveTrigger.mutate(triggerCode)}
             onCreate={() => createTrigger.mutate()}
+            onExecute={(triggerCode) => executeTrigger.mutate(triggerCode)}
             onFieldChange={(field, value) => {
               if (field === 'definitionCode') setTriggerDefinitionCode(value);
               if (field === 'cronJobCode') setTriggerCronJobCode(value);
@@ -1860,7 +2106,17 @@ export function ProcessWorkflowRoutePage({
               loading={versions.isPending}
               versions={versions.data ?? []}
             />
-            <VisualDesignerSkeleton graph={selectedDefinition?.graph} />
+            <VisualDesignerSkeleton
+              disabled={busy || !selectedIsDraft}
+              graph={designerGraph}
+              onChange={(graph) =>
+                setDesignerGraphOverlay({
+                  definitionCode: selectedDefinition?.code,
+                  graph,
+                })
+              }
+              onSave={() => updateDraft.mutate()}
+            />
           </Stack>
         </Box>
       </Stack>

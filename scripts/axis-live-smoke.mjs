@@ -460,6 +460,29 @@ async function verifyProcessDefinitionLifecycle(authorizedHeaders) {
   }
   console.log('PASS process trigger update');
 
+  const executeTriggerBody = await requestJson(
+    endpoint(
+      processUrl,
+      `/nodics/process/v0/triggers/${encodeURIComponent(triggerCode)}/execute`,
+    ),
+    {
+      body: JSON.stringify({
+        correlationId: `${definitionCode}-smoke-trigger`,
+        instanceCode: `${definitionCode}-triggered-smoke`,
+      }),
+      headers: authorizedHeaders,
+      method: 'POST',
+    },
+  );
+  const executedTrigger = resultPayload(executeTriggerBody);
+  if (
+    executedTrigger?.correlationId !== `${definitionCode}-smoke-trigger` ||
+    executedTrigger?.execution?.instance?.code !== `${definitionCode}-triggered-smoke`
+  ) {
+    throw new Error('Process trigger execute did not start a governed instance');
+  }
+  console.log('PASS process trigger execute starts instance');
+
   const archiveTriggerBody = await requestJson(
     endpoint(
       processUrl,

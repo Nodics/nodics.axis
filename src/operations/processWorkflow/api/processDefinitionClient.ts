@@ -10,6 +10,8 @@ export interface ProcessGraphNode {
   readonly code: string;
   readonly type: string;
   readonly name?: string | undefined;
+  readonly timer?: Record<string, unknown> | undefined;
+  readonly subProcessDefinitionCode?: string | undefined;
   readonly action?:
     | {
         readonly moduleName: string;
@@ -23,6 +25,8 @@ export interface ProcessGraphTransition {
   readonly source: string;
   readonly target: string;
   readonly name?: string | undefined;
+  readonly default?: boolean | undefined;
+  readonly condition?: Record<string, unknown> | undefined;
 }
 
 export interface ProcessGraph {
@@ -117,6 +121,7 @@ export interface UpdateProcessDraftInput {
   readonly name: string;
   readonly description: string;
   readonly category: string;
+  readonly graph?: ProcessGraph;
 }
 
 export interface CreateProcessTriggerInput {
@@ -667,6 +672,27 @@ export async function archiveProcessTrigger(
       `/triggers/${encodeURIComponent(triggerCode)}/archive`,
       configuration,
       { method: 'POST' },
+    ),
+  );
+}
+
+export async function executeProcessTrigger(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  triggerCode: string,
+): Promise<unknown> {
+  return envelopeData(
+    await request(
+      connection,
+      `/triggers/${encodeURIComponent(triggerCode)}/execute`,
+      configuration,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          correlationId: `axis-${Date.now().toString(36)}`,
+          context: { source: 'axis-trigger-console' },
+        }),
+      },
     ),
   );
 }
