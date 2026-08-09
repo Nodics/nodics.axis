@@ -11,7 +11,7 @@ import {
   Typography,
   alpha,
 } from '@mui/material';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { axisTokens } from '../../app/axisTheme';
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
@@ -30,6 +30,7 @@ import {
   loadProcessOperationsSummary,
   loadProcessDefinitions,
   publishProcessDraft,
+  updateProcessDraft,
   validateProcessDraft,
   type ProcessDefinition,
   type ProcessDefinitionClientConfiguration,
@@ -217,6 +218,7 @@ function DefinitionCard({
   definition,
   disabled,
   onDelete,
+  onEdit,
   onPublish,
   onSelect,
   onValidate,
@@ -225,6 +227,7 @@ function DefinitionCard({
   readonly definition: ProcessDefinition;
   readonly disabled: boolean;
   readonly onDelete: () => void;
+  readonly onEdit: () => void;
   readonly onPublish: () => void;
   readonly onSelect: () => void;
   readonly onValidate: () => void;
@@ -271,6 +274,9 @@ function DefinitionCard({
           >
             Preview
           </Button>
+          <Button disabled={disabled || !isDraft} onClick={onEdit} variant="outlined">
+            Edit draft
+          </Button>
           <Button
             disabled={disabled || !isDraft}
             onClick={onValidate}
@@ -309,6 +315,9 @@ export function ProcessWorkflowRoutePage({
   const processConnection = selectModuleConnection(bootstrap, 'process');
   const [draftName, setDraftName] = useState('Sample approval process');
   const [selectedCode, setSelectedCode] = useState<string | undefined>();
+  const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editCategory, setEditCategory] = useState('');
 
   const configuration = useMemo<ProcessDefinitionClientConfiguration>(
     () => ({
@@ -345,6 +354,13 @@ export function ProcessWorkflowRoutePage({
     await queryClient.invalidateQueries({ queryKey: [queryKey] });
   };
 
+  const selectDefinitionForEditing = (definition: ProcessDefinition) => {
+    setSelectedCode(definition.code);
+    setEditName(definition.name);
+    setEditDescription(definition.description ?? '');
+    setEditCategory(definition.category ?? 'operations');
+  };
+
   const createDraft = useMutation({
     mutationFn: async () => {
       if (!processConnection) throw new Error('Process API is unavailable');
@@ -360,7 +376,7 @@ export function ProcessWorkflowRoutePage({
       });
     },
     onSuccess: async (definition) => {
-      setSelectedCode(definition.code);
+      selectDefinitionForEditing(definition);
       await invalidate();
     },
   });
@@ -399,6 +415,32 @@ export function ProcessWorkflowRoutePage({
   const selectedDefinition =
     definitions.data?.find((definition) => definition.code === selectedCode) ??
     definitions.data?.[0];
+  const selectedIsDraft = selectedDefinition?.status === 'DRAFT';
+
+  useEffect(() => {
+    if (selectedDefinition) selectDefinitionForEditing(selectedDefinition);
+  }, [selectedDefinition?.code]);
+
+  const updateDraft = useMutation({
+    mutationFn: async () => {
+      if (!processConnection) throw new Error('Process API is unavailable');
+      if (!selectedDefinition) throw new Error('Select a process draft first');
+      if (!selectedIsDraft)
+        throw new Error('Only draft process definitions can be edited');
+      return updateProcessDraft(
+        processConnection,
+        configuration,
+        selectedDefinition.code,
+        {
+          name: editName.trim() || selectedDefinition.name,
+          description: editDescription.trim(),
+          category: editCategory.trim() || 'operations',
+        },
+      );
+    },
+    onSuccess: invalidate,
+  });
+
   const definitionCount = definitions.data?.length ?? 0;
   const draftCount =
     definitions.data?.filter((definition) => definition.status === 'DRAFT').length ?? 0;
@@ -416,11 +458,13 @@ export function ProcessWorkflowRoutePage({
   const auditEventCount = operations.data?.auditEvents.length ?? 0;
   const busy =
     createDraft.isPending ||
+    updateDraft.isPending ||
     validateDraft.isPending ||
     publishDraft.isPending ||
     deleteDefinition.isPending;
   const latestError =
     createDraft.error ??
+    updateDraft.error ??
     validateDraft.error ??
     publishDraft.error ??
     deleteDefinition.error;
@@ -638,6 +682,83 @@ export function ProcessWorkflowRoutePage({
           </Stack>
         </Paper>
 
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
+        >
+          <Stack spacing={2}>
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={1.5}
+              sx={{ justifyContent: 'space-between' }}
+            >
+              <Box>
+                <Typography variant="h5">Edit selected draft</Typography>
+                <Typography color="text.secondary">
+                  Refine the business-facing name, category, and description before
+                  validation. Axis sends these updates to nodics.process; backend
+                  validation, versioning, and audit remain the authority.
+                </Typography>
+              </Box>
+              <Chip
+                color={selectedIsDraft ? 'warning' : 'default'}
+                label={
+                  selectedDefinition
+                    ? selectedIsDraft
+                      ? 'Draft editable'
+                      : 'Published read-only'
+                    : 'No selection'
+                }
+                variant="outlined"
+              />
+            </Stack>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+              <TextField
+                disabled={!selectedIsDraft || busy}
+                fullWidth
+                label="Process name"
+                onChange={(event) => setEditName(event.target.value)}
+                value={editName}
+              />
+              <TextField
+                disabled={!selectedIsDraft || busy}
+                label="Category"
+                onChange={(event) => setEditCategory(event.target.value)}
+                sx={{ minWidth: { md: 220 } }}
+                value={editCategory}
+              />
+            </Stack>
+            <TextField
+              disabled={!selectedIsDraft || busy}
+              fullWidth
+              label="Business description"
+              minRows={3}
+              multiline
+              onChange={(event) => setEditDescription(event.target.value)}
+              value={editDescription}
+            />
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+              <Button
+                disabled={!processConnection || !selectedIsDraft || busy}
+                onClick={() => updateDraft.mutate()}
+                variant="contained"
+              >
+                Save draft changes
+              </Button>
+              <Button
+                disabled={!selectedIsDraft || busy}
+                onClick={() =>
+                  selectedDefinition && selectDefinitionForEditing(selectedDefinition)
+                }
+                variant="outlined"
+              >
+                Reset fields
+              </Button>
+            </Stack>
+          </Stack>
+        </Paper>
+
         <Box
           sx={{
             display: 'grid',
@@ -680,8 +801,9 @@ export function ProcessWorkflowRoutePage({
                       disabled={busy}
                       key={definition.code}
                       onDelete={() => deleteDefinition.mutate(definition.code)}
+                      onEdit={() => selectDefinitionForEditing(definition)}
                       onPublish={() => publishDraft.mutate(definition.code)}
-                      onSelect={() => setSelectedCode(definition.code)}
+                      onSelect={() => selectDefinitionForEditing(definition)}
                       onValidate={() => validateDraft.mutate(definition.code)}
                       selected={selectedDefinition?.code === definition.code}
                     />

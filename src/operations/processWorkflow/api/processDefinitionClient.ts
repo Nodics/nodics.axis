@@ -85,6 +85,12 @@ export interface CreateProcessDefinitionInput {
   readonly graph: ProcessGraph;
 }
 
+export interface UpdateProcessDraftInput {
+  readonly name: string;
+  readonly description: string;
+  readonly category: string;
+}
+
 function record(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error(`${label} is invalid`);
@@ -342,6 +348,25 @@ export async function validateProcessDraft(
       ),
     ),
   ) as ProcessValidationResult;
+}
+
+export async function updateProcessDraft(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  definitionCode: string,
+  input: UpdateProcessDraftInput,
+): Promise<unknown> {
+  return envelopeData(
+    await request(
+      connection,
+      `/definitions/${encodeURIComponent(definitionCode)}/draft`,
+      configuration,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      },
+    ),
+  );
 }
 
 export async function publishProcessDraft(

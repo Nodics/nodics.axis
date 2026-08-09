@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AxisThemeProvider } from '../../../src/app/AxisThemeProvider';
@@ -102,79 +103,91 @@ describe('ProcessWorkflowRoutePage', () => {
   });
 
   it('guides business users through backend-owned process lifecycle steps', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
-      const url = String(input);
-      if (url.includes('/instances')) {
+    const user = userEvent.setup();
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation((input, init) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+        if (method === 'PATCH') {
+          return Promise.resolve(
+            jsonResponse({
+              code: 'sample-approval-process',
+              draftRevision: 2,
+            }),
+          );
+        }
+        if (url.includes('/instances')) {
+          return Promise.resolve(
+            jsonResponse([
+              {
+                code: 'instance-1',
+                definitionCode: 'sample-approval-process',
+                status: 'RUNNING',
+                currentNode: 'businessReview',
+              },
+            ]),
+          );
+        }
+        if (url.includes('/tasks')) {
+          return Promise.resolve(
+            jsonResponse([
+              {
+                code: 'task-1',
+                instanceCode: 'instance-1',
+                assignee: 'content-admin',
+                status: 'OPEN',
+              },
+            ]),
+          );
+        }
+        if (url.includes('/audit-events')) {
+          return Promise.resolve(
+            jsonResponse([
+              {
+                eventType: 'task.created',
+                outcome: 'success',
+                definitionCode: 'sample-approval-process',
+                instanceCode: 'instance-1',
+              },
+            ]),
+          );
+        }
         return Promise.resolve(
           jsonResponse([
             {
-              code: 'instance-1',
-              definitionCode: 'sample-approval-process',
-              status: 'RUNNING',
-              currentNode: 'businessReview',
+              code: 'sample-approval-process',
+              name: 'Sample approval process',
+              description: 'A governed approval flow for business review.',
+              category: 'operations',
+              status: 'DRAFT',
+              currentVersion: 0,
+              draftRevision: 1,
+              graph: {
+                nodes: [
+                  { code: 'start', type: 'START', name: 'Start' },
+                  { code: 'businessReview', type: 'TASK', name: 'Business review' },
+                  { code: 'end', type: 'END', name: 'End' },
+                ],
+                transitions: [
+                  {
+                    code: 'start_to_review',
+                    source: 'start',
+                    target: 'businessReview',
+                  },
+                  { code: 'review_to_end', source: 'businessReview', target: 'end' },
+                ],
+              },
+              validation: {
+                valid: true,
+                nodeCount: 3,
+                transitionCount: 2,
+                issues: [],
+              },
             },
           ]),
         );
-      }
-      if (url.includes('/tasks')) {
-        return Promise.resolve(
-          jsonResponse([
-            {
-              code: 'task-1',
-              instanceCode: 'instance-1',
-              assignee: 'content-admin',
-              status: 'OPEN',
-            },
-          ]),
-        );
-      }
-      if (url.includes('/audit-events')) {
-        return Promise.resolve(
-          jsonResponse([
-            {
-              eventType: 'task.created',
-              outcome: 'success',
-              definitionCode: 'sample-approval-process',
-              instanceCode: 'instance-1',
-            },
-          ]),
-        );
-      }
-      return Promise.resolve(
-        jsonResponse([
-          {
-            code: 'sample-approval-process',
-            name: 'Sample approval process',
-            description: 'A governed approval flow for business review.',
-            category: 'operations',
-            status: 'DRAFT',
-            currentVersion: 0,
-            draftRevision: 1,
-            graph: {
-              nodes: [
-                { code: 'start', type: 'START', name: 'Start' },
-                { code: 'businessReview', type: 'TASK', name: 'Business review' },
-                { code: 'end', type: 'END', name: 'End' },
-              ],
-              transitions: [
-                {
-                  code: 'start_to_review',
-                  source: 'start',
-                  target: 'businessReview',
-                },
-                { code: 'review_to_end', source: 'businessReview', target: 'end' },
-              ],
-            },
-            validation: {
-              valid: true,
-              nodeCount: 3,
-              transitionCount: 2,
-              issues: [],
-            },
-          },
-        ]),
-      );
-    });
+      });
 
     renderPage();
 
@@ -201,6 +214,28 @@ describe('ProcessWorkflowRoutePage', () => {
     expect(screen.getByText('Running instances')).toBeInTheDocument();
     expect(screen.getByText('Open tasks')).toBeInTheDocument();
     expect(screen.getByText('Audit events')).toBeInTheDocument();
+    expect(screen.getByText('Edit selected draft')).toBeInTheDocument();
     expect(screen.getByText(/validation and runtime truth stay/i)).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText('Process name'));
+    await user.type(
+      screen.getByLabelText('Process name'),
+      'Customer onboarding approval',
+    );
+    await user.click(screen.getByRole('button', { name: 'Save draft changes' }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([input, init]) => {
+          const body = init?.body;
+          return (
+            String(input).includes('/definitions/sample-approval-process/draft') &&
+            init?.method === 'PATCH' &&
+            typeof body === 'string' &&
+            body.includes('Customer onboarding approval')
+          );
+        }),
+      ).toBe(true),
+    );
   });
 });
