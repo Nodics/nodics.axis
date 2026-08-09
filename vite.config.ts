@@ -104,6 +104,7 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       environment: 'jsdom',
+      fileParallelism: false,
       setupFiles: ['./test/setup.ts'],
       restoreMocks: true,
     },
