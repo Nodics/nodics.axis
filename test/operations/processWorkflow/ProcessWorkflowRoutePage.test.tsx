@@ -117,6 +117,31 @@ describe('ProcessWorkflowRoutePage', () => {
             }),
           );
         }
+        if (method === 'POST' && url.includes('/draft/prepare')) {
+          return Promise.resolve(
+            jsonResponse({
+              code: 'published-onboarding-process',
+              currentVersion: 1,
+              draftRevision: 3,
+              status: 'DRAFT',
+            }),
+          );
+        }
+        if (url.includes('/versions')) {
+          return Promise.resolve(
+            jsonResponse([
+              {
+                code: 'published-onboarding-process_v1',
+                definitionCode: 'published-onboarding-process',
+                version: 1,
+                status: 'PUBLISHED',
+                checksum: '1234567890abcdef1234567890abcdef',
+                publishedBy: 'publisher',
+                publishedAt: '2026-08-09T08:00:00.000Z',
+              },
+            ]),
+          );
+        }
         if (url.includes('/instances')) {
           return Promise.resolve(
             jsonResponse([
@@ -185,6 +210,36 @@ describe('ProcessWorkflowRoutePage', () => {
                 issues: [],
               },
             },
+            {
+              code: 'published-onboarding-process',
+              name: 'Published onboarding process',
+              description: 'An immutable published flow ready for next draft prep.',
+              category: 'operations',
+              status: 'PUBLISHED',
+              currentVersion: 1,
+              draftRevision: 2,
+              graph: {
+                nodes: [
+                  { code: 'start', type: 'START', name: 'Start' },
+                  { code: 'businessReview', type: 'TASK', name: 'Business review' },
+                  { code: 'end', type: 'END', name: 'End' },
+                ],
+                transitions: [
+                  {
+                    code: 'start_to_review',
+                    source: 'start',
+                    target: 'businessReview',
+                  },
+                  { code: 'review_to_end', source: 'businessReview', target: 'end' },
+                ],
+              },
+              validation: {
+                valid: true,
+                nodeCount: 3,
+                transitionCount: 2,
+                issues: [],
+              },
+            },
           ]),
         );
       });
@@ -215,6 +270,9 @@ describe('ProcessWorkflowRoutePage', () => {
     expect(screen.getByText('Open tasks')).toBeInTheDocument();
     expect(screen.getByText('Audit events')).toBeInTheDocument();
     expect(screen.getByText('Edit selected draft')).toBeInTheDocument();
+    expect(screen.getByText('Version history')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Version 1')).toBeInTheDocument());
+    expect(screen.getByText(/checksum 1234567890abcdef/i)).toBeInTheDocument();
     expect(screen.getByText(/validation and runtime truth stay/i)).toBeInTheDocument();
 
     await user.clear(screen.getByLabelText('Process name'));
@@ -235,6 +293,26 @@ describe('ProcessWorkflowRoutePage', () => {
             body.includes('Customer onboarding approval')
           );
         }),
+      ).toBe(true),
+    );
+
+    const prepareButtons = screen.getAllByRole('button', {
+      name: 'Prepare next draft',
+    });
+    const enabledPrepareButton = prepareButtons.find(
+      (button) => !(button as HTMLButtonElement).disabled,
+    );
+    expect(enabledPrepareButton).toBeDefined();
+    await user.click(enabledPrepareButton as HTMLButtonElement);
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, init]) =>
+            String(input).includes(
+              '/definitions/published-onboarding-process/draft/prepare',
+            ) && init?.method === 'POST',
+        ),
       ).toBe(true),
     );
   });

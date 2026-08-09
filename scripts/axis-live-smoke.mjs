@@ -21,6 +21,7 @@ const browserOrigin = process.env.AXIS_BROWSER_ORIGIN || axisUrl;
 const strictModules = process.env.AXIS_EXPECT_MODULES === '1';
 const verifyDocumentationPacks = process.env.AXIS_EXPECT_DOCUMENTATION === '1';
 const runCronLifecycle = process.env.AXIS_CRON_LIFECYCLE === '1';
+const runProcessLifecycle = process.env.AXIS_PROCESS_LIFECYCLE === '1';
 const wcmsUrl = process.env.AXIS_WCMS_URL || 'http://127.0.0.1:4310';
 
 const axisRoutes = [
@@ -232,6 +233,113 @@ async function verifyProcessOperations(authorizedHeaders) {
   }
 }
 
+function sampleProcessGraph() {
+  return {
+    nodes: [
+      { code: 'start', type: 'START', name: 'Start' },
+      { code: 'businessReview', type: 'TASK', name: 'Business review' },
+      { code: 'end', type: 'END', name: 'End' },
+    ],
+    transitions: [
+      { code: 'start_to_review', source: 'start', target: 'businessReview' },
+      { code: 'review_to_end', source: 'businessReview', target: 'end' },
+    ],
+  };
+}
+
+async function verifyProcessDefinitionLifecycle(authorizedHeaders) {
+  const definitionCode = `axisSmokeProcess_${Date.now()}`;
+  const createBody = await requestJson(
+    endpoint(processUrl, '/nodics/process/v0/definitions'),
+    {
+      body: JSON.stringify({
+        code: definitionCode,
+        name: 'Axis smoke process',
+        description:
+          'Created by Axis live smoke to verify process definition lifecycle.',
+        category: 'smoke',
+        graph: sampleProcessGraph(),
+      }),
+      headers: authorizedHeaders,
+      method: 'POST',
+    },
+  );
+  const created = resultPayload(createBody);
+  if (created?.code !== definitionCode || created?.status !== 'DRAFT') {
+    throw new Error('Process lifecycle create did not return a draft definition');
+  }
+  console.log('PASS process lifecycle create draft');
+
+  await requestJson(
+    endpoint(
+      processUrl,
+      `/nodics/process/v0/definitions/${encodeURIComponent(definitionCode)}/draft`,
+    ),
+    {
+      body: JSON.stringify({
+        name: 'Axis smoke process updated',
+        description: 'Updated by Axis live smoke before validation.',
+        category: 'smoke',
+      }),
+      headers: authorizedHeaders,
+      method: 'PATCH',
+    },
+  );
+  console.log('PASS process lifecycle edit draft');
+
+  const validationBody = await requestJson(
+    endpoint(
+      processUrl,
+      `/nodics/process/v0/definitions/${encodeURIComponent(definitionCode)}/draft/validate`,
+    ),
+    { headers: authorizedHeaders, method: 'POST' },
+  );
+  const validation = resultPayload(validationBody);
+  if (validation?.valid !== true) {
+    throw new Error('Process lifecycle validation did not return valid=true');
+  }
+  console.log('PASS process lifecycle validate draft');
+
+  const publishBody = await requestJson(
+    endpoint(
+      processUrl,
+      `/nodics/process/v0/definitions/${encodeURIComponent(definitionCode)}/draft/publish`,
+    ),
+    { headers: authorizedHeaders, method: 'POST' },
+  );
+  const published = resultPayload(publishBody);
+  if (published?.version !== 1 || !published?.checksum) {
+    throw new Error('Process lifecycle publish did not create immutable version 1');
+  }
+  console.log('PASS process lifecycle publish version 1');
+
+  const versionsBody = await requestJson(
+    endpoint(
+      processUrl,
+      `/nodics/process/v0/definitions/${encodeURIComponent(definitionCode)}/versions`,
+    ),
+    { headers: authorizedHeaders },
+  );
+  const versions = resultPayload(versionsBody);
+  if (!Array.isArray(versions) || versions.length !== 1 || versions[0].version !== 1) {
+    throw new Error('Process lifecycle version history did not expose version 1');
+  }
+  console.log('PASS process lifecycle version history visible');
+
+  const preparedBody = await requestJson(
+    endpoint(
+      processUrl,
+      `/nodics/process/v0/definitions/${encodeURIComponent(definitionCode)}/draft/prepare`,
+    ),
+    { headers: authorizedHeaders, method: 'POST' },
+  );
+  const prepared = resultPayload(preparedBody);
+  if (prepared?.status !== 'DRAFT' || prepared?.currentVersion !== 1) {
+    throw new Error('Process lifecycle prepare next draft did not keep version 1');
+  }
+  console.log('PASS process lifecycle prepare next draft');
+}
+
 async function main() {
   console.log('Axis live smoke started');
   console.log(`Axis: ${axisUrl}`);
@@ -310,6 +418,14 @@ async function main() {
   }
 
   await verifyProcessOperations(authorizedHeaders);
+
+  if (runProcessLifecycle) {
+    await verifyProcessDefinitionLifecycle(authorizedHeaders);
+  } else {
+    console.log(
+      'PASS process lifecycle mutation skipped; set AXIS_PROCESS_LIFECYCLE=1 to enable',
+    );
+  }
 
   if (runCronLifecycle) {
     await verifyCronLifecycle(authorizedHeaders);

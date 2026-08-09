@@ -49,6 +49,16 @@ export interface ProcessDefinition {
   readonly validation: ProcessValidationResult | undefined;
 }
 
+export interface ProcessDefinitionVersion {
+  readonly code: string;
+  readonly definitionCode: string;
+  readonly version: number;
+  readonly status: string;
+  readonly checksum: string;
+  readonly publishedBy: string | undefined;
+  readonly publishedAt: string | undefined;
+}
+
 export interface ProcessRuntimeInstance {
   readonly code: string;
   readonly definitionCode: string | undefined;
@@ -199,6 +209,19 @@ function parseDefinition(value: unknown): ProcessDefinition {
   });
 }
 
+function parseDefinitionVersion(value: unknown): ProcessDefinitionVersion {
+  const data = record(value, 'Process definition version');
+  return Object.freeze({
+    code: text(data.code, 'unknown-version'),
+    definitionCode: text(data.definitionCode, 'unknown-definition'),
+    version: numberValue(data.version, 0),
+    status: text(data.status, 'UNKNOWN'),
+    checksum: text(data.checksum, ''),
+    publishedBy: optionalText(data.publishedBy),
+    publishedAt: optionalText(data.publishedAt),
+  });
+}
+
 function parseRuntimeInstance(value: unknown): ProcessRuntimeInstance {
   const data = record(value, 'Process runtime instance');
   return Object.freeze({
@@ -318,6 +341,22 @@ export async function loadProcessDefinitions(
   );
 }
 
+export async function loadProcessDefinitionVersions(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  definitionCode: string,
+): Promise<readonly ProcessDefinitionVersion[]> {
+  return Object.freeze(
+    listPayload(
+      await request(
+        connection,
+        `/definitions/${encodeURIComponent(definitionCode)}/versions`,
+        configuration,
+      ),
+    ).map(parseDefinitionVersion),
+  );
+}
+
 export async function createProcessDefinition(
   connection: AxisModuleConnection,
   configuration: ProcessDefinitionClientConfiguration,
@@ -378,6 +417,21 @@ export async function publishProcessDraft(
     await request(
       connection,
       `/definitions/${encodeURIComponent(definitionCode)}/draft/publish`,
+      configuration,
+      { method: 'POST' },
+    ),
+  );
+}
+
+export async function prepareNextProcessDraft(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  definitionCode: string,
+): Promise<unknown> {
+  return envelopeData(
+    await request(
+      connection,
+      `/definitions/${encodeURIComponent(definitionCode)}/draft/prepare`,
       configuration,
       { method: 'POST' },
     ),

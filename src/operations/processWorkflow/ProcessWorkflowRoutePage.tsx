@@ -27,13 +27,16 @@ import {
   createProcessDefinition,
   createSampleGraph,
   deleteOrArchiveProcessDefinition,
+  loadProcessDefinitionVersions,
   loadProcessOperationsSummary,
   loadProcessDefinitions,
+  prepareNextProcessDraft,
   publishProcessDraft,
   updateProcessDraft,
   validateProcessDraft,
   type ProcessDefinition,
   type ProcessDefinitionClientConfiguration,
+  type ProcessDefinitionVersion,
   type ProcessGraph,
 } from './api/processDefinitionClient';
 
@@ -46,6 +49,7 @@ interface ProcessWorkflowRoutePageProps {
 
 const queryKey = 'process-definitions';
 const operationsQueryKey = 'process-operations-summary';
+const versionsQueryKey = 'process-definition-versions';
 
 function normalizeCode(value: string): string {
   return value
@@ -214,11 +218,88 @@ function GraphPreview({ graph }: { readonly graph: ProcessGraph | undefined }) {
   );
 }
 
+function VersionHistory({
+  loading,
+  versions,
+}: {
+  readonly loading: boolean;
+  readonly versions: readonly ProcessDefinitionVersion[];
+}) {
+  return (
+    <Paper
+      component="section"
+      elevation={0}
+      sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
+    >
+      <Stack spacing={2}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+          <ShellIcon name="publish" />
+          <Typography variant="h5">Version history</Typography>
+          <Chip
+            label={loading ? 'Loading' : `${String(versions.length)} versions`}
+            variant="outlined"
+          />
+        </Stack>
+        {versions.length === 0 ? (
+          <Alert severity="info">
+            No immutable versions exist yet. Validate and publish a draft to create the
+            first auditable process version.
+          </Alert>
+        ) : (
+          <Stack spacing={1.5}>
+            {versions.map((version) => (
+              <Paper
+                component="article"
+                elevation={0}
+                key={`${version.definitionCode}-${String(version.version)}`}
+                sx={{
+                  bgcolor: alpha(axisTokens.color.success, 0.06),
+                  border: 1,
+                  borderColor: 'divider',
+                  p: 2,
+                }}
+              >
+                <Stack spacing={1}>
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    sx={{ alignItems: 'center', justifyContent: 'space-between' }}
+                  >
+                    <Typography variant="h6">Version {version.version}</Typography>
+                    <Chip
+                      color={version.status === 'PUBLISHED' ? 'success' : 'default'}
+                      label={version.status}
+                      size="small"
+                    />
+                  </Stack>
+                  <Typography color="text.secondary" variant="body2">
+                    Published by {version.publishedBy ?? 'unknown'} ·{' '}
+                    {version.publishedAt ?? 'date unavailable'}
+                  </Typography>
+                  <Typography
+                    color="text.secondary"
+                    sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}
+                    variant="caption"
+                  >
+                    checksum {version.checksum.slice(0, 24)}
+                    {version.checksum.length > 24 ? '…' : ''}
+                  </Typography>
+                </Stack>
+              </Paper>
+            ))}
+          </Stack>
+        )}
+      </Stack>
+    </Paper>
+  );
+}
+
 function DefinitionCard({
   definition,
   disabled,
   onDelete,
   onEdit,
+  onPrepare,
   onPublish,
   onSelect,
   onValidate,
@@ -228,12 +309,14 @@ function DefinitionCard({
   readonly disabled: boolean;
   readonly onDelete: () => void;
   readonly onEdit: () => void;
+  readonly onPrepare: () => void;
   readonly onPublish: () => void;
   readonly onSelect: () => void;
   readonly onValidate: () => void;
   readonly selected: boolean;
 }) {
   const isDraft = definition.status === 'DRAFT';
+  const isPublished = definition.status === 'PUBLISHED';
   return (
     <Paper
       component="article"
@@ -290,6 +373,13 @@ function DefinitionCard({
             variant="outlined"
           >
             Publish
+          </Button>
+          <Button
+            disabled={disabled || !isPublished}
+            onClick={onPrepare}
+            variant="outlined"
+          >
+            Prepare next draft
           </Button>
           <Button
             color="error"
@@ -351,7 +441,10 @@ export function ProcessWorkflowRoutePage({
   });
 
   const invalidate = async () => {
-    await queryClient.invalidateQueries({ queryKey: [queryKey] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: [queryKey] }),
+      queryClient.invalidateQueries({ queryKey: [versionsQueryKey] }),
+    ]);
   };
 
   const selectDefinitionForEditing = (definition: ProcessDefinition) => {
@@ -417,6 +510,24 @@ export function ProcessWorkflowRoutePage({
     definitions.data?.[0];
   const selectedIsDraft = selectedDefinition?.status === 'DRAFT';
 
+  const versions = useQuery({
+    enabled: Boolean(processConnection && selectedDefinition),
+    queryKey: [
+      versionsQueryKey,
+      runtime.enterpriseCode,
+      processConnection?.endpoint,
+      selectedDefinition?.code,
+    ],
+    queryFn: () =>
+      processConnection && selectedDefinition
+        ? loadProcessDefinitionVersions(
+            processConnection,
+            configuration,
+            selectedDefinition.code,
+          )
+        : Promise.resolve(Object.freeze([])),
+  });
+
   useEffect(() => {
     if (selectedDefinition) selectDefinitionForEditing(selectedDefinition);
   }, [selectedDefinition?.code]);
@@ -441,6 +552,14 @@ export function ProcessWorkflowRoutePage({
     onSuccess: invalidate,
   });
 
+  const prepareNextDraft = useMutation({
+    mutationFn: async (definitionCode: string) => {
+      if (!processConnection) throw new Error('Process API is unavailable');
+      return prepareNextProcessDraft(processConnection, configuration, definitionCode);
+    },
+    onSuccess: invalidate,
+  });
+
   const definitionCount = definitions.data?.length ?? 0;
   const draftCount =
     definitions.data?.filter((definition) => definition.status === 'DRAFT').length ?? 0;
@@ -461,12 +580,14 @@ export function ProcessWorkflowRoutePage({
     updateDraft.isPending ||
     validateDraft.isPending ||
     publishDraft.isPending ||
+    prepareNextDraft.isPending ||
     deleteDefinition.isPending;
   const latestError =
     createDraft.error ??
     updateDraft.error ??
     validateDraft.error ??
     publishDraft.error ??
+    prepareNextDraft.error ??
     deleteDefinition.error;
 
   return (
@@ -802,6 +923,7 @@ export function ProcessWorkflowRoutePage({
                       key={definition.code}
                       onDelete={() => deleteDefinition.mutate(definition.code)}
                       onEdit={() => selectDefinitionForEditing(definition)}
+                      onPrepare={() => prepareNextDraft.mutate(definition.code)}
                       onPublish={() => publishDraft.mutate(definition.code)}
                       onSelect={() => selectDefinitionForEditing(definition)}
                       onValidate={() => validateDraft.mutate(definition.code)}
@@ -815,6 +937,10 @@ export function ProcessWorkflowRoutePage({
 
           <Stack spacing={3}>
             <GraphPreview graph={selectedDefinition?.graph} />
+            <VersionHistory
+              loading={versions.isPending}
+              versions={versions.data ?? []}
+            />
             <Paper
               component="section"
               elevation={0}
