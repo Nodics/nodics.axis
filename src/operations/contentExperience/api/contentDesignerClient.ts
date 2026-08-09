@@ -49,7 +49,29 @@ export interface ContentDesignerDraft {
   readonly templateCode: string;
 }
 
+export interface ContentDesignerComponentKind {
+  readonly label: string;
+  readonly renderer: string;
+  readonly typeCode: string;
+}
+
+export interface ContentDesignerDraftDefaults {
+  readonly catalogCode?: string | undefined;
+  readonly pageRenderer?: string | undefined;
+  readonly pageTypeCode?: string | undefined;
+  readonly routePath?: string | undefined;
+  readonly siteCode?: string | undefined;
+  readonly slots?: readonly string[] | undefined;
+  readonly templateCode?: string | undefined;
+}
+
 export interface ContentDesignerAuthoringModel {
+  readonly defaults: {
+    readonly componentKinds: readonly ContentDesignerComponentKind[];
+    readonly draftDefaults: ContentDesignerDraftDefaults;
+    readonly maximumReferenceLookupItems?: number | undefined;
+    readonly requireNavigationForPublish: boolean;
+  };
   readonly hierarchy: readonly string[];
   readonly operations: readonly string[];
   readonly rules: {
@@ -122,7 +144,81 @@ function asRecord(value: unknown, label: string): Record<string, unknown> {
 function parseAuthoringModel(value: unknown): ContentDesignerAuthoringModel {
   const source = asRecord(value, 'CMS Designer authoring model');
   const rules = asRecord(source.rules, 'CMS Designer rules');
+  const defaults =
+    typeof source.defaults === 'object' &&
+    source.defaults !== null &&
+    !Array.isArray(source.defaults)
+      ? (source.defaults as Record<string, unknown>)
+      : {};
+  const draftDefaults =
+    typeof defaults.draftDefaults === 'object' &&
+    defaults.draftDefaults !== null &&
+    !Array.isArray(defaults.draftDefaults)
+      ? (defaults.draftDefaults as Record<string, unknown>)
+      : {};
   return Object.freeze({
+    defaults: Object.freeze({
+      componentKinds: Object.freeze(
+        Array.isArray(defaults.componentKinds)
+          ? defaults.componentKinds.flatMap(
+              (item): readonly ContentDesignerComponentKind[] => {
+                if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+                  return [];
+                }
+                const candidate = item as Record<string, unknown>;
+                if (
+                  typeof candidate.label !== 'string' ||
+                  typeof candidate.renderer !== 'string' ||
+                  typeof candidate.typeCode !== 'string'
+                ) {
+                  return [];
+                }
+                return [
+                  Object.freeze({
+                    label: candidate.label,
+                    renderer: candidate.renderer,
+                    typeCode: candidate.typeCode,
+                  }),
+                ];
+              },
+            )
+          : [],
+      ),
+      draftDefaults: Object.freeze({
+        catalogCode:
+          typeof draftDefaults.catalogCode === 'string'
+            ? draftDefaults.catalogCode
+            : undefined,
+        pageRenderer:
+          typeof draftDefaults.pageRenderer === 'string'
+            ? draftDefaults.pageRenderer
+            : undefined,
+        pageTypeCode:
+          typeof draftDefaults.pageTypeCode === 'string'
+            ? draftDefaults.pageTypeCode
+            : undefined,
+        routePath:
+          typeof draftDefaults.routePath === 'string'
+            ? draftDefaults.routePath
+            : undefined,
+        siteCode:
+          typeof draftDefaults.siteCode === 'string'
+            ? draftDefaults.siteCode
+            : undefined,
+        slots: Array.isArray(draftDefaults.slots)
+          ? Object.freeze(draftDefaults.slots.map(String).filter(Boolean))
+          : undefined,
+        templateCode:
+          typeof draftDefaults.templateCode === 'string'
+            ? draftDefaults.templateCode
+            : undefined,
+      }),
+      maximumReferenceLookupItems:
+        typeof defaults.maximumReferenceLookupItems === 'number'
+          ? defaults.maximumReferenceLookupItems
+          : undefined,
+      requireNavigationForPublish: defaults.requireNavigationForPublish === true,
+    }),
     hierarchy: Object.freeze(
       Array.isArray(source.hierarchy) ? source.hierarchy.map(String) : [],
     ),

@@ -43,7 +43,9 @@ import {
   saveContentDesignerDraft,
   validateContentDesignerDraft,
   type ContentDesignerAuthoringModel,
+  type ContentDesignerComponentKind,
   type ContentDesignerDraft,
+  type ContentDesignerDraftDefaults,
   type ContentDesignerOperationResult,
 } from './api/contentDesignerClient';
 
@@ -61,12 +63,6 @@ interface DesignerStep {
   readonly id: string;
   readonly label: string;
   readonly route: string;
-}
-
-interface ComponentKind {
-  readonly label: string;
-  readonly typeCode: string;
-  readonly renderer: string;
 }
 
 const designerMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
@@ -211,7 +207,17 @@ const designerSteps: readonly DesignerStep[] = Object.freeze([
   }),
 ]);
 
-const componentKinds: readonly ComponentKind[] = Object.freeze([
+const fallbackDraftDefaults: ContentDesignerDraftDefaults = Object.freeze({
+  catalogCode: 'documentationContentCatalog',
+  pageRenderer: 'axis.documentationPage',
+  pageTypeCode: 'documentationPageType',
+  routePath: '/docs/home',
+  siteCode: 'axisDocumentationSite',
+  slots: Object.freeze(['navigation', 'article', 'relatedResources']),
+  templateCode: 'articleTemplate',
+});
+
+const fallbackComponentKinds: readonly ContentDesignerComponentKind[] = Object.freeze([
   Object.freeze({
     label: 'Hero banner',
     typeCode: 'heroBannerComponentType',
@@ -323,7 +329,10 @@ function parseSlots(value: string): readonly string[] {
   return Object.freeze(slots.length > 0 ? slots : ['body']);
 }
 
-function selectedComponentKind(label: string): ComponentKind {
+function selectedComponentKind(
+  label: string,
+  componentKinds: readonly ContentDesignerComponentKind[],
+): ContentDesignerComponentKind {
   const selected = componentKinds.find((kind) => kind.label === label);
   if (selected) return selected;
   const fallback = componentKinds.find((kind) => kind.label === 'Hero banner');
@@ -334,6 +343,8 @@ function selectedComponentKind(label: string): ComponentKind {
 function buildDraft({
   catalogIntent,
   componentIntent,
+  componentKinds,
+  draftDefaults,
   pageIntent,
   routeIntent,
   siteIntent,
@@ -342,6 +353,8 @@ function buildDraft({
 }: {
   readonly catalogIntent: string;
   readonly componentIntent: string;
+  readonly componentKinds: readonly ContentDesignerComponentKind[];
+  readonly draftDefaults: ContentDesignerDraftDefaults;
   readonly pageIntent: string;
   readonly routeIntent: string;
   readonly siteIntent: string;
@@ -349,12 +362,19 @@ function buildDraft({
   readonly templateIntent: string;
 }): ContentDesignerDraft {
   const pageCode = safeCode(pageIntent, 'newPage');
-  const kind = selectedComponentKind(componentIntent);
-  const slots = parseSlots(slotIntent);
+  const kind = selectedComponentKind(componentIntent, componentKinds);
+  const defaultSlots =
+    draftDefaults.slots && draftDefaults.slots.length
+      ? draftDefaults.slots.join('\n')
+      : 'body';
+  const slots = parseSlots(slotIntent || defaultSlots);
   return Object.freeze({
-    catalogCode: safeCode(catalogIntent, 'documentationContentCatalog'),
-    siteCode: safeCode(siteIntent, 'axisDocumentationSite'),
-    templateCode: safeCode(templateIntent, 'articleTemplate'),
+    catalogCode: safeCode(catalogIntent, draftDefaults.catalogCode ?? 'contentCatalog'),
+    siteCode: safeCode(siteIntent, draftDefaults.siteCode ?? 'contentSite'),
+    templateCode: safeCode(
+      templateIntent,
+      draftDefaults.templateCode ?? 'pageTemplate',
+    ),
     page: Object.freeze({
       code: pageCode,
       name:
@@ -363,8 +383,8 @@ function buildDraft({
           .replace(/([A-Z])/g, ' $1')
           .trim()
           .replace(/^./, (letter) => letter.toUpperCase()) || pageCode,
-      renderer: 'axis.documentationPage',
-      typeCode: 'documentationPageType',
+      renderer: draftDefaults.pageRenderer ?? 'axis.page',
+      typeCode: draftDefaults.pageTypeCode ?? 'contentPageType',
     }),
     sections: Object.freeze(
       slots.map((slot, index) =>
@@ -529,7 +549,7 @@ export function ContentDesignerRoutePage({
   const [slotIntent, setSlotIntent] = useState('navigation\narticle\nrelatedResources');
   const [routeIntent, setRouteIntent] = useState('/docs/home');
   const [componentIntent, setComponentIntent] = useState(
-    selectedComponentKind('Hero banner').label,
+    selectedComponentKind('Hero banner', fallbackComponentKinds).label,
   );
   const connections = useMemo(() => activeConnections(bootstrap), [bootstrap]);
   const designerConnection = useMemo(
@@ -543,27 +563,6 @@ export function ContentDesignerRoutePage({
       timeoutMs: runtime.requestTimeoutMs,
     }),
     [accessToken, runtime.enterpriseCode, runtime.requestTimeoutMs],
-  );
-  const draft = useMemo(
-    () =>
-      buildDraft({
-        catalogIntent,
-        componentIntent,
-        pageIntent,
-        routeIntent,
-        siteIntent,
-        slotIntent,
-        templateIntent,
-      }),
-    [
-      catalogIntent,
-      componentIntent,
-      pageIntent,
-      routeIntent,
-      siteIntent,
-      slotIntent,
-      templateIntent,
-    ],
   );
   const data = useQuery({
     queryKey: ['content-designer', runtime.enterpriseCode, connectionKey(connections)],
@@ -582,6 +581,36 @@ export function ContentDesignerRoutePage({
       return loadContentDesignerAuthoringModel(designerConnection, configuration);
     },
   });
+  const componentKinds = authoringModel.data?.defaults.componentKinds.length
+    ? authoringModel.data.defaults.componentKinds
+    : fallbackComponentKinds;
+  const draftDefaults =
+    authoringModel.data?.defaults.draftDefaults ?? fallbackDraftDefaults;
+  const draft = useMemo(
+    () =>
+      buildDraft({
+        catalogIntent,
+        componentIntent,
+        componentKinds,
+        draftDefaults,
+        pageIntent,
+        routeIntent,
+        siteIntent,
+        slotIntent,
+        templateIntent,
+      }),
+    [
+      catalogIntent,
+      componentIntent,
+      componentKinds,
+      draftDefaults,
+      pageIntent,
+      routeIntent,
+      siteIntent,
+      slotIntent,
+      templateIntent,
+    ],
+  );
   const validateMutation = useMutation({
     mutationFn: () => {
       if (!designerConnection) throw new Error('CMS connection is not available');
