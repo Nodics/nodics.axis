@@ -46,7 +46,7 @@ const cronMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     moduleName: 'cronjob',
     schemaName: 'cronJob',
     description:
-      'Persisted job definitions owned by the Cron module and executed by cronServer.',
+      'Persisted job definitions owned by the Cron module and executed by the active automation runtime.',
     route: '/cron/jobs',
     icon: 'cronjob',
   }),

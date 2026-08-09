@@ -52,6 +52,96 @@ function normalizeCode(value: string): string {
     .slice(0, 128);
 }
 
+function ProcessJourneyStep({
+  detail,
+  icon,
+  label,
+  state,
+}: {
+  readonly detail: string;
+  readonly icon: string;
+  readonly label: string;
+  readonly state: 'available' | 'preview' | 'planned';
+}) {
+  const tone =
+    state === 'available' ? 'success' : state === 'preview' ? 'warning' : 'default';
+  return (
+    <Paper
+      component="article"
+      elevation={0}
+      sx={{
+        bgcolor:
+          state === 'available'
+            ? alpha(axisTokens.color.success, 0.08)
+            : state === 'preview'
+              ? alpha(axisTokens.color.signatureGold, 0.08)
+              : 'background.paper',
+        border: 1,
+        borderColor: state === 'available' ? 'success.light' : 'divider',
+        p: { xs: 2, md: 2.5 },
+      }}
+    >
+      <Stack spacing={1.5}>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+          <Box
+            aria-hidden
+            sx={{
+              alignItems: 'center',
+              bgcolor: alpha(axisTokens.color.signatureGold, 0.18),
+              borderRadius: axisTokens.radius.medium,
+              color: 'primary.main',
+              display: 'inline-flex',
+              height: 42,
+              justifyContent: 'center',
+              width: 42,
+            }}
+          >
+            <ShellIcon name={icon} />
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="h6">{label}</Typography>
+            <Chip color={tone} label={state} size="small" variant="outlined" />
+          </Box>
+        </Stack>
+        <Typography color="text.secondary">{detail}</Typography>
+      </Stack>
+    </Paper>
+  );
+}
+
+function SummaryCard({
+  detail,
+  label,
+  value,
+}: {
+  readonly detail: string;
+  readonly label: string;
+  readonly value: number | string;
+}) {
+  return (
+    <Paper
+      component="article"
+      elevation={0}
+      sx={{
+        border: 1,
+        borderColor: 'divider',
+        minHeight: 136,
+        p: { xs: 2.5, md: 3 },
+      }}
+    >
+      <Stack spacing={1}>
+        <Typography color="text.secondary" variant="body2">
+          {label}
+        </Typography>
+        <Typography sx={{ fontSize: { xs: 34, md: 42 }, fontWeight: 800 }}>
+          {value}
+        </Typography>
+        <Typography color="text.secondary">{detail}</Typography>
+      </Stack>
+    </Paper>
+  );
+}
+
 function GraphPreview({ graph }: { readonly graph: ProcessGraph | undefined }) {
   const nodes = graph?.nodes ?? [];
   const transitions = graph?.transitions ?? [];
@@ -294,6 +384,13 @@ export function ProcessWorkflowRoutePage({
   const selectedDefinition =
     definitions.data?.find((definition) => definition.code === selectedCode) ??
     definitions.data?.[0];
+  const definitionCount = definitions.data?.length ?? 0;
+  const draftCount =
+    definitions.data?.filter((definition) => definition.status === 'DRAFT').length ?? 0;
+  const publishedCount =
+    definitions.data?.filter((definition) => definition.status === 'PUBLISHED')
+      .length ?? 0;
+  const selectedIssueCount = selectedDefinition?.validation?.issues.length ?? 0;
   const busy =
     createDraft.isPending ||
     validateDraft.isPending ||
@@ -313,7 +410,7 @@ export function ProcessWorkflowRoutePage({
           elevation={0}
           sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
         >
-          <Stack spacing={2}>
+          <Stack spacing={3}>
             <Stack
               direction={{ xs: 'column', md: 'row' }}
               spacing={2}
@@ -322,10 +419,10 @@ export function ProcessWorkflowRoutePage({
               <WorkspaceHeading
                 description={
                   navigation.help?.summary ??
-                  'Create, validate, publish, archive, and inspect backend-governed workflow definitions through nodics.process.'
+                  'Model business processes, validate workflow rules, publish governed definitions, and connect automation without hiding backend control.'
                 }
                 help={navigation.help}
-                eyebrow="Governed process operations"
+                eyebrow="Business Process & Automation"
                 headingVariant="h3"
                 title={navigation.label}
               />
@@ -342,6 +439,42 @@ export function ProcessWorkflowRoutePage({
               </Stack>
             </Stack>
 
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 2,
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  lg: 'repeat(4, minmax(0, 1fr))',
+                },
+              }}
+            >
+              <ProcessJourneyStep
+                detail="Capture the business flow in language a business owner can review before runtime execution exists."
+                icon="workflow"
+                label="Model"
+                state="available"
+              />
+              <ProcessJourneyStep
+                detail="Run backend graph validation so invalid handoffs, missing starts, and broken transitions are caught early."
+                icon="schema"
+                label="Validate"
+                state="available"
+              />
+              <ProcessJourneyStep
+                detail="Publish only validated definitions as immutable versions that operators can audit and promote safely."
+                icon="publish"
+                label="Publish"
+                state="preview"
+              />
+              <ProcessJourneyStep
+                detail="Connect scheduled triggers and cron jobs through module-owned APIs without moving scheduler ownership into Axis."
+                icon="cronjob"
+                label="Automate"
+                state="preview"
+              />
+            </Box>
+
             <Alert
               severity={
                 latestError ? 'error' : definitions.isError ? 'warning' : 'info'
@@ -351,10 +484,42 @@ export function ProcessWorkflowRoutePage({
                 ? latestError.message
                 : definitions.isError && definitions.error instanceof Error
                   ? definitions.error.message
-                  : 'Axis is connected to nodics.process. The visual designer remains a projection over backend validation; runtime execution and domain actions stay server-owned.'}
+                  : 'Axis is connected to nodics.process. This workspace is intentionally guided: business users can model and review; backend services validate, version, audit, and execute.'}
             </Alert>
           </Stack>
         </Paper>
+
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 3,
+            gridTemplateColumns: {
+              xs: '1fr',
+              md: 'repeat(4, minmax(0, 1fr))',
+            },
+          }}
+        >
+          <SummaryCard
+            detail="Total governed definitions visible to this enterprise."
+            label="Definitions"
+            value={definitions.isPending ? '—' : definitionCount}
+          />
+          <SummaryCard
+            detail="Editable definitions waiting for validation and publish."
+            label="Drafts"
+            value={definitions.isPending ? '—' : draftCount}
+          />
+          <SummaryCard
+            detail="Versioned definitions ready for controlled runtime use."
+            label="Published"
+            value={definitions.isPending ? '—' : publishedCount}
+          />
+          <SummaryCard
+            detail="Validation findings on the selected process preview."
+            label="Selected issues"
+            value={selectedIssueCount}
+          />
+        </Box>
 
         <Paper
           component="section"
@@ -362,11 +527,11 @@ export function ProcessWorkflowRoutePage({
           sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
         >
           <Stack spacing={2}>
-            <Typography variant="h5">Create process draft</Typography>
+            <Typography variant="h5">Create a beginner-safe process draft</Typography>
             <Typography color="text.secondary">
-              This creates a beginner-safe sample draft with START, TASK, and END nodes.
-              Later designer iterations can add drag/drop layout, domain-action
-              palettes, and BPMN import/export adapters.
+              Start with a small approval flow that a business user can understand:
+              request starts, review task happens, and the process ends. Advanced
+              designer features can come later, after the backend contract is proven.
             </Typography>
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
               <TextField
@@ -416,9 +581,11 @@ export function ProcessWorkflowRoutePage({
               </Stack>
               <Divider />
               {(definitions.data ?? []).length === 0 ? (
-                <Typography color="text.secondary">
-                  No process definitions are available yet.
-                </Typography>
+                <Alert severity="info">
+                  No process definitions are available yet. Create the sample draft
+                  above to see the complete model → validate → publish flow without
+                  connecting any domain action or scheduler.
+                </Alert>
               ) : (
                 <Stack spacing={2}>
                   {(definitions.data ?? []).map((definition) => (
@@ -448,8 +615,9 @@ export function ProcessWorkflowRoutePage({
               <Stack spacing={1.5}>
                 <Typography variant="h5">Designer implementation direction</Typography>
                 <Typography color="text.secondary">
-                  Use a Nodics-native graph designer first. Add BPMN import/export as an
-                  adapter later for interoperability, not as the runtime truth.
+                  Use a Nodics-native graph designer first so the screen stays simple
+                  for business users and safe for operators. Add BPMN import/export as
+                  an adapter later for interoperability, not as the runtime truth.
                 </Typography>
                 <Typography color="text.secondary" variant="body2">
                   Guardrail: Axis may edit graph JSON and layout metadata; backend
