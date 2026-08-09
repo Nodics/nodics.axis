@@ -78,6 +78,40 @@ async function requestJson(url, options = {}) {
   return body;
 }
 
+async function requestJsonFromFirst(urls, options = {}) {
+  const errors = [];
+  for (const url of urls) {
+    try {
+      return await requestJson(url, options);
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+  throw new Error(errors.join(' | '));
+}
+
+async function waitForProcessInstance(definitionCode, instanceCode, authorizedHeaders) {
+  const deadline = Date.now() + 8_000;
+  while (Date.now() < deadline) {
+    const body = await requestJson(
+      endpoint(
+        processUrl,
+        `/nodics/process/v0/instances?definitionCode=${encodeURIComponent(
+          definitionCode,
+        )}&limit=20`,
+      ),
+      { headers: authorizedHeaders },
+    );
+    const instances = resultPayload(body);
+    const instance = Array.isArray(instances)
+      ? instances.find((candidate) => candidate?.code === instanceCode)
+      : undefined;
+    if (instance) return instance;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`Process instance ${instanceCode} was not created by Cron handoff`);
+}
+
 async function expectOk(url) {
   const response = await fetch(url);
   if (!response.ok) {
@@ -482,6 +516,47 @@ async function verifyProcessDefinitionLifecycle(authorizedHeaders) {
     throw new Error('Process trigger execute did not start a governed instance');
   }
   console.log('PASS process trigger execute starts instance');
+
+  const cronJobCode = `${definitionCode}_cronJob`;
+  const cronInstanceCode = `${definitionCode}-cron-triggered-smoke`;
+  await requestJson(endpoint(processUrl, '/nodics/cronjob/v0/cronjob'), {
+    body: JSON.stringify({
+      code: cronJobCode,
+      active: true,
+      name: 'Axis smoke Process trigger Cron job',
+      description:
+        'Created by Axis live smoke to verify Cron-to-Process trigger handoff.',
+      runOnNode: 'node0',
+      runOnInit: false,
+      trigger: { expression: '* * * * * *' },
+      start: new Date(Date.now() - 1000).toISOString(),
+      priority: 0,
+      jobDetail: {
+        processTrigger: {
+          triggerCode,
+          instanceCode: cronInstanceCode,
+          context: { source: 'axis-live-smoke-cron' },
+        },
+      },
+    }),
+    headers: authorizedHeaders,
+    method: 'PUT',
+  });
+  await requestJsonFromFirst(
+    [
+      endpoint(
+        processUrl,
+        `/nodics/cronjob/job/run/${encodeURIComponent(cronJobCode)}`,
+      ),
+      endpoint(
+        processUrl,
+        `/nodics/cronjob/v0/job/run/${encodeURIComponent(cronJobCode)}`,
+      ),
+    ],
+    { headers: authorizedHeaders, method: 'POST' },
+  );
+  await waitForProcessInstance(definitionCode, cronInstanceCode, authorizedHeaders);
+  console.log('PASS cron job processTrigger handoff starts Process instance');
 
   const archiveTriggerBody = await requestJson(
     endpoint(

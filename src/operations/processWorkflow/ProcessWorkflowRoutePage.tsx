@@ -682,7 +682,9 @@ function TriggerRelationshipView({
         <Alert severity="info">
           Process owns the trigger relationship. Cron owns actual job scheduling,
           firing, retries, and job lifecycle. This keeps shared processServer topology
-          useful without mixing module responsibilities.
+          useful without mixing module responsibilities. When a Cron job declares a
+          processTrigger target, Cron calls the Process trigger executor and Process
+          creates the audited workflow instance.
         </Alert>
         <Box
           sx={{
@@ -756,7 +758,7 @@ function TriggerRelationshipView({
                     onClick={() => onExecute(trigger.code)}
                     variant="contained"
                   >
-                    Execute trigger
+                    Execute now
                   </Button>
                   <Button
                     disabled={

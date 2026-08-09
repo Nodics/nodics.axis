@@ -208,10 +208,31 @@ function parseGraph(value: unknown): ProcessGraph | undefined {
       ? Object.freeze(
           data.nodes.map((node) => {
             const nodeRecord = record(node, 'Process graph node');
+            const action =
+              typeof nodeRecord.action === 'object' &&
+              nodeRecord.action !== null &&
+              !Array.isArray(nodeRecord.action)
+                ? (nodeRecord.action as Record<string, unknown>)
+                : undefined;
             return Object.freeze({
               code: text(nodeRecord.code, 'node'),
               type: text(nodeRecord.type, 'ACTION'),
               name: optionalText(nodeRecord.name),
+              timer:
+                typeof nodeRecord.timer === 'object' &&
+                nodeRecord.timer !== null &&
+                !Array.isArray(nodeRecord.timer)
+                  ? Object.freeze(nodeRecord.timer as Record<string, unknown>)
+                  : undefined,
+              subProcessDefinitionCode: optionalText(
+                nodeRecord.subProcessDefinitionCode,
+              ),
+              action: action
+                ? Object.freeze({
+                    moduleName: text(action.moduleName, 'nodics.process'),
+                    operation: text(action.operation, 'noop'),
+                  })
+                : undefined,
             });
           }),
         )
@@ -225,6 +246,13 @@ function parseGraph(value: unknown): ProcessGraph | undefined {
               source: text(transitionRecord.source, ''),
               target: text(transitionRecord.target, ''),
               name: optionalText(transitionRecord.name),
+              default: transitionRecord.default === true,
+              condition:
+                typeof transitionRecord.condition === 'object' &&
+                transitionRecord.condition !== null &&
+                !Array.isArray(transitionRecord.condition)
+                  ? Object.freeze(transitionRecord.condition as Record<string, unknown>)
+                  : undefined,
             });
           }),
         )
