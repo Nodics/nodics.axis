@@ -275,6 +275,11 @@ describe('DocumentationRoutePage', () => {
     renderPage('/docs/swaggers');
 
     expect(await screen.findByText('Nodics APIs')).toBeVisible();
+    expect(screen.getByText('1 runtime groups')).toBeVisible();
+    expect(screen.getByText('2 module groups')).toBeVisible();
+    expect(
+      screen.getByText(/APIs are grouped by the registered runtime\/module metadata/iu),
+    ).toBeVisible();
     expect(
       screen.queryByText('Search the APIs currently exposed by this Nodics runtime.'),
     ).not.toBeInTheDocument();

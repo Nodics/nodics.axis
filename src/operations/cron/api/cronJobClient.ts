@@ -1,3 +1,13 @@
+/*
+ * Nodics Axis - Cron job API client.
+ *
+ * Copyright (c) 2026 Nodics All rights reserved.
+ *
+ * This software is governed by the Nodics Source-Available Commercial License.
+ * You may use, copy, modify, deploy, or distribute it only as permitted by the
+ * root LICENSE file or a separate written agreement with Nodics.
+ */
+
 import type { AxisModuleConnection } from '../../../bootstrap/publicBootstrap';
 
 export interface CronJobClientConfiguration {
@@ -39,6 +49,105 @@ export type CronJobLifecycleAction =
   | 'stop'
   | 'pause'
   | 'resume';
+
+export interface CronJobLifecycleActionPolicy {
+  readonly action: CronJobLifecycleAction;
+  readonly disabled: boolean;
+  readonly label: string;
+  readonly reason: string;
+  readonly variant: 'contained' | 'outlined';
+}
+
+const cronJobLifecycleLabels: Readonly<Record<CronJobLifecycleAction, string>> =
+  Object.freeze({
+    create: 'Create in scheduler',
+    run: 'Run now',
+    start: 'Start',
+    stop: 'Stop',
+    pause: 'Pause',
+    resume: 'Resume',
+  });
+
+function normalizedState(value: string | undefined): string {
+  return (value ?? '').trim().toUpperCase();
+}
+
+/**
+ * @description Builds Axis presentation policy for Cron lifecycle buttons without
+ * taking scheduler ownership away from the Cron backend. The backend remains the
+ * final authority and may reject a request even when the browser considers the
+ * action likely valid.
+ */
+export function cronJobLifecycleActionPolicies(
+  job: CronJobDefinition,
+): readonly CronJobLifecycleActionPolicy[] {
+  const state = normalizedState(job.state ?? job.status);
+  const running = ['RUNNING', 'STARTED', 'ACTIVE'].includes(state);
+  const paused = ['PAUSED', 'SUSPENDED'].includes(state);
+  const inactive = job.active === false;
+  const schedulerMissing = ['NEW', 'CREATED', 'SAVED', ''].includes(state);
+  const policy = (
+    action: CronJobLifecycleAction,
+    disabled: boolean,
+    reason: string,
+    variant: CronJobLifecycleActionPolicy['variant'] = 'outlined',
+  ): CronJobLifecycleActionPolicy =>
+    Object.freeze({
+      action,
+      disabled,
+      label: cronJobLifecycleLabels[action],
+      reason,
+      variant,
+    });
+
+  return Object.freeze([
+    policy(
+      'create',
+      false,
+      schedulerMissing
+        ? 'Create or refresh this persisted definition in the in-memory scheduler.'
+        : 'Recreate or refresh this job in the scheduler when configuration changed.',
+    ),
+    policy(
+      'run',
+      inactive,
+      inactive
+        ? 'Inactive Cron jobs must be enabled before they can run.'
+        : 'Run this job once through the Cron scheduler authority.',
+      'contained',
+    ),
+    policy(
+      'start',
+      inactive || running,
+      inactive
+        ? 'Inactive Cron jobs must be enabled before they can start.'
+        : running
+          ? 'This job already appears to be running.'
+          : 'Start scheduler execution for this job.',
+    ),
+    policy(
+      'stop',
+      !running,
+      running
+        ? 'Stop scheduler execution for this job.'
+        : 'Stop is available after the scheduler reports a running job.',
+    ),
+    policy(
+      'pause',
+      !running,
+      running
+        ? 'Pause scheduler execution without deleting the job definition.'
+        : 'Pause is available after the scheduler reports a running job.',
+    ),
+    policy(
+      'resume',
+      !paused,
+      paused
+        ? 'Resume scheduler execution for a paused job.'
+        : 'Resume is available only for paused jobs.',
+    ),
+  ]);
+}
 
 function endpoint(connection: AxisModuleConnection, path: string): string {
   const base = new URL(connection.endpoint);

@@ -37,6 +37,7 @@ import {
 import { DashboardSection } from '../shared/WorkbenchMetricDashboard';
 import {
   applyCronJobAction,
+  cronJobLifecycleActionPolicies,
   loadCronJobs,
   saveCronJob,
   type CronJobDefinition,
@@ -238,7 +239,7 @@ export function CronDashboardRoutePage({
               sx={{ justifyContent: 'space-between' }}
             >
               <WorkspaceHeading
-                description="Monitor scheduled job definitions, execution history, and cron runtime health without taking scheduler control actions from Axis yet."
+                description="Monitor scheduled job definitions, execution evidence, runtime health, and governed scheduler actions while Cron remains the backend authority."
                 help={routeNavigation?.help}
                 eyebrow="Automation workspace"
                 headingVariant="h3"
@@ -266,7 +267,7 @@ export function CronDashboardRoutePage({
                 ? data.error instanceof Error
                   ? data.error.message
                   : 'Cron dashboard metrics are currently unavailable.'
-                : 'Counts are loaded from authorized Cron workbench contracts. Start, stop, run, pause, and resume controls remain backend-owned action contracts for a later workflow-safe slice.'}
+                : 'Counts and lifecycle actions are loaded from authorized Cron contracts. Axis submits requests and refreshes discovery; Cron owns scheduling, execution, retry, and job state.'}
             </Alert>
 
             <Box>
@@ -414,6 +415,7 @@ export function CronDashboardRoutePage({
               {(jobs.data ?? []).slice(0, 6).map((job) => {
                 const pending =
                   lifecycle.isPending && lifecycle.variables?.code === job.code;
+                const actionPolicies = cronJobLifecycleActionPolicies(job);
                 return (
                   <Paper
                     component="article"
@@ -456,21 +458,23 @@ export function CronDashboardRoutePage({
                         </Stack>
                       </Stack>
                       <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                        {(
-                          ['create', 'run', 'start', 'stop', 'pause', 'resume'] as const
-                        ).map((action) => (
+                        {actionPolicies.map((policy) => (
                           <Button
-                            disabled={!cronConnection || pending}
-                            key={action}
-                            onClick={() => lifecycle.mutate({ action, code: job.code })}
+                            disabled={!cronConnection || pending || policy.disabled}
+                            key={policy.action}
+                            onClick={() =>
+                              lifecycle.mutate({
+                                action: policy.action,
+                                code: job.code,
+                              })
+                            }
                             size="small"
-                            variant={action === 'run' ? 'contained' : 'outlined'}
+                            title={policy.reason}
+                            variant={policy.variant}
                           >
-                            {pending && lifecycle.variables?.action === action
+                            {pending && lifecycle.variables?.action === policy.action
                               ? 'Working…'
-                              : action === 'create'
-                                ? 'Create in scheduler'
-                                : action}
+                              : policy.label}
                           </Button>
                         ))}
                       </Stack>

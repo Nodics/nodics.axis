@@ -95,6 +95,11 @@ export function OpenApiDocumentationRenderer({
     () => buildOperationTree(operations, moduleCatalog),
     [moduleCatalog, operations],
   );
+  const topLevelRuntimeCount = operationGroups.length;
+  const nestedModuleCount = useMemo(
+    () => operationGroups.reduce((total, group) => total + countGroups(group), 0),
+    [operationGroups],
+  );
   const swaggerUrl = new URL(source.swaggerPath, connection.endpoint).toString();
 
   return (
@@ -136,6 +141,20 @@ export function OpenApiDocumentationRenderer({
                   size="small"
                   variant="outlined"
                 />
+                {reference.data ? (
+                  <Chip
+                    label={`${String(topLevelRuntimeCount)} runtime groups`}
+                    size="small"
+                    variant="outlined"
+                  />
+                ) : null}
+                {reference.data ? (
+                  <Chip
+                    label={`${String(nestedModuleCount)} module groups`}
+                    size="small"
+                    variant="outlined"
+                  />
+                ) : null}
                 <Chip
                   label={`Environment: ${connection.environment}`}
                   size="small"
@@ -240,6 +259,12 @@ export function OpenApiDocumentationRenderer({
         ) : null}
         {operationGroups.length > 0 ? (
           <Stack spacing={1}>
+            <Alert severity="info">
+              APIs are grouped by the registered runtime/module metadata delivered
+              through the backend OpenAPI contract. Axis does not invent API ownership;
+              unknown operations fall back to a runtime group until the backend exposes
+              richer module metadata.
+            </Alert>
             {operationGroups.map((group) => (
               <OpenApiModuleGroup
                 depth={0}
@@ -418,6 +443,10 @@ function countOperations(group: OperationGroup): number {
     group.operations.length +
     group.children.reduce((total, child) => total + countOperations(child), 0)
   );
+}
+
+function countGroups(group: OperationGroup): number {
+  return 1 + group.children.reduce((total, child) => total + countGroups(child), 0);
 }
 
 function OpenApiModuleGroup({

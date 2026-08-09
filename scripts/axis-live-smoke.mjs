@@ -208,6 +208,55 @@ async function verifyDocumentationContentPacks(authorizedHeaders) {
   }
 }
 
+async function verifyOpenApiContract(authorizedHeaders) {
+  const body = await requestJson(
+    endpoint(platformUrl, '/nodics/system/v0/contract/openapi'),
+    { headers: authorizedHeaders },
+  );
+  const paths = body && typeof body === 'object' ? body.paths : undefined;
+  if (!paths || typeof paths !== 'object' || Array.isArray(paths)) {
+    throw new Error('OpenAPI contract did not expose a paths object');
+  }
+  const operations = [];
+  for (const [path, pathItem] of Object.entries(paths)) {
+    if (!pathItem || typeof pathItem !== 'object' || Array.isArray(pathItem)) {
+      continue;
+    }
+    for (const [method, operation] of Object.entries(pathItem)) {
+      if (
+        !['get', 'post', 'put', 'patch', 'delete'].includes(method) ||
+        !operation ||
+        typeof operation !== 'object' ||
+        Array.isArray(operation)
+      ) {
+        continue;
+      }
+      operations.push({ method, path, operation });
+    }
+  }
+  if (operations.length === 0) {
+    throw new Error('OpenAPI contract did not expose any HTTP operations');
+  }
+  const operationsWithNodicsMetadata = operations.filter(
+    ({ operation }) =>
+      operation['x-nodics'] &&
+      typeof operation['x-nodics'] === 'object' &&
+      typeof operation['x-nodics'].moduleName === 'string' &&
+      operation['x-nodics'].moduleName.trim(),
+  );
+  if (operationsWithNodicsMetadata.length === 0) {
+    throw new Error('OpenAPI contract did not expose Nodics module metadata');
+  }
+  const moduleNames = new Set(
+    operationsWithNodicsMetadata.map(({ operation }) =>
+      operation['x-nodics'].moduleName.trim(),
+    ),
+  );
+  console.log(
+    `PASS OpenAPI contract grouped by ${moduleNames.size} modules across ${operations.length} APIs`,
+  );
+}
+
 async function verifyCronLifecycle(authorizedHeaders) {
   let registry = await loadModuleRegistry(authorizedHeaders);
   let cronModule =
@@ -662,6 +711,7 @@ async function main() {
     );
   }
 
+  await verifyOpenApiContract(authorizedHeaders);
   await verifyProcessOperations(authorizedHeaders);
 
   if (runProcessLifecycle) {
