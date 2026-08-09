@@ -228,7 +228,7 @@ export function App() {
   );
   const cronNavigation =
     authenticatedBootstrap?.navigation.find(
-      (item) => item.route === '/cron' || item.moduleName === 'cronjob',
+      (item) => item.route.startsWith('/cron') || item.moduleName === 'cronjob',
     ) ??
     ({
       id: 'cron',
@@ -843,7 +843,7 @@ export function App() {
       />
       <Route path="/system/apis" element={<Navigate replace to="/docs/swaggers" />} />
       <Route
-        path="/cron"
+        path="/cron/*"
         element={
           session && !locked && authenticatedBootstrap ? (
             authenticatedShell(
