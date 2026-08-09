@@ -102,40 +102,79 @@ describe('ProcessWorkflowRoutePage', () => {
   });
 
   it('guides business users through backend-owned process lifecycle steps', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      jsonResponse([
-        {
-          code: 'sample-approval-process',
-          name: 'Sample approval process',
-          description: 'A governed approval flow for business review.',
-          category: 'operations',
-          status: 'DRAFT',
-          currentVersion: 0,
-          draftRevision: 1,
-          graph: {
-            nodes: [
-              { code: 'start', type: 'START', name: 'Start' },
-              { code: 'businessReview', type: 'TASK', name: 'Business review' },
-              { code: 'end', type: 'END', name: 'End' },
-            ],
-            transitions: [
-              {
-                code: 'start_to_review',
-                source: 'start',
-                target: 'businessReview',
-              },
-              { code: 'review_to_end', source: 'businessReview', target: 'end' },
-            ],
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes('/instances')) {
+        return Promise.resolve(
+          jsonResponse([
+            {
+              code: 'instance-1',
+              definitionCode: 'sample-approval-process',
+              status: 'RUNNING',
+              currentNode: 'businessReview',
+            },
+          ]),
+        );
+      }
+      if (url.includes('/tasks')) {
+        return Promise.resolve(
+          jsonResponse([
+            {
+              code: 'task-1',
+              instanceCode: 'instance-1',
+              assignee: 'content-admin',
+              status: 'OPEN',
+            },
+          ]),
+        );
+      }
+      if (url.includes('/audit-events')) {
+        return Promise.resolve(
+          jsonResponse([
+            {
+              eventType: 'task.created',
+              outcome: 'success',
+              definitionCode: 'sample-approval-process',
+              instanceCode: 'instance-1',
+            },
+          ]),
+        );
+      }
+      return Promise.resolve(
+        jsonResponse([
+          {
+            code: 'sample-approval-process',
+            name: 'Sample approval process',
+            description: 'A governed approval flow for business review.',
+            category: 'operations',
+            status: 'DRAFT',
+            currentVersion: 0,
+            draftRevision: 1,
+            graph: {
+              nodes: [
+                { code: 'start', type: 'START', name: 'Start' },
+                { code: 'businessReview', type: 'TASK', name: 'Business review' },
+                { code: 'end', type: 'END', name: 'End' },
+              ],
+              transitions: [
+                {
+                  code: 'start_to_review',
+                  source: 'start',
+                  target: 'businessReview',
+                },
+                { code: 'review_to_end', source: 'businessReview', target: 'end' },
+              ],
+            },
+            validation: {
+              valid: true,
+              nodeCount: 3,
+              transitionCount: 2,
+              issues: [],
+            },
           },
-          validation: {
-            valid: true,
-            nodeCount: 3,
-            transitionCount: 2,
-            issues: [],
-          },
-        },
-      ]),
-    );
+        ]),
+      );
+    });
 
     renderPage();
 
@@ -158,6 +197,10 @@ describe('ProcessWorkflowRoutePage', () => {
     expect(screen.getByText('Drafts')).toBeInTheDocument();
     expect(screen.getByText('Published')).toBeInTheDocument();
     expect(screen.getByText('Selected issues')).toBeInTheDocument();
+    expect(screen.getByText('Runtime operations overview')).toBeInTheDocument();
+    expect(screen.getByText('Running instances')).toBeInTheDocument();
+    expect(screen.getByText('Open tasks')).toBeInTheDocument();
+    expect(screen.getByText('Audit events')).toBeInTheDocument();
     expect(screen.getByText(/validation and runtime truth stay/i)).toBeInTheDocument();
   });
 });

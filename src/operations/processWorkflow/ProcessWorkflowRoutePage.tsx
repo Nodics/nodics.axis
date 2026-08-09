@@ -27,6 +27,7 @@ import {
   createProcessDefinition,
   createSampleGraph,
   deleteOrArchiveProcessDefinition,
+  loadProcessOperationsSummary,
   loadProcessDefinitions,
   publishProcessDraft,
   validateProcessDraft,
@@ -43,6 +44,7 @@ interface ProcessWorkflowRoutePageProps {
 }
 
 const queryKey = 'process-definitions';
+const operationsQueryKey = 'process-operations-summary';
 
 function normalizeCode(value: string): string {
   return value
@@ -326,6 +328,19 @@ export function ProcessWorkflowRoutePage({
         : Promise.resolve(Object.freeze([])),
   });
 
+  const operations = useQuery({
+    enabled: Boolean(processConnection),
+    queryKey: [operationsQueryKey, runtime.enterpriseCode, processConnection?.endpoint],
+    queryFn: () =>
+      processConnection
+        ? loadProcessOperationsSummary(processConnection, configuration)
+        : Promise.resolve({
+            auditEvents: Object.freeze([]),
+            instances: Object.freeze([]),
+            tasks: Object.freeze([]),
+          }),
+  });
+
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: [queryKey] });
   };
@@ -391,6 +406,14 @@ export function ProcessWorkflowRoutePage({
     definitions.data?.filter((definition) => definition.status === 'PUBLISHED')
       .length ?? 0;
   const selectedIssueCount = selectedDefinition?.validation?.issues.length ?? 0;
+  const runningInstanceCount =
+    operations.data?.instances.filter((instance) => instance.status === 'RUNNING')
+      .length ?? 0;
+  const openTaskCount =
+    operations.data?.tasks.filter((task) =>
+      ['OPEN', 'CLAIMED', 'ESCALATED'].includes(task.status),
+    ).length ?? 0;
+  const auditEventCount = operations.data?.auditEvents.length ?? 0;
   const busy =
     createDraft.isPending ||
     validateDraft.isPending ||
@@ -520,6 +543,69 @@ export function ProcessWorkflowRoutePage({
             value={selectedIssueCount}
           />
         </Box>
+
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
+        >
+          <Stack spacing={2.5}>
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={2}
+              sx={{ justifyContent: 'space-between' }}
+            >
+              <Box>
+                <Typography variant="h5">Runtime operations overview</Typography>
+                <Typography color="text.secondary">
+                  Operations teams need to see whether published processes are producing
+                  running instances, human work, and audit evidence. These numbers come
+                  from nodics.process read APIs, not from frontend-only assumptions.
+                </Typography>
+              </Box>
+              <Chip
+                color={operations.isError ? 'warning' : 'success'}
+                label={operations.isError ? 'Inspection limited' : 'Inspection ready'}
+                variant={operations.isError ? 'outlined' : 'filled'}
+              />
+            </Stack>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 2,
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  md: 'repeat(3, minmax(0, 1fr))',
+                },
+              }}
+            >
+              <SummaryCard
+                detail="Active runtime instances currently visible to Axis."
+                label="Running instances"
+                value={operations.isPending ? '—' : runningInstanceCount}
+              />
+              <SummaryCard
+                detail="Human tasks waiting for action, ownership, or escalation."
+                label="Open tasks"
+                value={operations.isPending ? '—' : openTaskCount}
+              />
+              <SummaryCard
+                detail="Recent bounded evidence available for operator review."
+                label="Audit events"
+                value={operations.isPending ? '—' : auditEventCount}
+              />
+            </Box>
+            {operations.isError && operations.error instanceof Error ? (
+              <Alert severity="warning">{operations.error.message}</Alert>
+            ) : (
+              <Alert severity="info">
+                Execution controls will be added after the runtime engine contract is
+                finished. For now, Axis gives business users a safe operational view and
+                keeps lifecycle mutation behind backend-owned APIs.
+              </Alert>
+            )}
+          </Stack>
+        </Paper>
 
         <Paper
           component="section"

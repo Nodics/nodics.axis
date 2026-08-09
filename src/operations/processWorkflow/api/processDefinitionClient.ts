@@ -49,6 +49,34 @@ export interface ProcessDefinition {
   readonly validation: ProcessValidationResult | undefined;
 }
 
+export interface ProcessRuntimeInstance {
+  readonly code: string;
+  readonly definitionCode: string | undefined;
+  readonly status: string;
+  readonly currentNode: string | undefined;
+}
+
+export interface ProcessHumanTask {
+  readonly code: string;
+  readonly instanceCode: string | undefined;
+  readonly assignee: string | undefined;
+  readonly status: string;
+  readonly dueAt: string | undefined;
+}
+
+export interface ProcessAuditEvent {
+  readonly eventType: string;
+  readonly outcome: string;
+  readonly definitionCode: string | undefined;
+  readonly instanceCode: string | undefined;
+}
+
+export interface ProcessOperationsSummary {
+  readonly instances: readonly ProcessRuntimeInstance[];
+  readonly tasks: readonly ProcessHumanTask[];
+  readonly auditEvents: readonly ProcessAuditEvent[];
+}
+
 export interface CreateProcessDefinitionInput {
   readonly code: string;
   readonly name: string;
@@ -162,6 +190,37 @@ function parseDefinition(value: unknown): ProcessDefinition {
     draftRevision: numberValue(data.draftRevision, 0),
     graph: parseGraph(data.graph),
     validation: parseValidation(data.validation),
+  });
+}
+
+function parseRuntimeInstance(value: unknown): ProcessRuntimeInstance {
+  const data = record(value, 'Process runtime instance');
+  return Object.freeze({
+    code: text(data.code, 'unknown-instance'),
+    definitionCode: optionalText(data.definitionCode),
+    status: text(data.status, 'UNKNOWN'),
+    currentNode: optionalText(data.currentNode),
+  });
+}
+
+function parseHumanTask(value: unknown): ProcessHumanTask {
+  const data = record(value, 'Process human task');
+  return Object.freeze({
+    code: text(data.code, 'unknown-task'),
+    instanceCode: optionalText(data.instanceCode),
+    assignee: optionalText(data.assignee),
+    status: text(data.status, 'UNKNOWN'),
+    dueAt: optionalText(data.dueAt),
+  });
+}
+
+function parseAuditEvent(value: unknown): ProcessAuditEvent {
+  const data = record(value, 'Process audit event');
+  return Object.freeze({
+    eventType: text(data.eventType, 'unknown.event'),
+    outcome: text(data.outcome, 'unknown'),
+    definitionCode: optionalText(data.definitionCode),
+    instanceCode: optionalText(data.instanceCode),
   });
 }
 
@@ -313,4 +372,20 @@ export async function deleteOrArchiveProcessDefinition(
       { method: 'DELETE' },
     ),
   );
+}
+
+export async function loadProcessOperationsSummary(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+): Promise<ProcessOperationsSummary> {
+  const [instances, tasks, auditEvents] = await Promise.all([
+    request(connection, '/instances?limit=25', configuration),
+    request(connection, '/tasks?limit=25', configuration),
+    request(connection, '/audit-events?limit=25', configuration),
+  ]);
+  return Object.freeze({
+    instances: Object.freeze(listPayload(instances).map(parseRuntimeInstance)),
+    tasks: Object.freeze(listPayload(tasks).map(parseHumanTask)),
+    auditEvents: Object.freeze(listPayload(auditEvents).map(parseAuditEvent)),
+  });
 }

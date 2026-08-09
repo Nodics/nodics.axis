@@ -12,6 +12,7 @@
 
 const axisUrl = process.env.AXIS_URL || 'http://127.0.0.1:3100';
 const platformUrl = process.env.AXIS_PLATFORM_URL || 'http://127.0.0.1:4300';
+const processUrl = process.env.AXIS_PROCESS_URL || 'http://127.0.0.1:4330';
 const enterpriseCode = process.env.AXIS_ENTERPRISE || 'default';
 const projectCode = process.env.AXIS_PROJECT || 'nodics.kickoff';
 const loginId = process.env.AXIS_LOGIN_ID || 'admin';
@@ -28,6 +29,9 @@ const axisRoutes = [
   '/media',
   '/media/items',
   '/media/folders',
+  '/process',
+  '/process/definitions',
+  '/process/tasks',
   '/cron',
   '/system-integrations',
   '/registry',
@@ -204,10 +208,35 @@ async function verifyCronLifecycle(authorizedHeaders) {
   console.log('PASS cron lifecycle deregister returns module to available');
 }
 
+async function verifyProcessOperations(authorizedHeaders) {
+  const processChecks = [
+    ['/nodics/process/v0/definitions', 'process definitions'],
+    ['/nodics/process/v0/instances?limit=5', 'process instances'],
+    ['/nodics/process/v0/tasks?limit=5', 'process tasks'],
+    ['/nodics/process/v0/audit-events?limit=5', 'process audit events'],
+  ];
+  for (const [path, label] of processChecks) {
+    const body = await requestJson(endpoint(processUrl, path), {
+      headers: authorizedHeaders,
+    });
+    const payload = resultPayload(body);
+    const records = Array.isArray(payload)
+      ? payload
+      : Array.isArray(payload?.data)
+        ? payload.data
+        : [];
+    if (!Array.isArray(records)) {
+      throw new Error(`${label} endpoint did not return a list contract`);
+    }
+    console.log(`PASS ${label} API reachable (${records.length} records)`);
+  }
+}
+
 async function main() {
   console.log('Axis live smoke started');
   console.log(`Axis: ${axisUrl}`);
   console.log(`Platform: ${platformUrl}`);
+  console.log(`Process: ${processUrl}`);
 
   for (const route of axisRoutes) {
     await expectOk(endpoint(axisUrl, route));
@@ -279,6 +308,8 @@ async function main() {
       'PASS documentation pack assertions skipped; set AXIS_EXPECT_DOCUMENTATION=1 to enable',
     );
   }
+
+  await verifyProcessOperations(authorizedHeaders);
 
   if (runCronLifecycle) {
     await verifyCronLifecycle(authorizedHeaders);
