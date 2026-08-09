@@ -79,6 +79,12 @@ function jsonResponse(data: unknown): Response {
   });
 }
 
+function requestUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.toString();
+  return input.url;
+}
+
 function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
@@ -107,7 +113,7 @@ describe('ProcessWorkflowRoutePage', () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation((input, init) => {
-        const url = String(input);
+        const url = requestUrl(input);
         const method = init?.method ?? 'GET';
         if (method === 'PATCH') {
           return Promise.resolve(
@@ -124,6 +130,74 @@ describe('ProcessWorkflowRoutePage', () => {
               currentVersion: 1,
               draftRevision: 3,
               status: 'DRAFT',
+            }),
+          );
+        }
+        if (method === 'POST' && url.endsWith('/v0/instances')) {
+          return Promise.resolve(
+            jsonResponse({
+              instance: {
+                code: 'published-onboarding-process-001',
+                definitionCode: 'published-onboarding-process',
+                version: 1,
+                status: 'WAITING',
+                currentNode: 'businessReview',
+              },
+              task: {
+                code: 'task-1',
+                instanceCode: 'published-onboarding-process-001',
+                nodeCode: 'businessReview',
+                status: 'OPEN',
+              },
+            }),
+          );
+        }
+        if (method === 'POST' && url.includes('/tasks/task-1/claim')) {
+          return Promise.resolve(
+            jsonResponse({
+              code: 'task-1',
+              instanceCode: 'instance-1',
+              nodeCode: 'businessReview',
+              assignee: 'admin',
+              status: 'CLAIMED',
+            }),
+          );
+        }
+        if (method === 'POST' && url.includes('/tasks/task-1/complete')) {
+          return Promise.resolve(
+            jsonResponse({
+              task: { code: 'task-1', status: 'COMPLETED' },
+              instance: { code: 'instance-1', status: 'COMPLETED' },
+            }),
+          );
+        }
+        if (url.includes('/instances/instance-1/detail')) {
+          return Promise.resolve(
+            jsonResponse({
+              instance: {
+                code: 'instance-1',
+                definitionCode: 'sample-approval-process',
+                version: 1,
+                status: 'WAITING',
+                currentNode: 'businessReview',
+              },
+              tasks: [
+                {
+                  code: 'task-1',
+                  instanceCode: 'instance-1',
+                  nodeCode: 'businessReview',
+                  assignee: 'content-admin',
+                  status: 'OPEN',
+                },
+              ],
+              auditEvents: [
+                {
+                  eventType: 'process.instance.started',
+                  outcome: 'success',
+                  definitionCode: 'sample-approval-process',
+                  instanceCode: 'instance-1',
+                },
+              ],
             }),
           );
         }
@@ -148,6 +222,7 @@ describe('ProcessWorkflowRoutePage', () => {
               {
                 code: 'instance-1',
                 definitionCode: 'sample-approval-process',
+                version: 1,
                 status: 'RUNNING',
                 currentNode: 'businessReview',
               },
@@ -160,6 +235,7 @@ describe('ProcessWorkflowRoutePage', () => {
               {
                 code: 'task-1',
                 instanceCode: 'instance-1',
+                nodeCode: 'businessReview',
                 assignee: 'content-admin',
                 status: 'OPEN',
               },
@@ -174,6 +250,19 @@ describe('ProcessWorkflowRoutePage', () => {
                 outcome: 'success',
                 definitionCode: 'sample-approval-process',
                 instanceCode: 'instance-1',
+              },
+            ]),
+          );
+        }
+        if (url.includes('/triggers')) {
+          return Promise.resolve(
+            jsonResponse([
+              {
+                code: 'daily-content-approval',
+                definitionCode: 'sample-approval-process',
+                triggerType: 'CRON',
+                cronJobCode: 'dailyContentApprovalJob',
+                status: 'ACTIVE',
               },
             ]),
           );
@@ -269,6 +358,10 @@ describe('ProcessWorkflowRoutePage', () => {
     expect(screen.getByText('Running instances')).toBeInTheDocument();
     expect(screen.getByText('Open tasks')).toBeInTheDocument();
     expect(screen.getByText('Audit events')).toBeInTheDocument();
+    expect(screen.getByText('Process instances')).toBeInTheDocument();
+    expect(screen.getByText('Task inbox')).toBeInTheDocument();
+    expect(screen.getByText('Scheduled triggers')).toBeInTheDocument();
+    expect(screen.getByText(/dailyContentApprovalJob/i)).toBeInTheDocument();
     expect(screen.getByText('Edit selected draft')).toBeInTheDocument();
     expect(screen.getByText('Version history')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('Version 1')).toBeInTheDocument());
@@ -287,7 +380,7 @@ describe('ProcessWorkflowRoutePage', () => {
         fetchMock.mock.calls.some(([input, init]) => {
           const body = init?.body;
           return (
-            String(input).includes('/definitions/sample-approval-process/draft') &&
+            requestUrl(input).includes('/definitions/sample-approval-process/draft') &&
             init?.method === 'PATCH' &&
             typeof body === 'string' &&
             body.includes('Customer onboarding approval')
@@ -309,9 +402,53 @@ describe('ProcessWorkflowRoutePage', () => {
       expect(
         fetchMock.mock.calls.some(
           ([input, init]) =>
-            String(input).includes(
+            requestUrl(input).includes(
               '/definitions/published-onboarding-process/draft/prepare',
             ) && init?.method === 'POST',
+        ),
+      ).toBe(true),
+    );
+
+    const startButtons = screen.getAllByRole('button', { name: 'Start process' });
+    const enabledStartButton = startButtons.find(
+      (button) => !(button as HTMLButtonElement).disabled,
+    );
+    expect(enabledStartButton).toBeDefined();
+    await user.click(enabledStartButton as HTMLButtonElement);
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, init]) =>
+            requestUrl(input).endsWith('/v0/instances') && init?.method === 'POST',
+        ),
+      ).toBe(true),
+    );
+
+    await user.click(screen.getByRole('button', { name: 'View timeline' }));
+    await waitFor(() =>
+      expect(
+        screen.getByText('process.instance.started · success'),
+      ).toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Claim' }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, init]) =>
+            requestUrl(input).includes('/tasks/task-1/claim') &&
+            init?.method === 'POST',
+        ),
+      ).toBe(true),
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Complete' }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, init]) =>
+            requestUrl(input).includes('/tasks/task-1/complete') &&
+            init?.method === 'POST',
         ),
       ).toBe(true),
     );

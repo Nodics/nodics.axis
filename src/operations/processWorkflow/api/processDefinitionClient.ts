@@ -62,6 +62,7 @@ export interface ProcessDefinitionVersion {
 export interface ProcessRuntimeInstance {
   readonly code: string;
   readonly definitionCode: string | undefined;
+  readonly version: number;
   readonly status: string;
   readonly currentNode: string | undefined;
 }
@@ -69,6 +70,7 @@ export interface ProcessRuntimeInstance {
 export interface ProcessHumanTask {
   readonly code: string;
   readonly instanceCode: string | undefined;
+  readonly nodeCode: string | undefined;
   readonly assignee: string | undefined;
   readonly status: string;
   readonly dueAt: string | undefined;
@@ -81,10 +83,25 @@ export interface ProcessAuditEvent {
   readonly instanceCode: string | undefined;
 }
 
+export interface ProcessTrigger {
+  readonly code: string;
+  readonly definitionCode: string | undefined;
+  readonly triggerType: string;
+  readonly cronJobCode: string | undefined;
+  readonly status: string;
+}
+
+export interface ProcessInstanceDetail {
+  readonly instance: ProcessRuntimeInstance;
+  readonly tasks: readonly ProcessHumanTask[];
+  readonly auditEvents: readonly ProcessAuditEvent[];
+}
+
 export interface ProcessOperationsSummary {
   readonly instances: readonly ProcessRuntimeInstance[];
   readonly tasks: readonly ProcessHumanTask[];
   readonly auditEvents: readonly ProcessAuditEvent[];
+  readonly triggers: readonly ProcessTrigger[];
 }
 
 export interface CreateProcessDefinitionInput {
@@ -227,6 +244,7 @@ function parseRuntimeInstance(value: unknown): ProcessRuntimeInstance {
   return Object.freeze({
     code: text(data.code, 'unknown-instance'),
     definitionCode: optionalText(data.definitionCode),
+    version: numberValue(data.version, 0),
     status: text(data.status, 'UNKNOWN'),
     currentNode: optionalText(data.currentNode),
   });
@@ -237,6 +255,7 @@ function parseHumanTask(value: unknown): ProcessHumanTask {
   return Object.freeze({
     code: text(data.code, 'unknown-task'),
     instanceCode: optionalText(data.instanceCode),
+    nodeCode: optionalText(data.nodeCode),
     assignee: optionalText(data.assignee),
     status: text(data.status, 'UNKNOWN'),
     dueAt: optionalText(data.dueAt),
@@ -250,6 +269,30 @@ function parseAuditEvent(value: unknown): ProcessAuditEvent {
     outcome: text(data.outcome, 'unknown'),
     definitionCode: optionalText(data.definitionCode),
     instanceCode: optionalText(data.instanceCode),
+  });
+}
+
+function parseTrigger(value: unknown): ProcessTrigger {
+  const data = record(value, 'Process trigger');
+  return Object.freeze({
+    code: text(data.code, 'unknown-trigger'),
+    definitionCode: optionalText(data.definitionCode),
+    triggerType: text(data.triggerType, 'UNKNOWN'),
+    cronJobCode: optionalText(data.cronJobCode),
+    status: text(data.status, 'UNKNOWN'),
+  });
+}
+
+function parseInstanceDetail(value: unknown): ProcessInstanceDetail {
+  const data = record(envelopeData(value), 'Process instance detail');
+  return Object.freeze({
+    instance: parseRuntimeInstance(data.instance),
+    tasks: Object.freeze(
+      Array.isArray(data.tasks) ? data.tasks.map(parseHumanTask) : [],
+    ),
+    auditEvents: Object.freeze(
+      Array.isArray(data.auditEvents) ? data.auditEvents.map(parseAuditEvent) : [],
+    ),
   });
 }
 
@@ -423,6 +466,25 @@ export async function publishProcessDraft(
   );
 }
 
+export async function startProcessInstance(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  definitionCode: string,
+): Promise<unknown> {
+  return envelopeData(
+    await request(connection, '/instances', configuration, {
+      method: 'POST',
+      body: JSON.stringify({
+        definitionCode,
+        context: {
+          source: 'axis',
+          intent: 'business-user-smoke',
+        },
+      }),
+    }),
+  );
+}
+
 export async function prepareNextProcessDraft(
   connection: AxisModuleConnection,
   configuration: ProcessDefinitionClientConfiguration,
@@ -434,6 +496,89 @@ export async function prepareNextProcessDraft(
       `/definitions/${encodeURIComponent(definitionCode)}/draft/prepare`,
       configuration,
       { method: 'POST' },
+    ),
+  );
+}
+
+export async function claimProcessTask(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  taskCode: string,
+): Promise<unknown> {
+  return envelopeData(
+    await request(
+      connection,
+      `/tasks/${encodeURIComponent(taskCode)}/claim`,
+      configuration,
+      { method: 'POST' },
+    ),
+  );
+}
+
+export async function completeProcessTask(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  taskCode: string,
+): Promise<unknown> {
+  return envelopeData(
+    await request(
+      connection,
+      `/tasks/${encodeURIComponent(taskCode)}/complete`,
+      configuration,
+      {
+        method: 'POST',
+        body: JSON.stringify({ decision: { outcome: 'completed-from-axis' } }),
+      },
+    ),
+  );
+}
+
+export async function cancelProcessTask(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  taskCode: string,
+): Promise<unknown> {
+  return envelopeData(
+    await request(
+      connection,
+      `/tasks/${encodeURIComponent(taskCode)}/cancel`,
+      configuration,
+      {
+        method: 'POST',
+        body: JSON.stringify({ reason: 'Cancelled from Axis task inbox' }),
+      },
+    ),
+  );
+}
+
+export async function cancelProcessInstance(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  instanceCode: string,
+): Promise<unknown> {
+  return envelopeData(
+    await request(
+      connection,
+      `/instances/${encodeURIComponent(instanceCode)}/cancel`,
+      configuration,
+      {
+        method: 'POST',
+        body: JSON.stringify({ reason: 'Cancelled from Axis operations view' }),
+      },
+    ),
+  );
+}
+
+export async function loadProcessInstanceDetail(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  instanceCode: string,
+): Promise<ProcessInstanceDetail> {
+  return parseInstanceDetail(
+    await request(
+      connection,
+      `/instances/${encodeURIComponent(instanceCode)}/detail`,
+      configuration,
     ),
   );
 }
@@ -457,14 +602,16 @@ export async function loadProcessOperationsSummary(
   connection: AxisModuleConnection,
   configuration: ProcessDefinitionClientConfiguration,
 ): Promise<ProcessOperationsSummary> {
-  const [instances, tasks, auditEvents] = await Promise.all([
+  const [instances, tasks, auditEvents, triggers] = await Promise.all([
     request(connection, '/instances?limit=25', configuration),
     request(connection, '/tasks?limit=25', configuration),
     request(connection, '/audit-events?limit=25', configuration),
+    request(connection, '/triggers?limit=25', configuration),
   ]);
   return Object.freeze({
     instances: Object.freeze(listPayload(instances).map(parseRuntimeInstance)),
     tasks: Object.freeze(listPayload(tasks).map(parseHumanTask)),
     auditEvents: Object.freeze(listPayload(auditEvents).map(parseAuditEvent)),
+    triggers: Object.freeze(listPayload(triggers).map(parseTrigger)),
   });
 }

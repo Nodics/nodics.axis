@@ -326,6 +326,79 @@ async function verifyProcessDefinitionLifecycle(authorizedHeaders) {
   }
   console.log('PASS process lifecycle version history visible');
 
+  const startBody = await requestJson(
+    endpoint(processUrl, '/nodics/process/v0/instances'),
+    {
+      body: JSON.stringify({
+        definitionCode,
+        context: { source: 'axis-live-smoke' },
+      }),
+      headers: authorizedHeaders,
+      method: 'POST',
+    },
+  );
+  const started = resultPayload(startBody);
+  const instance = started?.instance;
+  const task = started?.task;
+  if (!instance?.code || instance.status !== 'WAITING' || !task?.code) {
+    throw new Error(
+      'Process runtime start did not create waiting instance and first task',
+    );
+  }
+  console.log('PASS process runtime start creates first task');
+
+  await requestJson(
+    endpoint(
+      processUrl,
+      `/nodics/process/v0/tasks/${encodeURIComponent(task.code)}/claim`,
+    ),
+    { headers: authorizedHeaders, method: 'POST' },
+  );
+  console.log('PASS process runtime claim task');
+
+  await requestJson(
+    endpoint(
+      processUrl,
+      `/nodics/process/v0/tasks/${encodeURIComponent(task.code)}/complete`,
+    ),
+    {
+      body: JSON.stringify({ decision: { outcome: 'approved-by-smoke' } }),
+      headers: authorizedHeaders,
+      method: 'POST',
+    },
+  );
+  console.log('PASS process runtime complete task');
+
+  const detailBody = await requestJson(
+    endpoint(
+      processUrl,
+      `/nodics/process/v0/instances/${encodeURIComponent(instance.code)}/detail`,
+    ),
+    { headers: authorizedHeaders },
+  );
+  const detail = resultPayload(detailBody);
+  if (
+    detail?.instance?.status !== 'COMPLETED' ||
+    !Array.isArray(detail.tasks) ||
+    !Array.isArray(detail.auditEvents) ||
+    detail.auditEvents.length < 3
+  ) {
+    throw new Error(
+      'Process runtime detail did not expose completed instance evidence',
+    );
+  }
+  console.log('PASS process runtime detail and audit timeline');
+
+  const triggersBody = await requestJson(
+    endpoint(processUrl, '/nodics/process/v0/triggers?limit=5'),
+    { headers: authorizedHeaders },
+  );
+  const triggers = resultPayload(triggersBody);
+  if (!Array.isArray(triggers)) {
+    throw new Error('Process trigger metadata did not return a list');
+  }
+  console.log('PASS process trigger metadata reachable');
+
   const preparedBody = await requestJson(
     endpoint(
       processUrl,

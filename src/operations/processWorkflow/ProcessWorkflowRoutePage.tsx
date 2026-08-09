@@ -11,7 +11,7 @@ import {
   Typography,
   alpha,
 } from '@mui/material';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { axisTokens } from '../../app/axisTheme';
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
@@ -26,16 +26,26 @@ import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
   createProcessDefinition,
   createSampleGraph,
+  cancelProcessInstance,
+  cancelProcessTask,
+  claimProcessTask,
+  completeProcessTask,
   deleteOrArchiveProcessDefinition,
+  loadProcessInstanceDetail,
   loadProcessDefinitionVersions,
   loadProcessOperationsSummary,
   loadProcessDefinitions,
   prepareNextProcessDraft,
   publishProcessDraft,
+  startProcessInstance,
   updateProcessDraft,
   validateProcessDraft,
   type ProcessDefinition,
   type ProcessDefinitionClientConfiguration,
+  type ProcessHumanTask,
+  type ProcessRuntimeInstance,
+  type ProcessOperationsSummary,
+  type ProcessTrigger,
   type ProcessDefinitionVersion,
   type ProcessGraph,
 } from './api/processDefinitionClient';
@@ -50,6 +60,13 @@ interface ProcessWorkflowRoutePageProps {
 const queryKey = 'process-definitions';
 const operationsQueryKey = 'process-operations-summary';
 const versionsQueryKey = 'process-definition-versions';
+const instanceDetailQueryKey = 'process-instance-detail';
+const emptyOperationsSummary: ProcessOperationsSummary = Object.freeze({
+  auditEvents: Object.freeze([]),
+  instances: Object.freeze([]),
+  tasks: Object.freeze([]),
+  triggers: Object.freeze([]),
+});
 
 function normalizeCode(value: string): string {
   return value
@@ -294,6 +311,261 @@ function VersionHistory({
   );
 }
 
+function RuntimeInstanceList({
+  disabled,
+  instances,
+  onCancel,
+  onSelect,
+  selectedCode,
+}: {
+  readonly disabled: boolean;
+  readonly instances: readonly ProcessRuntimeInstance[];
+  readonly onCancel: (instanceCode: string) => void;
+  readonly onSelect: (instanceCode: string) => void;
+  readonly selectedCode: string | undefined;
+}) {
+  return (
+    <Paper
+      component="section"
+      elevation={0}
+      sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
+    >
+      <Stack spacing={2}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+          <ShellIcon name="workflow" />
+          <Typography variant="h5">Process instances</Typography>
+          <Chip label={`${String(instances.length)} visible`} variant="outlined" />
+        </Stack>
+        {instances.length === 0 ? (
+          <Alert severity="info">
+            No process instances are running yet. Start a published process from a
+            definition card to create a real backend-owned runtime instance.
+          </Alert>
+        ) : (
+          <Stack spacing={1.5}>
+            {instances.map((instance) => (
+              <Paper
+                component="article"
+                elevation={0}
+                key={instance.code}
+                sx={{
+                  border: 1,
+                  borderColor:
+                    selectedCode === instance.code ? 'primary.main' : 'divider',
+                  p: 2,
+                }}
+              >
+                <Stack spacing={1.5}>
+                  <Stack
+                    direction={{ xs: 'column', md: 'row' }}
+                    spacing={1}
+                    sx={{ justifyContent: 'space-between' }}
+                  >
+                    <Box>
+                      <Typography variant="h6">{instance.code}</Typography>
+                      <Typography color="text.secondary">
+                        {instance.definitionCode ?? 'unknown definition'} · v
+                        {String(instance.version)} · node{' '}
+                        {instance.currentNode ?? 'unknown'}
+                      </Typography>
+                    </Box>
+                    <Chip
+                      color={
+                        instance.status === 'COMPLETED'
+                          ? 'success'
+                          : instance.status === 'CANCELLED'
+                            ? 'default'
+                            : 'warning'
+                      }
+                      label={instance.status}
+                    />
+                  </Stack>
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                    <Button
+                      disabled={disabled}
+                      onClick={() => onSelect(instance.code)}
+                      variant={
+                        selectedCode === instance.code ? 'contained' : 'outlined'
+                      }
+                    >
+                      View timeline
+                    </Button>
+                    <Button
+                      color="error"
+                      disabled={
+                        disabled ||
+                        !['CREATED', 'RUNNING', 'WAITING'].includes(instance.status)
+                      }
+                      onClick={() => onCancel(instance.code)}
+                      variant="outlined"
+                    >
+                      Cancel instance
+                    </Button>
+                  </Stack>
+                </Stack>
+              </Paper>
+            ))}
+          </Stack>
+        )}
+      </Stack>
+    </Paper>
+  );
+}
+
+function TaskInbox({
+  disabled,
+  onCancel,
+  onClaim,
+  onComplete,
+  tasks,
+}: {
+  readonly disabled: boolean;
+  readonly onCancel: (taskCode: string) => void;
+  readonly onClaim: (taskCode: string) => void;
+  readonly onComplete: (taskCode: string) => void;
+  readonly tasks: readonly ProcessHumanTask[];
+}) {
+  return (
+    <Paper
+      component="section"
+      elevation={0}
+      sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
+    >
+      <Stack spacing={2}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+          <ShellIcon name="task" />
+          <Typography variant="h5">Task inbox</Typography>
+          <Chip label={`${String(tasks.length)} tasks`} variant="outlined" />
+        </Stack>
+        {tasks.length === 0 ? (
+          <Alert severity="info">
+            No human workflow tasks are waiting. Tasks appear here when a published
+            process reaches a TASK node.
+          </Alert>
+        ) : (
+          <Stack spacing={1.5}>
+            {tasks.map((task) => {
+              const actionable = ['OPEN', 'CLAIMED', 'ESCALATED'].includes(task.status);
+              return (
+                <Paper
+                  component="article"
+                  elevation={0}
+                  key={task.code}
+                  sx={{ border: 1, borderColor: 'divider', p: 2 }}
+                >
+                  <Stack spacing={1.5}>
+                    <Stack
+                      direction={{ xs: 'column', md: 'row' }}
+                      spacing={1}
+                      sx={{ justifyContent: 'space-between' }}
+                    >
+                      <Box>
+                        <Typography variant="h6">{task.code}</Typography>
+                        <Typography color="text.secondary">
+                          {task.instanceCode ?? 'unknown instance'} · node{' '}
+                          {task.nodeCode ?? 'unknown'} · assignee{' '}
+                          {task.assignee ?? 'unassigned'}
+                        </Typography>
+                      </Box>
+                      <Chip
+                        color={task.status === 'COMPLETED' ? 'success' : 'warning'}
+                        label={task.status}
+                      />
+                    </Stack>
+                    <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                      <Button
+                        disabled={disabled || task.status !== 'OPEN'}
+                        onClick={() => onClaim(task.code)}
+                        variant="outlined"
+                      >
+                        Claim
+                      </Button>
+                      <Button
+                        disabled={disabled || !actionable}
+                        onClick={() => onComplete(task.code)}
+                        variant="contained"
+                      >
+                        Complete
+                      </Button>
+                      <Button
+                        color="error"
+                        disabled={disabled || !actionable}
+                        onClick={() => onCancel(task.code)}
+                        variant="outlined"
+                      >
+                        Cancel task
+                      </Button>
+                    </Stack>
+                  </Stack>
+                </Paper>
+              );
+            })}
+          </Stack>
+        )}
+      </Stack>
+    </Paper>
+  );
+}
+
+function TriggerRelationshipView({
+  triggers,
+}: {
+  readonly triggers: readonly ProcessTrigger[];
+}) {
+  return (
+    <Paper
+      component="section"
+      elevation={0}
+      sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
+    >
+      <Stack spacing={2}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+          <ShellIcon name="cronjob" />
+          <Typography variant="h5">Scheduled triggers</Typography>
+          <Chip label={`${String(triggers.length)} relationships`} variant="outlined" />
+        </Stack>
+        <Alert severity="info">
+          Process owns the trigger relationship. Cron owns actual job scheduling,
+          firing, retries, and job lifecycle. This keeps shared processServer topology
+          useful without mixing module responsibilities.
+        </Alert>
+        {triggers.length === 0 ? (
+          <Typography color="text.secondary">
+            No trigger metadata has been registered yet.
+          </Typography>
+        ) : (
+          <Stack spacing={1}>
+            {triggers.map((trigger) => (
+              <Paper
+                component="article"
+                elevation={0}
+                key={trigger.code}
+                sx={{ border: 1, borderColor: 'divider', p: 2 }}
+              >
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  spacing={1}
+                  sx={{ justifyContent: 'space-between' }}
+                >
+                  <Box>
+                    <Typography variant="h6">{trigger.code}</Typography>
+                    <Typography color="text.secondary">
+                      {trigger.definitionCode ?? 'unknown process'} ·{' '}
+                      {trigger.triggerType}
+                      {trigger.cronJobCode ? ` · cron job ${trigger.cronJobCode}` : ''}
+                    </Typography>
+                  </Box>
+                  <Chip label={trigger.status} />
+                </Stack>
+              </Paper>
+            ))}
+          </Stack>
+        )}
+      </Stack>
+    </Paper>
+  );
+}
+
 function DefinitionCard({
   definition,
   disabled,
@@ -302,6 +574,7 @@ function DefinitionCard({
   onPrepare,
   onPublish,
   onSelect,
+  onStart,
   onValidate,
   selected,
 }: {
@@ -312,6 +585,7 @@ function DefinitionCard({
   readonly onPrepare: () => void;
   readonly onPublish: () => void;
   readonly onSelect: () => void;
+  readonly onStart: () => void;
   readonly onValidate: () => void;
   readonly selected: boolean;
 }) {
@@ -382,6 +656,13 @@ function DefinitionCard({
             Prepare next draft
           </Button>
           <Button
+            disabled={disabled || !isPublished}
+            onClick={onStart}
+            variant="contained"
+          >
+            Start process
+          </Button>
+          <Button
             color="error"
             disabled={disabled}
             onClick={onDelete}
@@ -408,6 +689,9 @@ export function ProcessWorkflowRoutePage({
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editCategory, setEditCategory] = useState('');
+  const [selectedInstanceCode, setSelectedInstanceCode] = useState<
+    string | undefined
+  >();
 
   const configuration = useMemo<ProcessDefinitionClientConfiguration>(
     () => ({
@@ -433,17 +717,15 @@ export function ProcessWorkflowRoutePage({
     queryFn: () =>
       processConnection
         ? loadProcessOperationsSummary(processConnection, configuration)
-        : Promise.resolve({
-            auditEvents: Object.freeze([]),
-            instances: Object.freeze([]),
-            tasks: Object.freeze([]),
-          }),
+        : Promise.resolve(emptyOperationsSummary),
   });
 
   const invalidate = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: [queryKey] }),
       queryClient.invalidateQueries({ queryKey: [versionsQueryKey] }),
+      queryClient.invalidateQueries({ queryKey: [operationsQueryKey] }),
+      queryClient.invalidateQueries({ queryKey: [instanceDetailQueryKey] }),
     ]);
   };
 
@@ -528,9 +810,23 @@ export function ProcessWorkflowRoutePage({
         : Promise.resolve(Object.freeze([])),
   });
 
-  useEffect(() => {
-    if (selectedDefinition) selectDefinitionForEditing(selectedDefinition);
-  }, [selectedDefinition?.code]);
+  const instanceDetail = useQuery({
+    enabled: Boolean(processConnection && selectedInstanceCode),
+    queryKey: [
+      instanceDetailQueryKey,
+      runtime.enterpriseCode,
+      processConnection?.endpoint,
+      selectedInstanceCode,
+    ],
+    queryFn: () =>
+      processConnection && selectedInstanceCode
+        ? loadProcessInstanceDetail(
+            processConnection,
+            configuration,
+            selectedInstanceCode,
+          )
+        : Promise.reject(new Error('Select an instance first')),
+  });
 
   const updateDraft = useMutation({
     mutationFn: async () => {
@@ -560,6 +856,48 @@ export function ProcessWorkflowRoutePage({
     onSuccess: invalidate,
   });
 
+  const startInstance = useMutation({
+    mutationFn: async (definitionCode: string) => {
+      if (!processConnection) throw new Error('Process API is unavailable');
+      return startProcessInstance(processConnection, configuration, definitionCode);
+    },
+    onSuccess: async () => {
+      await invalidate();
+    },
+  });
+
+  const claimTask = useMutation({
+    mutationFn: async (taskCode: string) => {
+      if (!processConnection) throw new Error('Process API is unavailable');
+      return claimProcessTask(processConnection, configuration, taskCode);
+    },
+    onSuccess: invalidate,
+  });
+
+  const completeTask = useMutation({
+    mutationFn: async (taskCode: string) => {
+      if (!processConnection) throw new Error('Process API is unavailable');
+      return completeProcessTask(processConnection, configuration, taskCode);
+    },
+    onSuccess: invalidate,
+  });
+
+  const cancelTask = useMutation({
+    mutationFn: async (taskCode: string) => {
+      if (!processConnection) throw new Error('Process API is unavailable');
+      return cancelProcessTask(processConnection, configuration, taskCode);
+    },
+    onSuccess: invalidate,
+  });
+
+  const cancelInstance = useMutation({
+    mutationFn: async (instanceCode: string) => {
+      if (!processConnection) throw new Error('Process API is unavailable');
+      return cancelProcessInstance(processConnection, configuration, instanceCode);
+    },
+    onSuccess: invalidate,
+  });
+
   const definitionCount = definitions.data?.length ?? 0;
   const draftCount =
     definitions.data?.filter((definition) => definition.status === 'DRAFT').length ?? 0;
@@ -575,20 +913,31 @@ export function ProcessWorkflowRoutePage({
       ['OPEN', 'CLAIMED', 'ESCALATED'].includes(task.status),
     ).length ?? 0;
   const auditEventCount = operations.data?.auditEvents.length ?? 0;
+  const triggerCount = operations.data?.triggers.length ?? 0;
   const busy =
     createDraft.isPending ||
     updateDraft.isPending ||
     validateDraft.isPending ||
     publishDraft.isPending ||
     prepareNextDraft.isPending ||
-    deleteDefinition.isPending;
+    deleteDefinition.isPending ||
+    startInstance.isPending ||
+    claimTask.isPending ||
+    completeTask.isPending ||
+    cancelTask.isPending ||
+    cancelInstance.isPending;
   const latestError =
     createDraft.error ??
     updateDraft.error ??
     validateDraft.error ??
     publishDraft.error ??
     prepareNextDraft.error ??
-    deleteDefinition.error;
+    deleteDefinition.error ??
+    startInstance.error ??
+    claimTask.error ??
+    completeTask.error ??
+    cancelTask.error ??
+    cancelInstance.error;
 
   return (
     <WorkspaceContainer>
@@ -740,7 +1089,7 @@ export function ProcessWorkflowRoutePage({
                 gap: 2,
                 gridTemplateColumns: {
                   xs: '1fr',
-                  md: 'repeat(3, minmax(0, 1fr))',
+                  md: 'repeat(4, minmax(0, 1fr))',
                 },
               }}
             >
@@ -759,18 +1108,141 @@ export function ProcessWorkflowRoutePage({
                 label="Audit events"
                 value={operations.isPending ? '—' : auditEventCount}
               />
+              <SummaryCard
+                detail="Process-owned schedule relationships referencing Cron where applicable."
+                label="Triggers"
+                value={operations.isPending ? '—' : triggerCount}
+              />
             </Box>
             {operations.isError && operations.error instanceof Error ? (
               <Alert severity="warning">{operations.error.message}</Alert>
             ) : (
               <Alert severity="info">
-                Execution controls will be added after the runtime engine contract is
-                finished. For now, Axis gives business users a safe operational view and
-                keeps lifecycle mutation behind backend-owned APIs.
+                Start a published definition to create an instance and first task.
+                Claim, complete, cancel, and timeline views call nodics.process APIs;
+                Axis does not calculate runtime state locally.
               </Alert>
             )}
           </Stack>
         </Paper>
+
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 3,
+            gridTemplateColumns: {
+              xs: '1fr',
+              xl: 'minmax(0, 1fr) minmax(0, 1fr)',
+            },
+          }}
+        >
+          <RuntimeInstanceList
+            disabled={busy}
+            instances={operations.data?.instances ?? []}
+            onCancel={(instanceCode) => cancelInstance.mutate(instanceCode)}
+            onSelect={(instanceCode) => setSelectedInstanceCode(instanceCode)}
+            selectedCode={selectedInstanceCode}
+          />
+          <TaskInbox
+            disabled={busy}
+            onCancel={(taskCode) => cancelTask.mutate(taskCode)}
+            onClaim={(taskCode) => claimTask.mutate(taskCode)}
+            onComplete={(taskCode) => completeTask.mutate(taskCode)}
+            tasks={operations.data?.tasks ?? []}
+          />
+        </Box>
+
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 3,
+            gridTemplateColumns: {
+              xs: '1fr',
+              xl: 'minmax(0, 1fr) minmax(0, 1fr)',
+            },
+          }}
+        >
+          <Paper
+            component="section"
+            elevation={0}
+            sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
+          >
+            <Stack spacing={2}>
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                <ShellIcon name="activity" />
+                <Typography variant="h5">Instance timeline</Typography>
+                <Chip
+                  label={
+                    selectedInstanceCode
+                      ? instanceDetail.isPending
+                        ? 'Loading'
+                        : 'Selected'
+                      : 'Select instance'
+                  }
+                  variant="outlined"
+                />
+              </Stack>
+              {!selectedInstanceCode ? (
+                <Alert severity="info">
+                  Select a process instance to inspect its current state, human tasks,
+                  and audit events in one operator-friendly view.
+                </Alert>
+              ) : instanceDetail.isError && instanceDetail.error instanceof Error ? (
+                <Alert severity="warning">{instanceDetail.error.message}</Alert>
+              ) : instanceDetail.data ? (
+                <Stack spacing={2}>
+                  <Paper
+                    component="article"
+                    elevation={0}
+                    sx={{
+                      bgcolor: alpha(axisTokens.color.success, 0.06),
+                      border: 1,
+                      borderColor: 'divider',
+                      p: 2,
+                    }}
+                  >
+                    <Typography variant="h6">
+                      {instanceDetail.data.instance.code}
+                    </Typography>
+                    <Typography color="text.secondary">
+                      {instanceDetail.data.instance.definitionCode} · status{' '}
+                      {instanceDetail.data.instance.status} · node{' '}
+                      {instanceDetail.data.instance.currentNode ?? 'unknown'}
+                    </Typography>
+                  </Paper>
+                  <Typography variant="h6">Tasks</Typography>
+                  {instanceDetail.data.tasks.length === 0 ? (
+                    <Typography color="text.secondary">No tasks recorded.</Typography>
+                  ) : (
+                    instanceDetail.data.tasks.map((task) => (
+                      <Typography color="text.secondary" key={task.code}>
+                        {task.code}: {task.status} at {task.nodeCode ?? 'unknown node'}
+                      </Typography>
+                    ))
+                  )}
+                  <Typography variant="h6">Audit timeline</Typography>
+                  {instanceDetail.data.auditEvents.length === 0 ? (
+                    <Typography color="text.secondary">
+                      No audit events recorded.
+                    </Typography>
+                  ) : (
+                    instanceDetail.data.auditEvents.map((event, index) => (
+                      <Typography
+                        color="text.secondary"
+                        key={`${event.eventType}-${index}`}
+                      >
+                        {event.eventType} · {event.outcome}
+                      </Typography>
+                    ))
+                  )}
+                </Stack>
+              ) : (
+                <Typography color="text.secondary">Loading timeline…</Typography>
+              )}
+            </Stack>
+          </Paper>
+          <TriggerRelationshipView triggers={operations.data?.triggers ?? []} />
+        </Box>
 
         <Paper
           component="section"
@@ -926,6 +1398,7 @@ export function ProcessWorkflowRoutePage({
                       onPrepare={() => prepareNextDraft.mutate(definition.code)}
                       onPublish={() => publishDraft.mutate(definition.code)}
                       onSelect={() => selectDefinitionForEditing(definition)}
+                      onStart={() => startInstance.mutate(definition.code)}
                       onValidate={() => validateDraft.mutate(definition.code)}
                       selected={selectedDefinition?.code === definition.code}
                     />
