@@ -1,6 +1,16 @@
-import { useQuery } from '@tanstack/react-query';
-import { Alert, Box, Chip, Paper, Stack, Typography } from '@mui/material';
-import { useMemo } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  Alert,
+  Box,
+  Button,
+  Chip,
+  Divider,
+  Paper,
+  Stack,
+  TextField,
+  Typography,
+} from '@mui/material';
+import { useMemo, useState } from 'react';
 
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
 import { WorkspaceContainer } from '../../app/shell/ShellPrimitives';
@@ -25,6 +35,13 @@ import {
   type WorkbenchMetricDefinition,
 } from '../shared/workbenchMetricDashboardModel';
 import { DashboardSection } from '../shared/WorkbenchMetricDashboard';
+import {
+  applyCronJobAction,
+  loadCronJobs,
+  saveCronJob,
+  type CronJobDefinition,
+  type CronJobLifecycleAction,
+} from './api/cronJobClient';
 
 interface CronDashboardRoutePageProps {
   readonly accessToken: string;
@@ -60,6 +77,33 @@ const cronMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     icon: 'history',
   }),
 ]);
+const cronJobsQueryKey = 'cron-jobs';
+
+function normalizeCode(value: string): string {
+  return value
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 128);
+}
+
+function expressionOf(job: CronJobDefinition): string {
+  const expression = job.trigger?.expression;
+  return typeof expression === 'string' ? expression : '—';
+}
+
+function processTriggerOf(job: CronJobDefinition): string | undefined {
+  const processTrigger = job.jobDetail?.processTrigger;
+  if (
+    typeof processTrigger === 'object' &&
+    processTrigger !== null &&
+    !Array.isArray(processTrigger)
+  ) {
+    const triggerCode = (processTrigger as Record<string, unknown>).triggerCode;
+    return typeof triggerCode === 'string' ? triggerCode : undefined;
+  }
+  return undefined;
+}
 
 async function loadCronDashboardData(
   connections: ReturnType<typeof activeConnections>,
@@ -97,7 +141,12 @@ export function CronDashboardRoutePage({
   routeNavigation,
   runtime,
 }: CronDashboardRoutePageProps) {
+  const queryClient = useQueryClient();
   const connections = useMemo(() => activeConnections(bootstrap), [bootstrap]);
+  const cronConnection = useMemo(
+    () => selectModuleConnection(bootstrap, 'cronjob'),
+    [bootstrap],
+  );
   const configuration = useMemo(
     () => ({
       accessToken,
@@ -109,6 +158,65 @@ export function CronDashboardRoutePage({
   const data = useQuery({
     queryKey: ['cron-dashboard', runtime.enterpriseCode, connectionKey(connections)],
     queryFn: () => loadCronDashboardData(connections, bootstrap, configuration),
+  });
+  const jobs = useQuery({
+    enabled: Boolean(cronConnection),
+    queryKey: [
+      cronJobsQueryKey,
+      runtime.enterpriseCode,
+      cronConnection?.instanceId ?? 'missing',
+    ],
+    queryFn: () => {
+      if (!cronConnection) throw new Error('Cron runtime connection is unavailable');
+      return loadCronJobs(cronConnection, configuration);
+    },
+  });
+  const [jobCode, setJobCode] = useState('axisDemoCronJob');
+  const [jobName, setJobName] = useState('Axis demo Cron job');
+  const [triggerExpression, setTriggerExpression] = useState('* * * * * *');
+  const [runOnNode, setRunOnNode] = useState('node0');
+  const [processTriggerCode, setProcessTriggerCode] = useState('');
+  const [processInstanceCode, setProcessInstanceCode] = useState('');
+  const createJob = useMutation({
+    mutationFn: async () => {
+      if (!cronConnection) throw new Error('Cron runtime connection is unavailable');
+      const code = normalizeCode(jobCode);
+      if (!code) throw new Error('Cron job code is required');
+      if (!triggerExpression.trim()) throw new Error('Cron expression is required');
+      return saveCronJob(cronConnection, configuration, {
+        code,
+        active: true,
+        name: jobName.trim() || code,
+        description:
+          'Created from Axis Cron Operations to verify governed Cron ownership.',
+        runOnNode: normalizeCode(runOnNode) || 'node0',
+        runOnInit: false,
+        triggerExpression: triggerExpression.trim(),
+        processTriggerCode: normalizeCode(processTriggerCode),
+        processInstanceCode: normalizeCode(processInstanceCode),
+      });
+    },
+    onSuccess: (created) => {
+      setJobCode(created.code);
+      void queryClient.invalidateQueries({ queryKey: [cronJobsQueryKey] });
+      void queryClient.invalidateQueries({ queryKey: ['cron-dashboard'] });
+    },
+  });
+  const lifecycle = useMutation({
+    mutationFn: async ({
+      action,
+      code,
+    }: {
+      readonly action: CronJobLifecycleAction;
+      readonly code: string;
+    }) => {
+      if (!cronConnection) throw new Error('Cron runtime connection is unavailable');
+      await applyCronJobAction(cronConnection, configuration, code, action);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [cronJobsQueryKey] });
+      void queryClient.invalidateQueries({ queryKey: ['cron-dashboard'] });
+    },
   });
   const metrics = data.data?.metrics;
   const readyCount = totalReadyMetrics(metrics);
@@ -178,6 +286,207 @@ export function CronDashboardRoutePage({
           metrics={metricsById(metrics, cronMetrics)}
           title="Scheduler inventory"
         />
+
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+        >
+          <Stack spacing={dashboardContentGap}>
+            <WorkspaceHeading
+              description="Create a Cron-owned job definition, then ask Cron to create, run, start, stop, pause, or resume it. Axis submits authorized requests only; scheduler state remains backend-owned."
+              eyebrow="Governed scheduler controls"
+              headingVariant="h4"
+              title="Cron job control"
+            />
+            {!cronConnection ? (
+              <Alert severity="warning">
+                Cron runtime is not connected. Register and activate nodics.cron, then
+                restart or refresh Axis discovery.
+              </Alert>
+            ) : null}
+            {createJob.isError || lifecycle.isError ? (
+              <Alert severity="error">
+                {createJob.error instanceof Error
+                  ? createJob.error.message
+                  : lifecycle.error instanceof Error
+                    ? lifecycle.error.message
+                    : 'Cron operation failed.'}
+              </Alert>
+            ) : null}
+            {createJob.isSuccess ? (
+              <Alert severity="success">
+                Cron job {createJob.data.code} was saved through Cron-owned APIs.
+              </Alert>
+            ) : null}
+            {lifecycle.isSuccess ? (
+              <Alert severity="success">Cron lifecycle request completed.</Alert>
+            ) : null}
+
+            <Stack
+              direction={{ xs: 'column', lg: 'row' }}
+              spacing={2}
+              sx={{ alignItems: { lg: 'flex-start' } }}
+            >
+              <TextField
+                disabled={!cronConnection || createJob.isPending}
+                label="Job code"
+                onChange={(event) => setJobCode(event.target.value)}
+                value={jobCode}
+              />
+              <TextField
+                disabled={!cronConnection || createJob.isPending}
+                label="Name"
+                onChange={(event) => setJobName(event.target.value)}
+                value={jobName}
+              />
+              <TextField
+                disabled={!cronConnection || createJob.isPending}
+                label="Cron expression"
+                onChange={(event) => setTriggerExpression(event.target.value)}
+                value={triggerExpression}
+              />
+              <TextField
+                disabled={!cronConnection || createJob.isPending}
+                label="Run on node"
+                onChange={(event) => setRunOnNode(event.target.value)}
+                value={runOnNode}
+              />
+            </Stack>
+            <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
+              <TextField
+                disabled={!cronConnection || createJob.isPending}
+                helperText="Optional Process trigger code for Cron → Process handoff."
+                label="Process trigger"
+                onChange={(event) => setProcessTriggerCode(event.target.value)}
+                value={processTriggerCode}
+              />
+              <TextField
+                disabled={!cronConnection || createJob.isPending}
+                helperText="Optional deterministic Process instance code."
+                label="Process instance code"
+                onChange={(event) => setProcessInstanceCode(event.target.value)}
+                value={processInstanceCode}
+              />
+              <Box sx={{ alignSelf: { lg: 'center' } }}>
+                <Button
+                  disabled={!cronConnection || createJob.isPending}
+                  onClick={() => createJob.mutate()}
+                  size="large"
+                  variant="contained"
+                >
+                  {createJob.isPending ? 'Saving…' : 'Save Cron job'}
+                </Button>
+              </Box>
+            </Stack>
+
+            <Divider />
+
+            <Stack spacing={2}>
+              <Stack
+                direction={{ xs: 'column', md: 'row' }}
+                spacing={1}
+                sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between' }}
+              >
+                <Box>
+                  <Typography variant="h5">Recent Cron jobs</Typography>
+                  <Typography color="text.secondary">
+                    Use “Create in scheduler” after saving a definition, then run or
+                    manage lifecycle from Cron-owned endpoints.
+                  </Typography>
+                </Box>
+                <Chip
+                  label={
+                    jobs.isPending
+                      ? 'Loading'
+                      : `${String(jobs.data?.length ?? 0)} discovered`
+                  }
+                  variant="outlined"
+                />
+              </Stack>
+              {jobs.isError ? (
+                <Alert severity="warning">
+                  {jobs.error instanceof Error
+                    ? jobs.error.message
+                    : 'Cron jobs are unavailable.'}
+                </Alert>
+              ) : null}
+              {(jobs.data ?? []).slice(0, 6).map((job) => {
+                const pending =
+                  lifecycle.isPending && lifecycle.variables?.code === job.code;
+                return (
+                  <Paper
+                    component="article"
+                    elevation={0}
+                    key={job.code}
+                    sx={{ border: 1, borderColor: 'divider', p: 2 }}
+                  >
+                    <Stack spacing={1.5}>
+                      <Stack
+                        direction={{ xs: 'column', md: 'row' }}
+                        spacing={1}
+                        sx={{
+                          alignItems: { md: 'center' },
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        <Box>
+                          <Typography variant="h6">{job.name ?? job.code}</Typography>
+                          <Typography color="text.secondary" variant="body2">
+                            {job.code} · {expressionOf(job)} · node{' '}
+                            {job.runOnNode ?? '—'}
+                          </Typography>
+                        </Box>
+                        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                          <Chip label={job.state ?? 'NEW'} size="small" />
+                          <Chip
+                            color={job.active ? 'success' : 'default'}
+                            label={job.active ? 'active' : 'inactive'}
+                            size="small"
+                            variant="outlined"
+                          />
+                          {processTriggerOf(job) ? (
+                            <Chip
+                              color="info"
+                              label={`Process ${processTriggerOf(job)}`}
+                              size="small"
+                              variant="outlined"
+                            />
+                          ) : null}
+                        </Stack>
+                      </Stack>
+                      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                        {(
+                          ['create', 'run', 'start', 'stop', 'pause', 'resume'] as const
+                        ).map((action) => (
+                          <Button
+                            disabled={!cronConnection || pending}
+                            key={action}
+                            onClick={() => lifecycle.mutate({ action, code: job.code })}
+                            size="small"
+                            variant={action === 'run' ? 'contained' : 'outlined'}
+                          >
+                            {pending && lifecycle.variables?.action === action
+                              ? 'Working…'
+                              : action === 'create'
+                                ? 'Create in scheduler'
+                                : action}
+                          </Button>
+                        ))}
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                );
+              })}
+              {!jobs.isPending && !jobs.isError && (jobs.data?.length ?? 0) === 0 ? (
+                <Alert severity="info">
+                  No Cron jobs exist yet. Save a job above, then create it in the
+                  scheduler and run it when ready.
+                </Alert>
+              ) : null}
+            </Stack>
+          </Stack>
+        </Paper>
       </Stack>
     </WorkspaceContainer>
   );
