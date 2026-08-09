@@ -65,6 +65,32 @@ export interface ContentDesignerDraftDefaults {
   readonly templateCode?: string | undefined;
 }
 
+export interface ContentDesignerReference {
+  readonly allowedComponentTypeGroups?: readonly string[] | undefined;
+  readonly allowedComponentTypes?: readonly string[] | undefined;
+  readonly catalogCode?: string | undefined;
+  readonly catalogType?: string | undefined;
+  readonly code: string;
+  readonly componentTypeCodes?: readonly string[] | undefined;
+  readonly kind?: string | undefined;
+  readonly maxItems?: number | undefined;
+  readonly minItems?: number | undefined;
+  readonly name: string;
+  readonly renderer?: string | undefined;
+  readonly templateCode?: string | undefined;
+  readonly typeCode?: string | undefined;
+}
+
+export interface ContentDesignerAuthoringMetadata {
+  readonly componentTypeGroups: readonly ContentDesignerReference[];
+  readonly componentTypes: readonly ContentDesignerReference[];
+  readonly contentCatalogs: readonly ContentDesignerReference[];
+  readonly pageTemplates: readonly ContentDesignerReference[];
+  readonly pageTypes: readonly ContentDesignerReference[];
+  readonly sites: readonly ContentDesignerReference[];
+  readonly slotDefinitions: readonly ContentDesignerReference[];
+}
+
 export interface ContentDesignerAuthoringModel {
   readonly defaults: {
     readonly componentKinds: readonly ContentDesignerComponentKind[];
@@ -73,6 +99,7 @@ export interface ContentDesignerAuthoringModel {
     readonly requireNavigationForPublish: boolean;
   };
   readonly hierarchy: readonly string[];
+  readonly metadata: ContentDesignerAuthoringMetadata;
   readonly operations: readonly string[];
   readonly rules: {
     readonly arbitrarySlots: boolean;
@@ -139,6 +166,64 @@ function asRecord(value: unknown, label: string): Record<string, unknown> {
     throw new Error(`${label} is invalid`);
   }
   return value as Record<string, unknown>;
+}
+
+function stringArray(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return Object.freeze(value.map(String).filter(Boolean));
+}
+
+function numericValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function parseReferenceArray(value: unknown): readonly ContentDesignerReference[] {
+  if (!Array.isArray(value)) return Object.freeze([]);
+  return Object.freeze(
+    value.flatMap((item): readonly ContentDesignerReference[] => {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+        return [];
+      }
+      const source = item as Record<string, unknown>;
+      if (typeof source.code !== 'string') return [];
+      return [
+        Object.freeze({
+          allowedComponentTypeGroups: stringArray(source.allowedComponentTypeGroups),
+          allowedComponentTypes: stringArray(source.allowedComponentTypes),
+          catalogCode:
+            typeof source.catalogCode === 'string' ? source.catalogCode : undefined,
+          catalogType:
+            typeof source.catalogType === 'string' ? source.catalogType : undefined,
+          code: source.code,
+          componentTypeCodes: stringArray(source.componentTypeCodes),
+          kind: typeof source.kind === 'string' ? source.kind : undefined,
+          maxItems: numericValue(source.maxItems),
+          minItems: numericValue(source.minItems),
+          name: typeof source.name === 'string' ? source.name : source.code,
+          renderer: typeof source.renderer === 'string' ? source.renderer : undefined,
+          templateCode:
+            typeof source.templateCode === 'string' ? source.templateCode : undefined,
+          typeCode: typeof source.typeCode === 'string' ? source.typeCode : undefined,
+        }),
+      ];
+    }),
+  );
+}
+
+function parseAuthoringMetadata(value: unknown): ContentDesignerAuthoringMetadata {
+  const source =
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  return Object.freeze({
+    componentTypeGroups: parseReferenceArray(source.componentTypeGroups),
+    componentTypes: parseReferenceArray(source.componentTypes),
+    contentCatalogs: parseReferenceArray(source.contentCatalogs),
+    pageTemplates: parseReferenceArray(source.pageTemplates),
+    pageTypes: parseReferenceArray(source.pageTypes),
+    sites: parseReferenceArray(source.sites),
+    slotDefinitions: parseReferenceArray(source.slotDefinitions),
+  });
 }
 
 function parseAuthoringModel(value: unknown): ContentDesignerAuthoringModel {
@@ -222,6 +307,7 @@ function parseAuthoringModel(value: unknown): ContentDesignerAuthoringModel {
     hierarchy: Object.freeze(
       Array.isArray(source.hierarchy) ? source.hierarchy.map(String) : [],
     ),
+    metadata: parseAuthoringMetadata(source.metadata),
     operations: Object.freeze(
       Array.isArray(source.operations) ? source.operations.map(String) : [],
     ),

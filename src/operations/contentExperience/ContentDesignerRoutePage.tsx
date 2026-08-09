@@ -47,6 +47,7 @@ import {
   type ContentDesignerDraft,
   type ContentDesignerDraftDefaults,
   type ContentDesignerOperationResult,
+  type ContentDesignerReference,
 } from './api/contentDesignerClient';
 
 interface ContentDesignerRoutePageProps {
@@ -340,6 +341,12 @@ function selectedComponentKind(
   return fallback;
 }
 
+function optionLabel(option: ContentDesignerReference): string {
+  return option.name && option.name !== option.code
+    ? `${option.name} (${option.code})`
+    : option.code;
+}
+
 function buildDraft({
   catalogIntent,
   componentIntent,
@@ -586,6 +593,17 @@ export function ContentDesignerRoutePage({
     : fallbackComponentKinds;
   const draftDefaults =
     authoringModel.data?.defaults.draftDefaults ?? fallbackDraftDefaults;
+  const metadata = authoringModel.data?.metadata;
+  const catalogOptions = metadata?.contentCatalogs ?? [];
+  const siteOptions = (metadata?.sites ?? []).filter(
+    (site) => !catalogIntent || !site.catalogCode || site.catalogCode === catalogIntent,
+  );
+  const templateOptions = metadata?.pageTemplates ?? [];
+  const slotOptions = (metadata?.slotDefinitions ?? []).filter(
+    (slot) =>
+      !templateIntent || !slot.templateCode || slot.templateCode === templateIntent,
+  );
+  const slotOptionNames = slotOptions.map((slot) => slot.name || slot.code);
   const draft = useMemo(
     () =>
       buildDraft({
@@ -737,38 +755,50 @@ export function ContentDesignerRoutePage({
               <TextField
                 label="Content Catalog"
                 onChange={(event) => setCatalogIntent(event.target.value)}
+                select={catalogOptions.length > 0}
                 value={catalogIntent}
-              />
+              >
+                {catalogOptions.map((catalog) => (
+                  <MenuItem key={catalog.code} value={catalog.code}>
+                    {optionLabel(catalog)}
+                  </MenuItem>
+                ))}
+              </TextField>
               <TextField
                 label="Site intent"
                 onChange={(event) => setSiteIntent(event.target.value)}
-                select
+                select={siteOptions.length > 0}
                 value={siteIntent}
               >
-                <MenuItem value="defaultCmsSite">Default content site</MenuItem>
-                <MenuItem value="axisDocumentationSite">
-                  Axis documentation site
-                </MenuItem>
-                <MenuItem value="frameworkDocumentationSite">
-                  Framework documentation site
-                </MenuItem>
-                <MenuItem value="projectDocumentationSite">
-                  Project documentation site
-                </MenuItem>
-                <MenuItem value="newCustomerSite">New customer site</MenuItem>
+                {siteOptions.map((site) => (
+                  <MenuItem key={site.code} value={site.code}>
+                    {optionLabel(site)}
+                  </MenuItem>
+                ))}
               </TextField>
               <TextField
                 label="Template intent"
                 onChange={(event) => setTemplateIntent(event.target.value)}
+                select={templateOptions.length > 0}
                 value={templateIntent}
-              />
+              >
+                {templateOptions.map((template) => (
+                  <MenuItem key={template.code} value={template.code}>
+                    {optionLabel(template)}
+                  </MenuItem>
+                ))}
+              </TextField>
               <TextField
                 label="Page intent"
                 onChange={(event) => setPageIntent(event.target.value)}
                 value={pageIntent}
               />
               <TextField
-                helperText="One slot per line or comma. Designer supports any template-defined slots."
+                helperText={
+                  slotOptionNames.length
+                    ? `One slot per line or comma. Selected template exposes: ${slotOptionNames.join(', ')}.`
+                    : 'One slot per line or comma. Designer supports any template-defined slots.'
+                }
                 label="Template slots"
                 minRows={3}
                 multiline
