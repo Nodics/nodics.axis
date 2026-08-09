@@ -66,27 +66,44 @@ export interface ContentDesignerDraftDefaults {
 }
 
 export interface ContentDesignerReference {
+  readonly access?: string | undefined;
   readonly allowedComponentTypeGroups?: readonly string[] | undefined;
   readonly allowedComponentTypes?: readonly string[] | undefined;
   readonly catalogCode?: string | undefined;
   readonly catalogType?: string | undefined;
   readonly code: string;
   readonly componentTypeCodes?: readonly string[] | undefined;
+  readonly height?: number | undefined;
   readonly kind?: string | undefined;
   readonly maxItems?: number | undefined;
   readonly minItems?: number | undefined;
   readonly name: string;
+  readonly nodeType?: string | undefined;
+  readonly parentCode?: string | undefined;
   readonly renderer?: string | undefined;
+  readonly reusable?: boolean | undefined;
+  readonly siteCode?: string | undefined;
   readonly templateCode?: string | undefined;
   readonly typeCode?: string | undefined;
+  readonly width?: number | undefined;
+}
+
+export interface ContentDesignerPublicationReadiness {
+  readonly requiredDraftParts: readonly string[];
+  readonly requireNavigationForPublish: boolean;
 }
 
 export interface ContentDesignerAuthoringMetadata {
   readonly componentTypeGroups: readonly ContentDesignerReference[];
   readonly componentTypes: readonly ContentDesignerReference[];
   readonly contentCatalogs: readonly ContentDesignerReference[];
+  readonly mediaFolders: readonly ContentDesignerReference[];
+  readonly mediaFormats: readonly ContentDesignerReference[];
+  readonly mediaTypes: readonly string[];
+  readonly navigationNodes: readonly ContentDesignerReference[];
   readonly pageTemplates: readonly ContentDesignerReference[];
   readonly pageTypes: readonly ContentDesignerReference[];
+  readonly publicationReadiness: ContentDesignerPublicationReadiness;
   readonly sites: readonly ContentDesignerReference[];
   readonly slotDefinitions: readonly ContentDesignerReference[];
 }
@@ -188,6 +205,7 @@ function parseReferenceArray(value: unknown): readonly ContentDesignerReference[
       if (typeof source.code !== 'string') return [];
       return [
         Object.freeze({
+          access: typeof source.access === 'string' ? source.access : undefined,
           allowedComponentTypeGroups: stringArray(source.allowedComponentTypeGroups),
           allowedComponentTypes: stringArray(source.allowedComponentTypes),
           catalogCode:
@@ -196,14 +214,21 @@ function parseReferenceArray(value: unknown): readonly ContentDesignerReference[
             typeof source.catalogType === 'string' ? source.catalogType : undefined,
           code: source.code,
           componentTypeCodes: stringArray(source.componentTypeCodes),
+          height: numericValue(source.height),
           kind: typeof source.kind === 'string' ? source.kind : undefined,
           maxItems: numericValue(source.maxItems),
           minItems: numericValue(source.minItems),
           name: typeof source.name === 'string' ? source.name : source.code,
+          nodeType: typeof source.nodeType === 'string' ? source.nodeType : undefined,
+          parentCode:
+            typeof source.parentCode === 'string' ? source.parentCode : undefined,
           renderer: typeof source.renderer === 'string' ? source.renderer : undefined,
+          reusable: typeof source.reusable === 'boolean' ? source.reusable : undefined,
+          siteCode: typeof source.siteCode === 'string' ? source.siteCode : undefined,
           templateCode:
             typeof source.templateCode === 'string' ? source.templateCode : undefined,
           typeCode: typeof source.typeCode === 'string' ? source.typeCode : undefined,
+          width: numericValue(source.width),
         }),
       ];
     }),
@@ -215,12 +240,33 @@ function parseAuthoringMetadata(value: unknown): ContentDesignerAuthoringMetadat
     typeof value === 'object' && value !== null && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : {};
+  const publicationReadiness =
+    typeof source.publicationReadiness === 'object' &&
+    source.publicationReadiness !== null &&
+    !Array.isArray(source.publicationReadiness)
+      ? (source.publicationReadiness as Record<string, unknown>)
+      : {};
   return Object.freeze({
     componentTypeGroups: parseReferenceArray(source.componentTypeGroups),
     componentTypes: parseReferenceArray(source.componentTypes),
     contentCatalogs: parseReferenceArray(source.contentCatalogs),
+    mediaFolders: parseReferenceArray(source.mediaFolders),
+    mediaFormats: parseReferenceArray(source.mediaFormats),
+    mediaTypes: Array.isArray(source.mediaTypes)
+      ? Object.freeze(source.mediaTypes.map(String).filter(Boolean))
+      : Object.freeze([]),
+    navigationNodes: parseReferenceArray(source.navigationNodes),
     pageTemplates: parseReferenceArray(source.pageTemplates),
     pageTypes: parseReferenceArray(source.pageTypes),
+    publicationReadiness: Object.freeze({
+      requiredDraftParts: Array.isArray(publicationReadiness.requiredDraftParts)
+        ? Object.freeze(
+            publicationReadiness.requiredDraftParts.map(String).filter(Boolean),
+          )
+        : Object.freeze([]),
+      requireNavigationForPublish:
+        publicationReadiness.requireNavigationForPublish === true,
+    }),
     sites: parseReferenceArray(source.sites),
     slotDefinitions: parseReferenceArray(source.slotDefinitions),
   });

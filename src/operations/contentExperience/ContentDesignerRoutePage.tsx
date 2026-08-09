@@ -347,6 +347,26 @@ function optionLabel(option: ContentDesignerReference): string {
     : option.code;
 }
 
+function slotsFromReferences(
+  slotOptions: readonly ContentDesignerReference[],
+  draftDefaults: ContentDesignerDraftDefaults,
+): string {
+  const optionNames = slotOptions.map((slot) => slot.name || slot.code).filter(Boolean);
+  if (optionNames.length) return optionNames.join('\n');
+  return draftDefaults.slots?.length ? draftDefaults.slots.join('\n') : 'body';
+}
+
+function componentHint(
+  componentIntent: string,
+  componentKinds: readonly ContentDesignerComponentKind[],
+  componentTypes: readonly ContentDesignerReference[],
+): string {
+  const kind = selectedComponentKind(componentIntent, componentKinds);
+  const type = componentTypes.find((item) => item.code === kind.typeCode);
+  const name = type ? optionLabel(type) : kind.typeCode;
+  return `Creates ${name} with renderer ${kind.renderer}. You can refine properties after the draft is saved.`;
+}
+
 function buildDraft({
   catalogIntent,
   componentIntent,
@@ -438,6 +458,28 @@ function operationMessage(
 function draftRoutePath(draft: ContentDesignerDraft): string {
   const path = draft.route?.path;
   return typeof path === 'string' ? path : 'not assigned';
+}
+
+function validationSucceeded(
+  result: ContentDesignerOperationResult | undefined,
+): boolean {
+  return result?.valid === true || result?.status === 'VALID_DRAFT';
+}
+
+function validationEvidenceText(
+  result: ContentDesignerOperationResult | undefined,
+): string {
+  if (!result) return 'Validate the draft to see backend evidence.';
+  const evidence = result.evidence ?? result.saved ?? result;
+  try {
+    return JSON.stringify(evidence, null, 2);
+  } catch {
+    return typeof evidence === 'string' ||
+      typeof evidence === 'number' ||
+      typeof evidence === 'boolean'
+      ? String(evidence)
+      : 'Validation evidence could not be rendered as text.';
+  }
 }
 
 function AuthoringContractPanel({
@@ -543,21 +585,117 @@ function DraftPreview({ draft }: { readonly draft: ContentDesignerDraft }) {
   );
 }
 
+function ValidationEvidencePanel({
+  draftIsValidated,
+  result,
+}: {
+  readonly draftIsValidated: boolean;
+  readonly result: ContentDesignerOperationResult | undefined;
+}) {
+  if (!result) {
+    return (
+      <Alert severity="info">
+        Validate first. Save will unlock only after WCMS confirms this exact draft.
+      </Alert>
+    );
+  }
+  return (
+    <Stack spacing={1.5}>
+      <Alert severity={draftIsValidated ? 'success' : 'warning'}>
+        {draftIsValidated
+          ? 'This draft is validated and ready to save.'
+          : 'The draft changed after validation. Revalidate before saving.'}
+      </Alert>
+      <Box
+        component="pre"
+        sx={{
+          bgcolor: alpha(axisTokens.color.charcoal[900], 0.04),
+          border: 1,
+          borderColor: 'divider',
+          borderRadius: axisTokens.radius.medium,
+          color: 'text.secondary',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          fontSize: 12,
+          maxHeight: 220,
+          overflow: 'auto',
+          p: 1.5,
+          whiteSpace: 'pre-wrap',
+        }}
+      >
+        {validationEvidenceText(result)}
+      </Box>
+    </Stack>
+  );
+}
+
+function BackendGuidancePanel({
+  mediaFolders,
+  mediaTypes,
+  navigationNodes,
+  publicationParts,
+}: {
+  readonly mediaFolders: readonly ContentDesignerReference[];
+  readonly mediaTypes: readonly string[];
+  readonly navigationNodes: readonly ContentDesignerReference[];
+  readonly publicationParts: readonly string[];
+}) {
+  return (
+    <Alert severity="info" variant="outlined">
+      <Stack spacing={1}>
+        <Typography sx={{ fontWeight: 800 }} variant="body2">
+          Helpful backend hints
+        </Typography>
+        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+          <Chip
+            label={
+              mediaFolders.length
+                ? `${String(mediaFolders.length)} media folders available`
+                : 'Media folders not loaded yet'
+            }
+            size="small"
+          />
+          <Chip
+            label={
+              mediaTypes.length
+                ? `Media types: ${mediaTypes.slice(0, 4).join(', ')}`
+                : 'Media types pending'
+            }
+            size="small"
+          />
+          <Chip
+            label={
+              navigationNodes.length
+                ? `${String(navigationNodes.length)} navigation parents`
+                : 'Navigation parents optional'
+            }
+            size="small"
+          />
+        </Stack>
+        <Typography color="text.secondary" variant="body2">
+          Save will create only the draft records. Publishing still checks:{' '}
+          {publicationParts.length ? publicationParts.join(', ') : 'WCMS readiness'}.
+        </Typography>
+      </Stack>
+    </Alert>
+  );
+}
+
 export function ContentDesignerRoutePage({
   accessToken,
   bootstrap,
   routeNavigation,
   runtime,
 }: ContentDesignerRoutePageProps) {
-  const [catalogIntent, setCatalogIntent] = useState('documentationContentCatalog');
-  const [siteIntent, setSiteIntent] = useState('axisDocumentationSite');
-  const [templateIntent, setTemplateIntent] = useState('articleTemplate');
+  const [catalogIntent, setCatalogIntent] = useState('');
+  const [siteIntent, setSiteIntent] = useState('');
+  const [templateIntent, setTemplateIntent] = useState('');
   const [pageIntent, setPageIntent] = useState('home');
-  const [slotIntent, setSlotIntent] = useState('navigation\narticle\nrelatedResources');
-  const [routeIntent, setRouteIntent] = useState('/docs/home');
+  const [slotIntent, setSlotIntent] = useState('');
+  const [routeIntent, setRouteIntent] = useState('');
   const [componentIntent, setComponentIntent] = useState(
     selectedComponentKind('Hero banner', fallbackComponentKinds).label,
   );
+  const [validatedDraftSignature, setValidatedDraftSignature] = useState('');
   const connections = useMemo(() => activeConnections(bootstrap), [bootstrap]);
   const designerConnection = useMemo(
     () => firstHealthyCmsConnection(bootstrap),
@@ -593,46 +731,83 @@ export function ContentDesignerRoutePage({
     : fallbackComponentKinds;
   const draftDefaults =
     authoringModel.data?.defaults.draftDefaults ?? fallbackDraftDefaults;
+  const effectiveCatalogIntent =
+    catalogIntent || draftDefaults.catalogCode || 'contentCatalog';
+  const effectiveTemplateIntent =
+    templateIntent || draftDefaults.templateCode || 'pageTemplate';
   const metadata = authoringModel.data?.metadata;
   const catalogOptions = metadata?.contentCatalogs ?? [];
-  const siteOptions = (metadata?.sites ?? []).filter(
-    (site) => !catalogIntent || !site.catalogCode || site.catalogCode === catalogIntent,
+  const siteOptions = useMemo(
+    () =>
+      (metadata?.sites ?? []).filter(
+        (site) =>
+          !effectiveCatalogIntent ||
+          !site.catalogCode ||
+          site.catalogCode === effectiveCatalogIntent,
+      ),
+    [effectiveCatalogIntent, metadata?.sites],
   );
+  const effectiveSiteIntent =
+    siteIntent ||
+    (siteOptions.some((site) => site.code === draftDefaults.siteCode)
+      ? draftDefaults.siteCode
+      : siteOptions[0]?.code) ||
+    'contentSite';
   const templateOptions = metadata?.pageTemplates ?? [];
-  const slotOptions = (metadata?.slotDefinitions ?? []).filter(
-    (slot) =>
-      !templateIntent || !slot.templateCode || slot.templateCode === templateIntent,
+  const slotOptions = useMemo(
+    () =>
+      (metadata?.slotDefinitions ?? []).filter(
+        (slot) =>
+          !effectiveTemplateIntent ||
+          !slot.templateCode ||
+          slot.templateCode === effectiveTemplateIntent,
+      ),
+    [effectiveTemplateIntent, metadata?.slotDefinitions],
   );
   const slotOptionNames = slotOptions.map((slot) => slot.name || slot.code);
+  const effectiveSlotIntent =
+    slotIntent || slotsFromReferences(slotOptions, draftDefaults);
+  const effectiveRouteIntent = routeIntent || draftDefaults.routePath || '/docs/home';
+  const componentTypeOptions = metadata?.componentTypes ?? [];
+  const mediaFolderOptions = metadata?.mediaFolders ?? [];
+  const mediaTypeOptions = metadata?.mediaTypes ?? [];
+  const navigationNodeOptions = metadata?.navigationNodes ?? [];
+  const publicationParts =
+    metadata?.publicationReadiness.requiredDraftParts ?? Object.freeze([]);
   const draft = useMemo(
     () =>
       buildDraft({
-        catalogIntent,
+        catalogIntent: effectiveCatalogIntent,
         componentIntent,
         componentKinds,
         draftDefaults,
         pageIntent,
-        routeIntent,
-        siteIntent,
-        slotIntent,
-        templateIntent,
+        routeIntent: effectiveRouteIntent,
+        siteIntent: effectiveSiteIntent,
+        slotIntent: effectiveSlotIntent,
+        templateIntent: effectiveTemplateIntent,
       }),
     [
-      catalogIntent,
       componentIntent,
       componentKinds,
       draftDefaults,
+      effectiveCatalogIntent,
+      effectiveRouteIntent,
+      effectiveSiteIntent,
+      effectiveSlotIntent,
+      effectiveTemplateIntent,
       pageIntent,
-      routeIntent,
-      siteIntent,
-      slotIntent,
-      templateIntent,
     ],
   );
+  const draftSignature = useMemo(() => JSON.stringify(draft), [draft]);
+
   const validateMutation = useMutation({
     mutationFn: () => {
       if (!designerConnection) throw new Error('CMS connection is not available');
       return validateContentDesignerDraft(designerConnection, configuration, draft);
+    },
+    onSuccess: (result) => {
+      if (validationSucceeded(result)) setValidatedDraftSignature(draftSignature);
     },
   });
   const saveMutation = useMutation({
@@ -641,6 +816,9 @@ export function ContentDesignerRoutePage({
       return saveContentDesignerDraft(designerConnection, configuration, draft);
     },
   });
+  const draftIsValidated =
+    validatedDraftSignature === draftSignature &&
+    validationSucceeded(validateMutation.data);
   const metrics = metricsById(data.data, designerMetrics);
   const operationError =
     validateMutation.error instanceof Error
@@ -751,12 +929,31 @@ export function ContentDesignerRoutePage({
                 isLoading={authoringModel.isLoading}
                 model={authoringModel.data}
               />
+              <BackendGuidancePanel
+                mediaFolders={mediaFolderOptions}
+                mediaTypes={mediaTypeOptions}
+                navigationNodes={navigationNodeOptions}
+                publicationParts={publicationParts}
+              />
               <Divider />
+              <Alert severity="success" variant="outlined">
+                Start with the fields below. Axis has already loaded the safest backend
+                defaults it can find; you only need to change what is different for this
+                page.
+              </Alert>
               <TextField
+                helperText={
+                  catalogOptions.length
+                    ? 'Choose the content boundary first. Sites are filtered by this catalog.'
+                    : 'Type the content catalog code when WCMS metadata is unavailable.'
+                }
                 label="Content Catalog"
-                onChange={(event) => setCatalogIntent(event.target.value)}
+                onChange={(event) => {
+                  setCatalogIntent(event.target.value);
+                  setSiteIntent('');
+                }}
                 select={catalogOptions.length > 0}
-                value={catalogIntent}
+                value={effectiveCatalogIntent}
               >
                 {catalogOptions.map((catalog) => (
                   <MenuItem key={catalog.code} value={catalog.code}>
@@ -765,10 +962,15 @@ export function ContentDesignerRoutePage({
                 ))}
               </TextField>
               <TextField
+                helperText={
+                  siteOptions.length
+                    ? 'Only sites available for the selected catalog are shown.'
+                    : 'Type the site code when WCMS metadata is unavailable.'
+                }
                 label="Site intent"
                 onChange={(event) => setSiteIntent(event.target.value)}
                 select={siteOptions.length > 0}
-                value={siteIntent}
+                value={effectiveSiteIntent}
               >
                 {siteOptions.map((site) => (
                   <MenuItem key={site.code} value={site.code}>
@@ -777,10 +979,18 @@ export function ContentDesignerRoutePage({
                 ))}
               </TextField>
               <TextField
+                helperText={
+                  templateOptions.length
+                    ? 'Selecting a template updates the suggested slot list below.'
+                    : 'Type the page template code when WCMS metadata is unavailable.'
+                }
                 label="Template intent"
-                onChange={(event) => setTemplateIntent(event.target.value)}
+                onChange={(event) => {
+                  setTemplateIntent(event.target.value);
+                  setSlotIntent('');
+                }}
                 select={templateOptions.length > 0}
-                value={templateIntent}
+                value={effectiveTemplateIntent}
               >
                 {templateOptions.map((template) => (
                   <MenuItem key={template.code} value={template.code}>
@@ -789,6 +999,7 @@ export function ContentDesignerRoutePage({
                 ))}
               </TextField>
               <TextField
+                helperText="Friendly page code. Axis generates a readable name and route preview from it."
                 label="Page intent"
                 onChange={(event) => setPageIntent(event.target.value)}
                 value={pageIntent}
@@ -803,14 +1014,20 @@ export function ContentDesignerRoutePage({
                 minRows={3}
                 multiline
                 onChange={(event) => setSlotIntent(event.target.value)}
-                value={slotIntent}
+                value={effectiveSlotIntent}
               />
               <TextField
+                helperText="Use a clean URL. If you omit the leading slash, Axis adds it for you."
                 label="Route intent"
                 onChange={(event) => setRouteIntent(event.target.value)}
-                value={routeIntent}
+                value={effectiveRouteIntent}
               />
               <TextField
+                helperText={componentHint(
+                  componentIntent,
+                  componentKinds,
+                  componentTypeOptions,
+                )}
                 label="Primary component type"
                 onChange={(event) => setComponentIntent(event.target.value)}
                 select
@@ -824,6 +1041,10 @@ export function ContentDesignerRoutePage({
               </TextField>
               <Divider />
               <DraftPreview draft={draft} />
+              <ValidationEvidencePanel
+                draftIsValidated={draftIsValidated}
+                result={validateMutation.data}
+              />
               {operationError ? (
                 <Alert severity="error">{operationError.message}</Alert>
               ) : null}
@@ -851,11 +1072,27 @@ export function ContentDesignerRoutePage({
                   Validate draft
                 </Button>
                 <Button
-                  disabled={!designerConnection || saveMutation.isPending}
+                  disabled={
+                    !designerConnection || !draftIsValidated || saveMutation.isPending
+                  }
                   onClick={() => saveMutation.mutate()}
                   variant="outlined"
                 >
                   Save draft
+                </Button>
+                <Button
+                  disabled={!authoringModel.data}
+                  onClick={() => {
+                    setCatalogIntent('');
+                    setSiteIntent('');
+                    setTemplateIntent('');
+                    setSlotIntent('');
+                    setRouteIntent('');
+                    setComponentIntent(componentKinds[0]?.label ?? 'Hero banner');
+                  }}
+                  variant="text"
+                >
+                  Reset defaults
                 </Button>
                 <Button
                   component={RouterLink}

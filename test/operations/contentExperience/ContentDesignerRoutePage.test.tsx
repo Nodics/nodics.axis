@@ -125,6 +125,31 @@ describe('ContentDesignerRoutePage', () => {
           new Response(
             JSON.stringify({
               result: {
+                defaults: {
+                  componentKinds: [
+                    {
+                      label: 'Hero banner',
+                      renderer: 'axis.hero',
+                      typeCode: 'heroBannerComponentType',
+                    },
+                    {
+                      label: 'Rich text',
+                      renderer: 'axis.richText',
+                      typeCode: 'richTextComponentType',
+                    },
+                  ],
+                  draftDefaults: {
+                    catalogCode: 'documentationContentCatalog',
+                    pageRenderer: 'axis.page',
+                    pageTypeCode: 'documentationPageType',
+                    routePath: '/docs/home',
+                    siteCode: 'axisCmsSite',
+                    slots: ['hero', 'body', 'footer'],
+                    templateCode: 'documentationLandingTemplate',
+                  },
+                  maximumReferenceLookupItems: 50,
+                  requireNavigationForPublish: true,
+                },
                 hierarchy: [
                   'Content Catalog',
                   'Site',
@@ -148,6 +173,80 @@ describe('ContentDesignerRoutePage', () => {
                   catalogFirst: true,
                   frontendPersistence: false,
                   pixelPerfectRendering: false,
+                },
+                metadata: {
+                  componentTypeGroups: [
+                    { code: 'marketing', name: 'Marketing components' },
+                  ],
+                  componentTypes: [
+                    {
+                      code: 'heroBannerComponentType',
+                      name: 'Hero banner',
+                      typeCode: 'heroBannerComponentType',
+                    },
+                    {
+                      code: 'richTextComponentType',
+                      name: 'Rich text',
+                      typeCode: 'richTextComponentType',
+                    },
+                  ],
+                  contentCatalogs: [
+                    {
+                      catalogType: 'CONTENT',
+                      code: 'documentationContentCatalog',
+                      name: 'Documentation Content Catalog',
+                    },
+                  ],
+                  mediaFolders: [{ code: 'cmsAssets', name: 'CMS Assets' }],
+                  mediaFormats: [{ code: 'original', name: 'Original' }],
+                  mediaTypes: ['IMAGE', 'VIDEO', 'DOCUMENT'],
+                  navigationNodes: [
+                    {
+                      code: 'nodicsDocumentation',
+                      name: 'Nodics Documentation',
+                      siteCode: 'axisCmsSite',
+                    },
+                  ],
+                  pageTemplates: [
+                    {
+                      code: 'documentationLandingTemplate',
+                      name: 'Documentation Landing Template',
+                    },
+                  ],
+                  pageTypes: [
+                    {
+                      code: 'documentationPageType',
+                      name: 'Documentation Page',
+                    },
+                  ],
+                  publicationReadiness: {
+                    requiredDraftParts: ['route', 'navigation', 'media references'],
+                    requireNavigationForPublish: true,
+                  },
+                  sites: [
+                    {
+                      catalogCode: 'documentationContentCatalog',
+                      code: 'axisCmsSite',
+                      name: 'Axis CMS Site',
+                    },
+                  ],
+                  slotDefinitions: [
+                    {
+                      code: 'hero',
+                      name: 'Hero',
+                      templateCode: 'documentationLandingTemplate',
+                    },
+                    {
+                      code: 'body',
+                      name: 'Body',
+                      templateCode: 'documentationLandingTemplate',
+                    },
+                    {
+                      code: 'footer',
+                      name: 'Footer',
+                      templateCode: 'documentationLandingTemplate',
+                    },
+                  ],
                 },
               },
             }),
@@ -207,6 +306,10 @@ describe('ContentDesignerRoutePage', () => {
     expect(screen.getByText('Select template')).toBeVisible();
     expect(screen.getByText('Arrange sections and slots')).toBeVisible();
     expect(screen.getByText('Associate media')).toBeVisible();
+    expect(screen.getByText('Helpful backend hints')).toBeVisible();
+    expect(screen.getByText(/Start with the fields below/i)).toBeVisible();
+    expect(screen.getByText(/Validate first\. Save will unlock/i)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Save draft' })).toBeDisabled();
     expect(screen.getByRole('link', { name: 'Open media' })).toHaveAttribute(
       'href',
       '/media/items?folderCode=cmsAssets',
@@ -220,12 +323,21 @@ describe('ContentDesignerRoutePage', () => {
       expect(screen.getByText('Template Slots: any number')).toBeVisible();
     });
     expect(screen.getByText(/Page: summerCampaign/i)).toBeVisible();
-    expect(screen.getByText(/Slot: navigation/i)).toBeVisible();
+    expect(screen.getByText(/Catalog: documentationContentCatalog/i)).toBeVisible();
+    expect(screen.getByText(/Site: axisCmsSite/i)).toBeVisible();
+    expect(screen.getByText(/Template: documentationLandingTemplate/i)).toBeVisible();
+    expect(screen.getByText(/Slot: hero/i)).toBeVisible();
+    expect(screen.getByText(/Slot: body/i)).toBeVisible();
+    expect(screen.getByText(/Slot: footer/i)).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: 'Validate draft' }));
     await waitFor(() => {
       expect(screen.getByText(/Validation result: VALID_DRAFT/i)).toBeVisible();
     });
+    expect(
+      screen.getByText(/This draft is validated and ready to save/i),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Save draft' })).toBeEnabled();
 
     await user.click(screen.getByRole('button', { name: 'Save draft' }));
     await waitFor(() => {
