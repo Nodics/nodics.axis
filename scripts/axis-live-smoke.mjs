@@ -27,6 +27,7 @@ const wcmsUrl = process.env.AXIS_WCMS_URL || 'http://127.0.0.1:4310';
 const axisRoutes = [
   '/',
   '/content',
+  '/content/designer',
   '/media',
   '/media/items',
   '/media/folders',
@@ -144,6 +145,38 @@ function assertModule(modules, functionalModule, expected) {
   return module;
 }
 
+function containsForbiddenStorageAuthority(value, path = '$') {
+  if (!value || typeof value !== 'object') return undefined;
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      const match = containsForbiddenStorageAuthority(
+        item,
+        `${path}[${String(index)}]`,
+      );
+      if (match) return match;
+    }
+    return undefined;
+  }
+
+  const forbiddenKeys = new Set([
+    'basePath',
+    'credentials',
+    'credential',
+    'fullPath',
+    'privateKey',
+    'secret',
+    'secretAccessKey',
+    'signedUrl',
+    'storageKey',
+  ]);
+  for (const [key, item] of Object.entries(value)) {
+    if (forbiddenKeys.has(key)) return `${path}.${key}`;
+    const match = containsForbiddenStorageAuthority(item, `${path}.${key}`);
+    if (match) return match;
+  }
+  return undefined;
+}
+
 async function loadModuleRegistry(authorizedHeaders) {
   const registeredBody = await requestJson(
     endpoint(
@@ -254,6 +287,64 @@ async function verifyOpenApiContract(authorizedHeaders) {
   );
   console.log(
     `PASS OpenAPI contract grouped by ${moduleNames.size} modules across ${operations.length} APIs`,
+  );
+}
+
+async function verifyMediaOperations(authorizedHeaders) {
+  const contextsBody = await requestJson(
+    endpoint(wcmsUrl, '/nodics/media/v0/contexts'),
+    { headers: authorizedHeaders },
+  );
+  const contextsPayload = resultPayload(contextsBody);
+  const contexts = Array.isArray(contextsPayload)
+    ? contextsPayload
+    : Array.isArray(contextsPayload?.contexts)
+      ? contextsPayload.contexts
+      : [];
+  if (contexts.length === 0) {
+    throw new Error('Media source contexts did not return any governed contexts');
+  }
+  const contextsForbiddenKey = containsForbiddenStorageAuthority(contextsBody);
+  if (contextsForbiddenKey) {
+    throw new Error(
+      `Media source contexts exposed raw storage authority at ${contextsForbiddenKey}`,
+    );
+  }
+  console.log(`PASS media source contexts reachable (${contexts.length} contexts)`);
+
+  const providerBody = await requestJson(
+    endpoint(wcmsUrl, '/nodics/media/v0/storage/providers/summary'),
+    { headers: authorizedHeaders },
+  );
+  const providerSummary = resultPayload(providerBody);
+  const providers = Array.isArray(providerSummary?.providers)
+    ? providerSummary.providers
+    : [];
+  if (providers.length === 0) {
+    throw new Error('Media storage provider summary did not expose providers');
+  }
+  const providerForbiddenKey = containsForbiddenStorageAuthority(providerBody);
+  if (providerForbiddenKey) {
+    throw new Error(
+      `Media storage provider summary exposed raw storage authority at ${providerForbiddenKey}`,
+    );
+  }
+  for (const provider of providers) {
+    if (provider?.secretsHidden !== true || provider?.rawPathsHidden !== true) {
+      throw new Error(
+        `Media provider ${String(
+          provider?.providerCode ?? 'unknown',
+        )} did not hide secrets and raw paths`,
+      );
+    }
+    if (provider?.health?.pathExposed === true) {
+      throw new Error(
+        `Media provider ${String(provider?.providerCode ?? 'unknown')} exposes paths`,
+      );
+    }
+  }
+  console.log(
+    `PASS media storage provider summary hides raw storage details (${providers.length} providers)`,
   );
 }
 
@@ -712,6 +803,7 @@ async function main() {
   }
 
   await verifyOpenApiContract(authorizedHeaders);
+  await verifyMediaOperations(authorizedHeaders);
   await verifyProcessOperations(authorizedHeaders);
 
   if (runProcessLifecycle) {

@@ -24,6 +24,7 @@ import { FunctionalModuleRegistryRoutePage } from '../operations/moduleRegistry/
 import { SystemIntegrationsDashboardRoutePage } from '../operations/systemIntegrations/SystemIntegrationsDashboardRoutePage';
 import { CronDashboardRoutePage } from '../operations/cron/CronDashboardRoutePage';
 import { ContentDashboardRoutePage } from '../operations/contentExperience/ContentDashboardRoutePage';
+import { ContentDesignerRoutePage } from '../operations/contentExperience/ContentDesignerRoutePage';
 import { PublishingDashboardRoutePage } from '../operations/contentExperience/PublishingDashboardRoutePage';
 import { ImportExportRoutePage } from '../operations/importExport/ImportExportRoutePage';
 import { ComplianceManagementRoutePage } from '../operations/compliance/ComplianceManagementRoutePage';
@@ -498,6 +499,25 @@ export function App() {
           ),
         )
       : sessionFallback;
+  const contentDesignerNavigation =
+    authenticatedBootstrap?.navigation.find(
+      (item) => item.route === '/content/designer',
+    ) ?? contentDashboardNavigation;
+  const contentDesignerElement =
+    session && !locked && authenticatedBootstrap && contentDesignerNavigation
+      ? authenticatedShell(
+          ['UP', 'DEGRADED'].includes(contentDesignerNavigation.availability) ? (
+            <ContentDesignerRoutePage
+              accessToken={session.accessToken}
+              bootstrap={authenticatedBootstrap}
+              routeNavigation={contentDesignerNavigation}
+              runtime={runtime}
+            />
+          ) : (
+            <ModuleWorkspacePlaceholder item={contentDesignerNavigation} />
+          ),
+        )
+      : sessionFallback;
   const complianceNavigation = currentNavigation?.route.startsWith(
     '/compliance-management',
   )
@@ -936,6 +956,7 @@ export function App() {
         }
       />
       <Route path="/content" element={contentDashboardElement} />
+      <Route path="/content/designer" element={contentDesignerElement} />
       <Route path="/content/*" element={cmsWorkbenchElement} />
       <Route path="/publishing" element={publishingDashboardElement} />
       <Route path="/publishing/*" element={cmsWorkbenchElement} />

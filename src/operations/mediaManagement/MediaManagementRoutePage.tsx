@@ -94,6 +94,11 @@ import {
   mediaSourceTypesForContexts,
   mediaSourceType,
 } from './mediaSourceContextPolicy';
+import {
+  mediaLifecycleActionPolicies,
+  mediaLifecycleStatusTone,
+  normalizeMediaLifecycleStatus,
+} from './mediaLifecyclePolicy';
 
 export interface MediaManagementRoutePageProps {
   readonly accessToken: string;
@@ -1358,7 +1363,7 @@ function SelectedMediaHeaderActions(props: {
   readonly record: WorkbenchRecord;
   readonly usageRecords: readonly WorkbenchRecord[];
 }) {
-  const status = textValue(props.record, 'status');
+  const status = normalizeMediaLifecycleStatus(textValue(props.record, 'status'));
   const activeUsageCount = props.usageRecords.filter(
     (record) => textValue(record, 'status') === 'ACTIVE',
   ).length;
@@ -1385,15 +1390,14 @@ function SelectedMediaHeaderActions(props: {
   const hasImportExportHistory = props.importHistory.length > 0;
   const showHistory =
     isExportFile || hasImportExportHistory || props.importHistoryLoading;
-  const retireDisabled =
-    !canUpdate ||
-    lifecycleMutation.isPending ||
-    activeUsageCount > 0 ||
-    ['RETIRED', 'EXPIRED', 'FAILED'].includes(status);
-  const restoreDisabled =
-    !canUpdate ||
-    lifecycleMutation.isPending ||
-    !['RETIRED', 'EXPIRED', 'FAILED'].includes(status);
+  const lifecyclePolicies = mediaLifecycleActionPolicies({
+    activeUsageCount,
+    canUpdate,
+    pending: lifecycleMutation.isPending,
+    status,
+  });
+  const retirePolicy = lifecyclePolicies.find((policy) => policy.action === 'retire');
+  const restorePolicy = lifecyclePolicies.find((policy) => policy.action === 'restore');
 
   return (
     <Stack spacing={1}>
@@ -1420,23 +1424,28 @@ function SelectedMediaHeaderActions(props: {
             History
           </Button>
         ) : null}
-        <Button
-          color="warning"
-          disabled={retireDisabled}
-          onClick={() => lifecycleMutation.mutate('RETIRED')}
-          size="small"
-          variant="outlined"
-        >
-          Retire
-        </Button>
-        {status !== 'READY' ? (
+        {retirePolicy ? (
           <Button
-            disabled={restoreDisabled}
-            onClick={() => lifecycleMutation.mutate('READY')}
+            color={retirePolicy.color}
+            disabled={retirePolicy.disabled}
+            onClick={() => lifecycleMutation.mutate(retirePolicy.nextStatus)}
             size="small"
-            variant="outlined"
+            title={retirePolicy.reason}
+            variant={retirePolicy.variant}
           >
-            Restore
+            {retirePolicy.label}
+          </Button>
+        ) : null}
+        {restorePolicy && status !== 'READY' ? (
+          <Button
+            color={restorePolicy.color}
+            disabled={restorePolicy.disabled}
+            onClick={() => lifecycleMutation.mutate(restorePolicy.nextStatus)}
+            size="small"
+            title={restorePolicy.reason}
+            variant={restorePolicy.variant}
+          >
+            {restorePolicy.label}
           </Button>
         ) : null}
       </Stack>
@@ -1456,7 +1465,8 @@ function SelectedMediaHeaderActions(props: {
       ) : null}
       {activeUsageCount > 0 && canUpdate ? (
         <Typography color="text.secondary" variant="caption">
-          Retire is disabled while this media is actively referenced.
+          {retirePolicy?.reason ??
+            'Retire is disabled while this media is actively referenced.'}
         </Typography>
       ) : null}
       {lifecycleMutation.data ? (
@@ -1705,7 +1715,7 @@ const recordWorkspaceConfigurations: Readonly<
         field: 'status',
         render: (record) => (
           <Chip
-            color={textValue(record, 'status') === 'READY' ? 'success' : 'default'}
+            color={mediaLifecycleStatusTone(textValue(record, 'status'))}
             label={textValue(record, 'status')}
             size="small"
           />

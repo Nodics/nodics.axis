@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Chip, Paper, Stack } from '@mui/material';
+import { Alert, Button, Chip, Paper, Stack } from '@mui/material';
 import { useMemo } from 'react';
+import { Link as RouterLink } from 'react-router';
 
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
 import { WorkspaceContainer } from '../../app/shell/ShellPrimitives';
@@ -245,6 +246,14 @@ export function ContentDashboardRoutePage({
                 title="Content and Experience"
               />
               <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
+                <Button
+                  component={RouterLink}
+                  size="small"
+                  to="/content/designer"
+                  variant="contained"
+                >
+                  Open designer
+                </Button>
                 <Chip label={`${String(allMetrics.length)} metrics`} />
                 <Chip
                   label={`${new Intl.NumberFormat().format(totalRecords)} records`}

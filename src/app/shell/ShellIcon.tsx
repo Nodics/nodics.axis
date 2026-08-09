@@ -85,6 +85,11 @@ const aliases: Readonly<Record<string, string>> = Object.freeze({
   integration: 'operations',
   settings: 'operations',
   notifications: 'bell',
+  component: 'module',
+  layout: 'dashboard',
+  page: 'content',
+  route: 'reference',
+  template: 'cms',
 });
 
 interface ShellIconProps extends SvgIconProps {
