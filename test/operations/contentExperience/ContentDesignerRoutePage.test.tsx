@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -113,16 +113,96 @@ describe('ContentDesignerRoutePage', () => {
 
   it('guides business users through governed WCMS composition steps', async () => {
     const user = userEvent.setup();
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ data: [] }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    );
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url =
+        input instanceof Request
+          ? input.url
+          : input instanceof URL
+            ? input.href
+            : input;
+      if (url.includes('/designer/composition/model')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              result: {
+                hierarchy: [
+                  'Content Catalog',
+                  'Site',
+                  'Page Template',
+                  'Page',
+                  'Template Slots',
+                  'Page Sections',
+                  'Components',
+                  'Media',
+                  'Route',
+                  'Navigation',
+                ],
+                operations: [
+                  'validateDraftComposition',
+                  'saveDraftComposition',
+                  'assignRoute',
+                  'assignNavigation',
+                ],
+                rules: {
+                  arbitrarySlots: true,
+                  catalogFirst: true,
+                  frontendPersistence: false,
+                  pixelPerfectRendering: false,
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+        );
+      }
+      if (url.includes('/designer/composition/validate')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              result: {
+                valid: true,
+                status: 'VALID_DRAFT',
+                evidence: { sectionCount: 3, componentCount: 3 },
+              },
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+        );
+      }
+      if (url.includes('/designer/composition/draft')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              result: {
+                status: 'DRAFT_SAVED',
+                saved: { pageCode: 'summerCampaign' },
+              },
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    });
 
     renderPage();
 
     expect(screen.getByRole('heading', { name: 'Content Designer' })).toBeVisible();
+    expect(screen.getByText('Choose catalog')).toBeVisible();
     expect(screen.getByText('Choose or create site')).toBeVisible();
     expect(screen.getByText('Select template')).toBeVisible();
     expect(screen.getByText('Arrange sections and slots')).toBeVisible();
@@ -135,6 +215,27 @@ describe('ContentDesignerRoutePage', () => {
     await user.clear(screen.getByLabelText('Page intent'));
     await user.type(screen.getByLabelText('Page intent'), 'summerCampaign');
 
-    expect(screen.getByText(/page: summerCampaign; first component:/i)).toBeVisible();
+    expect(screen.getAllByText('Content Catalog').length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getByText('Template Slots: any number')).toBeVisible();
+    });
+    expect(screen.getByText(/Page: summerCampaign/i)).toBeVisible();
+    expect(screen.getByText(/Slot: navigation/i)).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Validate draft' }));
+    await waitFor(() => {
+      expect(screen.getByText(/Validation result: VALID_DRAFT/i)).toBeVisible();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => {
+      expect(screen.getByText(/Save result: DRAFT_SAVED/i)).toBeVisible();
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        href: 'http://localhost:4310/nodics/cms/v0/designer/composition/validate',
+      }),
+      expect.objectContaining({ method: 'POST' }),
+    );
   });
 });
