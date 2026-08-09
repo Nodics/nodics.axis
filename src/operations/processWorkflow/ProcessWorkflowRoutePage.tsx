@@ -24,7 +24,10 @@ import {
 } from '../../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
+  archiveProcessTrigger,
+  assignProcessTask,
   createProcessDefinition,
+  createProcessTrigger,
   createSampleGraph,
   cancelProcessInstance,
   cancelProcessTask,
@@ -38,6 +41,7 @@ import {
   prepareNextProcessDraft,
   publishProcessDraft,
   startProcessInstance,
+  updateProcessTrigger,
   updateProcessDraft,
   validateProcessDraft,
   type ProcessDefinition,
@@ -67,6 +71,37 @@ const emptyOperationsSummary: ProcessOperationsSummary = Object.freeze({
   tasks: Object.freeze([]),
   triggers: Object.freeze([]),
 });
+const defaultProcessWorkspace = Object.freeze({
+    detail:
+      'Model, validate, publish, start, and version workflow definitions with backend governance.',
+    icon: 'workflow',
+    label: 'Definitions',
+    route: '/process/definitions',
+});
+const processWorkspaces = Object.freeze([
+  defaultProcessWorkspace,
+  Object.freeze({
+    detail:
+      'Inspect running instances, human tasks, and timeline evidence from nodics.process.',
+    icon: 'activity',
+    label: 'Operations',
+    route: '/process/tasks',
+  }),
+  Object.freeze({
+    detail:
+      'Connect Process trigger metadata to Cron-owned jobs without mixing ownership.',
+    icon: 'cronjob',
+    label: 'Scheduled triggers',
+    route: '/process/triggers',
+  }),
+  Object.freeze({
+    detail:
+      'Preview the Nodics-native visual graph contract before the full canvas editor lands.',
+    icon: 'schema',
+    label: 'Designer',
+    route: '/process/designer',
+  }),
+]);
 
 function normalizeCode(value: string): string {
   return value
@@ -161,6 +196,73 @@ function SummaryCard({
           {value}
         </Typography>
         <Typography color="text.secondary">{detail}</Typography>
+      </Stack>
+    </Paper>
+  );
+}
+
+function ProcessWorkspaceCard({
+  active,
+  detail,
+  icon,
+  label,
+  route,
+}: {
+  readonly active: boolean;
+  readonly detail: string;
+  readonly icon: string;
+  readonly label: string;
+  readonly route: string;
+}) {
+  return (
+    <Paper
+      component="a"
+      elevation={0}
+      href={route}
+      sx={{
+        bgcolor: active ? alpha(axisTokens.color.signatureGold, 0.12) : 'background.paper',
+        border: 1,
+        borderColor: active ? 'primary.main' : 'divider',
+        color: 'inherit',
+        p: { xs: 2, md: 2.5 },
+        textDecoration: 'none',
+        transition: 'border-color 160ms ease, transform 160ms ease',
+        '&:hover': {
+          borderColor: 'primary.main',
+          transform: 'translateY(-2px)',
+        },
+      }}
+    >
+      <Stack spacing={1.5}>
+        <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center' }}>
+          <Box
+            aria-hidden
+            sx={{
+              alignItems: 'center',
+              bgcolor: alpha(axisTokens.color.signatureGold, 0.18),
+              borderRadius: axisTokens.radius.medium,
+              color: 'primary.main',
+              display: 'inline-flex',
+              height: 40,
+              justifyContent: 'center',
+              width: 40,
+            }}
+          >
+            <ShellIcon name={icon} />
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="h6">{label}</Typography>
+            <Chip
+              color={active ? 'warning' : 'default'}
+              label={active ? 'Current focus' : 'Open'}
+              size="small"
+              variant="outlined"
+            />
+          </Box>
+        </Stack>
+        <Typography color="text.secondary" variant="body2">
+          {detail}
+        </Typography>
       </Stack>
     </Paper>
   );
@@ -413,13 +515,19 @@ function RuntimeInstanceList({
 }
 
 function TaskInbox({
+  assignee,
   disabled,
+  onAssigneeChange,
+  onAssign,
   onCancel,
   onClaim,
   onComplete,
   tasks,
 }: {
+  readonly assignee: string;
   readonly disabled: boolean;
+  readonly onAssigneeChange: (assignee: string) => void;
+  readonly onAssign: (taskCode: string) => void;
   readonly onCancel: (taskCode: string) => void;
   readonly onClaim: (taskCode: string) => void;
   readonly onComplete: (taskCode: string) => void;
@@ -444,6 +552,13 @@ function TaskInbox({
           </Alert>
         ) : (
           <Stack spacing={1.5}>
+            <TextField
+              disabled={disabled}
+              label="Assign selected task to"
+              onChange={(event) => onAssigneeChange(event.target.value)}
+              placeholder="user, group, or queue code"
+              value={assignee}
+            />
             {tasks.map((task) => {
               const actionable = ['OPEN', 'CLAIMED', 'ESCALATED'].includes(task.status);
               return (
@@ -473,6 +588,13 @@ function TaskInbox({
                       />
                     </Stack>
                     <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                      <Button
+                        disabled={disabled || !actionable || !assignee.trim()}
+                        onClick={() => onAssign(task.code)}
+                        variant="outlined"
+                      >
+                        Assign
+                      </Button>
                       <Button
                         disabled={disabled || task.status !== 'OPEN'}
                         onClick={() => onClaim(task.code)}
@@ -508,8 +630,27 @@ function TaskInbox({
 }
 
 function TriggerRelationshipView({
+  disabled,
+  onArchive,
+  onCreate,
+  onFieldChange,
+  onUpdate,
+  triggerCronJobCode,
+  triggerDefinitionCode,
+  triggerScheduleExpression,
   triggers,
 }: {
+  readonly disabled: boolean;
+  readonly onArchive: (triggerCode: string) => void;
+  readonly onCreate: () => void;
+  readonly onFieldChange: (
+    field: 'definitionCode' | 'cronJobCode' | 'scheduleExpression',
+    value: string,
+  ) => void;
+  readonly onUpdate: (trigger: ProcessTrigger) => void;
+  readonly triggerCronJobCode: string;
+  readonly triggerDefinitionCode: string;
+  readonly triggerScheduleExpression: string;
   readonly triggers: readonly ProcessTrigger[];
 }) {
   return (
@@ -529,6 +670,44 @@ function TriggerRelationshipView({
           firing, retries, and job lifecycle. This keeps shared processServer topology
           useful without mixing module responsibilities.
         </Alert>
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 2,
+            gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr auto' },
+          }}
+        >
+          <TextField
+            disabled={disabled}
+            label="Process definition code"
+            onChange={(event) => onFieldChange('definitionCode', event.target.value)}
+            value={triggerDefinitionCode}
+          />
+          <TextField
+            disabled={disabled}
+            label="Cron job code"
+            onChange={(event) => onFieldChange('cronJobCode', event.target.value)}
+            value={triggerCronJobCode}
+          />
+          <TextField
+            disabled={disabled}
+            label="Schedule expression"
+            onChange={(event) =>
+              onFieldChange('scheduleExpression', event.target.value)
+            }
+            placeholder="0 0 * * *"
+            value={triggerScheduleExpression}
+          />
+          <Button
+            disabled={
+              disabled || !triggerDefinitionCode.trim() || !triggerCronJobCode.trim()
+            }
+            onClick={onCreate}
+            variant="contained"
+          >
+            Add trigger
+          </Button>
+        </Box>
         {triggers.length === 0 ? (
           <Typography color="text.secondary">
             No trigger metadata has been registered yet.
@@ -557,10 +736,146 @@ function TriggerRelationshipView({
                   </Box>
                   <Chip label={trigger.status} />
                 </Stack>
+                <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap' }}>
+                  <Button
+                    disabled={
+                      disabled ||
+                      trigger.status === 'ACTIVE' ||
+                      trigger.status === 'ARCHIVED'
+                    }
+                    onClick={() => onUpdate(trigger)}
+                    variant="outlined"
+                  >
+                    Activate
+                  </Button>
+                  <Button
+                    color="error"
+                    disabled={disabled || trigger.status === 'ARCHIVED'}
+                    onClick={() => onArchive(trigger.code)}
+                    variant="outlined"
+                  >
+                    Archive trigger
+                  </Button>
+                </Stack>
               </Paper>
             ))}
           </Stack>
         )}
+      </Stack>
+    </Paper>
+  );
+}
+
+function VisualDesignerSkeleton({
+  graph,
+}: {
+  readonly graph: ProcessGraph | undefined;
+}) {
+  const nodes = graph?.nodes ?? [];
+  const transitions = graph?.transitions ?? [];
+  return (
+    <Paper
+      component="section"
+      elevation={0}
+      sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
+    >
+      <Stack spacing={2}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+          <ShellIcon name="schema" />
+          <Typography variant="h5">Visual workflow designer foundation</Typography>
+          <Chip label="Nodics-native first" variant="outlined" />
+        </Stack>
+        <Typography color="text.secondary">
+          The first designer slice should be simple for business users: drag a Start,
+          Task, Decision, Action, or End step; connect steps; save the draft; then let
+          nodics.process validate and publish. BPMN import/export can come later as an
+          adapter, not as runtime truth.
+        </Typography>
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 2,
+            gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
+          }}
+        >
+          <SummaryCard
+            detail="Nodes are browser layout projections until backend validation accepts them."
+            label="Designer nodes"
+            value={nodes.length}
+          />
+          <SummaryCard
+            detail="Edges define intended handoffs; backend rejects broken transitions."
+            label="Designer edges"
+            value={transitions.length}
+          />
+          <SummaryCard
+            detail="Graph JSON and layout metadata remain draft data owned by Process."
+            label="Authority"
+            value="Backend"
+          />
+        </Box>
+        <Box
+          aria-label="Visual workflow designer MVP canvas"
+          sx={{
+            bgcolor: 'action.hover',
+            border: 1,
+            borderColor: 'divider',
+            borderRadius: axisTokens.radius.large,
+            display: 'grid',
+            gap: 2,
+            gridTemplateColumns: {
+              xs: '1fr',
+              md: nodes.length > 0 ? `repeat(${String(Math.min(nodes.length, 4))}, minmax(0, 1fr))` : '1fr',
+            },
+            minHeight: 220,
+            p: { xs: 2, md: 3 },
+          }}
+        >
+          {nodes.length === 0 ? (
+            <Stack spacing={1} sx={{ justifyContent: 'center', textAlign: 'center' }}>
+              <ShellIcon name="workflow" />
+              <Typography variant="h6">Create or select a draft to see the canvas</Typography>
+              <Typography color="text.secondary">
+                The MVP designer starts as a safe read/write projection over backend graph
+                JSON. Axis can later add drag/drop while nodics.process remains the
+                validation authority.
+              </Typography>
+            </Stack>
+          ) : (
+            nodes.map((node) => (
+              <Paper
+                component="article"
+                elevation={0}
+                key={node.code}
+                sx={{
+                  alignSelf: 'center',
+                  bgcolor: 'background.paper',
+                  border: 1,
+                  borderColor:
+                    node.type === 'START'
+                      ? 'success.light'
+                      : node.type === 'END'
+                        ? 'divider'
+                        : 'primary.light',
+                  p: 2,
+                }}
+              >
+                <Stack spacing={1}>
+                  <Chip label={node.type} size="small" variant="outlined" />
+                  <Typography variant="h6">{node.name ?? node.code}</Typography>
+                  <Typography color="text.secondary" variant="caption">
+                    Node code: {node.code}
+                  </Typography>
+                </Stack>
+              </Paper>
+            ))
+          )}
+        </Box>
+        <Alert severity="info">
+          Next designer slice: add a canvas editor that updates draft graph JSON, runs
+          validation, and shows invalid edges before publish. Axis will never execute
+          the workflow locally.
+        </Alert>
       </Stack>
     </Paper>
   );
@@ -684,6 +999,10 @@ export function ProcessWorkflowRoutePage({
 }: ProcessWorkflowRoutePageProps) {
   const queryClient = useQueryClient();
   const processConnection = selectModuleConnection(bootstrap, 'process');
+  const currentPath =
+    typeof window !== 'undefined' && window.location.pathname.startsWith('/process')
+      ? window.location.pathname
+      : navigation.route;
   const [draftName, setDraftName] = useState('Sample approval process');
   const [selectedCode, setSelectedCode] = useState<string | undefined>();
   const [editName, setEditName] = useState('');
@@ -692,6 +1011,11 @@ export function ProcessWorkflowRoutePage({
   const [selectedInstanceCode, setSelectedInstanceCode] = useState<
     string | undefined
   >();
+  const [taskAssignee, setTaskAssignee] = useState('operationsQueue');
+  const [triggerDefinitionCode, setTriggerDefinitionCode] = useState('');
+  const [triggerCronJobCode, setTriggerCronJobCode] = useState('');
+  const [triggerScheduleExpression, setTriggerScheduleExpression] =
+    useState('0 0 * * *');
 
   const configuration = useMemo<ProcessDefinitionClientConfiguration>(
     () => ({
@@ -874,6 +1198,16 @@ export function ProcessWorkflowRoutePage({
     onSuccess: invalidate,
   });
 
+  const assignTask = useMutation({
+    mutationFn: async (taskCode: string) => {
+      if (!processConnection) throw new Error('Process API is unavailable');
+      const assignee = taskAssignee.trim();
+      if (!assignee) throw new Error('Provide an assignee before assigning a task');
+      return assignProcessTask(processConnection, configuration, taskCode, assignee);
+    },
+    onSuccess: invalidate,
+  });
+
   const completeTask = useMutation({
     mutationFn: async (taskCode: string) => {
       if (!processConnection) throw new Error('Process API is unavailable');
@@ -898,6 +1232,50 @@ export function ProcessWorkflowRoutePage({
     onSuccess: invalidate,
   });
 
+  const createTrigger = useMutation({
+    mutationFn: async () => {
+      if (!processConnection) throw new Error('Process API is unavailable');
+      const definitionCode = normalizeCode(triggerDefinitionCode);
+      const cronJobCode = normalizeCode(triggerCronJobCode);
+      if (!definitionCode || !cronJobCode)
+        throw new Error('Provide both process definition and Cron job codes');
+      return createProcessTrigger(processConnection, configuration, {
+        code: normalizeCode(`${definitionCode}-${cronJobCode}`).toLowerCase(),
+        definitionCode,
+        triggerType: 'CRON',
+        cronJobCode,
+        status: 'DRAFT',
+        schedule: { expression: triggerScheduleExpression.trim() || '0 0 * * *' },
+      });
+    },
+    onSuccess: invalidate,
+  });
+
+  const activateTrigger = useMutation({
+    mutationFn: async (trigger: ProcessTrigger) => {
+      if (!processConnection) throw new Error('Process API is unavailable');
+      const currentSchedule = trigger.schedule?.expression;
+      const nextScheduleExpression =
+        typeof currentSchedule === 'string' && currentSchedule.trim()
+          ? currentSchedule.trim()
+          : '0 0 * * *';
+      return updateProcessTrigger(processConnection, configuration, trigger.code, {
+        status: 'ACTIVE',
+        ...(trigger.cronJobCode ? { cronJobCode: trigger.cronJobCode } : {}),
+        schedule: { expression: nextScheduleExpression },
+      });
+    },
+    onSuccess: invalidate,
+  });
+
+  const archiveTrigger = useMutation({
+    mutationFn: async (triggerCode: string) => {
+      if (!processConnection) throw new Error('Process API is unavailable');
+      return archiveProcessTrigger(processConnection, configuration, triggerCode);
+    },
+    onSuccess: invalidate,
+  });
+
   const definitionCount = definitions.data?.length ?? 0;
   const draftCount =
     definitions.data?.filter((definition) => definition.status === 'DRAFT').length ?? 0;
@@ -914,6 +1292,9 @@ export function ProcessWorkflowRoutePage({
     ).length ?? 0;
   const auditEventCount = operations.data?.auditEvents.length ?? 0;
   const triggerCount = operations.data?.triggers.length ?? 0;
+  const activeWorkspace =
+    processWorkspaces.find((workspace) => currentPath.startsWith(workspace.route)) ??
+    defaultProcessWorkspace;
   const busy =
     createDraft.isPending ||
     updateDraft.isPending ||
@@ -923,9 +1304,13 @@ export function ProcessWorkflowRoutePage({
     deleteDefinition.isPending ||
     startInstance.isPending ||
     claimTask.isPending ||
+    assignTask.isPending ||
     completeTask.isPending ||
     cancelTask.isPending ||
-    cancelInstance.isPending;
+    cancelInstance.isPending ||
+    createTrigger.isPending ||
+    activateTrigger.isPending ||
+    archiveTrigger.isPending;
   const latestError =
     createDraft.error ??
     updateDraft.error ??
@@ -935,9 +1320,13 @@ export function ProcessWorkflowRoutePage({
     deleteDefinition.error ??
     startInstance.error ??
     claimTask.error ??
+    assignTask.error ??
     completeTask.error ??
     cancelTask.error ??
-    cancelInstance.error;
+    cancelInstance.error ??
+    createTrigger.error ??
+    activateTrigger.error ??
+    archiveTrigger.error;
 
   return (
     <WorkspaceContainer>
@@ -1023,6 +1412,46 @@ export function ProcessWorkflowRoutePage({
                   ? definitions.error.message
                   : 'Axis is connected to nodics.process. This workspace is intentionally guided: business users can model and review; backend services validate, version, audit, and execute.'}
             </Alert>
+          </Stack>
+        </Paper>
+
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
+        >
+          <Stack spacing={2.5}>
+            <Box>
+              <Typography variant="h5">Process workspace focus</Typography>
+              <Typography color="text.secondary">
+                Business users can move through the Process console by intent:
+                definitions, operations, scheduled triggers, or designer. Each card
+                opens the same backend-owned capability family without creating a second
+                workflow authority in Axis.
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 2,
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  md: 'repeat(2, minmax(0, 1fr))',
+                  xl: 'repeat(4, minmax(0, 1fr))',
+                },
+              }}
+            >
+              {processWorkspaces.map((workspace) => (
+                <ProcessWorkspaceCard
+                  active={activeWorkspace.route === workspace.route}
+                  detail={workspace.detail}
+                  icon={workspace.icon}
+                  key={workspace.route}
+                  label={workspace.label}
+                  route={workspace.route}
+                />
+              ))}
+            </Box>
           </Stack>
         </Paper>
 
@@ -1144,7 +1573,10 @@ export function ProcessWorkflowRoutePage({
             selectedCode={selectedInstanceCode}
           />
           <TaskInbox
+            assignee={taskAssignee}
             disabled={busy}
+            onAssigneeChange={setTaskAssignee}
+            onAssign={(taskCode) => assignTask.mutate(taskCode)}
             onCancel={(taskCode) => cancelTask.mutate(taskCode)}
             onClaim={(taskCode) => claimTask.mutate(taskCode)}
             onComplete={(taskCode) => completeTask.mutate(taskCode)}
@@ -1241,7 +1673,21 @@ export function ProcessWorkflowRoutePage({
               )}
             </Stack>
           </Paper>
-          <TriggerRelationshipView triggers={operations.data?.triggers ?? []} />
+          <TriggerRelationshipView
+            disabled={busy}
+            onArchive={(triggerCode) => archiveTrigger.mutate(triggerCode)}
+            onCreate={() => createTrigger.mutate()}
+            onFieldChange={(field, value) => {
+              if (field === 'definitionCode') setTriggerDefinitionCode(value);
+              if (field === 'cronJobCode') setTriggerCronJobCode(value);
+              if (field === 'scheduleExpression') setTriggerScheduleExpression(value);
+            }}
+            onUpdate={(trigger) => activateTrigger.mutate(trigger)}
+            triggerCronJobCode={triggerCronJobCode}
+            triggerDefinitionCode={triggerDefinitionCode}
+            triggerScheduleExpression={triggerScheduleExpression}
+            triggers={operations.data?.triggers ?? []}
+          />
         </Box>
 
         <Paper
@@ -1414,25 +1860,7 @@ export function ProcessWorkflowRoutePage({
               loading={versions.isPending}
               versions={versions.data ?? []}
             />
-            <Paper
-              component="section"
-              elevation={0}
-              sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
-            >
-              <Stack spacing={1.5}>
-                <Typography variant="h5">Designer implementation direction</Typography>
-                <Typography color="text.secondary">
-                  Use a Nodics-native graph designer first so the screen stays simple
-                  for business users and safe for operators. Add BPMN import/export as
-                  an adapter later for interoperability, not as the runtime truth.
-                </Typography>
-                <Typography color="text.secondary" variant="body2">
-                  Guardrail: Axis may edit graph JSON and layout metadata; backend
-                  validation, publish versioning, audit, and execution remain owned by
-                  nodics.process.
-                </Typography>
-              </Stack>
-            </Paper>
+            <VisualDesignerSkeleton graph={selectedDefinition?.graph} />
           </Stack>
         </Box>
       </Stack>

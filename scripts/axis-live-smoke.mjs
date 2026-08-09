@@ -33,10 +33,14 @@ const axisRoutes = [
   '/process',
   '/process/definitions',
   '/process/tasks',
+  '/process/triggers',
+  '/process/designer',
   '/cron',
   '/system-integrations',
   '/registry',
   '/operations/imports-exports',
+  '/docs/framework/process',
+  '/docs/framework/process/visual-designer',
   '/docs/swaggers',
 ];
 const requiredModules = ['nodics.core', 'nodics.platform', 'nodics.wcms'];
@@ -44,6 +48,7 @@ const optionalObservedModules = ['nodics.cron'];
 const documentationPacks = [
   'nodicsDocumentation',
   'axisDocumentation',
+  'processDocumentation',
   'kickoffDocumentation',
 ];
 
@@ -350,6 +355,19 @@ async function verifyProcessDefinitionLifecycle(authorizedHeaders) {
   await requestJson(
     endpoint(
       processUrl,
+      `/nodics/process/v0/tasks/${encodeURIComponent(task.code)}/assign`,
+    ),
+    {
+      body: JSON.stringify({ assignee: 'axisSmokeReviewQueue' }),
+      headers: authorizedHeaders,
+      method: 'POST',
+    },
+  );
+  console.log('PASS process runtime assign task');
+
+  await requestJson(
+    endpoint(
+      processUrl,
       `/nodics/process/v0/tasks/${encodeURIComponent(task.code)}/claim`,
     ),
     { headers: authorizedHeaders, method: 'POST' },
@@ -398,6 +416,62 @@ async function verifyProcessDefinitionLifecycle(authorizedHeaders) {
     throw new Error('Process trigger metadata did not return a list');
   }
   console.log('PASS process trigger metadata reachable');
+
+  const triggerCode = `${definitionCode}_trigger`;
+  const createTriggerBody = await requestJson(
+    endpoint(processUrl, '/nodics/process/v0/triggers'),
+    {
+      body: JSON.stringify({
+        code: triggerCode,
+        definitionCode,
+        triggerType: 'CRON',
+        cronJobCode: `${definitionCode}_cronJob`,
+        status: 'DRAFT',
+        schedule: { expression: '0 1 * * *' },
+      }),
+      headers: authorizedHeaders,
+      method: 'POST',
+    },
+  );
+  const createdTrigger = resultPayload(createTriggerBody);
+  if (createdTrigger?.code !== triggerCode || createdTrigger?.status !== 'DRAFT') {
+    throw new Error('Process trigger create did not return draft trigger metadata');
+  }
+  console.log('PASS process trigger create');
+
+  const updateTriggerBody = await requestJson(
+    endpoint(
+      processUrl,
+      `/nodics/process/v0/triggers/${encodeURIComponent(triggerCode)}`,
+    ),
+    {
+      body: JSON.stringify({
+        status: 'ACTIVE',
+        cronJobCode: `${definitionCode}_cronJob`,
+        schedule: { expression: '0 2 * * *' },
+      }),
+      headers: authorizedHeaders,
+      method: 'PATCH',
+    },
+  );
+  const updatedTrigger = resultPayload(updateTriggerBody);
+  if (updatedTrigger?.status !== 'ACTIVE') {
+    throw new Error('Process trigger update did not activate trigger metadata');
+  }
+  console.log('PASS process trigger update');
+
+  const archiveTriggerBody = await requestJson(
+    endpoint(
+      processUrl,
+      `/nodics/process/v0/triggers/${encodeURIComponent(triggerCode)}/archive`,
+    ),
+    { headers: authorizedHeaders, method: 'POST' },
+  );
+  const archivedTrigger = resultPayload(archiveTriggerBody);
+  if (archivedTrigger?.status !== 'ARCHIVED') {
+    throw new Error('Process trigger archive did not return archived metadata');
+  }
+  console.log('PASS process trigger archive');
 
   const preparedBody = await requestJson(
     endpoint(

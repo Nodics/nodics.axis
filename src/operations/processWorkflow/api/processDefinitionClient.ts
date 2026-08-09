@@ -89,6 +89,7 @@ export interface ProcessTrigger {
   readonly triggerType: string;
   readonly cronJobCode: string | undefined;
   readonly status: string;
+  readonly schedule: Record<string, unknown> | undefined;
 }
 
 export interface ProcessInstanceDetail {
@@ -116,6 +117,21 @@ export interface UpdateProcessDraftInput {
   readonly name: string;
   readonly description: string;
   readonly category: string;
+}
+
+export interface CreateProcessTriggerInput {
+  readonly code: string;
+  readonly definitionCode: string;
+  readonly triggerType: string;
+  readonly cronJobCode: string;
+  readonly status: string;
+  readonly schedule: Record<string, unknown>;
+}
+
+export interface UpdateProcessTriggerInput {
+  readonly status: string;
+  readonly cronJobCode?: string;
+  readonly schedule: Record<string, unknown>;
 }
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -280,6 +296,12 @@ function parseTrigger(value: unknown): ProcessTrigger {
     triggerType: text(data.triggerType, 'UNKNOWN'),
     cronJobCode: optionalText(data.cronJobCode),
     status: text(data.status, 'UNKNOWN'),
+    schedule:
+      typeof data.schedule === 'object' &&
+      data.schedule !== null &&
+      !Array.isArray(data.schedule)
+        ? Object.freeze(data.schedule as Record<string, unknown>)
+        : undefined,
   });
 }
 
@@ -515,6 +537,25 @@ export async function claimProcessTask(
   );
 }
 
+export async function assignProcessTask(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  taskCode: string,
+  assignee: string,
+): Promise<unknown> {
+  return envelopeData(
+    await request(
+      connection,
+      `/tasks/${encodeURIComponent(taskCode)}/assign`,
+      configuration,
+      {
+        method: 'POST',
+        body: JSON.stringify({ assignee }),
+      },
+    ),
+  );
+}
+
 export async function completeProcessTask(
   connection: AxisModuleConnection,
   configuration: ProcessDefinitionClientConfiguration,
@@ -579,6 +620,53 @@ export async function loadProcessInstanceDetail(
       connection,
       `/instances/${encodeURIComponent(instanceCode)}/detail`,
       configuration,
+    ),
+  );
+}
+
+export async function createProcessTrigger(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  input: CreateProcessTriggerInput,
+): Promise<unknown> {
+  return envelopeData(
+    await request(connection, '/triggers', configuration, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  );
+}
+
+export async function updateProcessTrigger(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  triggerCode: string,
+  input: UpdateProcessTriggerInput,
+): Promise<unknown> {
+  return envelopeData(
+    await request(
+      connection,
+      `/triggers/${encodeURIComponent(triggerCode)}`,
+      configuration,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      },
+    ),
+  );
+}
+
+export async function archiveProcessTrigger(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  triggerCode: string,
+): Promise<unknown> {
+  return envelopeData(
+    await request(
+      connection,
+      `/triggers/${encodeURIComponent(triggerCode)}/archive`,
+      configuration,
+      { method: 'POST' },
     ),
   );
 }

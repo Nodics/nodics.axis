@@ -163,11 +163,53 @@ describe('ProcessWorkflowRoutePage', () => {
             }),
           );
         }
+        if (method === 'POST' && url.includes('/tasks/task-1/assign')) {
+          return Promise.resolve(
+            jsonResponse({
+              code: 'task-1',
+              instanceCode: 'instance-1',
+              nodeCode: 'businessReview',
+              assignee: 'business-reviewers',
+              status: 'CLAIMED',
+            }),
+          );
+        }
         if (method === 'POST' && url.includes('/tasks/task-1/complete')) {
           return Promise.resolve(
             jsonResponse({
               task: { code: 'task-1', status: 'COMPLETED' },
               instance: { code: 'instance-1', status: 'COMPLETED' },
+            }),
+          );
+        }
+        if (method === 'POST' && url.endsWith('/v0/triggers')) {
+          return Promise.resolve(
+            jsonResponse({
+              code: 'sample-approval-process-nightlyapprovaljob',
+              definitionCode: 'sample-approval-process',
+              triggerType: 'CRON',
+              cronJobCode: 'nightlyApprovalJob',
+              status: 'DRAFT',
+              schedule: { expression: '0 1 * * *' },
+            }),
+          );
+        }
+        if (method === 'PATCH' && url.includes('/triggers/daily-content-approval')) {
+          return Promise.resolve(
+            jsonResponse({
+              code: 'daily-content-approval',
+              status: 'ACTIVE',
+            }),
+          );
+        }
+        if (
+          method === 'POST' &&
+          url.includes('/triggers/daily-content-approval/archive')
+        ) {
+          return Promise.resolve(
+            jsonResponse({
+              code: 'daily-content-approval',
+              status: 'ARCHIVED',
             }),
           );
         }
@@ -346,11 +388,14 @@ describe('ProcessWorkflowRoutePage', () => {
     expect(
       screen.getByText('Create a beginner-safe process draft'),
     ).toBeInTheDocument();
+    expect(screen.getByText('Process workspace focus')).toBeInTheDocument();
+    expect(screen.getByText('Operations')).toBeInTheDocument();
+    expect(screen.getByText('Designer')).toBeInTheDocument();
 
     await waitFor(() =>
       expect(screen.getByText('Sample approval process')).toBeInTheDocument(),
     );
-    expect(screen.getByText('Definitions')).toBeInTheDocument();
+    expect(screen.getAllByText('Definitions').length).toBeGreaterThan(0);
     expect(screen.getByText('Drafts')).toBeInTheDocument();
     expect(screen.getByText('Published')).toBeInTheDocument();
     expect(screen.getByText('Selected issues')).toBeInTheDocument();
@@ -360,7 +405,11 @@ describe('ProcessWorkflowRoutePage', () => {
     expect(screen.getByText('Audit events')).toBeInTheDocument();
     expect(screen.getByText('Process instances')).toBeInTheDocument();
     expect(screen.getByText('Task inbox')).toBeInTheDocument();
-    expect(screen.getByText('Scheduled triggers')).toBeInTheDocument();
+    expect(screen.getAllByText('Scheduled triggers').length).toBeGreaterThan(0);
+    expect(screen.getByText('Visual workflow designer foundation')).toBeInTheDocument();
+    expect(
+      screen.getByLabelText('Visual workflow designer MVP canvas'),
+    ).toBeInTheDocument();
     expect(screen.getByText(/dailyContentApprovalJob/i)).toBeInTheDocument();
     expect(screen.getByText('Edit selected draft')).toBeInTheDocument();
     expect(screen.getByText('Version history')).toBeInTheDocument();
@@ -442,12 +491,60 @@ describe('ProcessWorkflowRoutePage', () => {
       ).toBe(true),
     );
 
+    await user.clear(screen.getByLabelText('Assign selected task to'));
+    await user.type(
+      screen.getByLabelText('Assign selected task to'),
+      'business-reviewers',
+    );
+    await user.click(screen.getByRole('button', { name: 'Assign' }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([input, init]) => {
+          const body = init?.body;
+          return (
+            requestUrl(input).includes('/tasks/task-1/assign') &&
+            init?.method === 'POST' &&
+            typeof body === 'string' &&
+            body.includes('business-reviewers')
+          );
+        }),
+      ).toBe(true),
+    );
+
     await user.click(screen.getByRole('button', { name: 'Complete' }));
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some(
           ([input, init]) =>
             requestUrl(input).includes('/tasks/task-1/complete') &&
+            init?.method === 'POST',
+        ),
+      ).toBe(true),
+    );
+
+    await user.type(
+      screen.getByLabelText('Process definition code'),
+      'sample-approval-process',
+    );
+    await user.type(screen.getByLabelText('Cron job code'), 'nightlyApprovalJob');
+    await user.clear(screen.getByLabelText('Schedule expression'));
+    await user.type(screen.getByLabelText('Schedule expression'), '0 1 * * *');
+    await user.click(screen.getByRole('button', { name: 'Add trigger' }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, init]) =>
+            requestUrl(input).endsWith('/v0/triggers') && init?.method === 'POST',
+        ),
+      ).toBe(true),
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Archive trigger' }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, init]) =>
+            requestUrl(input).includes('/triggers/daily-content-approval/archive') &&
             init?.method === 'POST',
         ),
       ).toBe(true),
