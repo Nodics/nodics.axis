@@ -698,6 +698,21 @@ async function verifyProcessDefinitionLifecycle(authorizedHeaders) {
   await waitForProcessInstance(definitionCode, cronInstanceCode, authorizedHeaders);
   console.log('PASS cron job processTrigger handoff starts Process instance');
 
+  await requestJsonFromFirst(
+    [
+      endpoint(
+        processUrl,
+        `/nodics/cronjob/job/stop/${encodeURIComponent(cronJobCode)}`,
+      ),
+      endpoint(
+        processUrl,
+        `/nodics/cronjob/v0/job/stop/${encodeURIComponent(cronJobCode)}`,
+      ),
+    ],
+    { headers: authorizedHeaders, method: 'POST' },
+  );
+  console.log('PASS cron job stopped before Process trigger archive');
+
   const archiveTriggerBody = await requestJson(
     endpoint(
       processUrl,
