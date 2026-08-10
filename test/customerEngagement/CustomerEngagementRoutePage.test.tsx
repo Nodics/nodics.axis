@@ -4,12 +4,14 @@ import { MemoryRouter } from 'react-router';
 import { describe, expect, it } from 'vitest';
 
 import { CustomerEngagementRoutePage } from '../../src/operations/customerEngagement/CustomerEngagementRoutePage';
+import { engagementDomains } from '../../src/operations/customerEngagement/engagementDomains';
+import type { AxisAuthenticatedBootstrap } from '../../src/bootstrap/publicBootstrap';
 
 describe('Customer Engagement presentation', () => {
-  it('renders only backend-published engagement workspaces and the data boundary', () => {
+  it('groups backend-published workspaces into a concise business landing page', () => {
     const parent = {
       id: 'customer-engagement',
-      moduleName: 'engagement',
+      moduleName: 'nodics.engagement',
       label: 'Customer Engagement',
       route: '/engagement',
       category: 'customer-experience',
@@ -162,7 +164,7 @@ describe('Customer Engagement presentation', () => {
       ],
       moduleConnections: {},
       axisPolicy: { recentNavigationLimit: 10 },
-    } as never;
+    } as unknown as AxisAuthenticatedBootstrap;
 
     render(
       <QueryClientProvider client={new QueryClient()}>
@@ -183,38 +185,27 @@ describe('Customer Engagement presentation', () => {
     );
 
     expect(screen.getByText('Customer Experience')).toBeInTheDocument();
-    expect(screen.getByText('Contact Submissions')).toBeInTheDocument();
-    expect(screen.getByText('Process Handoffs')).toBeInTheDocument();
-    expect(screen.getByText('Testimonial Candidates')).toBeInTheDocument();
-    expect(screen.getByText('Editorial Versions')).toBeInTheDocument();
-    expect(screen.getByText('Consent & Rights')).toBeInTheDocument();
-    expect(screen.getByText('Publication Calendar')).toBeInTheDocument();
-    expect(screen.getByText('Customer Reviews')).toBeInTheDocument();
-    expect(screen.getByText('Review Moderation')).toBeInTheDocument();
-    expect(screen.getByText('Business Responses')).toBeInTheDocument();
-    expect(screen.getByText('Review Abuse & Appeals')).toBeInTheDocument();
-    expect(screen.getByText('Published Reviews')).toBeInTheDocument();
-    expect(screen.getByText('Rating Aggregates')).toBeInTheDocument();
-    expect(screen.getByText('Review Requests')).toBeInTheDocument();
-    expect(screen.getByText('Review Syndication')).toBeInTheDocument();
-    expect(screen.getByText('Customer Feedback')).toBeInTheDocument();
-    expect(screen.getByText('Complaints')).toBeInTheDocument();
-    expect(screen.getByText('Feedback Follow-up')).toBeInTheDocument();
-    expect(screen.getByText('Feedback Surveys')).toBeInTheDocument();
-    expect(screen.getByText('Feedback Insights')).toBeInTheDocument();
-    expect(screen.getByText('Unified Queue')).toBeInTheDocument();
-    expect(screen.getByText('Engagement Dashboards')).toBeInTheDocument();
-    expect(screen.getByText('Repair Console')).toBeInTheDocument();
-    expect(screen.getByText('Engagement Exports')).toBeInTheDocument();
-    expect(screen.getByText('Automation Decisions')).toBeInTheDocument();
-    expect(screen.getByText('Automation Evaluations')).toBeInTheDocument();
-    expect(screen.getByText('Provider Deliveries')).toBeInTheDocument();
-    expect(screen.getByText('Recovery Checkpoints')).toBeInTheDocument();
-    expect(screen.getByText('Contract Compatibility')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open Contact' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Open Testimonials' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Open Reviews & ratings' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open Feedback' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Open Work management' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Open Governance & automation' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Start with Contact Submissions')).toBeInTheDocument();
+    expect(screen.queryByText('Process Handoffs')).not.toBeInTheDocument();
+    expect(screen.queryByText('Review Moderation')).not.toBeInTheDocument();
+    expect(screen.queryByText('Unified Queue')).not.toBeInTheDocument();
     expect(screen.queryByText('Orders')).not.toBeInTheDocument();
     expect(screen.getByText('Backend governed')).toBeInTheDocument();
-    expect(
-      screen.getByText(/browser-side customer engagement store/),
-    ).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(engagementDomains(bootstrap.navigation)).toHaveLength(6);
   });
 });

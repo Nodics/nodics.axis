@@ -615,7 +615,8 @@ export function App() {
   const engagementNavigation = currentNavigation?.route.startsWith('/engagement')
     ? currentNavigation
     : authenticatedBootstrap?.navigation.find(
-        (item) => item.id === 'customer-engagement' && item.moduleName === 'engagement',
+        (item) =>
+          item.id === 'customer-engagement' && item.moduleName === 'nodics.engagement',
       );
   const customerEngagementElement =
     session && !locked && authenticatedBootstrap && engagementNavigation

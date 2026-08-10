@@ -1,4 +1,17 @@
-import { Alert, Box, Button, Chip, Paper, Stack, Typography } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Button,
+  CardActionArea,
+  Chip,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Paper,
+  Select,
+  Stack,
+  Typography,
+} from '@mui/material';
 import { useNavigate } from 'react-router';
 
 import type {
@@ -7,6 +20,7 @@ import type {
 } from '../../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import { WorkbenchRoutePage } from '../../workbench/WorkbenchRoutePage';
+import { engagementDomains } from './engagementDomains';
 
 interface CustomerEngagementRoutePageProps {
   readonly accessToken: string;
@@ -20,14 +34,11 @@ interface CustomerEngagementRoutePageProps {
   readonly site: string;
 }
 
-const engagementItems = (
-  items: readonly AxisNavigationItem[],
-): readonly AxisNavigationItem[] =>
-  items
-    .filter(
-      (item) => item.route.startsWith('/engagement') && item.featureState !== 'HIDDEN',
-    )
-    .sort((left, right) => left.order - right.order);
+const quietButtonSx = {
+  borderColor: 'divider',
+  color: 'text.primary',
+  '&:hover': { borderColor: 'text.secondary', bgcolor: 'action.hover' },
+} as const;
 
 export function CustomerEngagementRoutePage({
   accessToken,
@@ -41,20 +52,29 @@ export function CustomerEngagementRoutePage({
   site,
 }: CustomerEngagementRoutePageProps) {
   const navigate = useNavigate();
-  const workspaces = engagementItems(bootstrap.navigation);
+  const domains = engagementDomains(bootstrap.navigation);
+  const selectedDomain =
+    navigation.id === 'customer-engagement'
+      ? undefined
+      : domains.find((domain) =>
+          domain.items.some((item) => item.id === navigation.id),
+        );
+
   return (
     <Stack spacing={2}>
-      <Paper variant="outlined" sx={{ p: 2 }}>
-        <Stack spacing={1.5}>
+      <Paper variant="outlined" sx={{ p: { xs: 2, md: 2.5 } }}>
+        <Stack spacing={2}>
           <Stack
             direction={{ xs: 'column', md: 'row' }}
-            spacing={1}
+            spacing={1.5}
             sx={{ justifyContent: 'space-between' }}
           >
-            <Box>
-              <Typography variant="overline">Customer Experience</Typography>
+            <Box sx={{ maxWidth: 880 }}>
+              <Typography color="text.secondary" variant="overline">
+                Customer Experience
+              </Typography>
               <Typography variant="h4">{navigation.label}</Typography>
-              <Typography color="text.secondary">
+              <Typography color="text.secondary" sx={{ mt: 0.5 }}>
                 {navigation.help?.summary ??
                   'Review customer submissions and perform only backend-authorized lifecycle actions.'}
               </Typography>
@@ -64,24 +84,81 @@ export function CustomerEngagementRoutePage({
               <Chip label={navigation.availability} size="small" />
             </Stack>
           </Stack>
-          <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
-            {workspaces.map((item) => (
-              <Button
-                key={`${item.moduleName}:${item.id}`}
-                size="small"
-                variant={item.id === navigation.id ? 'contained' : 'outlined'}
-                onClick={() => void navigate(item.route)}
-              >
-                {item.label}
-              </Button>
-            ))}
-          </Stack>
-          <Alert severity="info">
-            Customer evidence, contact details, consent proof, and editorial source text
-            remain protected record data. Axis displays them only through the authorized
-            workbench contract and never creates a browser-side customer engagement
-            store.
-          </Alert>
+
+          {selectedDomain ? (
+            <Stack spacing={1.5}>
+              <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                {domains.map((domain) => (
+                  <Button
+                    key={domain.id}
+                    size="small"
+                    sx={domain.id === selectedDomain.id ? undefined : quietButtonSx}
+                    variant={domain.id === selectedDomain.id ? 'contained' : 'outlined'}
+                    onClick={() =>
+                      void navigate(domain.items[0]?.route ?? '/engagement')
+                    }
+                  >
+                    {domain.label}
+                  </Button>
+                ))}
+              </Stack>
+              <FormControl fullWidth size="small" sx={{ maxWidth: 420 }}>
+                <InputLabel id="engagement-current-view-label">Current view</InputLabel>
+                <Select
+                  label="Current view"
+                  labelId="engagement-current-view-label"
+                  value={navigation.route}
+                  onChange={(event) => void navigate(event.target.value)}
+                >
+                  {selectedDomain.items.map((item) => (
+                    <MenuItem key={`${item.moduleName}:${item.id}`} value={item.route}>
+                      {item.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Stack>
+          ) : (
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 1.5,
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  sm: 'repeat(2, minmax(0, 1fr))',
+                  lg: 'repeat(3, minmax(0, 1fr))',
+                },
+              }}
+            >
+              {domains.map((domain) => (
+                <Paper key={domain.id} variant="outlined" sx={{ overflow: 'hidden' }}>
+                  <CardActionArea
+                    aria-label={`Open ${domain.label}`}
+                    onClick={() =>
+                      void navigate(domain.items[0]?.route ?? '/engagement')
+                    }
+                    sx={{ minHeight: 112, p: 2, textAlign: 'left' }}
+                  >
+                    <Typography variant="h6">{domain.label}</Typography>
+                    <Typography color="text.secondary" sx={{ mt: 0.5 }} variant="body2">
+                      {domain.items.length} authorized{' '}
+                      {domain.items.length === 1 ? 'view' : 'views'}
+                    </Typography>
+                    <Typography color="primary.dark" sx={{ mt: 1 }} variant="body2">
+                      Start with {domain.items[0]?.label ?? domain.label}
+                    </Typography>
+                  </CardActionArea>
+                </Paper>
+              ))}
+            </Box>
+          )}
+
+          {navigation.workbenchTarget ? (
+            <Alert severity="info" sx={{ py: 0.25 }}>
+              Protected customer evidence is shown only through this authorized backend
+              workbench.
+            </Alert>
+          ) : null}
         </Stack>
       </Paper>
       {navigation.workbenchTarget ? (
