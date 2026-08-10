@@ -1,20 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Nodics Axis">
   <rect width="64" height="64" rx="14" fill="#242629" />
   <path
-    d="M24 9h-9l-4 4v12l-5 6v2l5 6v12l4 4h9M40 9h9l4 4v12l5 6v2l-5 6v12l-4 4h-9"
+    d="M24 6H14l-4 4v14l-6 6v4l6 6v14l4 4h10M40 6h10l4 4v14l6 6v4l-6 6v14l-4 4H40"
     fill="none"
     stroke="#F5C400"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    stroke-width="3"
+    stroke-linecap="square"
+    stroke-linejoin="miter"
+    stroke-width="4"
   />
   <text
     x="32"
-    y="47"
+    y="48"
     fill="#FFFFFF"
     font-family="Times New Roman, Times, serif"
-    font-size="43"
+    font-size="45"
     font-weight="400"
     text-anchor="middle"
+    transform="translate(32 0) scale(.84 1) translate(-32 0)"
   >N</text>
 </svg>

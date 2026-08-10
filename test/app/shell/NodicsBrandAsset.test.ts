@@ -17,12 +17,18 @@ describe('final Nodics application brand asset', () => {
     expect(favicon).toContain('fill="#FFFFFF"');
     expect(favicon).toContain('font-family="Times New Roman, Times, serif"');
     expect(favicon).toContain('font-weight="400"');
+    expect(favicon).toContain(
+      'transform="translate(32 0) scale(.84 1) translate(-32 0)"',
+    );
+    expect(favicon).toContain(
+      'M24 6H14l-4 4v14l-6 6v4l6 6v14l4 4h10M40 6h10l4 4v14l6 6v4l-6 6v14l-4 4H40',
+    );
     expect(favicon).toContain('>N</text>');
   });
 
   it('keeps the application favicon connected to the approved asset', () => {
     const html = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf8');
 
-    expect(html).toContain('/brand/favicon.svg?v=4');
+    expect(html).toContain('/brand/favicon.svg?v=5');
   });
 });

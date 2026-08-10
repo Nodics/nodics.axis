@@ -39,6 +39,7 @@ function NodicsMark({ reverse, size }: NodicsMarkProps) {
         fontSize="45"
         fontWeight="400"
         textAnchor="middle"
+        transform="translate(32 0) scale(.84 1) translate(-32 0)"
       >
         N
       </text>
