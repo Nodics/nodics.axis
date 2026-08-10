@@ -33,6 +33,7 @@ import { OrderLifecycleManagementRoutePage } from '../operations/orderLifecycle/
 import { MediaManagementDashboardRoutePage } from '../operations/mediaManagement/MediaManagementDashboardRoutePage';
 import { MediaManagementRoutePage } from '../operations/mediaManagement/MediaManagementRoutePage';
 import { ProcessWorkflowRoutePage } from '../operations/processWorkflow/ProcessWorkflowRoutePage';
+import { CustomerEngagementRoutePage } from '../operations/customerEngagement/CustomerEngagementRoutePage';
 import { useIdleScreenLock } from '../auth/useIdleScreenLock';
 import {
   clearScreenLock,
@@ -611,6 +612,31 @@ export function App() {
           ),
         )
       : sessionFallback;
+  const engagementNavigation = currentNavigation?.route.startsWith('/engagement')
+    ? currentNavigation
+    : authenticatedBootstrap?.navigation.find(
+        (item) => item.id === 'customer-engagement' && item.moduleName === 'engagement',
+      );
+  const customerEngagementElement =
+    session && !locked && authenticatedBootstrap && engagementNavigation
+      ? authenticatedShell(
+          ['UP', 'DEGRADED'].includes(engagementNavigation.availability) ? (
+            <CustomerEngagementRoutePage
+              accessToken={session.accessToken}
+              bootstrap={authenticatedBootstrap}
+              channel={composition.channel}
+              cmsBaseUrl={bootstrap.endpoints.cms}
+              employeeId={session.loginId}
+              locale={composition.locale}
+              navigation={engagementNavigation}
+              runtime={runtime}
+              site={composition.site}
+            />
+          ) : (
+            <ModuleWorkspacePlaceholder item={engagementNavigation} />
+          ),
+        )
+      : sessionFallback;
 
   return (
     <Routes>
@@ -964,6 +990,7 @@ export function App() {
       <Route path="/notifications/*" element={notificationElement} />
       <Route path="/commerce/*" element={orderLifecycleElement} />
       <Route path="/process/*" element={processWorkflowElement} />
+      <Route path="/engagement/*" element={customerEngagementElement} />
       {session && !locked && authenticatedBootstrap
         ? authenticatedBootstrap.navigation
             .filter(
@@ -973,6 +1000,7 @@ export function App() {
                 !item.route.startsWith('/notifications') &&
                 !item.route.startsWith('/content') &&
                 !item.route.startsWith('/docs') &&
+                !item.route.startsWith('/engagement') &&
                 !item.route.startsWith('/media') &&
                 !item.route.startsWith('/process') &&
                 !item.route.startsWith('/publishing') &&
