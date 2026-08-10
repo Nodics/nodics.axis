@@ -28,14 +28,14 @@ const navigation: AxisNavigationItem = {
   label: 'Processes',
   route: '/process',
   order: 500,
-  moduleName: 'process',
+  moduleName: 'nodics.process',
   category: 'operations',
   icon: 'workflow',
   availability: 'UP',
   featureState: 'PREVIEW',
   group: {
     id: 'business-process-automation',
-    label: 'Business Process & Automation',
+    label: 'Process & Automation',
     order: 500,
   },
   help: {
@@ -57,9 +57,9 @@ const bootstrap: AxisAuthenticatedBootstrap = {
   environments: ['kickoffLocal'],
   moduleCatalog: {},
   moduleConnections: {
-    process: [
+    flowApi: [
       {
-        moduleName: 'process',
+        moduleName: 'flowApi',
         instanceId: 'kickoffLocal:processServer:process:0',
         endpoint: 'http://localhost:4330/nodics/process',
         environment: 'kickoffLocal',
@@ -377,7 +377,7 @@ describe('ProcessWorkflowRoutePage', () => {
 
     renderPage();
 
-    expect(screen.getByText('Business Process & Automation')).toBeInTheDocument();
+    expect(screen.getByText('Process & Automation')).toBeInTheDocument();
     expect(screen.getByText('Model')).toBeInTheDocument();
     expect(screen.getByText('Validate')).toBeInTheDocument();
     expect(screen.getByText('Publish')).toBeInTheDocument();
@@ -402,7 +402,10 @@ describe('ProcessWorkflowRoutePage', () => {
     expect(screen.getByText('Runtime operations overview')).toBeInTheDocument();
     expect(screen.getByText('Running instances')).toBeInTheDocument();
     expect(screen.getByText('Open tasks')).toBeInTheDocument();
-    expect(screen.getByText('Audit events')).toBeInTheDocument();
+    expect(screen.getAllByText('Recovery incidents')).toHaveLength(2);
+    expect(
+      screen.getByText('No workflow recovery incidents need action.'),
+    ).toBeInTheDocument();
     expect(screen.getByText('Process instances')).toBeInTheDocument();
     expect(screen.getByText('Task inbox')).toBeInTheDocument();
     expect(screen.getAllByText('Scheduled triggers').length).toBeGreaterThan(0);

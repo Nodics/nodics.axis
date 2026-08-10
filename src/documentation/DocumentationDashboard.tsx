@@ -14,6 +14,11 @@ import { Link as RouterLink } from 'react-router';
 import { axisTokens } from '../app/axisTheme';
 import { ShellIcon } from '../app/shell/ShellIcon';
 import {
+  workspaceComponentGap,
+  workspaceContentGap,
+  workspacePanelPadding,
+} from '../app/shell/workspaceLayout';
+import {
   selectModuleConnection,
   type AxisAuthenticatedBootstrap,
   type AxisDocumentationCoverage,
@@ -24,15 +29,12 @@ interface DocumentationDashboardProps {
   readonly bootstrap: AxisAuthenticatedBootstrap;
 }
 
-const dashboardComponentGap = `${String(axisTokens.spacing.grid)}px`;
-const dashboardContentGap = `${String(axisTokens.spacing.grid * 1.5)}px`;
-const dashboardCardPadding = {
-  xs: `${String(axisTokens.spacing.grid * 2)}px`,
-  md: `${String(axisTokens.spacing.grid * 2.5)}px`,
-} as const;
+const dashboardComponentGap = workspaceComponentGap;
+const dashboardContentGap = workspaceContentGap;
+const dashboardCardPadding = workspacePanelPadding;
 const dashboardCardSectionMinHeight = {
-  summary: 92,
-  metadata: 72,
+  summary: 72,
+  metadata: 56,
 } as const;
 
 const statusLabels: Readonly<Record<AxisDocumentationCoverage['status'], string>> =
@@ -112,7 +114,7 @@ function DocumentationSourceCard({
           xs: 'auto auto auto auto minmax(0, 1fr) auto',
           lg: `auto minmax(${String(dashboardCardSectionMinHeight.summary)}px, auto) minmax(${String(dashboardCardSectionMinHeight.metadata)}px, auto) auto minmax(0, 1fr) auto`,
         },
-        minHeight: 340,
+        minHeight: 300,
         p: dashboardCardPadding,
       }}
     >
@@ -254,13 +256,13 @@ export function DocumentationDashboard({ bootstrap }: DocumentationDashboardProp
         <Stack spacing={dashboardContentGap}>
           <Stack
             direction={{ xs: 'column', md: 'row' }}
-            spacing={2}
+            spacing={1}
             sx={{ justifyContent: 'space-between' }}
           >
             <Box>
               <Typography variant="overline">Documentation home</Typography>
               <Typography variant="h3">Nodics Documentation</Typography>
-              <Typography color="text.secondary" sx={{ mt: 1, maxWidth: 920 }}>
+              <Typography color="text.secondary" sx={{ mt: 0.5, maxWidth: 920 }}>
                 Explore framework guidance, API references, and application
                 documentation from registered backend-owned sources.
               </Typography>

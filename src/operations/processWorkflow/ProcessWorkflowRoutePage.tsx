@@ -35,6 +35,7 @@ import {
   cancelProcessTask,
   claimProcessTask,
   completeProcessTask,
+  compensateProcessInstance,
   deleteOrArchiveProcessDefinition,
   loadProcessInstanceDetail,
   loadProcessDefinitionVersions,
@@ -42,6 +43,7 @@ import {
   loadProcessDefinitions,
   prepareNextProcessDraft,
   publishProcessDraft,
+  retryProcessInstance,
   startProcessInstance,
   updateProcessTrigger,
   updateProcessDraft,
@@ -49,6 +51,7 @@ import {
   type ProcessDefinition,
   type ProcessDefinitionClientConfiguration,
   type ProcessHumanTask,
+  type ProcessIncident,
   type ProcessRuntimeInstance,
   type ProcessOperationsSummary,
   type ProcessTrigger,
@@ -73,6 +76,7 @@ const emptyOperationsSummary: ProcessOperationsSummary = Object.freeze({
   instances: Object.freeze([]),
   tasks: Object.freeze([]),
   triggers: Object.freeze([]),
+  incidents: Object.freeze([]),
 });
 const defaultProcessWorkspace = Object.freeze({
   detail:
@@ -514,6 +518,94 @@ function RuntimeInstanceList({
                       variant="outlined"
                     >
                       Cancel instance
+                    </Button>
+                  </Stack>
+                </Stack>
+              </Paper>
+            ))}
+          </Stack>
+        )}
+      </Stack>
+    </Paper>
+  );
+}
+
+function RecoveryIncidentQueue({
+  disabled,
+  incidents,
+  onCompensate,
+  onRetry,
+}: {
+  readonly disabled: boolean;
+  readonly incidents: readonly ProcessIncident[];
+  readonly onCompensate: (instanceCode: string) => void;
+  readonly onRetry: (incident: ProcessIncident) => void;
+}) {
+  const actionable = incidents.filter((incident) =>
+    ['OPEN', 'DEAD_LETTER'].includes(incident.status),
+  );
+  return (
+    <Paper
+      component="section"
+      elevation={0}
+      sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
+    >
+      <Stack spacing={2}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+          <ShellIcon name="activity" />
+          <Typography variant="h5">Recovery incidents</Typography>
+          <Chip label={`${String(actionable.length)} actionable`} variant="outlined" />
+        </Stack>
+        <Typography color="text.secondary">
+          Retry failed workflow actions or invoke their registered domain compensation.
+          Process records the recovery; the business module owns state reversal.
+        </Typography>
+        {actionable.length === 0 ? (
+          <Alert severity="success">No workflow recovery incidents need action.</Alert>
+        ) : (
+          <Stack spacing={1.5}>
+            {actionable.map((incident) => (
+              <Paper
+                component="article"
+                elevation={0}
+                key={incident.code}
+                sx={{ border: 1, borderColor: 'divider', p: 2 }}
+              >
+                <Stack spacing={1.5}>
+                  <Stack
+                    direction={{ xs: 'column', md: 'row' }}
+                    spacing={1}
+                    sx={{ justifyContent: 'space-between' }}
+                  >
+                    <Box>
+                      <Typography variant="h6">{incident.instanceCode}</Typography>
+                      <Typography color="text.secondary">
+                        {incident.nodeCode} · {incident.errorCode} · attempt{' '}
+                        {String(incident.attempt)} of {String(incident.maximumAttempts)}
+                      </Typography>
+                    </Box>
+                    <Chip
+                      color={incident.status === 'DEAD_LETTER' ? 'error' : 'warning'}
+                      label={incident.status}
+                    />
+                  </Stack>
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                    <Button
+                      disabled={
+                        disabled || incident.attempt >= incident.maximumAttempts
+                      }
+                      onClick={() => onRetry(incident)}
+                      variant="contained"
+                    >
+                      Retry action
+                    </Button>
+                    <Button
+                      color="warning"
+                      disabled={disabled || !incident.compensationAvailable}
+                      onClick={() => onCompensate(incident.instanceCode)}
+                      variant="outlined"
+                    >
+                      Run compensation
                     </Button>
                   </Stack>
                 </Stack>
@@ -1211,7 +1303,7 @@ export function ProcessWorkflowRoutePage({
   runtime,
 }: ProcessWorkflowRoutePageProps) {
   const queryClient = useQueryClient();
-  const processConnection = selectModuleConnection(bootstrap, 'process');
+  const processConnection = selectModuleConnection(bootstrap, 'flowApi');
   const currentPath =
     typeof window !== 'undefined' && window.location.pathname.startsWith('/process')
       ? window.location.pathname
@@ -1470,6 +1562,27 @@ export function ProcessWorkflowRoutePage({
     onSuccess: invalidate,
   });
 
+  const retryInstance = useMutation({
+    mutationFn: async (incident: ProcessIncident) => {
+      if (!processConnection) throw new Error('Process API is unavailable');
+      return retryProcessInstance(
+        processConnection,
+        configuration,
+        incident.instanceCode,
+        incident.attempt,
+      );
+    },
+    onSuccess: invalidate,
+  });
+
+  const compensateInstance = useMutation({
+    mutationFn: async (instanceCode: string) => {
+      if (!processConnection) throw new Error('Process API is unavailable');
+      return compensateProcessInstance(processConnection, configuration, instanceCode);
+    },
+    onSuccess: invalidate,
+  });
+
   const createTrigger = useMutation({
     mutationFn: async () => {
       if (!processConnection) throw new Error('Process API is unavailable');
@@ -1536,8 +1649,11 @@ export function ProcessWorkflowRoutePage({
     operations.data?.tasks.filter((task) =>
       ['OPEN', 'CLAIMED', 'ESCALATED'].includes(task.status),
     ).length ?? 0;
-  const auditEventCount = operations.data?.auditEvents.length ?? 0;
   const triggerCount = operations.data?.triggers.length ?? 0;
+  const incidentCount =
+    operations.data?.incidents.filter((incident) =>
+      ['OPEN', 'DEAD_LETTER'].includes(incident.status),
+    ).length ?? 0;
   const activeWorkspace =
     processWorkspaces.find((workspace) => currentPath.startsWith(workspace.route)) ??
     defaultProcessWorkspace;
@@ -1554,6 +1670,8 @@ export function ProcessWorkflowRoutePage({
     completeTask.isPending ||
     cancelTask.isPending ||
     cancelInstance.isPending ||
+    retryInstance.isPending ||
+    compensateInstance.isPending ||
     createTrigger.isPending ||
     activateTrigger.isPending ||
     executeTrigger.isPending ||
@@ -1571,6 +1689,8 @@ export function ProcessWorkflowRoutePage({
     completeTask.error ??
     cancelTask.error ??
     cancelInstance.error ??
+    retryInstance.error ??
+    compensateInstance.error ??
     createTrigger.error ??
     activateTrigger.error ??
     archiveTrigger.error;
@@ -1595,7 +1715,7 @@ export function ProcessWorkflowRoutePage({
                   'Model business processes, validate workflow rules, publish governed definitions, and connect automation without hiding backend control.'
                 }
                 help={navigation.help}
-                eyebrow="Business Process & Automation"
+                eyebrow="Process & Automation"
                 headingVariant="h3"
                 title={navigation.label}
               />
@@ -1780,9 +1900,9 @@ export function ProcessWorkflowRoutePage({
                 value={operations.isPending ? '—' : openTaskCount}
               />
               <SummaryCard
-                detail="Recent bounded evidence available for operator review."
-                label="Audit events"
-                value={operations.isPending ? '—' : auditEventCount}
+                detail="Failed automated actions requiring retry, compensation, or escalation."
+                label="Recovery incidents"
+                value={operations.isPending ? '—' : incidentCount}
               />
               <SummaryCard
                 detail="Process-owned schedule relationships referencing Cron where applicable."
@@ -1830,6 +1950,13 @@ export function ProcessWorkflowRoutePage({
             tasks={operations.data?.tasks ?? []}
           />
         </Box>
+
+        <RecoveryIncidentQueue
+          disabled={busy}
+          incidents={operations.data?.incidents ?? []}
+          onCompensate={(instanceCode) => compensateInstance.mutate(instanceCode)}
+          onRetry={(incident) => retryInstance.mutate(incident)}
+        />
 
         <Box
           sx={{

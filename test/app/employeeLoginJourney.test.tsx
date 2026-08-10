@@ -1066,6 +1066,9 @@ describe('employee login journey', () => {
     expect(
       screen.getByRole('navigation', { name: 'Primary navigation' }),
     ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole('button', { name: 'Expand Content and Experience' }),
+    );
     const contentNavigationItem = screen
       .getAllByRole('button', { name: 'Content' })
       .find((button) => button.getAttribute('aria-level') === '1');
@@ -1107,7 +1110,9 @@ describe('employee login journey', () => {
         <App />
       </AppProviders>,
     );
-    expect(await screen.findByRole('heading', { name: 'Products' })).toBeVisible();
+    expect(
+      await screen.findByRole('heading', { name: 'Product language management' }),
+    ).toBeVisible();
     expect(
       (await screen.findAllByRole('cell', { name: 'sku-1' })).length,
     ).toBeGreaterThan(0);

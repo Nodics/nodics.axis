@@ -5,6 +5,7 @@ import {
   logoutEmployee,
   restoreEmployeeSession,
 } from '../../src/auth/employeeAuthClient';
+import { AxisApiError } from '../../src/localization/axisApiError';
 
 describe('employee authentication client', () => {
   it('sends employee credentials only to Profile in the JSON body', async () => {
@@ -81,6 +82,35 @@ describe('employee authentication client', () => {
         request,
       ),
     ).rejects.toThrow('secure browser session');
+  });
+
+  it('preserves allow-listed structured localization metadata for the UI', async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: 'ERR_AUTH_00002',
+          message: 'Invalid authentication parameters',
+          messageKey: 'auth.invalidCredentials',
+          messageParameters: {},
+          messageExposure: 'PUBLIC',
+        }),
+        { status: 401 },
+      ),
+    );
+    const failure = await authenticateEmployee(
+      'https://profile.example.com',
+      'enterprise-a',
+      'operator',
+      'wrong-password',
+      10_000,
+      request,
+    ).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(AxisApiError);
+    expect(failure).toMatchObject({
+      code: 'ERR_AUTH_00002',
+      messageKey: 'auth.invalidCredentials',
+      messageExposure: 'PUBLIC',
+    });
   });
 
   it('restores an employee session without exposing the refresh credential', async () => {

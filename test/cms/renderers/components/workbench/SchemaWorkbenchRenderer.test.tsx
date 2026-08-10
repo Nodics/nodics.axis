@@ -221,6 +221,72 @@ function workbenchController(
 }
 
 describe('SchemaWorkbenchRenderer', () => {
+  it('keeps the record workspace and data-type navigator in independent scroll regions', () => {
+    render(
+      <SchemaWorkbenchRenderer
+        actions={{ workbench: workbenchController() }}
+        component={component}
+      />,
+    );
+
+    expect(screen.getByTestId('workbench-pane-grid')).toHaveStyle({
+      minHeight: 0,
+    });
+    expect(screen.getByTestId('workbench-record-pane')).toHaveStyle({
+      overflowY: 'auto',
+      overscrollBehavior: 'contain',
+      scrollbarGutter: 'stable',
+    });
+    expect(screen.getByTestId('workbench-schema-navigation-pane')).toHaveStyle({
+      overflow: 'hidden',
+    });
+    expect(screen.getByTestId('workbench-schema-list-scroll-region')).toHaveStyle({
+      overflowY: 'auto',
+      overscrollBehavior: 'contain',
+      scrollbarGutter: 'stable',
+    });
+    expect(
+      screen.queryByRole('button', { name: 'Add favourite Address' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows fixed route scope without opening or populating advanced filters', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SchemaWorkbenchRenderer
+        actions={{
+          workbench: workbenchController({
+            scope: {
+              kind: 'navigation',
+              workbenchPresentation: {
+                fixedFilters: [
+                  {
+                    id: 'city-dubai',
+                    label: 'City scope',
+                    field: 'city',
+                    value: 'Dubai',
+                    order: 10,
+                  },
+                ],
+              },
+            },
+          }),
+        }}
+        component={component}
+      />,
+    );
+
+    expect(screen.getByText('Scope')).toBeVisible();
+    expect(screen.getByText('City scope: Dubai')).toBeVisible();
+    expect(screen.queryByText('Sort results')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Advanced query' }));
+
+    expect(screen.getByText('Sort results')).toBeVisible();
+    expect(screen.queryByDisplayValue('Dubai')).not.toBeInTheDocument();
+  });
+
   it('selects an authorized schema and renders its records', async () => {
     const user = userEvent.setup();
     const selectSchema = vi.fn();

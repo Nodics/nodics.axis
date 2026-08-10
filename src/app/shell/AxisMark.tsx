@@ -31,10 +31,17 @@ function NodicsMark({ reverse, size }: NodicsMarkProps) {
         strokeLinejoin="miter"
         strokeWidth="4"
       />
-      <path
-        d="M20 49V15h7l10 16V15h7v34h-7L27 33v16h-7Z"
+      <text
+        x="32"
+        y="48"
         fill={reverse ? '#FFFFFF' : '#242629'}
-      />
+        fontFamily='"Times New Roman", Times, serif'
+        fontSize="45"
+        fontWeight="400"
+        textAnchor="middle"
+      >
+        N
+      </text>
     </Box>
   );
 }

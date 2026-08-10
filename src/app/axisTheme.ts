@@ -60,9 +60,9 @@ export const axisTokens = {
     context: 48,
     grid: 8,
     pageGutter: {
-      mobile: 16,
-      tablet: 24,
-      desktop: 32,
+      mobile: 8,
+      tablet: 8,
+      desktop: 8,
     },
     contentMaxWidth: 1440,
     cardPadding: 24,

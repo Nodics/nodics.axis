@@ -200,6 +200,11 @@ describe('ContentDesignerRoutePage', () => {
                   mediaFolders: [{ code: 'cmsAssets', name: 'CMS Assets' }],
                   mediaFormats: [{ code: 'original', name: 'Original' }],
                   mediaTypes: ['IMAGE', 'VIDEO', 'DOCUMENT'],
+                  localization: {
+                    defaultLocale: 'en',
+                    fallbackLocales: ['en'],
+                    supportedLocales: ['en', 'ar'],
+                  },
                   navigationNodes: [
                     {
                       code: 'nodicsDocumentation',
@@ -329,6 +334,16 @@ describe('ContentDesignerRoutePage', () => {
     expect(screen.getByText(/Slot: hero/i)).toBeVisible();
     expect(screen.getByText(/Slot: body/i)).toBeVisible();
     expect(screen.getByText(/Slot: footer/i)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'en' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await user.click(screen.getByRole('button', { name: 'ar' }));
+    expect(screen.getByRole('button', { name: 'ar' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByText(/Locale ar: summerCampaign hero \(ar\)/i)).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: 'Validate draft' }));
     await waitFor(() => {

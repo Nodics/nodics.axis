@@ -10,6 +10,26 @@ Axis is a separate browser application and runtime. It discovers authorized
 module connections through Back Office and calls the owning modules directly;
 it does not proxy business operations or maintain a second module registry.
 
+## Nodics application brand contract
+
+The mark currently implemented by Axis is the approved Nodics application
+identity for reuse across Nodics applications:
+
+- yellow structural brackets use `#F5C400`;
+- the dark surface and forward-color glyph use `#242629`;
+- the central `N` uses regular-weight Times New Roman with `Times` and `serif`
+  fallbacks;
+- reverse application marks use a white `N` on a dark surface;
+- the product lockup keeps `NODICS` as the master wordmark and places the
+  application name, such as `AXIS`, beneath it;
+- `public/brand/favicon.svg` is the approved browser/favicon form of the mark.
+
+Do not redraw, embolden, skew, recolor, or change the proportions of the
+brackets or `N` in an individual application. Until a dedicated shared frontend
+brand package is approved, new Nodics applications should reproduce this exact
+vector and lockup specification and protect it with an application-level asset
+test. The Axis component and favicon tests are the current executable reference.
+
 ## Implemented capabilities
 
 - Employee-only login, recovery, persistent browser sessions, screen lock, and
@@ -18,6 +38,9 @@ it does not proxy business operations or maintain a second module registry.
   typed renderers.
 - Responsive application shell, governed navigation, context presentation,
   accessibility behavior, and WebView-compatible layouts.
+- Runtime localization foundation with backend-published ICU bundles, persisted
+  employee locale preference, English/Arabic direction switching, structured
+  error localization, ETag revalidation, and last-known-good public recovery.
 - Axis Assistant presentation with typed resumable streaming contracts.
 - Schema Workbench discovery, search, record operations, and relationship
   coordination through module-owned schema and CRUD APIs.
@@ -78,6 +101,12 @@ Axis must not package database import data. When detailed documentation content
 changes, update the backend Platform `axis` module's canonical documentation
 source, regenerate its backend-owned content pack, import it through the
 governed Nodics process, and let Axis render the CMS-delivered result.
+
+Localization keys, values, approval, and publication remain backend-owned.
+Axis accepts only compatible published bundles and structured public-safe error
+metadata; it never parses English error text or treats browser translations as
+business authority. Add project languages and translations through the backend
+localization policy and release process, not through parallel React message files.
 
 After changing implemented behavior or documentation:
 

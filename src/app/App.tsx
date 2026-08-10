@@ -33,6 +33,8 @@ import { OrderLifecycleManagementRoutePage } from '../operations/orderLifecycle/
 import { MediaManagementDashboardRoutePage } from '../operations/mediaManagement/MediaManagementDashboardRoutePage';
 import { MediaManagementRoutePage } from '../operations/mediaManagement/MediaManagementRoutePage';
 import { ProcessWorkflowRoutePage } from '../operations/processWorkflow/ProcessWorkflowRoutePage';
+import { ProductManagementRoutePage } from '../operations/productManagement/ProductManagementRoutePage';
+import { LocalizationOperationsRoutePage } from '../operations/localization/LocalizationOperationsRoutePage';
 import { CustomerEngagementRoutePage } from '../operations/customerEngagement/CustomerEngagementRoutePage';
 import { useIdleScreenLock } from '../auth/useIdleScreenLock';
 import {
@@ -41,6 +43,10 @@ import {
   restoreScreenLock,
 } from '../auth/screenLockState';
 import type { CmsRendererActions } from '../cms/renderers/shared/rendererTypes';
+import {
+  AxisLocalizationBoundary,
+  useAxisLocalizationController,
+} from '../localization/AxisLocalizationContext';
 import { useRuntimeConfig } from '../runtime/RuntimeConfigContext';
 import { CmsRoutePage } from './CmsRoutePage';
 import { LoadingScreen } from './LoadingScreen';
@@ -104,6 +110,7 @@ export function App() {
   const [lockedReturnPath, setLockedReturnPath] = useState('/dashboard');
   const [authenticationError, setAuthenticationError] = useState<string>();
   const [restoringSession, setRestoringSession] = useState(true);
+  const localization = useAxisLocalizationController(bootstrap, runtime);
 
   useEffect(() => {
     let active = true;
@@ -323,7 +330,7 @@ export function App() {
     } catch (error: unknown) {
       setSession(undefined);
       setAuthenticationError(
-        error instanceof Error ? error.message : 'Employee authentication failed',
+        localization.formatError(error, 'Employee authentication failed'),
       );
     }
   };
@@ -382,9 +389,7 @@ export function App() {
       setLocked(false);
       void navigate(lockedReturnPath, { replace: true });
     } catch (error: unknown) {
-      setAuthenticationError(
-        error instanceof Error ? error.message : 'Employee unlock failed',
-      );
+      setAuthenticationError(localization.formatError(error, 'Employee unlock failed'));
     }
   };
 
@@ -592,10 +597,63 @@ export function App() {
           ),
         )
       : sessionFallback;
+  const productManagementNavigation = currentNavigation?.route.startsWith(
+    '/commerce/catalog/products',
+  )
+    ? currentNavigation
+    : authenticatedBootstrap?.navigation.find((item) => item.id === 'products');
+  const productManagementElement =
+    session && !locked && authenticatedBootstrap && productManagementNavigation
+      ? authenticatedShell(
+          ['UP', 'DEGRADED'].includes(productManagementNavigation.availability) ? (
+            <ProductManagementRoutePage
+              accessToken={session.accessToken}
+              bootstrap={authenticatedBootstrap}
+              channel={composition.channel}
+              cmsBaseUrl={bootstrap.endpoints.cms}
+              employeeId={session.loginId}
+              locale={composition.locale}
+              navigation={productManagementNavigation}
+              runtime={runtime}
+              site={composition.site}
+            />
+          ) : (
+            <ModuleWorkspacePlaceholder item={productManagementNavigation} />
+          ),
+        )
+      : sessionFallback;
+  const localizationNavigation = currentNavigation?.route.startsWith('/localization')
+    ? currentNavigation
+    : authenticatedBootstrap?.navigation.find(
+        (item) =>
+          item.id === 'localization-operations' &&
+          item.moduleName === 'nodics.localization',
+      );
+  const localizationOperationsElement =
+    session && !locked && authenticatedBootstrap && localizationNavigation
+      ? authenticatedShell(
+          ['UP', 'DEGRADED'].includes(localizationNavigation.availability) ? (
+            <LocalizationOperationsRoutePage
+              accessToken={session.accessToken}
+              bootstrap={authenticatedBootstrap}
+              channel={composition.channel}
+              cmsBaseUrl={bootstrap.endpoints.cms}
+              employeeId={session.loginId}
+              locale={composition.locale}
+              navigation={localizationNavigation}
+              runtime={runtime}
+              site={composition.site}
+            />
+          ) : (
+            <ModuleWorkspacePlaceholder item={localizationNavigation} />
+          ),
+        )
+      : sessionFallback;
   const processNavigation = currentNavigation?.route.startsWith('/process')
     ? currentNavigation
     : authenticatedBootstrap?.navigation.find(
-        (item) => item.id === 'process-workflows' && item.moduleName === 'process',
+        (item) =>
+          item.id === 'process-workflows' && item.moduleName === 'nodics.process',
       );
   const processWorkflowElement =
     session && !locked && authenticatedBootstrap && processNavigation
@@ -640,415 +698,428 @@ export function App() {
       : sessionFallback;
 
   return (
-    <Routes>
-      <Route
-        path="/"
-        element={
-          <Navigate
-            replace
-            to={
-              session
-                ? locked
-                  ? '/lock-screen'
-                  : composition.defaultAuthenticatedPage
-                : composition.defaultPublicPage
-            }
-          />
-        }
-      />
-      <Route
-        path="/login"
-        element={
-          session ? (
-            <Navigate
-              replace
-              to={locked ? '/lock-screen' : composition.defaultAuthenticatedPage}
-            />
-          ) : (
-            page('/login', undefined, {
-              onEmployeeLogin: (id, secret) => void login(id, secret),
-            })
-          )
-        }
-      />
-      <Route path="/forgot-password" element={page('/forgot-password')} />
-      <Route
-        path="/dashboard"
-        element={
-          session && !locked && authenticatedBootstrap ? (
-            authenticatedShell(page('/dashboard', session.accessToken))
-          ) : (
-            <Navigate
-              replace
-              to={session ? '/lock-screen' : composition.defaultPublicPage}
-            />
-          )
-        }
-      />
-      <Route
-        path="/assistant"
-        element={
-          session && !locked && authenticatedBootstrap && assistantNavigation ? (
-            authenticatedShell(
-              ['UP', 'DEGRADED'].includes(assistantNavigation.availability) &&
-                assistantConnection ? (
-                <AssistantRoutePage
-                  accessToken={session.accessToken}
-                  channel={composition.channel}
-                  cmsBaseUrl={bootstrap.endpoints.cms}
-                  connection={assistantConnection}
-                  employeeId={session.loginId}
-                  locale={composition.locale}
-                  runtime={runtime}
-                  site={composition.site}
-                />
-              ) : (
-                <ModuleWorkspacePlaceholder item={assistantNavigation} />
-              ),
-            )
-          ) : (
-            <Navigate
-              replace
-              to={
-                session && !locked
-                  ? composition.defaultAuthenticatedPage
-                  : session
-                    ? '/lock-screen'
-                    : composition.defaultPublicPage
-              }
-            />
-          )
-        }
-      />
-      <Route
-        path="/schema-workbench"
-        element={
-          session && !locked && authenticatedBootstrap && workbenchNavigation ? (
-            authenticatedShell(
-              ['UP', 'DEGRADED'].includes(workbenchNavigation.availability) ? (
-                <WorkbenchRoutePage
-                  accessToken={session.accessToken}
-                  bootstrap={authenticatedBootstrap}
-                  channel={composition.channel}
-                  cmsBaseUrl={bootstrap.endpoints.cms}
-                  employeeId={session.loginId}
-                  locale={composition.locale}
-                  routeNavigation={workbenchNavigation}
-                  runtime={runtime}
-                  site={composition.site}
-                />
-              ) : (
-                <ModuleWorkspacePlaceholder item={workbenchNavigation} />
-              ),
-            )
-          ) : (
-            <Navigate
-              replace
-              to={
-                session && !locked
-                  ? composition.defaultAuthenticatedPage
-                  : session
-                    ? '/lock-screen'
-                    : composition.defaultPublicPage
-              }
-            />
-          )
-        }
-      />
-      <Route
-        path="/system-integrations"
-        element={
-          session &&
-          !locked &&
-          authenticatedBootstrap &&
-          systemIntegrationsNavigation ? (
-            authenticatedShell(
-              ['UP', 'DEGRADED'].includes(systemIntegrationsNavigation.availability) ? (
-                <SystemIntegrationsDashboardRoutePage
-                  accessToken={session.accessToken}
-                  bootstrap={authenticatedBootstrap}
-                  routeNavigation={systemIntegrationsNavigation}
-                  runtime={runtime}
-                />
-              ) : (
-                <ModuleWorkspacePlaceholder item={systemIntegrationsNavigation} />
-              ),
-            )
-          ) : (
-            <Navigate
-              replace
-              to={
-                session && !locked
-                  ? composition.defaultAuthenticatedPage
-                  : session
-                    ? '/lock-screen'
-                    : composition.defaultPublicPage
-              }
-            />
-          )
-        }
-      />
-      <Route path="/system" element={<Navigate replace to="/system-integrations" />} />
-      <Route
-        path="/registry"
-        element={
-          session && !locked && authenticatedBootstrap && moduleRegistryNavigation ? (
-            authenticatedShell(
-              ['UP', 'DEGRADED'].includes(moduleRegistryNavigation.availability) ? (
-                <FunctionalModuleRegistryRoutePage
-                  accessToken={session.accessToken}
-                  bootstrap={authenticatedBootstrap}
-                  routeNavigation={moduleRegistryNavigation}
-                  runtime={runtime}
-                />
-              ) : (
-                <ModuleWorkspacePlaceholder item={moduleRegistryNavigation} />
-              ),
-            )
-          ) : (
-            <Navigate
-              replace
-              to={
-                session && !locked
-                  ? composition.defaultAuthenticatedPage
-                  : session
-                    ? '/lock-screen'
-                    : composition.defaultPublicPage
-              }
-            />
-          )
-        }
-      />
-      <Route path="/system/modules" element={<Navigate replace to="/registry" />} />
-      <Route
-        path="/operations/module-health"
-        element={
-          session && !locked && authenticatedBootstrap && moduleHealthNavigation ? (
-            authenticatedShell(
-              ['UP', 'DEGRADED'].includes(moduleHealthNavigation.availability) ? (
-                <ModuleHealthRoutePage
-                  accessToken={session.accessToken}
-                  bootstrap={authenticatedBootstrap}
-                  routeNavigation={moduleHealthNavigation}
-                  runtime={runtime}
-                />
-              ) : (
-                <ModuleWorkspacePlaceholder item={moduleHealthNavigation} />
-              ),
-            )
-          ) : (
-            <Navigate
-              replace
-              to={
-                session && !locked
-                  ? composition.defaultAuthenticatedPage
-                  : session
-                    ? '/lock-screen'
-                    : composition.defaultPublicPage
-              }
-            />
-          )
-        }
-      />
-      <Route
-        path="/system/health"
-        element={<Navigate replace to="/operations/module-health" />}
-      />
-      <Route
-        path="/operations/imports-exports"
-        element={
-          session && !locked && authenticatedBootstrap && importExportNavigation ? (
-            authenticatedShell(
-              ['UP', 'DEGRADED'].includes(importExportNavigation.availability) ? (
-                <ImportExportRoutePage
-                  accessToken={session.accessToken}
-                  bootstrap={authenticatedBootstrap}
-                  routeNavigation={importExportNavigation}
-                  runtime={runtime}
-                />
-              ) : (
-                <ModuleWorkspacePlaceholder item={importExportNavigation} />
-              ),
-            )
-          ) : (
-            <Navigate
-              replace
-              to={
-                session && !locked
-                  ? composition.defaultAuthenticatedPage
-                  : session
-                    ? '/lock-screen'
-                    : composition.defaultPublicPage
-              }
-            />
-          )
-        }
-      />
-      <Route
-        path="/system/imports"
-        element={<Navigate replace to="/operations/imports-exports" />}
-      />
-      <Route path="/system/apis" element={<Navigate replace to="/docs/swaggers" />} />
-      <Route
-        path="/cron/*"
-        element={
-          session && !locked && authenticatedBootstrap ? (
-            authenticatedShell(
-              selectModuleConnection(authenticatedBootstrap, 'cronjob') ? (
-                <CronDashboardRoutePage
-                  accessToken={session.accessToken}
-                  bootstrap={authenticatedBootstrap}
-                  routeNavigation={cronNavigation}
-                  runtime={runtime}
-                />
-              ) : (
-                <ModuleWorkspacePlaceholder item={cronNavigation} />
-              ),
-            )
-          ) : (
-            <Navigate
-              replace
-              to={
-                session && !locked
-                  ? composition.defaultAuthenticatedPage
-                  : session
-                    ? '/lock-screen'
-                    : composition.defaultPublicPage
-              }
-            />
-          )
-        }
-      />
-      <Route
-        path="/docs/*"
-        element={
-          session && !locked && authenticatedBootstrap && documentationNavigation ? (
-            authenticatedShell(
-              ['UP', 'DEGRADED'].includes(documentationNavigation.availability) ? (
-                <DocumentationRoutePage
-                  accessToken={session.accessToken}
-                  bootstrap={authenticatedBootstrap}
-                  channel={composition.channel}
-                  cmsBaseUrl={bootstrap.endpoints.cms}
-                  locale={composition.locale}
-                  path={location.pathname}
-                  runtime={runtime}
-                />
-              ) : (
-                <ModuleWorkspacePlaceholder item={documentationNavigation} />
-              ),
-            )
-          ) : (
-            <Navigate
-              replace
-              to={
-                session && !locked
-                  ? composition.defaultAuthenticatedPage
-                  : session
-                    ? '/lock-screen'
-                    : composition.defaultPublicPage
-              }
-            />
-          )
-        }
-      />
-      <Route path="/media" element={mediaManagementDashboardElement} />
-      <Route
-        path="/media/*"
-        element={
-          session && !locked && authenticatedBootstrap && mediaManagementNavigation ? (
-            authenticatedShell(
-              ['UP', 'DEGRADED'].includes(mediaManagementNavigation.availability) ? (
-                <MediaManagementRoutePage
-                  accessToken={session.accessToken}
-                  bootstrap={authenticatedBootstrap}
-                  runtime={runtime}
-                />
-              ) : (
-                <ModuleWorkspacePlaceholder item={mediaManagementNavigation} />
-              ),
-            )
-          ) : (
-            <Navigate
-              replace
-              to={
-                session && !locked
-                  ? composition.defaultAuthenticatedPage
-                  : session
-                    ? '/lock-screen'
-                    : composition.defaultPublicPage
-              }
-            />
-          )
-        }
-      />
-      <Route path="/content" element={contentDashboardElement} />
-      <Route path="/content/designer" element={contentDesignerElement} />
-      <Route path="/content/*" element={cmsWorkbenchElement} />
-      <Route path="/publishing" element={publishingDashboardElement} />
-      <Route path="/publishing/*" element={cmsWorkbenchElement} />
-      <Route path="/compliance-management/*" element={complianceElement} />
-      <Route path="/notifications/*" element={notificationElement} />
-      <Route path="/commerce/*" element={orderLifecycleElement} />
-      <Route path="/process/*" element={processWorkflowElement} />
-      <Route path="/engagement/*" element={customerEngagementElement} />
-      {session && !locked && authenticatedBootstrap
-        ? authenticatedBootstrap.navigation
-            .filter(
-              (item) =>
-                !item.route.startsWith('/commerce') &&
-                !item.route.startsWith('/compliance-management') &&
-                !item.route.startsWith('/notifications') &&
-                !item.route.startsWith('/content') &&
-                !item.route.startsWith('/docs') &&
-                !item.route.startsWith('/engagement') &&
-                !item.route.startsWith('/media') &&
-                !item.route.startsWith('/process') &&
-                !item.route.startsWith('/publishing') &&
-                !item.route.startsWith('/cron') &&
-                ![
-                  '/assistant',
-                  '/registry',
-                  '/schema-workbench',
-                  '/system-integrations',
-                  '/operations/module-health',
-                  '/operations/imports-exports',
-                  '/dashboard',
-                  '/login',
-                  '/forgot-password',
-                  '/lock-screen',
-                ].includes(item.route),
-            )
-            .map((item) => (
-              <Route
-                key={`${item.moduleName}:${item.id}`}
-                path={item.route}
-                element={navigationRouteElement(item)}
-              />
-            ))
-        : null}
-      <Route
-        path="/lock-screen"
-        element={
-          session && locked ? (
-            page('/lock-screen', session.accessToken, {
-              currentEmployeeId: session.loginId,
-              onEmployeeUnlock: (password) => void unlock(password),
-              onEmployeeSignOut: logout,
-            })
-          ) : (
+    <AxisLocalizationBoundary value={localization}>
+      <Routes>
+        <Route
+          path="/"
+          element={
             <Navigate
               replace
               to={
                 session
-                  ? composition.defaultAuthenticatedPage
+                  ? locked
+                    ? '/lock-screen'
+                    : composition.defaultAuthenticatedPage
                   : composition.defaultPublicPage
               }
             />
-          )
-        }
-      />
-      <Route path="*" element={<Navigate replace to="/" />} />
-    </Routes>
+          }
+        />
+        <Route
+          path="/login"
+          element={
+            session ? (
+              <Navigate
+                replace
+                to={locked ? '/lock-screen' : composition.defaultAuthenticatedPage}
+              />
+            ) : (
+              page('/login', undefined, {
+                onEmployeeLogin: (id, secret) => void login(id, secret),
+              })
+            )
+          }
+        />
+        <Route path="/forgot-password" element={page('/forgot-password')} />
+        <Route
+          path="/dashboard"
+          element={
+            session && !locked && authenticatedBootstrap ? (
+              authenticatedShell(page('/dashboard', session.accessToken))
+            ) : (
+              <Navigate
+                replace
+                to={session ? '/lock-screen' : composition.defaultPublicPage}
+              />
+            )
+          }
+        />
+        <Route
+          path="/assistant"
+          element={
+            session && !locked && authenticatedBootstrap && assistantNavigation ? (
+              authenticatedShell(
+                ['UP', 'DEGRADED'].includes(assistantNavigation.availability) &&
+                  assistantConnection ? (
+                  <AssistantRoutePage
+                    accessToken={session.accessToken}
+                    channel={composition.channel}
+                    cmsBaseUrl={bootstrap.endpoints.cms}
+                    connection={assistantConnection}
+                    employeeId={session.loginId}
+                    locale={composition.locale}
+                    runtime={runtime}
+                    site={composition.site}
+                  />
+                ) : (
+                  <ModuleWorkspacePlaceholder item={assistantNavigation} />
+                ),
+              )
+            ) : (
+              <Navigate
+                replace
+                to={
+                  session && !locked
+                    ? composition.defaultAuthenticatedPage
+                    : session
+                      ? '/lock-screen'
+                      : composition.defaultPublicPage
+                }
+              />
+            )
+          }
+        />
+        <Route
+          path="/schema-workbench"
+          element={
+            session && !locked && authenticatedBootstrap && workbenchNavigation ? (
+              authenticatedShell(
+                ['UP', 'DEGRADED'].includes(workbenchNavigation.availability) ? (
+                  <WorkbenchRoutePage
+                    accessToken={session.accessToken}
+                    bootstrap={authenticatedBootstrap}
+                    channel={composition.channel}
+                    cmsBaseUrl={bootstrap.endpoints.cms}
+                    employeeId={session.loginId}
+                    locale={composition.locale}
+                    routeNavigation={workbenchNavigation}
+                    runtime={runtime}
+                    site={composition.site}
+                  />
+                ) : (
+                  <ModuleWorkspacePlaceholder item={workbenchNavigation} />
+                ),
+              )
+            ) : (
+              <Navigate
+                replace
+                to={
+                  session && !locked
+                    ? composition.defaultAuthenticatedPage
+                    : session
+                      ? '/lock-screen'
+                      : composition.defaultPublicPage
+                }
+              />
+            )
+          }
+        />
+        <Route
+          path="/system-integrations"
+          element={
+            session &&
+            !locked &&
+            authenticatedBootstrap &&
+            systemIntegrationsNavigation ? (
+              authenticatedShell(
+                ['UP', 'DEGRADED'].includes(
+                  systemIntegrationsNavigation.availability,
+                ) ? (
+                  <SystemIntegrationsDashboardRoutePage
+                    accessToken={session.accessToken}
+                    bootstrap={authenticatedBootstrap}
+                    routeNavigation={systemIntegrationsNavigation}
+                    runtime={runtime}
+                  />
+                ) : (
+                  <ModuleWorkspacePlaceholder item={systemIntegrationsNavigation} />
+                ),
+              )
+            ) : (
+              <Navigate
+                replace
+                to={
+                  session && !locked
+                    ? composition.defaultAuthenticatedPage
+                    : session
+                      ? '/lock-screen'
+                      : composition.defaultPublicPage
+                }
+              />
+            )
+          }
+        />
+        <Route
+          path="/system"
+          element={<Navigate replace to="/system-integrations" />}
+        />
+        <Route
+          path="/registry"
+          element={
+            session && !locked && authenticatedBootstrap && moduleRegistryNavigation ? (
+              authenticatedShell(
+                ['UP', 'DEGRADED'].includes(moduleRegistryNavigation.availability) ? (
+                  <FunctionalModuleRegistryRoutePage
+                    accessToken={session.accessToken}
+                    bootstrap={authenticatedBootstrap}
+                    routeNavigation={moduleRegistryNavigation}
+                    runtime={runtime}
+                  />
+                ) : (
+                  <ModuleWorkspacePlaceholder item={moduleRegistryNavigation} />
+                ),
+              )
+            ) : (
+              <Navigate
+                replace
+                to={
+                  session && !locked
+                    ? composition.defaultAuthenticatedPage
+                    : session
+                      ? '/lock-screen'
+                      : composition.defaultPublicPage
+                }
+              />
+            )
+          }
+        />
+        <Route path="/system/modules" element={<Navigate replace to="/registry" />} />
+        <Route
+          path="/operations/module-health"
+          element={
+            session && !locked && authenticatedBootstrap && moduleHealthNavigation ? (
+              authenticatedShell(
+                ['UP', 'DEGRADED'].includes(moduleHealthNavigation.availability) ? (
+                  <ModuleHealthRoutePage
+                    accessToken={session.accessToken}
+                    bootstrap={authenticatedBootstrap}
+                    routeNavigation={moduleHealthNavigation}
+                    runtime={runtime}
+                  />
+                ) : (
+                  <ModuleWorkspacePlaceholder item={moduleHealthNavigation} />
+                ),
+              )
+            ) : (
+              <Navigate
+                replace
+                to={
+                  session && !locked
+                    ? composition.defaultAuthenticatedPage
+                    : session
+                      ? '/lock-screen'
+                      : composition.defaultPublicPage
+                }
+              />
+            )
+          }
+        />
+        <Route
+          path="/system/health"
+          element={<Navigate replace to="/operations/module-health" />}
+        />
+        <Route
+          path="/operations/imports-exports"
+          element={
+            session && !locked && authenticatedBootstrap && importExportNavigation ? (
+              authenticatedShell(
+                ['UP', 'DEGRADED'].includes(importExportNavigation.availability) ? (
+                  <ImportExportRoutePage
+                    accessToken={session.accessToken}
+                    bootstrap={authenticatedBootstrap}
+                    routeNavigation={importExportNavigation}
+                    runtime={runtime}
+                  />
+                ) : (
+                  <ModuleWorkspacePlaceholder item={importExportNavigation} />
+                ),
+              )
+            ) : (
+              <Navigate
+                replace
+                to={
+                  session && !locked
+                    ? composition.defaultAuthenticatedPage
+                    : session
+                      ? '/lock-screen'
+                      : composition.defaultPublicPage
+                }
+              />
+            )
+          }
+        />
+        <Route
+          path="/system/imports"
+          element={<Navigate replace to="/operations/imports-exports" />}
+        />
+        <Route path="/system/apis" element={<Navigate replace to="/docs/swaggers" />} />
+        <Route
+          path="/cron/*"
+          element={
+            session && !locked && authenticatedBootstrap ? (
+              authenticatedShell(
+                selectModuleConnection(authenticatedBootstrap, 'cronjob') ? (
+                  <CronDashboardRoutePage
+                    accessToken={session.accessToken}
+                    bootstrap={authenticatedBootstrap}
+                    routeNavigation={cronNavigation}
+                    runtime={runtime}
+                  />
+                ) : (
+                  <ModuleWorkspacePlaceholder item={cronNavigation} />
+                ),
+              )
+            ) : (
+              <Navigate
+                replace
+                to={
+                  session && !locked
+                    ? composition.defaultAuthenticatedPage
+                    : session
+                      ? '/lock-screen'
+                      : composition.defaultPublicPage
+                }
+              />
+            )
+          }
+        />
+        <Route
+          path="/docs/*"
+          element={
+            session && !locked && authenticatedBootstrap && documentationNavigation ? (
+              authenticatedShell(
+                ['UP', 'DEGRADED'].includes(documentationNavigation.availability) ? (
+                  <DocumentationRoutePage
+                    accessToken={session.accessToken}
+                    bootstrap={authenticatedBootstrap}
+                    channel={composition.channel}
+                    cmsBaseUrl={bootstrap.endpoints.cms}
+                    locale={composition.locale}
+                    path={location.pathname}
+                    runtime={runtime}
+                  />
+                ) : (
+                  <ModuleWorkspacePlaceholder item={documentationNavigation} />
+                ),
+              )
+            ) : (
+              <Navigate
+                replace
+                to={
+                  session && !locked
+                    ? composition.defaultAuthenticatedPage
+                    : session
+                      ? '/lock-screen'
+                      : composition.defaultPublicPage
+                }
+              />
+            )
+          }
+        />
+        <Route path="/media" element={mediaManagementDashboardElement} />
+        <Route
+          path="/media/*"
+          element={
+            session &&
+            !locked &&
+            authenticatedBootstrap &&
+            mediaManagementNavigation ? (
+              authenticatedShell(
+                ['UP', 'DEGRADED'].includes(mediaManagementNavigation.availability) ? (
+                  <MediaManagementRoutePage
+                    accessToken={session.accessToken}
+                    bootstrap={authenticatedBootstrap}
+                    runtime={runtime}
+                  />
+                ) : (
+                  <ModuleWorkspacePlaceholder item={mediaManagementNavigation} />
+                ),
+              )
+            ) : (
+              <Navigate
+                replace
+                to={
+                  session && !locked
+                    ? composition.defaultAuthenticatedPage
+                    : session
+                      ? '/lock-screen'
+                      : composition.defaultPublicPage
+                }
+              />
+            )
+          }
+        />
+        <Route path="/content" element={contentDashboardElement} />
+        <Route path="/content/designer" element={contentDesignerElement} />
+        <Route path="/content/*" element={cmsWorkbenchElement} />
+        <Route path="/publishing" element={publishingDashboardElement} />
+        <Route path="/publishing/*" element={cmsWorkbenchElement} />
+        <Route path="/compliance-management/*" element={complianceElement} />
+        <Route path="/notifications/*" element={notificationElement} />
+        <Route path="/commerce/catalog/products/*" element={productManagementElement} />
+        <Route path="/localization/*" element={localizationOperationsElement} />
+        <Route path="/commerce/*" element={orderLifecycleElement} />
+        <Route path="/process/*" element={processWorkflowElement} />
+        <Route path="/engagement/*" element={customerEngagementElement} />
+        {session && !locked && authenticatedBootstrap
+          ? authenticatedBootstrap.navigation
+              .filter(
+                (item) =>
+                  !item.route.startsWith('/commerce') &&
+                  !item.route.startsWith('/compliance-management') &&
+                  !item.route.startsWith('/notifications') &&
+                  !item.route.startsWith('/content') &&
+                  !item.route.startsWith('/docs') &&
+                  !item.route.startsWith('/engagement') &&
+                  !item.route.startsWith('/media') &&
+                  !item.route.startsWith('/localization') &&
+                  !item.route.startsWith('/process') &&
+                  !item.route.startsWith('/publishing') &&
+                  !item.route.startsWith('/cron') &&
+                  ![
+                    '/assistant',
+                    '/registry',
+                    '/schema-workbench',
+                    '/system-integrations',
+                    '/operations/module-health',
+                    '/operations/imports-exports',
+                    '/dashboard',
+                    '/login',
+                    '/forgot-password',
+                    '/lock-screen',
+                  ].includes(item.route),
+              )
+              .map((item) => (
+                <Route
+                  key={`${item.moduleName}:${item.id}`}
+                  path={item.route}
+                  element={navigationRouteElement(item)}
+                />
+              ))
+          : null}
+        <Route
+          path="/lock-screen"
+          element={
+            session && locked ? (
+              page('/lock-screen', session.accessToken, {
+                currentEmployeeId: session.loginId,
+                onEmployeeUnlock: (password) => void unlock(password),
+                onEmployeeSignOut: logout,
+              })
+            ) : (
+              <Navigate
+                replace
+                to={
+                  session
+                    ? composition.defaultAuthenticatedPage
+                    : composition.defaultPublicPage
+                }
+              />
+            )
+          }
+        />
+        <Route path="*" element={<Navigate replace to="/" />} />
+      </Routes>
+    </AxisLocalizationBoundary>
   );
 }

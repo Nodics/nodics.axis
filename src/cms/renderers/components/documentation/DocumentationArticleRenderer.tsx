@@ -20,6 +20,7 @@ import { useEffect, useId, useState } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router';
 
 import { axisTokens } from '../../../../app/axisTheme';
+import { workspaceContentGap } from '../../../../app/shell/workspaceLayout';
 import { arrayProperty, stringProperty } from '../../shared/rendererProperties';
 import type { CmsComponentRendererProps } from '../../shared/rendererTypes';
 
@@ -491,7 +492,7 @@ export function DocumentationArticleRenderer({ component }: CmsComponentRenderer
   }, [blocks, location.hash]);
 
   return (
-    <Stack spacing={3}>
+    <Stack spacing={workspaceContentGap}>
       <Stack spacing={1}>
         <Breadcrumbs aria-label="Documentation breadcrumb">
           <Link

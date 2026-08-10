@@ -56,6 +56,11 @@ describe('Axis spacing and surface theme', () => {
 
     expect(theme.spacing(1)).toContain('8px');
     expect(axisTokens.spacing.contentMaxWidth).toBe(1440);
+    expect(axisTokens.spacing.pageGutter).toEqual({
+      mobile: 8,
+      tablet: 8,
+      desktop: 8,
+    });
   });
 
   it('uses the governed comfortable component padding', () => {

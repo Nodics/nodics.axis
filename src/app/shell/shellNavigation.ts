@@ -29,7 +29,7 @@ const CATEGORY_GROUPS: Readonly<
   },
   operations: {
     id: 'business-process-automation',
-    label: 'Business Process & Automation',
+    label: 'Process & Automation',
     order: 500,
   },
   platform: {

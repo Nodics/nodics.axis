@@ -1,4 +1,8 @@
-import { axisTokens } from '../../app/axisTheme';
+import {
+  workspaceComponentGap,
+  workspaceContentGap,
+  workspacePanelPadding,
+} from '../../app/shell/workspaceLayout';
 import {
   selectModuleConnection,
   type AxisAuthenticatedBootstrap,
@@ -45,12 +49,9 @@ export interface WorkbenchMetric extends WorkbenchMetricDefinition {
   readonly value: number | undefined;
 }
 
-export const dashboardComponentGap = `${String(axisTokens.spacing.grid)}px`;
-export const dashboardContentGap = `${String(axisTokens.spacing.grid * 1.5)}px`;
-export const dashboardCardPadding = {
-  xs: `${String(axisTokens.spacing.grid * 2)}px`,
-  md: `${String(axisTokens.spacing.grid * 2.5)}px`,
-} as const;
+export const dashboardComponentGap = workspaceComponentGap;
+export const dashboardContentGap = workspaceContentGap;
+export const dashboardCardPadding = workspacePanelPadding;
 
 export function connectionKey(connections: readonly AxisModuleConnection[]): string {
   return connections

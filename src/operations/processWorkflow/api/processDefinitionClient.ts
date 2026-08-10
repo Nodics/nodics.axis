@@ -69,6 +69,21 @@ export interface ProcessRuntimeInstance {
   readonly version: number;
   readonly status: string;
   readonly currentNode: string | undefined;
+  readonly incidentCode: string | undefined;
+  readonly failureCode: string | undefined;
+  readonly compensationStatus: string | undefined;
+}
+
+export interface ProcessIncident {
+  readonly code: string;
+  readonly instanceCode: string;
+  readonly nodeCode: string;
+  readonly status: string;
+  readonly errorCode: string;
+  readonly attempt: number;
+  readonly maximumAttempts: number;
+  readonly nextRetryAt: string | undefined;
+  readonly compensationAvailable: boolean;
 }
 
 export interface ProcessHumanTask {
@@ -107,6 +122,7 @@ export interface ProcessOperationsSummary {
   readonly tasks: readonly ProcessHumanTask[];
   readonly auditEvents: readonly ProcessAuditEvent[];
   readonly triggers: readonly ProcessTrigger[];
+  readonly incidents: readonly ProcessIncident[];
 }
 
 export interface CreateProcessDefinitionInput {
@@ -296,6 +312,28 @@ function parseRuntimeInstance(value: unknown): ProcessRuntimeInstance {
     version: numberValue(data.version, 0),
     status: text(data.status, 'UNKNOWN'),
     currentNode: optionalText(data.currentNode),
+    incidentCode: optionalText(data.incidentCode),
+    failureCode: optionalText(data.failureCode),
+    compensationStatus: optionalText(data.compensationStatus),
+  });
+}
+
+function parseIncident(value: unknown): ProcessIncident {
+  const data = record(value, 'Process recovery incident');
+  const compensation = data.compensationAdapter;
+  return Object.freeze({
+    code: text(data.code, 'unknown-incident'),
+    instanceCode: text(data.instanceCode, 'unknown-instance'),
+    nodeCode: text(data.nodeCode, 'unknown-node'),
+    status: text(data.status, 'UNKNOWN'),
+    errorCode: text(data.errorCode, 'ERR_PROCESS_UNKNOWN'),
+    attempt: numberValue(data.attempt, 0),
+    maximumAttempts: numberValue(data.maximumAttempts, 0),
+    nextRetryAt: optionalText(data.nextRetryAt),
+    compensationAvailable:
+      typeof compensation === 'object' &&
+      compensation !== null &&
+      Object.keys(compensation).length > 0,
   });
 }
 
@@ -643,6 +681,37 @@ export async function cancelProcessInstance(
   );
 }
 
+export async function retryProcessInstance(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  instanceCode: string,
+  expectedAttempt: number,
+): Promise<unknown> {
+  return envelopeData(
+    await request(
+      connection,
+      `/instances/${encodeURIComponent(instanceCode)}/retry`,
+      configuration,
+      { method: 'POST', body: JSON.stringify({ expectedAttempt }) },
+    ),
+  );
+}
+
+export async function compensateProcessInstance(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  instanceCode: string,
+): Promise<unknown> {
+  return envelopeData(
+    await request(
+      connection,
+      `/instances/${encodeURIComponent(instanceCode)}/compensate`,
+      configuration,
+      { method: 'POST', body: JSON.stringify({ payload: { source: 'axis' } }) },
+    ),
+  );
+}
+
 export async function loadProcessInstanceDetail(
   connection: AxisModuleConnection,
   configuration: ProcessDefinitionClientConfiguration,
@@ -744,16 +813,18 @@ export async function loadProcessOperationsSummary(
   connection: AxisModuleConnection,
   configuration: ProcessDefinitionClientConfiguration,
 ): Promise<ProcessOperationsSummary> {
-  const [instances, tasks, auditEvents, triggers] = await Promise.all([
+  const [instances, tasks, auditEvents, triggers, incidents] = await Promise.all([
     request(connection, '/instances?limit=25', configuration),
     request(connection, '/tasks?limit=25', configuration),
     request(connection, '/audit-events?limit=25', configuration),
     request(connection, '/triggers?limit=25', configuration),
+    request(connection, '/incidents?limit=25', configuration),
   ]);
   return Object.freeze({
     instances: Object.freeze(listPayload(instances).map(parseRuntimeInstance)),
     tasks: Object.freeze(listPayload(tasks).map(parseHumanTask)),
     auditEvents: Object.freeze(listPayload(auditEvents).map(parseAuditEvent)),
     triggers: Object.freeze(listPayload(triggers).map(parseTrigger)),
+    incidents: Object.freeze(listPayload(incidents).map(parseIncident)),
   });
 }

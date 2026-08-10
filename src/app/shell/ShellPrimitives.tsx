@@ -2,38 +2,52 @@ import { Alert, Box, Snackbar } from '@mui/material';
 import type { PropsWithChildren } from 'react';
 
 import { axisTokens } from '../axisTheme';
+import { workspaceComponentGap } from './workspaceLayout';
 
-interface WorkspaceContainerProps {
-  readonly centered?: boolean;
-  readonly horizontalPadding?: number | string;
-  readonly verticalPadding?: number | string;
-}
-
-export function WorkspaceContainer({
-  centered = false,
-  children,
-  horizontalPadding,
-  verticalPadding,
-}: PropsWithChildren<WorkspaceContainerProps>) {
+/**
+ * Owns the one authenticated-page viewport contract shared by every Axis route.
+ * Route renderers must control only their internal composition; page gutters,
+ * vertical start, and maximum content width remain shell concerns.
+ */
+export function WorkspaceViewport({ children }: PropsWithChildren) {
   return (
     <Box
+      data-testid="axis-workspace-viewport"
       sx={{
         ml: 0,
-        mr: centered ? 'auto' : 0,
+        mr: 0,
         maxWidth: axisTokens.spacing.contentMaxWidth,
-        px:
-          horizontalPadding ??
-          ({
-            xs: `${String(axisTokens.spacing.pageGutter.mobile)}px`,
-            sm: `${String(axisTokens.spacing.pageGutter.tablet)}px`,
-            lg: `${String(axisTokens.spacing.pageGutter.desktop)}px`,
-          } as const),
-        py:
-          verticalPadding ??
-          ({
-            xs: `${String(axisTokens.spacing.pageGutter.tablet)}px`,
-            lg: `${String(axisTokens.spacing.pageGutter.desktop)}px`,
-          } as const),
+        px: {
+          xs: `${String(axisTokens.spacing.pageGutter.mobile)}px`,
+          sm: `${String(axisTokens.spacing.pageGutter.tablet)}px`,
+          lg: `${String(axisTokens.spacing.pageGutter.desktop)}px`,
+        },
+        py: {
+          xs: `${String(axisTokens.spacing.pageGutter.mobile)}px`,
+          lg: `${String(axisTokens.spacing.pageGutter.desktop)}px`,
+        },
+        width: '100%',
+      }}
+    >
+      {children}
+    </Box>
+  );
+}
+
+/**
+ * Provides a width-safe semantic boundary for route-owned content.
+ * Outer page spacing is deliberately absent because WorkspaceViewport owns it.
+ */
+export function WorkspaceContainer({ children }: PropsWithChildren) {
+  return (
+    <Box
+      data-axis-layout-boundary="workspace"
+      sx={{
+        display: 'grid',
+        gap: workspaceComponentGap,
+        m: 0,
+        minWidth: 0,
+        p: 0,
         width: '100%',
       }}
     >

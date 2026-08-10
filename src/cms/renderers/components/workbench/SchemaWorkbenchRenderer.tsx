@@ -24,6 +24,7 @@ import {
 import { useState } from 'react';
 
 import { WorkspaceHelpActions } from '../../../../app/help/WorkspaceHelp';
+import { axisPresentationFeatures } from '../../../../app/axisPresentationFeatures';
 import { AxisSchemaRecordDetail } from '../../../../app/schema/AxisSchemaRecordDetail';
 import { ShellIcon } from '../../../../app/shell/ShellIcon';
 import { type AxisDataListingColumn } from '../../../../app/table/AxisDataListing';
@@ -106,8 +107,10 @@ export function SchemaWorkbenchRenderer({
       const leftRecent = controller.recentSchemas.indexOf(leftKey);
       const rightRecent = controller.recentSchemas.indexOf(rightKey);
       return (
-        Number(controller.favoriteSchemas.includes(rightKey)) -
-          Number(controller.favoriteSchemas.includes(leftKey)) ||
+        (axisPresentationFeatures.favourites
+          ? Number(controller.favoriteSchemas.includes(rightKey)) -
+            Number(controller.favoriteSchemas.includes(leftKey))
+          : 0) ||
         (leftRecent < 0 ? Number.MAX_SAFE_INTEGER : leftRecent) -
           (rightRecent < 0 ? Number.MAX_SAFE_INTEGER : rightRecent) ||
         left.label.localeCompare(right.label)
@@ -117,6 +120,7 @@ export function SchemaWorkbenchRenderer({
   const hasMoreSchemas = displayedSchemas.length < visibleSchemas.length;
   const selected = controller.selectedSchema;
   const workbenchPresentation = controller.scope?.workbenchPresentation;
+  const fixedFilters = workbenchPresentation?.fixedFilters ?? [];
   const quickFilters = selected
     ? (workbenchPresentation?.quickFilters ?? [])
         .map((quickFilter) => ({
@@ -222,20 +226,47 @@ export function SchemaWorkbenchRenderer({
   );
 
   return (
-    <Stack spacing={2}>
+    <Stack
+      spacing={1}
+      sx={{
+        height: { xs: 'auto', lg: '100%' },
+        inset: { lg: 0 },
+        minHeight: 0,
+        overflow: { xs: 'visible', lg: 'hidden' },
+        position: { xs: 'static', lg: 'absolute' },
+      }}
+    >
       <Box
+        data-testid="workbench-pane-grid"
         sx={{
           display: 'grid',
-          gap: 2,
+          flex: { lg: 1 },
+          gap: 1,
           gridTemplateColumns: scopedToNavigation
             ? 'minmax(0, 1fr)'
             : schemaPanelOpen
               ? { xs: '1fr', lg: 'minmax(0, 1fr) 360px' }
               : { xs: '1fr', lg: 'minmax(0, 1fr) 64px' },
+          gridTemplateRows: { xs: 'auto', lg: 'minmax(0, 1fr)' },
+          height: { xs: 'auto', lg: '100%' },
+          minHeight: 0,
+          overflow: { xs: 'visible', lg: 'hidden' },
         }}
       >
-        <Card component="section" variant="outlined">
-          <CardContent>
+        <Card
+          component="section"
+          data-testid="workbench-record-pane"
+          variant="outlined"
+          sx={{
+            height: { xs: 'auto', lg: '100%' },
+            maxHeight: { lg: '100%' },
+            minHeight: 0,
+            overflowY: 'auto',
+            overscrollBehavior: 'contain',
+            scrollbarGutter: 'stable',
+          }}
+        >
+          <CardContent sx={{ p: { xs: 1.5, md: 2 }, '&:last-child': { pb: 2 } }}>
             {!selected ? (
               <Stack
                 sx={{ alignItems: 'center', minHeight: 320, justifyContent: 'center' }}
@@ -481,11 +512,35 @@ export function SchemaWorkbenchRenderer({
                             Advanced query
                           </Button>
                         </Stack>
-                        <Collapse
-                          in={advancedQueryOpen || Boolean(controller.recordFilters)}
-                          timeout="auto"
-                          unmountOnExit
-                        >
+                        {fixedFilters.length > 0 ? (
+                          <Stack
+                            direction="row"
+                            spacing={0.75}
+                            sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+                            useFlexGap
+                          >
+                            <Typography
+                              color="text.secondary"
+                              sx={{
+                                fontWeight: 700,
+                                letterSpacing: 1.2,
+                                textTransform: 'uppercase',
+                              }}
+                              variant="caption"
+                            >
+                              Scope
+                            </Typography>
+                            {fixedFilters.map((filter) => (
+                              <Chip
+                                key={filter.id}
+                                label={`${filter.label}: ${filter.values?.join(', ') ?? filter.value ?? 'Applied'}`}
+                                size="small"
+                                variant="outlined"
+                              />
+                            ))}
+                          </Stack>
+                        ) : null}
+                        <Collapse in={advancedQueryOpen} timeout="auto" unmountOnExit>
                           <SchemaQueryBuilderRenderer
                             actions={actions}
                             component={component}
@@ -859,12 +914,28 @@ export function SchemaWorkbenchRenderer({
         {!scopedToNavigation ? (
           <Card
             component="aside"
+            data-testid="workbench-schema-navigation-pane"
             variant="outlined"
-            sx={{ alignSelf: 'start', overflow: 'hidden' }}
+            sx={{
+              alignSelf: 'stretch',
+              height: { xs: 'auto', lg: '100%' },
+              maxHeight: { xs: '70dvh', lg: 'none' },
+              minHeight: 0,
+              overflow: 'hidden',
+            }}
           >
-            <CardContent sx={{ p: schemaPanelOpen ? undefined : 1 }}>
+            <CardContent
+              sx={{
+                display: 'flex',
+                height: '100%',
+                minHeight: 0,
+                overflow: 'hidden',
+                p: schemaPanelOpen ? { xs: 1.5, md: 2 } : 1,
+                '&:last-child': { pb: schemaPanelOpen ? 2 : 1 },
+              }}
+            >
               {schemaPanelOpen ? (
-                <Stack spacing={1.5}>
+                <Stack spacing={1} sx={{ flex: 1, minHeight: 0, minWidth: 0 }}>
                   <Stack
                     direction="row"
                     spacing={1}
@@ -989,6 +1060,15 @@ export function SchemaWorkbenchRenderer({
                   <List
                     disablePadding
                     aria-label={stringProperty(component, 'schemasLabel')}
+                    data-testid="workbench-schema-list-scroll-region"
+                    sx={{
+                      flex: 1,
+                      minHeight: 0,
+                      overflowY: 'auto',
+                      overscrollBehavior: 'contain',
+                      pr: 0.5,
+                      scrollbarGutter: 'stable',
+                    }}
                   >
                     {displayedSchemas.map((schema) => {
                       const key = `${schema.moduleName}:${schema.schemaName}`;
@@ -1013,17 +1093,19 @@ export function SchemaWorkbenchRenderer({
                               slotProps={{ primary: { sx: { fontWeight: 600 } } }}
                             />
                           </ListItemButton>
-                          <Button
-                            aria-label={`${stringProperty(
-                              component,
-                              favorite ? 'removeFavouriteLabel' : 'addFavouriteLabel',
-                            )} ${schema.label}`}
-                            color={favorite ? 'primary' : 'inherit'}
-                            sx={{ minWidth: 36, px: 0.5 }}
-                            onClick={() => controller.toggleFavoriteSchema(schema)}
-                          >
-                            {favorite ? '★' : '☆'}
-                          </Button>
+                          {axisPresentationFeatures.favourites ? (
+                            <Button
+                              aria-label={`${stringProperty(
+                                component,
+                                favorite ? 'removeFavouriteLabel' : 'addFavouriteLabel',
+                              )} ${schema.label}`}
+                              color={favorite ? 'primary' : 'inherit'}
+                              sx={{ minWidth: 36, px: 0.5 }}
+                              onClick={() => controller.toggleFavoriteSchema(schema)}
+                            >
+                              {favorite ? '★' : '☆'}
+                            </Button>
+                          ) : null}
                         </Stack>
                       );
                     })}

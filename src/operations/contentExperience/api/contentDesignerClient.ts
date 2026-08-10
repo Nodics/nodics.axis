@@ -13,15 +13,24 @@ export interface ContentDesignerDraftComponentMedia {
   readonly mediaCode?: string | undefined;
   readonly mediaSetCode?: string | undefined;
   readonly mediaType?: string | undefined;
+  readonly localeCode?: string | undefined;
   readonly position?: number | undefined;
   readonly role?: string | undefined;
   readonly slot?: string | undefined;
+}
+
+export interface ContentDesignerDraftLocalization {
+  readonly locale: string;
+  readonly properties: Readonly<Record<string, unknown>>;
+  readonly seo?: Readonly<Record<string, unknown>> | undefined;
+  readonly status?: string | undefined;
 }
 
 export interface ContentDesignerDraftComponent {
   readonly accessMode?: string | undefined;
   readonly code: string;
   readonly media?: readonly ContentDesignerDraftComponentMedia[] | undefined;
+  readonly localizations?: readonly ContentDesignerDraftLocalization[] | undefined;
   readonly properties?: Readonly<Record<string, unknown>> | undefined;
   readonly renderer?: string | undefined;
   readonly typeCode: string;
@@ -80,12 +89,19 @@ export interface ContentDesignerReference {
   readonly name: string;
   readonly nodeType?: string | undefined;
   readonly parentCode?: string | undefined;
+  readonly propertySchema?: Readonly<Record<string, unknown>> | undefined;
   readonly renderer?: string | undefined;
   readonly reusable?: boolean | undefined;
   readonly siteCode?: string | undefined;
   readonly templateCode?: string | undefined;
   readonly typeCode?: string | undefined;
   readonly width?: number | undefined;
+}
+
+export interface ContentDesignerLocalizationPolicy {
+  readonly defaultLocale: string;
+  readonly fallbackLocales: readonly string[];
+  readonly supportedLocales: readonly string[];
 }
 
 export interface ContentDesignerPublicationReadiness {
@@ -100,6 +116,7 @@ export interface ContentDesignerAuthoringMetadata {
   readonly mediaFolders: readonly ContentDesignerReference[];
   readonly mediaFormats: readonly ContentDesignerReference[];
   readonly mediaTypes: readonly string[];
+  readonly localization: ContentDesignerLocalizationPolicy;
   readonly navigationNodes: readonly ContentDesignerReference[];
   readonly pageTemplates: readonly ContentDesignerReference[];
   readonly pageTypes: readonly ContentDesignerReference[];
@@ -222,6 +239,12 @@ function parseReferenceArray(value: unknown): readonly ContentDesignerReference[
           nodeType: typeof source.nodeType === 'string' ? source.nodeType : undefined,
           parentCode:
             typeof source.parentCode === 'string' ? source.parentCode : undefined,
+          propertySchema:
+            typeof source.propertySchema === 'object' &&
+            source.propertySchema !== null &&
+            !Array.isArray(source.propertySchema)
+              ? (source.propertySchema as Readonly<Record<string, unknown>>)
+              : undefined,
           renderer: typeof source.renderer === 'string' ? source.renderer : undefined,
           reusable: typeof source.reusable === 'boolean' ? source.reusable : undefined,
           siteCode: typeof source.siteCode === 'string' ? source.siteCode : undefined,
@@ -246,6 +269,12 @@ function parseAuthoringMetadata(value: unknown): ContentDesignerAuthoringMetadat
     !Array.isArray(source.publicationReadiness)
       ? (source.publicationReadiness as Record<string, unknown>)
       : {};
+  const localization =
+    typeof source.localization === 'object' &&
+    source.localization !== null &&
+    !Array.isArray(source.localization)
+      ? (source.localization as Record<string, unknown>)
+      : {};
   return Object.freeze({
     componentTypeGroups: parseReferenceArray(source.componentTypeGroups),
     componentTypes: parseReferenceArray(source.componentTypes),
@@ -255,6 +284,15 @@ function parseAuthoringMetadata(value: unknown): ContentDesignerAuthoringMetadat
     mediaTypes: Array.isArray(source.mediaTypes)
       ? Object.freeze(source.mediaTypes.map(String).filter(Boolean))
       : Object.freeze([]),
+    localization: Object.freeze({
+      defaultLocale:
+        typeof localization.defaultLocale === 'string'
+          ? localization.defaultLocale
+          : 'en',
+      fallbackLocales: stringArray(localization.fallbackLocales) ?? Object.freeze([]),
+      supportedLocales:
+        stringArray(localization.supportedLocales) ?? Object.freeze(['en']),
+    }),
     navigationNodes: parseReferenceArray(source.navigationNodes),
     pageTemplates: parseReferenceArray(source.pageTemplates),
     pageTypes: parseReferenceArray(source.pageTypes),

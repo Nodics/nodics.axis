@@ -109,7 +109,7 @@ export function DocumentationNavigationRenderer({
   }, new Map<string, DocumentationNavigationItem[]>());
 
   return (
-    <Stack component="nav" aria-label={title} spacing={2}>
+    <Stack component="nav" aria-label={title} spacing={1}>
       <Typography component="h2" variant="h6">
         {title}
       </Typography>

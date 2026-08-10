@@ -59,7 +59,7 @@ describe('Axis navigation rail', () => {
     render(
       <AxisThemeProvider>
         <NavigationRail
-          activePath="/dashboard"
+          activePath="/disabled-parent"
           compact={false}
           favourites={new Set()}
           groups={groups}
@@ -74,11 +74,67 @@ describe('Axis navigation rail', () => {
     expect(
       screen.getByRole('button', { name: 'Collapse Disabled Parent' }),
     ).toBeDisabled();
+    expect(
+      screen
+        .getByRole('button', { name: 'Collapse System & Integrations' })
+        .querySelector('[data-navigation-expander="group"]'),
+    ).toHaveStyle({ width: '40px' });
+    expect(
+      screen.getByRole('button', { name: 'Collapse Disabled Parent' }),
+    ).toHaveStyle({ width: '40px' });
     expect(consoleError).not.toHaveBeenCalledWith(
       expect.stringContaining('disabled `button` child'),
     );
     expect(consoleWarn).not.toHaveBeenCalledWith(
       expect.stringContaining('disabled `button` child'),
     );
+  });
+
+  it('starts non-active navigation groups collapsed', () => {
+    const groups: readonly ShellNavigationGroup[] = [
+      {
+        id: 'system-integrations',
+        label: 'System & Integrations',
+        order: 150,
+        items: [
+          {
+            id: 'registry',
+            label: 'Module Registry',
+            route: '/registry',
+            order: 10,
+            moduleName: 'backoffice',
+            category: 'platform',
+            icon: 'registry',
+            availability: 'UP',
+            perspectives: ['operations'],
+            contexts: [],
+            featureState: 'ACTIVE',
+            depth: 0,
+            hasChildren: false,
+            local: false,
+          },
+        ],
+      },
+    ];
+
+    render(
+      <AxisThemeProvider>
+        <NavigationRail
+          activePath="/dashboard"
+          compact={false}
+          favourites={new Set()}
+          groups={groups}
+          query=""
+          onNavigate={vi.fn()}
+          onQueryChange={vi.fn()}
+          onToggleFavourite={vi.fn()}
+        />
+      </AxisThemeProvider>,
+    );
+
+    expect(
+      screen.getByRole('button', { name: 'Expand System & Integrations' }),
+    ).toBeVisible();
+    expect(screen.queryByText('Module Registry')).not.toBeInTheDocument();
   });
 });

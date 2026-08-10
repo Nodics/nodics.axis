@@ -22,19 +22,6 @@ function tokenEnvelope(value: unknown): { authToken: string; loginId?: string } 
   };
 }
 
-async function errorCode(response: Response): Promise<string | undefined> {
-  try {
-    const value: unknown = await response.json();
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      return undefined;
-    }
-    const code = (value as Record<string, unknown>).code;
-    return typeof code === 'string' ? code : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function csrfCookie(cookieName: string): string {
   const prefix = `${cookieName}=`;
   const value = document.cookie
@@ -73,13 +60,11 @@ export async function authenticateEmployee(
       },
     );
     if (!response.ok) {
-      const code = await errorCode(response);
-      throw new Error(
-        response.status === 401 && code === 'ERR_AUTH_00002'
-          ? 'The employee identifier or password is incorrect.'
-          : response.status === 401
-            ? 'Profile could not establish a secure browser session.'
-            : `Profile authentication returned HTTP ${String(response.status)}`,
+      throw await parseAxisApiError(
+        response,
+        response.status === 401
+          ? 'Profile could not establish a secure browser session.'
+          : `Profile authentication returned HTTP ${String(response.status)}`,
       );
     }
     const tokens = tokenEnvelope(await response.json());
@@ -170,3 +155,4 @@ export async function restoreEmployeeSession(
     globalThis.clearTimeout(timeout);
   }
 }
+import { parseAxisApiError } from '../localization/axisApiError';

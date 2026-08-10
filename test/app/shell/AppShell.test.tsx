@@ -32,6 +32,25 @@ afterEach(() => {
 });
 
 describe('Axis application shell navigation', () => {
+  it('owns one shared workspace viewport around every authenticated page', () => {
+    render(
+      <AxisThemeProvider>
+        <MemoryRouter>
+          <AppShell>
+            <section aria-label="Route content">Workspace</section>
+          </AppShell>
+        </MemoryRouter>
+      </AxisThemeProvider>,
+    );
+
+    const viewport = screen.getByTestId('axis-workspace-viewport');
+    expect(viewport).toContainElement(
+      screen.getByRole('region', { name: 'Route content' }),
+    );
+    expect(viewport.closest('main')).toHaveAttribute('id', 'main-content');
+    expect(screen.getAllByTestId('axis-workspace-viewport')).toHaveLength(1);
+  });
+
   it('starts each newly selected page at the top of the content pane without moving the navigation rail', async () => {
     const user = userEvent.setup();
     render(
@@ -362,6 +381,9 @@ describe('Axis application shell navigation', () => {
     );
 
     await user.click(screen.getByRole('button', { name: 'Open navigation' }));
+    await user.click(
+      screen.getByRole('button', { name: 'Expand Content and Experience' }),
+    );
     const collapse = screen.getByRole('button', {
       name: 'Collapse Content and Experience',
     });
@@ -450,7 +472,7 @@ describe('Axis application shell navigation', () => {
     ).toHaveAttribute('aria-expanded', 'true');
   });
 
-  it('provides bounded local favourites and recent destinations', async () => {
+  it('keeps favourites hidden while preserving recent destinations', async () => {
     const user = userEvent.setup();
     window.localStorage.setItem(
       'nodics-axis-navigation-preferences-v1',
@@ -485,8 +507,13 @@ describe('Axis application shell navigation', () => {
     await user.keyboard('{Escape}');
 
     await user.click(screen.getByRole('button', { name: 'Open navigation' }));
-    await user.click(screen.getByRole('button', { name: 'Add Content to favourites' }));
-    expect(screen.getByText('Favourite: Content')).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Add Content to favourites' }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('Favourite: Content')).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole('button', { name: 'Expand Content and Experience' }),
+    );
     await user.click(screen.getByRole('button', { name: 'Content' }));
     expect(screen.queryByText('Recent: Content')).not.toBeInTheDocument();
     expect(

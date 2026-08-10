@@ -5,6 +5,7 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Divider,
   Paper,
   Stack,
   Typography,
@@ -19,7 +20,6 @@ import { ShellIcon } from '../../app/shell/ShellIcon';
 import { WorkspaceContainer } from '../../app/shell/ShellPrimitives';
 import type {
   AxisAuthenticatedBootstrap,
-  AxisNavigationFeatureState,
   AxisNavigationItem,
 } from '../../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
@@ -31,6 +31,13 @@ import {
   loadModuleHealth,
   type ModuleHealthClientConfiguration,
 } from '../moduleHealth/api/moduleHealthClient';
+import {
+  dashboardCardPadding,
+  dashboardComponentGap,
+  dashboardContentGap,
+} from '../shared/workbenchMetricDashboardModel';
+import { loadWorkbenchSchemas } from '../../workbench/api/workbenchClient';
+import type { WorkbenchSchema } from '../../workbench/api/workbenchContracts';
 
 interface SystemIntegrationsDashboardRoutePageProps {
   readonly accessToken: string;
@@ -41,43 +48,40 @@ interface SystemIntegrationsDashboardRoutePageProps {
 
 interface SystemDashboardData {
   readonly activeRuntimeInstances: number;
-  readonly availableModules: number;
   readonly degradedModules: number;
+  readonly pendingRegistrationModules: number;
   readonly registeredModules: number;
   readonly runtimeServers: readonly string[];
   readonly unhealthyRuntimeInstances: number;
 }
 
-const dashboardComponentGap = `${String(axisTokens.spacing.grid)}px`;
-const dashboardContentGap = `${String(axisTokens.spacing.grid * 1.5)}px`;
-const dashboardCardPadding = {
-  xs: `${String(axisTokens.spacing.grid * 2)}px`,
-  md: `${String(axisTokens.spacing.grid * 2.5)}px`,
-} as const;
-
-function stateColor(
-  state: AxisNavigationFeatureState,
-): 'success' | 'warning' | 'default' {
-  if (state === 'ACTIVE') return 'success';
-  if (state === 'PREVIEW') return 'warning';
-  return 'default';
+interface SchemaDashboardData {
+  readonly ownerModules: number;
+  readonly readOnlySchemas: number;
+  readonly schemas: readonly WorkbenchSchema[];
+  readonly schemasByModule: readonly {
+    readonly moduleName: string;
+    readonly total: number;
+  }[];
+  readonly unavailableOwners: number;
+  readonly writableSchemas: number;
 }
 
-function availabilityColor(
-  state: AxisNavigationItem['availability'],
-): 'success' | 'warning' | 'error' | 'default' {
-  if (state === 'UP') return 'success';
-  if (state === 'DEGRADED') return 'warning';
-  if (state === 'UNAVAILABLE') return 'error';
-  return 'default';
-}
-
-function availabilityLabel(state: AxisNavigationItem['availability']): string {
-  if (state === 'UP') return 'Available';
-  if (state === 'DEGRADED') return 'Degraded';
-  if (state === 'UNAVAILABLE') return 'Unavailable';
-  return 'Unknown';
-}
+const SYSTEM_ACTION_IDS = new Set([
+  'registry',
+  'module-health',
+  'system-information',
+  'module-configuration',
+  'axis-configuration',
+  'security-policies',
+]);
+const INTEGRATION_ACTION_IDS = new Set([
+  'imports-exports',
+  'integrations',
+  'events',
+  'audit-trail',
+  'operational-failures',
+]);
 
 function visibleSystemItems(
   navigation: readonly AxisNavigationItem[],
@@ -86,10 +90,7 @@ function visibleSystemItems(
     navigation
       .filter(
         (item) =>
-          item.id !== 'system-integrations' &&
-          (item.group?.id === 'system-integrations' ||
-            item.route.startsWith('/operations/') ||
-            item.route === '/registry'),
+          item.id !== 'system-integrations' && item.group?.id === 'system-integrations',
       )
       .sort(
         (left, right) =>
@@ -98,10 +99,10 @@ function visibleSystemItems(
   );
 }
 
-function SummaryCard({
+function MetricCard({
   detail,
-  loading,
   label,
+  loading,
   tone = 'default',
   value,
 }: {
@@ -116,14 +117,16 @@ function SummaryCard({
       component="article"
       elevation={0}
       sx={{
-        border: 1,
-        borderColor: 'divider',
-        minHeight: 150,
-        p: dashboardCardPadding,
+        bgcolor: (theme) => alpha(theme.palette.background.default, 0.7),
+        borderRadius: `${String(axisTokens.radius.medium)}px`,
+        boxShadow: (theme) => `inset 0 0 0 1px ${theme.palette.divider}`,
+        minHeight: 104,
+        px: 2,
+        py: 1.75,
       }}
     >
-      <Stack spacing={1}>
-        <Typography color="text.secondary" variant="body2">
+      <Stack spacing={0.35}>
+        <Typography color="text.secondary" variant="caption">
           {label}
         </Typography>
         <Typography
@@ -134,14 +137,129 @@ function SummaryCard({
                 ? 'warning.main'
                 : 'text.primary'
           }
-          sx={{ fontSize: { xs: 34, md: 42 }, fontWeight: 800 }}
+          sx={{ fontSize: { xs: 26, md: 30 }, fontWeight: 750, lineHeight: 1.1 }}
         >
-          {loading ? <CircularProgress size={28} /> : value}
+          {loading ? <CircularProgress size={24} /> : value}
         </Typography>
-        <Typography color="text.secondary">{detail}</Typography>
+        <Typography
+          color="text.secondary"
+          sx={{
+            display: '-webkit-box',
+            overflow: 'hidden',
+            WebkitBoxOrient: 'vertical',
+            WebkitLineClamp: 2,
+          }}
+          variant="caption"
+        >
+          {detail}
+        </Typography>
       </Stack>
     </Paper>
   );
+}
+
+function WorkspaceSection({
+  actions,
+  children,
+  description,
+  icon,
+  title,
+}: {
+  readonly actions: readonly AxisNavigationItem[];
+  readonly children: React.ReactNode;
+  readonly description: string;
+  readonly icon: string;
+  readonly title: string;
+}) {
+  const enabledActions = actions.filter(
+    (item) =>
+      (item.featureState ?? 'ACTIVE') !== 'DISABLED' &&
+      item.availability !== 'UNAVAILABLE',
+  );
+  const plannedActions = actions.length - enabledActions.length;
+  return (
+    <Paper
+      component="section"
+      elevation={0}
+      sx={{
+        border: 1,
+        borderColor: 'divider',
+        borderRadius: `${String(axisTokens.radius.large)}px`,
+        overflow: 'hidden',
+        p: dashboardCardPadding,
+      }}
+    >
+      <Stack spacing={dashboardContentGap}>
+        <Box
+          sx={{
+            alignItems: { sm: 'center' },
+            display: 'grid',
+            gap: 1.5,
+            gridTemplateColumns: { xs: '1fr', sm: 'minmax(0, 1fr) auto' },
+          }}
+        >
+          <Stack direction="row" spacing={1.5} sx={{ minWidth: 0 }}>
+            <Box
+              aria-hidden
+              sx={{
+                alignItems: 'center',
+                bgcolor: alpha(axisTokens.color.signatureGold, 0.16),
+                borderRadius: `${String(axisTokens.radius.medium)}px`,
+                color: 'primary.main',
+                display: 'inline-flex',
+                flex: '0 0 auto',
+                height: 42,
+                justifyContent: 'center',
+                width: 42,
+              }}
+            >
+              <ShellIcon name={icon} />
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="h5">{title}</Typography>
+              <Typography color="text.secondary" sx={{ maxWidth: 680 }} variant="body2">
+                {description}
+              </Typography>
+            </Box>
+          </Stack>
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{ alignItems: 'center', flex: '0 0 auto', flexWrap: 'wrap', gap: 0.5 }}
+          >
+            {enabledActions.map((item) => (
+              <Button
+                component={RouterLink}
+                key={`${item.moduleName}:${item.id}`}
+                size="small"
+                to={item.route}
+                variant="text"
+              >
+                {item.label}
+              </Button>
+            ))}
+            {plannedActions > 0 ? (
+              <Chip
+                label={`${String(plannedActions)} planned`}
+                size="small"
+                variant="outlined"
+              />
+            ) : null}
+          </Stack>
+        </Box>
+        <Divider />
+        {children}
+      </Stack>
+    </Paper>
+  );
+}
+
+function metricsGrid(minimumCardWidth: number) {
+  return {
+    display: 'grid',
+    gap: 1,
+    gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, ${String(minimumCardWidth)}px), 1fr))`,
+  } as const;
 }
 
 async function loadSystemDashboardData(
@@ -158,6 +276,11 @@ async function loadSystemDashboardData(
     loadAvailableFunctionalModules(backofficeConnection, configuration),
   ]);
   const runtimeServers = new Set<string>();
+  const registeredIdentities = new Set(
+    registered
+      .filter((module) => module.registrationState === 'REGISTERED')
+      .map((module) => module.functionalModule),
+  );
   let activeRuntimeInstances = 0;
   let unhealthyRuntimeInstances = 0;
   health.forEach((module) => {
@@ -168,93 +291,64 @@ async function loadSystemDashboardData(
   });
   return Object.freeze({
     activeRuntimeInstances,
-    availableModules: available.length,
     degradedModules: health.filter((module) => module.availability.state === 'DEGRADED')
       .length,
-    registeredModules: registered.length,
+    pendingRegistrationModules: available.filter(
+      (module) => !registeredIdentities.has(module.functionalModule),
+    ).length,
+    registeredModules: registeredIdentities.size,
     runtimeServers: Object.freeze([...runtimeServers].sort()),
     unhealthyRuntimeInstances,
   });
 }
 
-function SystemCapabilityCard({ item }: { readonly item: AxisNavigationItem }) {
-  const featureState = item.featureState ?? 'ACTIVE';
-  const contexts = item.contexts ?? [];
-  const active = featureState === 'ACTIVE' || featureState === 'PREVIEW';
-  return (
-    <Paper
-      component="article"
-      elevation={0}
-      sx={{
-        border: 1,
-        borderColor: 'divider',
-        display: 'grid',
-        gap: dashboardContentGap,
-        gridTemplateRows: 'auto minmax(72px, auto) auto minmax(0, 1fr) auto',
-        minHeight: 300,
-        p: dashboardCardPadding,
-      }}
-    >
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
-        <Box
-          aria-hidden
-          sx={{
-            alignItems: 'center',
-            bgcolor: alpha(axisTokens.color.signatureGold, 0.18),
-            borderRadius: axisTokens.radius.medium,
-            color: 'primary.main',
-            display: 'inline-flex',
-            flex: '0 0 auto',
-            height: 44,
-            justifyContent: 'center',
-            width: 44,
-          }}
-        >
-          <ShellIcon name={item.icon ?? 'module'} />
-        </Box>
-        <Box sx={{ minWidth: 0 }}>
-          <Typography variant="h5">{item.label}</Typography>
-          <Typography color="text.secondary" variant="body2">
-            {item.moduleName}
-          </Typography>
-        </Box>
-      </Stack>
-
-      <Typography color="text.secondary">
-        {item.help?.summary ??
-          'This capability is advertised by BackOffice and will become executable when its owning module publishes an active workspace contract.'}
-      </Typography>
-
-      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
-        <Chip
-          color={availabilityColor(item.availability)}
-          label={availabilityLabel(item.availability)}
-          size="small"
-        />
-        <Chip
-          color={stateColor(featureState)}
-          label={featureState}
-          size="small"
-          variant="outlined"
-        />
-      </Stack>
-
-      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
-        {contexts.map((context) => (
-          <Chip key={context} label={context} size="small" variant="outlined" />
-        ))}
-      </Stack>
-
-      <Button
-        component={active ? RouterLink : 'button'}
-        disabled={!active}
-        to={active ? item.route : undefined}
-        variant={active ? 'contained' : 'outlined'}
-      >
-        {active ? `Open ${item.label}` : 'Not enabled yet'}
-      </Button>
-    </Paper>
+async function loadSchemaDashboardData(
+  bootstrap: AxisAuthenticatedBootstrap,
+  configuration: ModuleHealthClientConfiguration,
+): Promise<SchemaDashboardData> {
+  const connections = Object.values(bootstrap.moduleConnections)
+    .flatMap((items) => [...items])
+    .filter((connection) => ['UP', 'DEGRADED'].includes(connection.state));
+  const discovered = await loadWorkbenchSchemas(connections, configuration);
+  const uniqueSchemas = new Map<string, WorkbenchSchema>();
+  discovered.forEach((schema) => {
+    const key = `${schema.moduleName}:${schema.schemaName}`;
+    if (!uniqueSchemas.has(key)) uniqueSchemas.set(key, schema);
+  });
+  const schemas = Object.freeze([...uniqueSchemas.values()]);
+  const moduleCounts = new Map<string, number>();
+  schemas.forEach((schema) => {
+    moduleCounts.set(schema.moduleName, (moduleCounts.get(schema.moduleName) ?? 0) + 1);
+  });
+  const schemasByModule = Object.freeze(
+    [...moduleCounts.entries()]
+      .map(([moduleName, total]) => Object.freeze({ moduleName, total }))
+      .sort(
+        (left, right) =>
+          right.total - left.total || left.moduleName.localeCompare(right.moduleName),
+      ),
   );
+  const writableSchemas = schemas.filter(
+    (schema) =>
+      schema.mutationMode === 'GENERATED_CRUD' &&
+      schema.operations.some((operation) =>
+        ['create', 'update', 'delete'].includes(operation),
+      ),
+  ).length;
+  const unavailableOwners = new Set(
+    Object.values(bootstrap.moduleConnections)
+      .flatMap((items) => [...items])
+      .filter((connection) => ['UNAVAILABLE', 'UNKNOWN'].includes(connection.state))
+      .map((connection) => connection.moduleName),
+  ).size;
+  return Object.freeze({
+    ownerModules: moduleCounts.size,
+    readOnlySchemas: schemas.length - writableSchemas,
+    schemas,
+    schemasByModule,
+    unavailableOwners,
+    writableSchemas,
+  });
 }
 
 export function SystemIntegrationsDashboardRoutePage({
@@ -264,6 +358,11 @@ export function SystemIntegrationsDashboardRoutePage({
   runtime,
 }: SystemIntegrationsDashboardRoutePageProps) {
   const items = visibleSystemItems(bootstrap.navigation);
+  const systemActions = items.filter((item) => SYSTEM_ACTION_IDS.has(item.id));
+  const integrationActions = items.filter((item) =>
+    INTEGRATION_ACTION_IDS.has(item.id),
+  );
+  const schemaActions = items.filter((item) => item.id === 'schema-workbench');
   const configuration = useMemo(
     () => ({
       accessToken,
@@ -278,16 +377,40 @@ export function SystemIntegrationsDashboardRoutePage({
       runtime.requestTimeoutMs,
     ],
   );
-  const dashboard = useQuery({
+  const connectionKey = useMemo(
+    () =>
+      Object.values(bootstrap.moduleConnections)
+        .flatMap((connections) => connections)
+        .map(
+          (connection) =>
+            `${connection.moduleName}:${connection.instanceId}:${connection.state}`,
+        )
+        .sort()
+        .join('|'),
+    [bootstrap.moduleConnections],
+  );
+  const systemDashboard = useQuery({
     queryKey: ['system-dashboard', runtime.enterpriseCode, runtime.projectCode],
     queryFn: () => loadSystemDashboardData(bootstrap, configuration),
     refetchOnWindowFocus: true,
   });
-  const active = items.filter(
+  const schemaDashboard = useQuery({
+    queryKey: ['system-dashboard', 'schemas', runtime.enterpriseCode, connectionKey],
+    queryFn: () => loadSchemaDashboardData(bootstrap, configuration),
+    refetchOnWindowFocus: true,
+  });
+  const integrationActive = integrationActions.filter(
     (item) => (item.featureState ?? 'ACTIVE') === 'ACTIVE',
   ).length;
-  const preview = items.filter((item) => item.featureState === 'PREVIEW').length;
-  const disabled = items.length - active - preview;
+  const integrationPlanned = integrationActions.filter(
+    (item) => item.featureState === 'DISABLED',
+  ).length;
+  const integrationAttention = integrationActions.filter((item) =>
+    ['DEGRADED', 'UNAVAILABLE'].includes(item.availability),
+  ).length;
+  const healthAlerts =
+    (systemDashboard.data?.degradedModules ?? 0) +
+    (systemDashboard.data?.unhealthyRuntimeInstances ?? 0);
 
   return (
     <WorkspaceContainer>
@@ -295,108 +418,224 @@ export function SystemIntegrationsDashboardRoutePage({
         <Paper
           component="section"
           elevation={0}
-          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+          sx={{
+            background: (theme) =>
+              `linear-gradient(105deg, ${alpha(axisTokens.color.signatureGold, theme.palette.mode === 'light' ? 0.09 : 0.13)} 0%, ${alpha(theme.palette.background.paper, 0)} 52%)`,
+            border: 1,
+            borderColor: 'divider',
+            borderRadius: `${String(axisTokens.radius.large)}px`,
+            p: dashboardCardPadding,
+          }}
         >
-          <Stack spacing={dashboardContentGap}>
-            <Stack
-              direction={{ xs: 'column', md: 'row' }}
-              spacing={2}
-              sx={{ justifyContent: 'space-between' }}
-            >
-              <WorkspaceHeading
-                description="Operate the project runtime, module registry, health checks, imports, exports, integrations, events, audit evidence, and failure triage from one BackOffice-governed hub."
-                help={routeNavigation?.help}
-                eyebrow="System workspace"
-                headingVariant="h3"
-                title="System & Integrations"
-              />
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
-                <Chip label={`${String(items.length)} capabilities`} />
-                <Chip color="success" label={`${String(active)} active`} />
-                {preview > 0 ? (
-                  <Chip color="warning" label={`${String(preview)} preview`} />
-                ) : null}
-                {disabled > 0 ? <Chip label={`${String(disabled)} planned`} /> : null}
-              </Stack>
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            spacing={2}
+            sx={{ justifyContent: 'space-between' }}
+          >
+            <WorkspaceHeading
+              description="Monitor runtime participation, integration operations, and authorized backend schemas from one compact BackOffice-governed overview."
+              help={routeNavigation?.help}
+              eyebrow="Platform operations"
+              headingVariant="h3"
+              title="System & Integrations"
+            />
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
+              <Chip color="success" label="Live registry" size="small" />
+              <Chip label={runtime.projectCode} size="small" />
+              <Chip label={runtime.enterpriseCode} size="small" variant="outlined" />
             </Stack>
-
-            <Alert severity="info">
-              This dashboard is generated from the authenticated BackOffice navigation
-              contract. Axis is only presenting authorized capabilities; the owning
-              backend modules remain the operation authority.
-            </Alert>
           </Stack>
         </Paper>
 
-        {dashboard.isError ? (
-          <Alert severity="warning">
-            {dashboard.error instanceof Error
-              ? dashboard.error.message
-              : 'System dashboard metrics are currently unavailable.'}
-          </Alert>
-        ) : null}
-
-        <Box
-          sx={{
-            display: 'grid',
-            gap: dashboardComponentGap,
-            gridTemplateColumns: {
-              xs: '1fr',
-              md: 'repeat(2, minmax(0, 1fr))',
-              xl: 'repeat(4, minmax(0, 1fr))',
-            },
-          }}
+        <WorkspaceSection
+          actions={systemActions}
+          description="Runtime participation, registration readiness, and operational health."
+          icon="health"
+          title="System Workspace"
         >
-          <SummaryCard
-            detail={`${dashboard.data?.runtimeServers.join(', ') || 'Waiting for runtime observations'}`}
-            label="Runtime servers"
-            loading={dashboard.isPending}
-            value={dashboard.data?.runtimeServers.length ?? '—'}
-          />
-          <SummaryCard
-            detail="Active runtime module instances observed by BackOffice."
-            label="Runtime instances"
-            loading={dashboard.isPending}
-            tone="success"
-            value={dashboard.data?.activeRuntimeInstances ?? '—'}
-          />
-          <SummaryCard
-            detail={`${String(dashboard.data?.availableModules ?? 0)} optional modules are waiting for project registration.`}
-            label="Registered modules"
-            loading={dashboard.isPending}
-            value={dashboard.data?.registeredModules ?? '—'}
-          />
-          <SummaryCard
-            detail={`${String(dashboard.data?.degradedModules ?? 0)} degraded modules, ${String(dashboard.data?.unhealthyRuntimeInstances ?? 0)} unhealthy instances.`}
-            label="Health alerts"
-            loading={dashboard.isPending}
-            tone={
-              (dashboard.data?.degradedModules ?? 0) > 0 ||
-              (dashboard.data?.unhealthyRuntimeInstances ?? 0) > 0
-                ? 'warning'
-                : 'success'
-            }
-            value={
-              (dashboard.data?.degradedModules ?? 0) +
-              (dashboard.data?.unhealthyRuntimeInstances ?? 0)
-            }
-          />
-        </Box>
+          {systemDashboard.isError ? (
+            <Alert severity="warning">
+              {systemDashboard.error instanceof Error
+                ? systemDashboard.error.message
+                : 'System metrics are currently unavailable.'}
+            </Alert>
+          ) : null}
+          <Box sx={metricsGrid(280)}>
+            <MetricCard
+              detail={
+                systemDashboard.data?.runtimeServers.join(', ') ||
+                'Waiting for runtime observations'
+              }
+              label="Runtime servers"
+              loading={systemDashboard.isPending}
+              value={systemDashboard.data?.runtimeServers.length ?? '—'}
+            />
+            <MetricCard
+              detail="Active module instances observed by BackOffice."
+              label="Active module instances"
+              loading={systemDashboard.isPending}
+              tone="success"
+              value={systemDashboard.data?.activeRuntimeInstances ?? '—'}
+            />
+            <MetricCard
+              detail="Functional modules registered for this project."
+              label="Registered modules"
+              loading={systemDashboard.isPending}
+              value={systemDashboard.data?.registeredModules ?? '—'}
+            />
+            <MetricCard
+              detail="Eligible modules not yet registered for this project."
+              label="Pending registration"
+              loading={systemDashboard.isPending}
+              tone={
+                (systemDashboard.data?.pendingRegistrationModules ?? 0) > 0
+                  ? 'warning'
+                  : 'success'
+              }
+              value={systemDashboard.data?.pendingRegistrationModules ?? '—'}
+            />
+            <MetricCard
+              detail="Degraded modules and unhealthy runtime instances."
+              label="Health alerts"
+              loading={systemDashboard.isPending}
+              tone={healthAlerts > 0 ? 'warning' : 'success'}
+              value={systemDashboard.isPending ? '—' : healthAlerts}
+            />
+            <MetricCard
+              detail="Module owners reporting degraded availability."
+              label="Degraded modules"
+              loading={systemDashboard.isPending}
+              tone={
+                (systemDashboard.data?.degradedModules ?? 0) > 0 ? 'warning' : 'success'
+              }
+              value={systemDashboard.data?.degradedModules ?? '—'}
+            />
+          </Box>
+        </WorkspaceSection>
 
-        <Box
-          sx={{
-            display: 'grid',
-            gap: dashboardComponentGap,
-            gridTemplateColumns: {
-              xs: '1fr',
-              lg: 'repeat(3, minmax(0, 1fr))',
-            },
-          }}
+        <WorkspaceSection
+          actions={integrationActions}
+          description="Governed data movement, events, integration evidence, and failure triage."
+          icon="module"
+          title="Integration Workspace"
         >
-          {items.map((item) => (
-            <SystemCapabilityCard item={item} key={`${item.moduleName}:${item.id}`} />
-          ))}
-        </Box>
+          <Box sx={metricsGrid(210)}>
+            <MetricCard
+              detail="Authorized integration capabilities ready to open."
+              label="Active capabilities"
+              loading={false}
+              tone="success"
+              value={integrationActive}
+            />
+            <MetricCard
+              detail="Capabilities advertised for a later implementation phase."
+              label="Planned capabilities"
+              loading={false}
+              value={integrationPlanned}
+            />
+            <MetricCard
+              detail="Integration owners reporting degraded or unavailable state."
+              label="Needs attention"
+              loading={false}
+              tone={integrationAttention > 0 ? 'warning' : 'success'}
+              value={integrationAttention}
+            />
+            <MetricCard
+              detail="Imports, exports, events, audit, and failure operations in scope."
+              label="Governed areas"
+              loading={false}
+              value={integrationActions.length}
+            />
+          </Box>
+          {integrationPlanned > 0 ? (
+            <Alert severity="info" sx={{ py: 0 }}>
+              Planned capabilities remain visible as status only and cannot be opened
+              until their owning modules advertise an active contract.
+            </Alert>
+          ) : null}
+        </WorkspaceSection>
+
+        <WorkspaceSection
+          actions={schemaActions}
+          description="A read-only snapshot of schemas discovered from authorized module owners."
+          icon="schema"
+          title="Schema Workspace"
+        >
+          {schemaDashboard.isError ? (
+            <Alert severity="warning">
+              {schemaDashboard.error instanceof Error
+                ? schemaDashboard.error.message
+                : 'Schema metrics are currently unavailable.'}
+            </Alert>
+          ) : null}
+          <Box sx={metricsGrid(180)}>
+            <MetricCard
+              detail="Unique authorized module and schema identities."
+              label="Available schemas"
+              loading={schemaDashboard.isPending}
+              value={schemaDashboard.data?.schemas.length ?? '—'}
+            />
+            <MetricCard
+              detail="Modules contributing at least one discoverable schema."
+              label="Owner modules"
+              loading={schemaDashboard.isPending}
+              value={schemaDashboard.data?.ownerModules ?? '—'}
+            />
+            <MetricCard
+              detail="Generated CRUD schemas allowing an authorized mutation."
+              label="Writable schemas"
+              loading={schemaDashboard.isPending}
+              tone="success"
+              value={schemaDashboard.data?.writableSchemas ?? '—'}
+            />
+            <MetricCard
+              detail="Schemas exposed for governed query and reference use."
+              label="Read-only schemas"
+              loading={schemaDashboard.isPending}
+              value={schemaDashboard.data?.readOnlySchemas ?? '—'}
+            />
+            <MetricCard
+              detail="Connected module owners currently unavailable or unknown."
+              label="Unavailable owners"
+              loading={schemaDashboard.isPending}
+              tone={
+                (schemaDashboard.data?.unavailableOwners ?? 0) > 0
+                  ? 'warning'
+                  : 'success'
+              }
+              value={schemaDashboard.data?.unavailableOwners ?? '—'}
+            />
+          </Box>
+          {schemaDashboard.data?.schemasByModule.length ? (
+            <Box
+              sx={{
+                bgcolor: (theme) => alpha(theme.palette.background.default, 0.7),
+                borderRadius: `${String(axisTokens.radius.medium)}px`,
+                p: 1.5,
+              }}
+            >
+              <Typography sx={{ mb: 1 }} variant="subtitle1">
+                Schemas by module
+              </Typography>
+              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+                {schemaDashboard.data.schemasByModule.slice(0, 12).map((module) => (
+                  <Chip
+                    key={module.moduleName}
+                    label={`${module.moduleName} · ${String(module.total)}`}
+                    size="small"
+                    variant="outlined"
+                  />
+                ))}
+                {schemaDashboard.data.schemasByModule.length > 12 ? (
+                  <Chip
+                    label={`+${String(schemaDashboard.data.schemasByModule.length - 12)} more`}
+                    size="small"
+                  />
+                ) : null}
+              </Stack>
+            </Box>
+          ) : null}
+        </WorkspaceSection>
       </Stack>
     </WorkspaceContainer>
   );

@@ -35,6 +35,7 @@
     "@emotion/styled": "11.14.1",
     "@mui/material": "9.2.0",
     "@tanstack/react-query": "5.101.4",
+    "intl-messageformat": "^11.2.13",
     "mermaid": "^11.12.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",

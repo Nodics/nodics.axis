@@ -202,7 +202,7 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
   };
 
   return (
-    <WorkspaceContainer horizontalPadding="3px" verticalPadding="3px">
+    <WorkspaceContainer>
       <Paper
         component="section"
         aria-labelledby="imports-exports-title"

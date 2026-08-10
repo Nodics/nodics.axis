@@ -15,7 +15,8 @@ import {
   saveNavigationPreferences,
   toggleNavigationFavourite,
 } from './navigationPreferences';
-import { NotificationRegion } from './ShellPrimitives';
+import { axisPresentationFeatures } from '../axisPresentationFeatures';
+import { NotificationRegion, WorkspaceViewport } from './ShellPrimitives';
 import {
   composeShellNavigation,
   type ShellNavigationGroup,
@@ -125,12 +126,9 @@ export function AppShell({
         ? undefined
         : Object.freeze({ id, label, order, items: Object.freeze(items) });
     };
-    const favourites = quickGroup(
-      'favourites',
-      'Favourites',
-      50,
-      navigationPreferences.favourites,
-    );
+    const favourites = axisPresentationFeatures.favourites
+      ? quickGroup('favourites', 'Favourites', 50, navigationPreferences.favourites)
+      : undefined;
     const workspaceItems = [
       ...(baseGroups.find((group) => group.id === 'workspace')?.items ?? []),
       ...(favourites?.items.map((item) => ({
@@ -443,7 +441,7 @@ export function AppShell({
             scrollBehavior: 'auto',
           }}
         >
-          {children}
+          <WorkspaceViewport>{children}</WorkspaceViewport>
         </Box>
       </Box>
       <NotificationRegion

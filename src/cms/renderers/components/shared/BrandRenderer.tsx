@@ -46,7 +46,7 @@ export function BrandRenderer({ component }: CmsComponentRendererProps) {
   );
   if (displayMode === 'workspace') {
     return (
-      <Stack spacing={0.25} sx={{ alignItems: { md: 'flex-end' } }}>
+      <Stack spacing={0.25} sx={{ alignItems: 'flex-start' }}>
         <Typography color="text.secondary" variant="overline">
           {productName}
         </Typography>

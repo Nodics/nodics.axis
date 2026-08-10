@@ -18,6 +18,7 @@ import {
 import { alpha } from '@mui/material/styles';
 
 import { axisTokens } from '../axisTheme';
+import { axisPresentationFeatures } from '../axisPresentationFeatures';
 import { AxisMark } from './AxisMark';
 import { navigationItemKey } from './navigationPreferences';
 import { navigationParentKey } from './shellNavigation';
@@ -50,12 +51,13 @@ export function NavigationRail({
   query,
 }: NavigationRailProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(
-    () => new Set(),
+    () => new Set(groups.map((group) => group.id)),
   );
   const [collapsedItems, setCollapsedItems] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
   const itemElements = useRef(new Map<string, HTMLElement>());
+  const knownGroupIds = useRef(new Set(groups.map((group) => group.id)));
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const allItems = useMemo(() => groups.flatMap((group) => group.items), [groups]);
   const activeItemKey = useMemo(
@@ -78,6 +80,15 @@ export function NavigationRail({
       ),
     }))
     .filter((group) => group.items.length > 0);
+
+  useEffect(() => {
+    const addedGroupIds = groups
+      .map((group) => group.id)
+      .filter((groupId) => !knownGroupIds.current.has(groupId));
+    if (addedGroupIds.length === 0) return;
+    addedGroupIds.forEach((groupId) => knownGroupIds.current.add(groupId));
+    setCollapsedGroups((current) => new Set([...current, ...addedGroupIds]));
+  }, [groups]);
 
   useEffect(() => {
     if (!activeItemKey) return;
@@ -194,8 +205,10 @@ export function NavigationRail({
                     color: alpha('#ffffff', 0.58),
                     justifyContent: 'space-between',
                     mx: 1,
-                    px: 1.5,
+                    pl: 1.5,
+                    pr: 5.25,
                     py: 0.5,
+                    position: 'relative',
                     '&:hover': {
                       bgcolor: alpha('#ffffff', 0.07),
                       color: 'common.white',
@@ -213,16 +226,24 @@ export function NavigationRail({
                   <Typography variant="overline">{group.label}</Typography>
                   <Box
                     aria-hidden
-                    component="span"
+                    data-navigation-expander="group"
                     sx={{
-                      borderBottom: '1.5px solid currentColor',
-                      borderRight: '1.5px solid currentColor',
-                      height: 7,
-                      transform: expanded ? 'rotate(45deg)' : 'rotate(-45deg)',
-                      transition: 'transform 150ms ease',
-                      width: 7,
+                      alignItems: 'center',
+                      display: 'flex',
+                      height: 40,
+                      justifyContent: 'center',
+                      position: 'absolute',
+                      right: 0,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      width: 40,
                     }}
-                  />
+                  >
+                    <ShellIcon
+                      fontSize="small"
+                      name={expanded ? 'chevron-up' : 'chevron-down'}
+                    />
+                  </Box>
                 </ListItemButton>
               ) : null}
               <Collapse
@@ -264,7 +285,7 @@ export function NavigationRail({
                           minHeight: 42,
                           justifyContent: compact ? 'center' : 'flex-start',
                           pl: compact ? 1 : 1.5 + item.depth * 2,
-                          pr: compact ? 1 : 1.5,
+                          pr: compact ? 1 : item.hasChildren ? 5.25 : 1.5,
                           position: 'relative',
                           '&:hover': {
                             bgcolor: alpha('#ffffff', 0.07),
@@ -364,21 +385,45 @@ export function NavigationRail({
                     ) : (
                       <Box
                         key={`${item.moduleName}:${item.id}`}
-                        sx={{ alignItems: 'center', display: 'flex' }}
+                        sx={{
+                          alignItems: 'center',
+                          display: 'flex',
+                          position: 'relative',
+                        }}
                       >
                         <Box sx={{ flex: 1, minWidth: 0 }}>{navigationItem}</Box>
                         {item.hasChildren ? (
                           <Tooltip
+                            placement="right"
                             title={`${itemExpanded ? 'Collapse' : 'Expand'} ${item.label}`}
                           >
-                            <Box component="span" sx={{ display: 'inline-flex' }}>
+                            <Box
+                              component="span"
+                              sx={{
+                                display: 'inline-flex',
+                                height: 40,
+                                position: 'absolute',
+                                right: 0,
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                width: 40,
+                                zIndex: 1,
+                              }}
+                            >
                               <IconButton
                                 aria-label={`${itemExpanded ? 'Collapse' : 'Expand'} ${item.label}`}
                                 aria-expanded={itemExpanded}
+                                data-navigation-expander="item"
                                 disabled={unavailable || featureDisabled}
                                 size="small"
-                                sx={{ color: alpha('#ffffff', 0.56), mr: 0.25 }}
-                                onClick={() => {
+                                sx={{
+                                  color: alpha('#ffffff', 0.56),
+                                  height: 40,
+                                  width: 40,
+                                }}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
                                   setCollapsedItems((current) => {
                                     const next = new Set(current);
                                     if (next.has(itemKey)) next.delete(itemKey);
@@ -395,7 +440,7 @@ export function NavigationRail({
                             </Box>
                           </Tooltip>
                         ) : null}
-                        {!item.local ? (
+                        {axisPresentationFeatures.favourites && !item.local ? (
                           <Tooltip
                             title={
                               favourites.has(itemKey)

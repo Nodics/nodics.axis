@@ -164,13 +164,15 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
     }),
     [props.accessToken, props.runtime.enterpriseCode, props.runtime.requestTimeoutMs],
   );
-  const connections = useMemo(
-    () =>
-      Object.values(props.bootstrap.moduleConnections).flatMap((moduleConnections) => [
-        ...moduleConnections,
-      ]),
-    [props.bootstrap],
-  );
+  const connections = useMemo(() => {
+    const allConnections = Object.values(props.bootstrap.moduleConnections).flatMap(
+      (moduleConnections) => [...moduleConnections],
+    );
+    if (!props.routeSchema) return allConnections;
+    const ownerConnections =
+      props.bootstrap.moduleConnections[props.routeSchema.moduleName] ?? [];
+    return ownerConnections.length > 0 ? [...ownerConnections] : allConnections;
+  }, [props.bootstrap, props.routeSchema]);
   const connectionKey = useMemo(
     () =>
       connections
@@ -194,11 +196,24 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
   const normalizedSelectedSchema = selectedSchema
     ? schemaWithValidQueryCapabilities(selectedSchema)
     : undefined;
+  const fixedRecordFilters = normalizedSelectedSchema
+    ? workbenchFixedFilterGroup(
+        normalizedSelectedSchema,
+        workbenchPresentationForSchema(props.routeNavigation, normalizedSelectedSchema),
+      )
+    : undefined;
+  const effectiveRecordFilters = combineWorkbenchFilterGroups(
+    fixedRecordFilters,
+    recordFilters,
+  );
   const recordConnection = normalizedSelectedSchema
     ? selectWorkbenchSchemaConnection(props.bootstrap, normalizedSelectedSchema)
     : undefined;
   const routeOwnerConnection = props.routeNavigation
-    ? selectModuleConnection(props.bootstrap, props.routeNavigation.moduleName)
+    ? selectModuleConnection(
+        props.bootstrap,
+        props.routeSchema?.moduleName ?? props.routeNavigation.moduleName,
+      )
     : undefined;
   const routeParentLabel =
     props.routeNavigation?.parentId !== undefined
@@ -234,7 +249,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
       normalizedSelectedSchema?.moduleName,
       normalizedSelectedSchema?.schemaName,
       recordSearch,
-      JSON.stringify(recordFilters ?? null),
+      JSON.stringify(effectiveRecordFilters ?? null),
       recordPageNumber,
       recordPageSize,
       effectiveRecordSort.field,
@@ -250,7 +265,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
         configuration,
         {
           search: recordSearch,
-          ...(recordFilters ? { filters: recordFilters } : {}),
+          ...(effectiveRecordFilters ? { filters: effectiveRecordFilters } : {}),
           pageNumber: recordPageNumber,
           pageSize: recordPageSize,
           sort: effectiveRecordSort,
@@ -538,12 +553,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
       setDeleteOpen(false);
       setRecordSearchInput('');
       setRecordSearch('');
-      setRecordFilters(
-        workbenchFixedFilterGroup(
-          normalizedSchema,
-          workbenchPresentationForSchema(props.routeNavigation, normalizedSchema),
-        ),
-      );
+      setRecordFilters(undefined);
       setRecordPageNumber(1);
       setRecordPageSize(normalizedSchema.queryCapabilities.defaultPageSize);
       setRecordSortOverride(undefined);
@@ -816,20 +826,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
           setRecordSearch: setRecordSearchInput,
           setRecordFilters: (filters) => {
             setRecordPageNumber(1);
-            setRecordFilters(
-              combineWorkbenchFilterGroups(
-                normalizedSelectedSchema
-                  ? workbenchFixedFilterGroup(
-                      normalizedSelectedSchema,
-                      workbenchPresentationForSchema(
-                        props.routeNavigation,
-                        normalizedSelectedSchema,
-                      ),
-                    )
-                  : undefined,
-                filters,
-              ),
-            );
+            setRecordFilters(filters);
           },
           setRecordPageNumber,
           setRecordPageSize: (pageSize) => {
@@ -927,20 +924,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
           applyView: (view: WorkbenchSavedView) => {
             setRecordSearchInput(view.search);
             setRecordSearch(view.search);
-            setRecordFilters(
-              combineWorkbenchFilterGroups(
-                normalizedSelectedSchema
-                  ? workbenchFixedFilterGroup(
-                      normalizedSelectedSchema,
-                      workbenchPresentationForSchema(
-                        props.routeNavigation,
-                        normalizedSelectedSchema,
-                      ),
-                    )
-                  : undefined,
-                view.filters,
-              ),
-            );
+            setRecordFilters(view.filters);
             setRecordPageNumber(1);
             setRecordPageSize(view.pageSize);
             setRecordSortOverride(view.sort);

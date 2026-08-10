@@ -103,7 +103,7 @@ export function OpenApiDocumentationRenderer({
   const swaggerUrl = new URL(source.swaggerPath, connection.endpoint).toString();
 
   return (
-    <WorkspaceContainer horizontalPadding="3px" verticalPadding="3px">
+    <WorkspaceContainer>
       <Stack spacing="3px">
         <Paper
           component="section"

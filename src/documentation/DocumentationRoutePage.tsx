@@ -12,7 +12,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
 import { CmsRoutePage } from '../app/CmsRoutePage';
-import { axisTokens } from '../app/axisTheme';
 import { WorkspaceHeading } from '../app/help/WorkspaceHelp';
 import { WorkspaceContainer } from '../app/shell/ShellPrimitives';
 import {
@@ -149,7 +148,7 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
         : undefined;
 
   return (
-    <WorkspaceContainer horizontalPadding="3px" verticalPadding="3px">
+    <WorkspaceContainer>
       <Stack>
         <Paper
           component="section"
@@ -239,7 +238,7 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
 export function DocumentationRoutePage(props: DocumentationRoutePageProps) {
   if (props.path === '/docs') {
     return (
-      <WorkspaceContainer horizontalPadding="3px" verticalPadding="3px">
+      <WorkspaceContainer>
         <DocumentationDashboard bootstrap={props.bootstrap} />
       </WorkspaceContainer>
     );
@@ -262,7 +261,7 @@ export function DocumentationRoutePage(props: DocumentationRoutePageProps) {
   let content;
   if (!connection) {
     content = (
-      <WorkspaceContainer horizontalPadding="3px" verticalPadding="3px">
+      <WorkspaceContainer>
         <Alert severity="warning">
           {source.label} is unavailable because its owning runtime connection is not
           active.
@@ -286,18 +285,8 @@ export function DocumentationRoutePage(props: DocumentationRoutePageProps) {
     );
   }
   return (
-    <Stack spacing="3px">
-      <Box
-        sx={{
-          mx: 'auto',
-          maxWidth: axisTokens.spacing.contentMaxWidth,
-          px: '3px',
-          pt: '3px',
-          width: '100%',
-        }}
-      >
-        {navigation}
-      </Box>
+    <Stack spacing={1}>
+      <Box sx={{ minWidth: 0, width: '100%' }}>{navigation}</Box>
       {content}
     </Stack>
   );

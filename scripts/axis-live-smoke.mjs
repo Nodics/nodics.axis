@@ -40,11 +40,17 @@ const axisRoutes = [
   '/system-integrations',
   '/registry',
   '/operations/imports-exports',
+  '/localization',
   '/docs/framework/process',
   '/docs/framework/process/visual-designer',
   '/docs/swaggers',
 ];
-const requiredModules = ['nodics.core', 'nodics.platform', 'nodics.wcms'];
+const requiredModules = [
+  'nodics.core',
+  'nodics.localization',
+  'nodics.platform',
+  'nodics.wcms',
+];
 const optionalObservedModules = ['nodics.cron'];
 const documentationPacks = [
   'nodicsDocumentation',
@@ -196,6 +202,17 @@ async function loadModuleRegistry(authorizedHeaders) {
     registeredModules: listModules(registeredBody),
     availableModules: listModules(availableBody),
   };
+}
+
+function assertFunctionalModuleRuntimeStates(modules) {
+  const supportedStates = new Set(['ACTIVE', 'OFFLINE', 'DEGRADED', 'INCOMPATIBLE']);
+  for (const module of modules) {
+    if (!supportedStates.has(module.runtimeState)) {
+      throw new Error(
+        `${module.functionalModule} returned unsupported runtime state ${String(module.runtimeState)}`,
+      );
+    }
+  }
 }
 
 async function applyLifecycleAction(module, action, authorizedHeaders) {
@@ -776,9 +793,11 @@ async function main() {
   };
   const { registeredModules, availableModules } =
     await loadModuleRegistry(authorizedHeaders);
+  assertFunctionalModuleRuntimeStates([...registeredModules, ...availableModules]);
   console.log(
     `PASS module registry reachable (${registeredModules.length} registered, ${availableModules.length} available)`,
   );
+  console.log('PASS module registry runtime states satisfy the Axis contract');
 
   if (strictModules) {
     for (const functionalModule of requiredModules) {

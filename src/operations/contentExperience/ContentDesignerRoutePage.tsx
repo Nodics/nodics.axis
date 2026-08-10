@@ -374,9 +374,11 @@ function buildDraft({
   draftDefaults,
   pageIntent,
   routeIntent,
+  selectedLocale,
   siteIntent,
   slotIntent,
   templateIntent,
+  supportedLocales,
 }: {
   readonly catalogIntent: string;
   readonly componentIntent: string;
@@ -384,9 +386,11 @@ function buildDraft({
   readonly draftDefaults: ContentDesignerDraftDefaults;
   readonly pageIntent: string;
   readonly routeIntent: string;
+  readonly selectedLocale: string;
   readonly siteIntent: string;
   readonly slotIntent: string;
   readonly templateIntent: string;
+  readonly supportedLocales: readonly string[];
 }): ContentDesignerDraft {
   const pageCode = safeCode(pageIntent, 'newPage');
   const kind = selectedComponentKind(componentIntent, componentKinds);
@@ -425,9 +429,20 @@ function buildDraft({
               typeCode: kind.typeCode,
               accessMode: 'AUTHENTICATED',
               properties: Object.freeze({
-                title: `${pageCode} ${slot}`,
-                body: `Draft ${kind.label.toLowerCase()} content for ${slot}.`,
+                trackingId: `${pageCode}-${slot}`,
               }),
+              localizations: Object.freeze(
+                supportedLocales.map((locale) =>
+                  Object.freeze({
+                    locale,
+                    status: 'DRAFT',
+                    properties: Object.freeze({
+                      title: `${pageCode} ${slot} (${locale})`,
+                      body: `Draft ${kind.label.toLowerCase()} content for ${slot} in ${locale}.`,
+                    }),
+                  }),
+                ),
+              ),
             }),
           ]),
         }),
@@ -435,7 +450,7 @@ function buildDraft({
     ),
     route: Object.freeze({
       channel: 'web',
-      locale: 'en',
+      locale: selectedLocale,
       path: safeRoute(routeIntent, `/docs/${pageCode}`),
     }),
     navigation: Object.freeze({
@@ -480,6 +495,18 @@ function validationEvidenceText(
       ? String(evidence)
       : 'Validation evidence could not be rendered as text.';
   }
+}
+
+function localizedPreviewTitle(
+  component: ContentDesignerDraft['sections'][number]['components'][number] | undefined,
+  locale: string,
+): string {
+  const value = component?.localizations?.find(
+    (localization) => localization.locale === locale,
+  )?.properties.title;
+  return typeof value === 'string' || typeof value === 'number'
+    ? String(value)
+    : 'missing translation';
 }
 
 function AuthoringContractPanel({
@@ -546,9 +573,15 @@ function AuthoringContractPanel({
   );
 }
 
-function DraftPreview({ draft }: { readonly draft: ContentDesignerDraft }) {
+function DraftPreview({
+  draft,
+  locale,
+}: {
+  readonly draft: ContentDesignerDraft;
+  readonly locale: string;
+}) {
   return (
-    <Stack spacing={1.5}>
+    <Stack dir={locale.toLowerCase().startsWith('ar') ? 'rtl' : 'ltr'} spacing={1.5}>
       <Typography variant="h6">Generated catalog-first preview</Typography>
       <Stack spacing={0.75}>
         <Typography>Catalog: {draft.catalogCode}</Typography>
@@ -577,6 +610,9 @@ function DraftPreview({ draft }: { readonly draft: ContentDesignerDraft }) {
               {section.components
                 .map((component) => `${component.code} (${component.typeCode})`)
                 .join(', ')}
+            </Typography>
+            <Typography color="text.secondary" variant="body2">
+              Locale {locale}: {localizedPreviewTitle(section.components[0], locale)}
             </Typography>
           </Box>
         ))}
@@ -695,6 +731,7 @@ export function ContentDesignerRoutePage({
   const [componentIntent, setComponentIntent] = useState(
     selectedComponentKind('Hero banner', fallbackComponentKinds).label,
   );
+  const [selectedLocale, setSelectedLocale] = useState('en');
   const [validatedDraftSignature, setValidatedDraftSignature] = useState('');
   const connections = useMemo(() => activeConnections(bootstrap), [bootstrap]);
   const designerConnection = useMemo(
@@ -736,6 +773,9 @@ export function ContentDesignerRoutePage({
   const effectiveTemplateIntent =
     templateIntent || draftDefaults.templateCode || 'pageTemplate';
   const metadata = authoringModel.data?.metadata;
+  const supportedLocales = metadata?.localization.supportedLocales.length
+    ? metadata.localization.supportedLocales
+    : Object.freeze(['en', 'ar']);
   const catalogOptions = metadata?.contentCatalogs ?? [];
   const siteOptions = useMemo(
     () =>
@@ -783,9 +823,11 @@ export function ContentDesignerRoutePage({
         draftDefaults,
         pageIntent,
         routeIntent: effectiveRouteIntent,
+        selectedLocale,
         siteIntent: effectiveSiteIntent,
         slotIntent: effectiveSlotIntent,
         templateIntent: effectiveTemplateIntent,
+        supportedLocales,
       }),
     [
       componentIntent,
@@ -797,6 +839,8 @@ export function ContentDesignerRoutePage({
       effectiveSlotIntent,
       effectiveTemplateIntent,
       pageIntent,
+      selectedLocale,
+      supportedLocales,
     ],
   );
   const draftSignature = useMemo(() => JSON.stringify(draft), [draft]);
@@ -1039,8 +1083,28 @@ export function ContentDesignerRoutePage({
                   </MenuItem>
                 ))}
               </TextField>
+              <Stack spacing={1}>
+                <Typography sx={{ fontWeight: 700 }}>Authoring language</Typography>
+                <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                  {supportedLocales.map((locale) => (
+                    <Button
+                      aria-pressed={selectedLocale === locale}
+                      key={locale}
+                      onClick={() => setSelectedLocale(locale)}
+                      size="small"
+                      variant={selectedLocale === locale ? 'contained' : 'outlined'}
+                    >
+                      {locale}
+                    </Button>
+                  ))}
+                </Stack>
+                <Typography color="text.secondary" variant="body2">
+                  One component identity; locale variants are saved separately. Preview
+                  direction follows the selected language.
+                </Typography>
+              </Stack>
               <Divider />
-              <DraftPreview draft={draft} />
+              <DraftPreview draft={draft} locale={selectedLocale} />
               <ValidationEvidencePanel
                 draftIsValidated={draftIsValidated}
                 result={validateMutation.data}

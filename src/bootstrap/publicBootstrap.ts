@@ -4,6 +4,7 @@ export interface AxisPublicBootstrap {
   readonly endpoints: {
     readonly profile: string;
     readonly cms: string;
+    readonly localization?: string | undefined;
   };
   readonly uiComposition: {
     readonly site: string;
@@ -11,6 +12,8 @@ export interface AxisPublicBootstrap {
     readonly defaultPublicPage: string;
     readonly defaultAuthenticatedPage: string;
     readonly locale: string;
+    readonly supportedLocales: readonly string[];
+    readonly fallbackLocales: readonly string[];
     readonly channel: string;
     readonly fallbackMode: 'STATIC_RECOVERY_SHELL';
   };
@@ -1195,6 +1198,9 @@ export function parsePublicBootstrap(
     endpoints: Object.freeze({
       profile: baseUrl(endpoints.profile, 'profile endpoint'),
       cms: baseUrl(endpoints.cms, 'cms endpoint'),
+      ...(endpoints.localization !== undefined
+        ? { localization: baseUrl(endpoints.localization, 'localization endpoint') }
+        : {}),
     }),
     uiComposition: Object.freeze({
       site: text(composition.site, 'composition site'),
@@ -1205,6 +1211,14 @@ export function parsePublicBootstrap(
         'default authenticated page',
       ),
       locale: text(composition.locale, 'composition locale'),
+      supportedLocales:
+        composition.supportedLocales === undefined
+          ? Object.freeze([text(composition.locale, 'composition locale')])
+          : stringList(composition.supportedLocales, 'composition supported locales'),
+      fallbackLocales:
+        composition.fallbackLocales === undefined
+          ? Object.freeze([])
+          : stringList(composition.fallbackLocales, 'composition fallback locales'),
       channel: text(composition.channel, 'composition channel'),
       fallbackMode: 'STATIC_RECOVERY_SHELL',
     }),

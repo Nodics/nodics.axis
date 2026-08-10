@@ -16,6 +16,7 @@ import type { PaletteMode } from '@mui/material/styles';
 import { useState, type MouseEvent } from 'react';
 
 import type { AxisNavigationItem } from '../../bootstrap/publicBootstrap';
+import { useAxisLocalization } from '../../localization/AxisLocalizationContext';
 import { AxisMark } from './AxisMark';
 import { RecentPagesMenu } from './RecentPagesMenu';
 import { ShellIcon } from './ShellIcon';
@@ -75,6 +76,7 @@ export function TopNavigation({
   query,
   recentItems,
 }: TopNavigationProps) {
+  const localization = useAxisLocalization();
   const [profileAnchor, setProfileAnchor] = useState<HTMLElement | null>(null);
   const initials = employeeId?.slice(0, 2).toLocaleUpperCase() ?? 'AX';
   const assistantActive =
@@ -191,6 +193,27 @@ export function TopNavigation({
             </Badge>
           </IconButton>
         </Tooltip>
+        {localization.supportedLocales.length > 1 ? (
+          <Tooltip title="Change language">
+            <Button
+              aria-label="Change language"
+              onClick={() => {
+                const index = localization.supportedLocales.indexOf(
+                  localization.locale,
+                );
+                localization.setLocale(
+                  localization.supportedLocales[
+                    (index + 1) % localization.supportedLocales.length
+                  ] ?? localization.locale,
+                );
+              }}
+              size="small"
+              sx={{ minWidth: 44 }}
+            >
+              {localization.locale.toLocaleUpperCase()}
+            </Button>
+          </Tooltip>
+        ) : null}
         <RecentPagesMenu items={recentItems} onNavigate={onNavigate} />
         <Tooltip
           arrow
