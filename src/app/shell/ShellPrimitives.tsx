@@ -14,9 +14,11 @@ export function WorkspaceViewport({ children }: PropsWithChildren) {
     <Box
       data-testid="axis-workspace-viewport"
       sx={{
+        boxSizing: 'border-box',
         ml: 0,
         mr: 0,
         maxWidth: axisTokens.spacing.contentMaxWidth,
+        minWidth: 0,
         px: {
           xs: `${String(axisTokens.spacing.pageGutter.mobile)}px`,
           sm: `${String(axisTokens.spacing.pageGutter.tablet)}px`,

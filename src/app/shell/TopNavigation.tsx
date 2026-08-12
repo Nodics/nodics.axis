@@ -45,6 +45,11 @@ const utilityActionSx = {
   p: 0,
 } as const;
 
+const responsiveUtilityActionSx = {
+  ...utilityActionSx,
+  display: { xs: 'none', sm: 'inline-flex' },
+} as const;
+
 const utilityIconSx = {
   fontSize: 26,
 } as const;
@@ -90,7 +95,7 @@ export function TopNavigation({
   return (
     <Stack
       direction="row"
-      spacing={1}
+      spacing={{ xs: 0.5, sm: 1 }}
       sx={{ alignItems: 'center', minWidth: 0, width: '100%' }}
     >
       <Tooltip title={navigationToggleLabel}>
@@ -130,8 +135,8 @@ export function TopNavigation({
       />
       <Stack
         direction="row"
-        spacing={0.5}
-        sx={{ alignItems: 'center', ml: 'auto !important' }}
+        spacing={{ xs: 0.25, sm: 0.5 }}
+        sx={{ alignItems: 'center', flexShrink: 0, ml: 'auto !important' }}
       >
         {assistant ? (
           <Tooltip title={assistant.label}>
@@ -142,7 +147,7 @@ export function TopNavigation({
                 onClick={() => {
                   onNavigate(assistant.route);
                 }}
-                sx={utilityActionSx}
+                sx={responsiveUtilityActionSx}
               >
                 <ShellIcon
                   color={assistantActive ? 'primary' : 'disabled'}
@@ -208,13 +213,15 @@ export function TopNavigation({
                 );
               }}
               size="small"
-              sx={{ minWidth: 44 }}
+              sx={{ display: { xs: 'none', sm: 'inline-flex' }, minWidth: 44 }}
             >
               {localization.locale.toLocaleUpperCase()}
             </Button>
           </Tooltip>
         ) : null}
-        <RecentPagesMenu items={recentItems} onNavigate={onNavigate} />
+        <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
+          <RecentPagesMenu items={recentItems} onNavigate={onNavigate} />
+        </Box>
         <Tooltip
           arrow
           enterDelay={200}
@@ -309,7 +316,7 @@ export function TopNavigation({
             </Box>
           }
         >
-          <IconButton aria-label={contextSummary} sx={utilityActionSx}>
+          <IconButton aria-label={contextSummary} sx={responsiveUtilityActionSx}>
             <ShellIcon color="action" name="info" sx={utilityIconSx} />
           </IconButton>
         </Tooltip>
@@ -321,7 +328,7 @@ export function TopNavigation({
               colorMode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'
             }
             onClick={onToggleColorMode}
-            sx={utilityActionSx}
+            sx={responsiveUtilityActionSx}
           >
             <ShellIcon
               color="action"
@@ -333,12 +340,19 @@ export function TopNavigation({
         <Button
           aria-label="Open employee menu"
           color="inherit"
-          sx={{ gap: 1, height: 44, minWidth: 0, px: 1 }}
+          sx={{
+            gap: 1,
+            height: 44,
+            minWidth: 0,
+            px: { xs: 0.25, sm: 1 },
+          }}
           onClick={(event: MouseEvent<HTMLElement>) => {
             setProfileAnchor(event.currentTarget);
           }}
         >
-          <Avatar sx={{ height: 40, width: 40 }}>{initials}</Avatar>
+          <Avatar sx={{ height: { xs: 36, sm: 40 }, width: { xs: 36, sm: 40 } }}>
+            {initials}
+          </Avatar>
           <Typography
             noWrap
             sx={{ display: { xs: 'none', md: 'block' }, maxWidth: 140 }}

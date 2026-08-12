@@ -36,6 +36,7 @@ import type {
 interface FunctionalModuleRegistryRoutePageProps {
   readonly accessToken: string;
   readonly bootstrap: AxisAuthenticatedBootstrap;
+  readonly onBootstrapRefresh?: (() => Promise<void>) | undefined;
   readonly routeNavigation?: AxisNavigationItem | undefined;
   readonly runtime: AxisRuntimeConfig;
 }
@@ -354,7 +355,7 @@ export function FunctionalModuleRegistryRoutePage(
           queryKey: availableQueryKey,
           type: 'active',
         }),
-      ]);
+      ]).then(() => props.onBootstrapRefresh?.());
     },
   });
   const registered = useMemo(

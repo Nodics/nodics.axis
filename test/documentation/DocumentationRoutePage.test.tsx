@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
@@ -147,6 +147,12 @@ function renderPage(path = '/docs') {
   );
 }
 
+function requestPathname(request: URL | RequestInfo): string {
+  if (request instanceof URL) return request.pathname;
+  if (request instanceof Request) return new URL(request.url).pathname;
+  return new URL(request).pathname;
+}
+
 describe('DocumentationRoutePage', () => {
   it('renders the documentation dashboard from registered documentation sources', () => {
     renderPage('/docs');
@@ -190,6 +196,80 @@ describe('DocumentationRoutePage', () => {
       }),
       expect.objectContaining({ method: 'POST' }),
     );
+    fetchMock.mockRestore();
+  });
+
+  it('renders current CMS documentation through public delivery after source authorization', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((request) => {
+      const url = new URL(requestPathname(request), 'http://localhost:3000');
+      if (url.pathname.includes('/content-packs/nodicsDocumentation')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              code: 'SUC_IMP_00000',
+              data: {
+                ...response.data,
+                state: 'CURRENT',
+                installedVersion: '1.0.0',
+                allowedOperations: [],
+              },
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+        );
+      }
+      if (url.pathname.includes('/delivery/pages/resolve')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              result: {
+                contractVersion: 1,
+                site: 'axisCmsSite',
+                path: '/docs',
+                locale: 'en',
+                channel: 'web',
+                page: {
+                  code: 'docsPage',
+                  name: 'Framework documentation',
+                  typeCode: 'documentationArticlePageType',
+                  template: 'documentationArticleTemplate',
+                  renderer: 'documentation.page.article',
+                  templateContract: {
+                    code: 'documentationArticleTemplate',
+                    renderer: 'documentation.template.article',
+                    contractVersion: 1,
+                  },
+                  components: [],
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+        );
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }));
+    });
+
+    renderPage('/docs/framework');
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([request]) =>
+          requestPathname(request).includes('/delivery/pages/resolve'),
+        ),
+      ).toBe(true),
+    );
+    const cmsRequest = fetchMock.mock.calls
+      .map(([request]) => requestPathname(request))
+      .find((pathname) => pathname.includes('/delivery/pages/resolve'));
+    expect(cmsRequest).toBe('/nodics/cms/v0/delivery/pages/resolve');
+    expect(cmsRequest).not.toContain('/authenticated');
     fetchMock.mockRestore();
   });
 

@@ -614,9 +614,10 @@ describe('employee login journey', () => {
           ),
         );
       }
-      if (url.includes('/delivery/pages/resolve/authenticated')) {
+      if (url.includes('/delivery/pages/resolve')) {
+        expect(url).not.toContain('/authenticated');
         const authenticated = new Headers(options?.headers).get('Authorization');
-        expect(authenticated).toBe('Bearer restored-docs-access');
+        expect(authenticated).toBeNull();
         expect(new URL(url).searchParams.get('path')).toBe(
           '/docs/capabilities/content-publishing/wcms-authoring-model',
         );

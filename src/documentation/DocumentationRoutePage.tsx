@@ -123,7 +123,6 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
           </Alert>
         ) : null}
         <CmsRoutePage
-          accessToken={props.accessToken}
           channel={props.channel}
           cmsBaseUrl={props.cmsBaseUrl}
           enterpriseCode={props.runtime.enterpriseCode}

@@ -196,6 +196,18 @@ export function App() {
     lockScreen,
   );
 
+  const refreshAuthenticatedBootstrap = useCallback(async () => {
+    if (!session || locked) return;
+    const employeeBootstrap = await loadAuthenticatedBootstrap(
+      runtime.backofficeBaseUrl,
+      runtime.clientContractVersion,
+      session.accessToken,
+      runtime.requestTimeoutMs,
+    );
+    setAuthenticatedBootstrap(employeeBootstrap);
+    setEmployeePolicy(employeeBootstrap.axisPolicy);
+  }, [locked, runtime, session]);
+
   if (bootstrapError) {
     return (
       <RecoveryScreen
@@ -862,6 +874,7 @@ export function App() {
                   <FunctionalModuleRegistryRoutePage
                     accessToken={session.accessToken}
                     bootstrap={authenticatedBootstrap}
+                    onBootstrapRefresh={refreshAuthenticatedBootstrap}
                     routeNavigation={moduleRegistryNavigation}
                     runtime={runtime}
                   />

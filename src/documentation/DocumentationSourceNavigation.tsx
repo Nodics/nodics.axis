@@ -22,6 +22,7 @@ export function DocumentationSourceNavigation({
         border: 1,
         borderColor: 'divider',
         borderRadius: 0,
+        maxWidth: '100%',
         overflowX: 'auto',
         p: '3px',
       }}
@@ -31,8 +32,10 @@ export function DocumentationSourceNavigation({
         sx={{
           alignItems: 'center',
           display: 'flex',
+          flexWrap: { xs: 'wrap', sm: 'nowrap' },
           gap: 0.75,
-          minWidth: 'max-content',
+          minWidth: 0,
+          width: '100%',
         }}
       >
         {sources.map((source) => {
@@ -49,8 +52,10 @@ export function DocumentationSourceNavigation({
                 borderColor: selected ? 'primary.main' : 'transparent',
                 borderRadius: axisTokens.radius.pill,
                 color: selected ? 'text.primary' : 'text.secondary',
+                flex: { xs: '1 1 calc(50% - 6px)', sm: '0 0 auto' },
                 minHeight: 36,
-                px: 2,
+                minWidth: 0,
+                px: { xs: 1.25, sm: 2 },
                 transition: (theme) =>
                   theme.transitions.create(['background-color', 'border-color']),
                 ...(selected
@@ -63,7 +68,7 @@ export function DocumentationSourceNavigation({
                     }),
               }}
             >
-              <Typography component="span" variant="subtitle2">
+              <Typography component="span" noWrap variant="subtitle2">
                 {source.label}
               </Typography>
             </ButtonBase>

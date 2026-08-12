@@ -55,7 +55,6 @@ const optionalObservedModules = ['nodics.cron'];
 const documentationPacks = [
   'nodicsDocumentation',
   'axisDocumentation',
-  'processDocumentation',
   'kickoffDocumentation',
 ];
 
