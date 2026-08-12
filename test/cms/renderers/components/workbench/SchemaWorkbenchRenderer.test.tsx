@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { CmsComponentContract } from '../../../../../src/cms/cmsContract';
 import { SchemaWorkbenchRenderer } from '../../../../../src/cms/renderers/components/workbench/SchemaWorkbenchRenderer';
 import type { WorkbenchRendererController } from '../../../../../src/cms/renderers/shared/rendererTypes';
+import type { AxisAuthenticatedBootstrap } from '../../../../../src/bootstrap/publicBootstrap';
+import type { AxisRuntimeConfig } from '../../../../../src/runtime/runtimeConfig';
 import type { WorkbenchSchema } from '../../../../../src/workbench/api/workbenchContracts';
 
 const component: CmsComponentContract = {
@@ -149,6 +151,35 @@ const relationshipRuntime = {
   loadRecords: vi.fn(),
 };
 
+const bootstrap: AxisAuthenticatedBootstrap = {
+  axisPolicy: {
+    contractVersion: 1,
+    idleTimeoutSeconds: 900,
+    recentNavigationLimit: 12,
+    revision: 1,
+    screenLockEnabled: true,
+    source: 'DEFAULT',
+  },
+  documentationSources: [],
+  environments: ['kickoffLocal'],
+  moduleCatalog: {},
+  moduleConnections: {},
+  navigation: [],
+  tenantCode: 'default',
+};
+
+const runtime: AxisRuntimeConfig = {
+  assistantIdleTimeoutMs: 1_000,
+  assistantMaximumEventBytes: 1_024,
+  assistantReconnectWindowMs: 1_000,
+  backofficeBaseUrl: 'http://localhost:3000',
+  browserSessionCsrfCookieName: 'csrf',
+  clientContractVersion: 1,
+  enterpriseCode: 'default',
+  projectCode: 'nodics.kickoff',
+  requestTimeoutMs: 1_000,
+};
+
 function schemaVariant(
   label: string,
   moduleName: string,
@@ -166,6 +197,9 @@ function workbenchController(
   overrides: Partial<WorkbenchRendererController> = {},
 ): WorkbenchRendererController {
   return {
+    accessToken: 'employee-token',
+    bootstrap,
+    runtime,
     schemas: [address],
     schemasLoading: false,
     selectedSchema: address,
@@ -297,6 +331,7 @@ describe('SchemaWorkbenchRenderer', () => {
       <SchemaWorkbenchRenderer
         actions={{
           workbench: {
+            ...workbenchController(),
             schemas: [address],
             schemasLoading: false,
             records: [],
@@ -359,6 +394,7 @@ describe('SchemaWorkbenchRenderer', () => {
       <SchemaWorkbenchRenderer
         actions={{
           workbench: {
+            ...workbenchController(),
             schemas: [address],
             schemasLoading: false,
             selectedSchema: address,
@@ -529,6 +565,7 @@ describe('SchemaWorkbenchRenderer', () => {
       <SchemaWorkbenchRenderer
         actions={{
           workbench: {
+            ...workbenchController(),
             schemas: [],
             schemasError: 'Authorized schema discovery is currently unavailable',
             schemasLoading: false,
@@ -597,6 +634,7 @@ describe('SchemaWorkbenchRenderer', () => {
       <SchemaWorkbenchRenderer
         actions={{
           workbench: {
+            ...workbenchController(),
             schemas: [address],
             schemasLoading: false,
             selectedSchema: address,
@@ -735,6 +773,7 @@ describe('SchemaWorkbenchRenderer', () => {
       <SchemaWorkbenchRenderer
         actions={{
           workbench: {
+            ...workbenchController(),
             scope: {
               kind: 'navigation',
               label: 'Websites',
@@ -826,6 +865,7 @@ describe('SchemaWorkbenchRenderer', () => {
       <SchemaWorkbenchRenderer
         actions={{
           workbench: {
+            ...workbenchController(),
             scope: {
               kind: 'navigation',
               label: 'Websites',

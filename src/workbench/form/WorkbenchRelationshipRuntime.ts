@@ -1,5 +1,6 @@
 import type {
   WorkbenchRecord,
+  WorkbenchFilterGroup,
   WorkbenchRecordPage,
   WorkbenchRelationship,
   WorkbenchSchema,
@@ -7,6 +8,7 @@ import type {
 
 export interface WorkbenchRelationshipLoadOptions {
   readonly search?: string | undefined;
+  readonly filters?: WorkbenchFilterGroup | undefined;
   readonly pageNumber?: number | undefined;
   readonly pageSize?: number | undefined;
 }

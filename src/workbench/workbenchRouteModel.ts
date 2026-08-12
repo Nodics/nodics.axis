@@ -59,6 +59,7 @@ export function resolveWorkbenchRouteTarget(
   routeSchema: WorkbenchRouteSchemaSelection | undefined,
   schemas: readonly WorkbenchSchema[],
   connectionPreference?: WorkbenchRouteConnectionPreference,
+  routeScopeKey?: string,
 ): WorkbenchDeepLinkTarget | undefined {
   if (!routeSchema) return undefined;
   const candidates = schemas.filter(
@@ -73,7 +74,7 @@ export function resolveWorkbenchRouteTarget(
       ? 'create'
       : undefined;
   return Object.freeze({
-    key: `${schema.moduleName}:${schema.schemaName}:${mode ?? 'browse'}:route`,
+    key: `${schema.moduleName}:${schema.schemaName}:${mode ?? 'browse'}:route:${routeScopeKey ?? 'default'}`,
     ...(mode ? { mode } : {}),
     schema,
   });

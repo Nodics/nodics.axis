@@ -34,6 +34,7 @@ import type {
   WorkbenchSchema,
 } from './api/workbenchContracts';
 import type { WorkbenchRecordDetailPanel } from './detail/workbenchRecordDetailPanels';
+import type { WorkbenchRelationshipLoadOptions } from './form/WorkbenchRelationshipRuntime';
 import {
   loadWorkbenchPreferences,
   saveWorkbenchPreferences,
@@ -596,14 +597,33 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
     ],
   );
   const deepLinkTarget = useMemo(
-    () =>
-      resolveWorkbenchDeepLinkTarget(location.search, schemas.data ?? []) ??
-      resolveWorkbenchRouteTarget(props.routeSchema, schemas.data ?? [], {
-        environment: routeOwnerConnection?.environment,
-        server: routeOwnerConnection?.server,
-      }),
+    () => {
+      const routeScopeKey = props.routeNavigation
+        ? JSON.stringify({
+            id: props.routeNavigation.id,
+            route: props.routeNavigation.route,
+            moduleName: props.routeNavigation.moduleName,
+            target: props.routeNavigation.workbenchTarget,
+            fixedFilters:
+              props.routeNavigation.workbenchPresentation?.fixedFilters ?? [],
+          })
+        : undefined;
+      return (
+        resolveWorkbenchDeepLinkTarget(location.search, schemas.data ?? []) ??
+        resolveWorkbenchRouteTarget(
+          props.routeSchema,
+          schemas.data ?? [],
+          {
+            environment: routeOwnerConnection?.environment,
+            server: routeOwnerConnection?.server,
+          },
+          routeScopeKey,
+        )
+      );
+    },
     [
       location.search,
+      props.routeNavigation,
       props.routeSchema,
       routeOwnerConnection?.environment,
       routeOwnerConnection?.server,
@@ -654,11 +674,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
       },
       loadRecords: (
         schema: WorkbenchSchema,
-        options?: {
-          readonly search?: string | undefined;
-          readonly pageNumber?: number | undefined;
-          readonly pageSize?: number | undefined;
-        },
+        options?: WorkbenchRelationshipLoadOptions,
       ) => {
         const normalizedSchema = schemaWithValidQueryCapabilities(schema);
         const connection = selectWorkbenchSchemaConnection(
@@ -670,6 +686,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
         }
         return loadWorkbenchRecords(connection, normalizedSchema, configuration, {
           search: options?.search ?? '',
+          filters: options?.filters,
           pageNumber: options?.pageNumber ?? 1,
           pageSize:
             options?.pageSize ?? resolveWorkbenchLookupPageSize(normalizedSchema),
@@ -758,9 +775,13 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
       accessToken={props.accessToken}
       actions={{
         workbench: {
+          accessToken: props.accessToken,
+          bootstrap: props.bootstrap,
+          runtime: props.runtime,
           scope: props.routeSchema
             ? {
                 kind: 'navigation',
+                navigationId: props.routeNavigation?.id,
                 label: props.routeNavigation?.label,
                 parentLabel: routeParentLabel,
                 help: props.routeNavigation?.help,
@@ -822,6 +843,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
           lifecycleActionResult: lifecycleAction.data,
           tenantCode: props.bootstrap.tenantCode,
           enterpriseCode: props.runtime.enterpriseCode,
+          locale: props.locale,
           selectSchema: selectWorkbenchSchema,
           setRecordSearch: setRecordSearchInput,
           setRecordFilters: (filters) => {
@@ -985,9 +1007,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
           confirmDelete: () => deleteRecord.mutateAsync().then(() => undefined),
           bulkDeleteSelected: () => bulkDelete.mutateAsync().then(() => undefined),
           executeLifecycleAction: (action, record, input) =>
-            lifecycleAction
-              .mutateAsync({ action, record, input })
-              .then(() => undefined),
+            lifecycleAction.mutateAsync({ action, record, input }),
           retryRecords: () => void records.refetch(),
           retrySchemas: () => void schemas.refetch(),
         },

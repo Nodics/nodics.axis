@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { CmsComponentContract } from '../../../../../src/cms/cmsContract';
 import { SchemaQueryBuilderRenderer } from '../../../../../src/cms/renderers/components/query/SchemaQueryBuilderRenderer';
 import type { WorkbenchRendererController } from '../../../../../src/cms/renderers/shared/rendererTypes';
+import type { AxisAuthenticatedBootstrap } from '../../../../../src/bootstrap/publicBootstrap';
+import type { AxisRuntimeConfig } from '../../../../../src/runtime/runtimeConfig';
 import type { WorkbenchSchema } from '../../../../../src/workbench/api/workbenchContracts';
 
 const component: CmsComponentContract = {
@@ -66,14 +68,45 @@ const selectedSchema: WorkbenchSchema = {
   relationships: [],
 };
 
+const bootstrap: AxisAuthenticatedBootstrap = {
+  axisPolicy: {
+    contractVersion: 1,
+    idleTimeoutSeconds: 900,
+    recentNavigationLimit: 12,
+    revision: 1,
+    screenLockEnabled: true,
+    source: 'DEFAULT',
+  },
+  documentationSources: [],
+  environments: ['kickoffLocal'],
+  moduleCatalog: {},
+  moduleConnections: {},
+  navigation: [],
+  tenantCode: 'default',
+};
+
+const runtime: AxisRuntimeConfig = {
+  assistantIdleTimeoutMs: 1_000,
+  assistantMaximumEventBytes: 1_024,
+  assistantReconnectWindowMs: 1_000,
+  backofficeBaseUrl: 'http://localhost:3000',
+  browserSessionCsrfCookieName: 'csrf',
+  clientContractVersion: 1,
+  enterpriseCode: 'default',
+  projectCode: 'nodics.kickoff',
+  requestTimeoutMs: 1_000,
+};
+
 function workbenchController(
   overrides: Partial<WorkbenchRendererController>,
 ): WorkbenchRendererController {
   return {
+    accessToken: 'employee-token',
     applyView: vi.fn(),
     beginCreate: vi.fn(),
     beginDelete: vi.fn(),
     beginEdit: vi.fn(),
+    bootstrap,
     bulkDeleteSelected: vi.fn(),
     cancelCreate: vi.fn(),
     cancelDelete: vi.fn(),
@@ -105,6 +138,7 @@ function workbenchController(
     },
     retryRecords: vi.fn(),
     retrySchemas: vi.fn(),
+    runtime,
     saveView: vi.fn(),
     schemas: selectedSchema ? [selectedSchema] : [],
     schemasLoading: false,

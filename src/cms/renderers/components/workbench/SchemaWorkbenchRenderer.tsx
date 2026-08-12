@@ -29,6 +29,7 @@ import { AxisSchemaRecordDetail } from '../../../../app/schema/AxisSchemaRecordD
 import { ShellIcon } from '../../../../app/shell/ShellIcon';
 import { type AxisDataListingColumn } from '../../../../app/table/AxisDataListing';
 import { AxisSchemaDataListing } from '../../../../app/table/AxisSchemaDataListing';
+import { EditorialArticleWorkbenchDetail } from '../../../../operations/editorial/EditorialArticleWorkbenchDetail';
 import type { WorkbenchRecord } from '../../../../workbench/api/workbenchContracts';
 import { WorkbenchRecordDetail } from '../../../../workbench/detail/WorkbenchRecordDetail';
 import { WorkbenchDeleteDialog } from '../../../../workbench/delete/WorkbenchDeleteDialog';
@@ -69,6 +70,16 @@ const schemaHeaderChipSx = {
     textOverflow: 'ellipsis',
   },
 };
+
+function isEditorialArticleAuthoringDetail(
+  navigationId: string | undefined,
+  schemaName: string | undefined,
+): boolean {
+  return (
+    schemaName === 'editorialArticle' &&
+    (navigationId === 'editorial-news' || navigationId === 'editorial-blogs')
+  );
+}
 
 export function SchemaWorkbenchRenderer({
   component,
@@ -859,26 +870,41 @@ export function SchemaWorkbenchRenderer({
                           onSubmit={controller.updateRecord}
                         />
                       ) : (
-                        <WorkbenchRecordDetail
-                          closeLabel={stringProperty(component, 'closeLabel')}
-                          deleteLabel={stringProperty(component, 'deleteLabel')}
-                          editLabel={stringProperty(component, 'editLabel')}
-                          falseLabel={stringProperty(component, 'falseLabel')}
-                          forbiddenFieldNames={forbiddenFieldNames}
-                          detailPanels={controller.selectedRecordDetailPanels}
-                          lifecycleActionError={controller.lifecycleActionError}
-                          lifecycleActionPendingId={controller.lifecycleActionPendingId}
-                          lifecycleActionResult={controller.lifecycleActionResult}
-                          lifecycleActions={controller.scope?.lifecycleActions}
-                          record={controller.selectedRecord}
-                          relationshipRuntime={controller.relationshipRuntime}
-                          schema={selected}
-                          trueLabel={stringProperty(component, 'trueLabel')}
-                          onClose={controller.closeRecord}
-                          onDelete={controller.beginDelete}
-                          onEdit={controller.beginEdit}
-                          onLifecycleAction={controller.executeLifecycleAction}
-                        />
+                        <>
+                          {isEditorialArticleAuthoringDetail(
+                            controller.scope?.navigationId,
+                            selected.schemaName,
+                          ) ? (
+                            <EditorialArticleWorkbenchDetail
+                              controller={controller}
+                              record={controller.selectedRecord}
+                              schema={selected}
+                            />
+                          ) : (
+                            <WorkbenchRecordDetail
+                              closeLabel={stringProperty(component, 'closeLabel')}
+                              deleteLabel={stringProperty(component, 'deleteLabel')}
+                              editLabel={stringProperty(component, 'editLabel')}
+                              falseLabel={stringProperty(component, 'falseLabel')}
+                              forbiddenFieldNames={forbiddenFieldNames}
+                              detailPanels={controller.selectedRecordDetailPanels}
+                              lifecycleActionError={controller.lifecycleActionError}
+                              lifecycleActionPendingId={
+                                controller.lifecycleActionPendingId
+                              }
+                              lifecycleActionResult={controller.lifecycleActionResult}
+                              lifecycleActions={controller.scope?.lifecycleActions}
+                              record={controller.selectedRecord}
+                              relationshipRuntime={controller.relationshipRuntime}
+                              schema={selected}
+                              trueLabel={stringProperty(component, 'trueLabel')}
+                              onClose={controller.closeRecord}
+                              onDelete={controller.beginDelete}
+                              onEdit={controller.beginEdit}
+                              onLifecycleAction={controller.executeLifecycleAction}
+                            />
+                          )}
+                        </>
                       )}
                     </Box>
                   ) : null}

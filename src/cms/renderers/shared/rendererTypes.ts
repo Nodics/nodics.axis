@@ -35,6 +35,9 @@ export interface AssistantRendererController {
 }
 
 export interface WorkbenchRendererController {
+  readonly accessToken: string;
+  readonly bootstrap: AxisAuthenticatedBootstrap;
+  readonly runtime: AxisRuntimeConfig;
   readonly scope?: WorkbenchRendererScope | undefined;
   readonly schemas: readonly WorkbenchSchema[];
   readonly schemasError?: string | undefined;
@@ -86,6 +89,7 @@ export interface WorkbenchRendererController {
   readonly lifecycleActionResult?: unknown;
   readonly tenantCode: string;
   readonly enterpriseCode: string;
+  readonly locale?: string | undefined;
   readonly selectSchema: (schema: WorkbenchSchema) => void;
   readonly setRecordSearch: (search: string) => void;
   readonly setRecordFilters: (filters?: WorkbenchFilterGroup) => void;
@@ -120,13 +124,14 @@ export interface WorkbenchRendererController {
     action: AxisNavigationLifecycleAction,
     record: WorkbenchRecord,
     input?: Readonly<Record<string, string>>,
-  ) => Promise<void>;
+  ) => Promise<unknown>;
   readonly retrySchemas: () => void;
   readonly retryRecords: () => void;
 }
 
 export interface WorkbenchRendererScope {
   readonly kind: 'global' | 'navigation';
+  readonly navigationId?: string | undefined;
   readonly label?: string | undefined;
   readonly parentLabel?: string | undefined;
   readonly help?:

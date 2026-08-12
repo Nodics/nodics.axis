@@ -53,7 +53,7 @@ interface WorkbenchRecordDetailProps {
         action: AxisNavigationLifecycleAction,
         record: WorkbenchRecord,
         input?: Readonly<Record<string, string>>,
-      ) => Promise<void>)
+      ) => Promise<unknown>)
     | undefined;
 }
 
@@ -75,7 +75,7 @@ function WorkbenchLifecycleActionPanel({
         action: AxisNavigationLifecycleAction,
         record: WorkbenchRecord,
         input?: Readonly<Record<string, string>>,
-      ) => Promise<void>)
+      ) => Promise<unknown>)
     | undefined;
 }) {
   const [selectedAction, setSelectedAction] = useState<AxisNavigationLifecycleAction>();
