@@ -27,6 +27,7 @@ import type {
   AxisModuleConnection,
   AxisNavigationItem,
 } from '../../bootstrap/publicBootstrap';
+import { selectModuleConnection } from '../../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
   activeConnections,
@@ -303,11 +304,9 @@ function DesignerStepCard({
 function firstHealthyCmsConnection(
   bootstrap: AxisAuthenticatedBootstrap,
 ): AxisModuleConnection | undefined {
-  const cmsConnections = bootstrap.moduleConnections.cms ?? [];
   return (
-    cmsConnections.find((connection) => connection.state === 'UP') ??
-    cmsConnections.find((connection) => connection.state === 'DEGRADED') ??
-    cmsConnections[0]
+    selectModuleConnection(bootstrap, 'cms', { server: 'wcmsStagedServer' }) ??
+    selectModuleConnection(bootstrap, 'cms', { server: 'wcmsServer' })
   );
 }
 

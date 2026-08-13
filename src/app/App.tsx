@@ -37,6 +37,13 @@ import { ProductManagementRoutePage } from '../operations/productManagement/Prod
 import { LocalizationOperationsRoutePage } from '../operations/localization/LocalizationOperationsRoutePage';
 import { CustomerEngagementRoutePage } from '../operations/customerEngagement/CustomerEngagementRoutePage';
 import { useIdleScreenLock } from '../auth/useIdleScreenLock';
+import { AxisInitializationWorkspace } from '../initialization/AxisInitializationWorkspace';
+import { BundledLoginPage } from '../initialization/BundledLoginPage';
+import {
+  initiateAxisInitialization,
+  loadAxisInitializationStatus,
+  type AxisInitializationStatus,
+} from '../initialization/axisInitializationClient';
 import {
   clearScreenLock,
   persistScreenLock,
@@ -109,6 +116,10 @@ export function App() {
   const [locked, setLocked] = useState(false);
   const [lockedReturnPath, setLockedReturnPath] = useState('/dashboard');
   const [authenticationError, setAuthenticationError] = useState<string>();
+  const [initializationStatus, setInitializationStatus] =
+    useState<AxisInitializationStatus>();
+  const [initializationError, setInitializationError] = useState<string>();
+  const [initializationBusy, setInitializationBusy] = useState(false);
   const [restoringSession, setRestoringSession] = useState(true);
   const localization = useAxisLocalizationController(bootstrap, runtime);
 
@@ -208,6 +219,36 @@ export function App() {
     setEmployeePolicy(employeeBootstrap.axisPolicy);
   }, [locked, runtime, session]);
 
+  const refreshInitialization = useCallback(async () => {
+    if (!session) return;
+    setInitializationBusy(true);
+    setInitializationError(undefined);
+    try {
+      setInitializationStatus(
+        await loadAxisInitializationStatus(
+          runtime.backofficeBaseUrl,
+          session.accessToken,
+          runtime.requestTimeoutMs,
+        ),
+      );
+    } catch (error: unknown) {
+      setInitializationError(
+        error instanceof Error ? error.message : 'Axis initialization status failed',
+      );
+    } finally {
+      setInitializationBusy(false);
+    }
+  }, [runtime, session]);
+
+  useEffect(() => {
+    if (!session || !authenticatedBootstrap) {
+      setInitializationStatus(undefined);
+      setInitializationError(undefined);
+      return;
+    }
+    void refreshInitialization();
+  }, [authenticatedBootstrap, refreshInitialization, session]);
+
   if (bootstrapError) {
     return (
       <RecoveryScreen
@@ -301,6 +342,7 @@ export function App() {
     accessToken?: string,
     actions?: CmsRendererActions,
     onLogout?: () => void,
+    unavailableFallback?: ReactNode,
   ) => (
     <CmsRoutePage
       accessToken={accessToken}
@@ -314,6 +356,7 @@ export function App() {
       path={path}
       site={composition.site}
       timeoutMs={runtime.requestTimeoutMs}
+      unavailableFallback={unavailableFallback}
     />
   );
 
@@ -375,6 +418,27 @@ export function App() {
         setLocked(true);
         void navigate('/lock-screen', { replace: true });
       });
+  };
+
+  const initiateInitialization = async () => {
+    if (!session) return;
+    setInitializationBusy(true);
+    setInitializationError(undefined);
+    try {
+      setInitializationStatus(
+        await initiateAxisInitialization(
+          runtime.backofficeBaseUrl,
+          session.accessToken,
+          runtime.requestTimeoutMs,
+        ),
+      );
+    } catch (error: unknown) {
+      setInitializationError(
+        error instanceof Error ? error.message : 'Axis initialization failed',
+      );
+    } finally {
+      setInitializationBusy(false);
+    }
   };
 
   const unlock = async (password: string) => {
@@ -709,6 +773,24 @@ export function App() {
         )
       : sessionFallback;
 
+  if (
+    session &&
+    authenticatedBootstrap &&
+    initializationStatus?.readiness !== 'READY'
+  ) {
+    if (!initializationStatus && !initializationError) return <LoadingScreen />;
+    return (
+      <AxisInitializationWorkspace
+        busy={initializationBusy}
+        error={initializationError}
+        onInitiate={() => void initiateInitialization()}
+        onLogout={logout}
+        onRefresh={() => void refreshInitialization()}
+        status={initializationStatus}
+      />
+    );
+  }
+
   return (
     <AxisLocalizationBoundary value={localization}>
       <Routes>
@@ -736,9 +818,16 @@ export function App() {
                 to={locked ? '/lock-screen' : composition.defaultAuthenticatedPage}
               />
             ) : (
-              page('/login', undefined, {
-                onEmployeeLogin: (id, secret) => void login(id, secret),
-              })
+              page(
+                '/login',
+                undefined,
+                { onEmployeeLogin: (id, secret) => void login(id, secret) },
+                undefined,
+                <BundledLoginPage
+                  error={authenticationError}
+                  onLogin={(id, secret) => void login(id, secret)}
+                />,
+              )
             )
           }
         />

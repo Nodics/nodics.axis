@@ -46,6 +46,18 @@ const publicBootstrap = {
   },
 };
 
+const axisInitializationReady = {
+  code: 'SUC_BOF_00017',
+  data: {
+    baselineCode: 'axis',
+    releaseCode: 'axis:axisBaseline',
+    releaseVersion: '1.0.0',
+    releaseStatus: 'CURRENT',
+    readiness: 'READY',
+    publication: { code: 'cmsBaseline_axis_1_0_0', state: 'ONLINE', revision: 4 },
+  },
+};
+
 const loginPage = {
   ...validResolvedPage,
   page: {
@@ -519,6 +531,11 @@ describe('employee login journey', () => {
           ),
         );
       }
+      if (url.includes('/axis/initialization')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(axisInitializationReady), { status: 200 }),
+        );
+      }
       if (url.includes('/bootstrap')) {
         return Promise.resolve(
           new Response(
@@ -532,6 +549,16 @@ describe('employee login journey', () => {
                       environment: 'kickoffLocal',
                       clientCallable: true,
                       endpoint: 'https://cms.example.com/nodics/cms',
+                      state: 'UP',
+                    },
+                  ],
+                  backoffice: [
+                    {
+                      moduleName: 'backoffice',
+                      instanceId: 'platform-1',
+                      environment: 'kickoffLocal',
+                      clientCallable: true,
+                      endpoint: 'https://platform.example.com/nodics/backoffice',
                       state: 'UP',
                     },
                   ],
@@ -579,6 +606,7 @@ describe('employee login journey', () => {
                     catalog: 'nodicsDocumentationContentCatalog',
                     defaultPage: '/docs',
                     packCode: 'nodicsDocumentation',
+                    initializationProfile: 'frameworkdocs',
                   },
                 ],
                 tenantCode: 'default',
@@ -588,25 +616,21 @@ describe('employee login journey', () => {
           ),
         );
       }
-      if (url.includes('/content-packs/nodicsDocumentation')) {
+      if (url.includes('/applications/frameworkdocs/initialization')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({
               data: {
-                code: 'nodicsDocumentation',
-                enabled: true,
-                state: 'CURRENT',
-                available: true,
-                installedVersion: '0.3.10',
-                availableVersion: '0.3.10',
-                allowedOperations: [],
-                presentation: {
-                  title: 'Nodics documentation',
-                  unavailableMessage: 'Documentation is unavailable.',
-                  disabledMessage: 'Documentation is disabled.',
-                  importAction: 'Import documentation',
-                  updateAction: 'Update documentation',
-                  retryAction: 'Retry import',
+                profileCode: 'frameworkdocs',
+                siteCode: 'axisCmsSite',
+                readiness: 'READY',
+                releaseCode: 'contentPack:nodicsDocumentation',
+                releaseVersion: '0.3.10',
+                allowedActions: [],
+                publication: {
+                  code: 'frameworkdocs-0.3.10',
+                  state: 'ONLINE',
+                  revision: 4,
                 },
               },
             }),
@@ -680,6 +704,11 @@ describe('employee login journey', () => {
             }),
             { status: 200 },
           ),
+        );
+      }
+      if (url.includes('/axis/initialization')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(axisInitializationReady), { status: 200 }),
         );
       }
       if (url.includes('/bootstrap')) {
@@ -1226,6 +1255,11 @@ describe('employee login journey', () => {
             }),
             { status: 200 },
           ),
+        );
+      }
+      if (url.includes('/axis/initialization')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(axisInitializationReady), { status: 200 }),
         );
       }
       if (url.includes('/bootstrap')) {

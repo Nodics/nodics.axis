@@ -144,7 +144,7 @@ describe('resolveWorkbenchRouteTarget', () => {
         ),
       ),
     ).toEqual({
-      key: 'cms:cmsNavigationNode:browse:route',
+      key: 'cms:cmsNavigationNode:browse:route:default',
       mode: undefined,
       moduleName: 'cms',
       schemaName: 'cmsNavigationNode',
@@ -173,7 +173,7 @@ describe('resolveWorkbenchRouteTarget', () => {
         ),
       ),
     ).toEqual({
-      key: 'catalog:catalog:browse:route',
+      key: 'catalog:catalog:browse:route:default',
       mode: undefined,
       moduleName: 'catalog',
       schemaName: 'catalog',
@@ -190,7 +190,7 @@ describe('resolveWorkbenchRouteTarget', () => {
         ),
       ),
     ).toEqual({
-      key: 'cms:cmsRestriction:browse:route',
+      key: 'cms:cmsRestriction:browse:route:default',
       mode: undefined,
       moduleName: 'cms',
       schemaName: 'cmsRestriction',
@@ -207,7 +207,7 @@ describe('resolveWorkbenchRouteTarget', () => {
         ),
       ),
     ).toEqual({
-      key: 'kycSchema:kycVerificationCase:browse:route',
+      key: 'kycSchema:kycVerificationCase:browse:route:default',
       mode: undefined,
       moduleName: 'kycSchema',
       schemaName: 'kycVerificationCase',

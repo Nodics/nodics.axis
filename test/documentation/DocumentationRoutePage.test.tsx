@@ -51,6 +51,7 @@ const bootstrap = {
   moduleConnections: {
     system: [connection],
     cms: [{ ...connection, moduleName: 'cms' }],
+    backoffice: [{ ...connection, moduleName: 'backoffice' }],
   },
   documentationSources: [
     {
@@ -65,6 +66,7 @@ const bootstrap = {
       catalog: 'nodicsDocumentationContentCatalog',
       defaultPage: '/docs',
       packCode: 'nodicsDocumentation',
+      initializationProfile: 'frameworkdocs',
       dashboard: {
         kind: 'Framework guide',
         icon: 'content',
@@ -105,24 +107,14 @@ const bootstrap = {
   tenantCode: 'default',
 };
 const response = {
-  code: 'SUC_IMP_00000',
+  code: 'SUC_BOF_00021',
   data: {
-    code: 'nodicsDocumentation',
-    enabled: true,
-    state: 'NOT_INSTALLED',
-    available: true,
-    installedVersion: null,
-    availableVersion: '1.0.0',
-    runId: null,
-    allowedOperations: ['IMPORT'],
-    presentation: {
-      title: 'Nodics documentation',
-      unavailableMessage: 'Install documentation to use the Wiki.',
-      disabledMessage: 'Documentation is disabled.',
-      importAction: 'Import documentation',
-      updateAction: 'Update documentation',
-      retryAction: 'Retry',
-    },
+    profileCode: 'frameworkdocs',
+    siteCode: 'nodicsDocumentationSite',
+    readiness: 'NOT_IMPORTED',
+    releaseCode: 'contentPack:nodicsDocumentation',
+    releaseVersion: '1.0.0',
+    allowedActions: ['INITIALIZE'],
   },
 };
 
@@ -185,14 +177,16 @@ describe('DocumentationRoutePage', () => {
     renderPage('/docs/framework');
 
     expect(
-      await screen.findByText('Install documentation to use the Wiki.'),
+      await screen.findByText(/Install the verified bundle to Staged/),
     ).toBeVisible();
     expect(screen.getByRole('tab', { name: 'Framework' })).toBeVisible();
     expect(screen.getByRole('tab', { name: 'Swaggers' })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Import documentation' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Install and request publication' }),
+    );
     expect(fetchMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        pathname: '/nodics/system/v0/content-packs/nodicsDocumentation/imports',
+        pathname: '/v0/applications/frameworkdocs/initialization/initiate',
       }),
       expect.objectContaining({ method: 'POST' }),
     );
@@ -202,16 +196,15 @@ describe('DocumentationRoutePage', () => {
   it('renders current CMS documentation through public delivery after source authorization', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((request) => {
       const url = new URL(requestPathname(request), 'http://localhost:3000');
-      if (url.pathname.includes('/content-packs/nodicsDocumentation')) {
+      if (url.pathname.includes('/applications/frameworkdocs/initialization')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({
               code: 'SUC_IMP_00000',
               data: {
                 ...response.data,
-                state: 'CURRENT',
-                installedVersion: '1.0.0',
-                allowedOperations: [],
+                readiness: 'READY',
+                allowedActions: [],
               },
             }),
             {

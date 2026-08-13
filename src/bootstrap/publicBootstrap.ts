@@ -223,6 +223,7 @@ export type AxisDocumentationSource =
       readonly catalog: string;
       readonly defaultPage: string;
       readonly packCode: string;
+      readonly initializationProfile?: string | undefined;
       readonly labelKey?: string | undefined;
       readonly dashboard: AxisDocumentationDashboardMetadata;
     }
@@ -243,8 +244,13 @@ export type AxisDocumentationSource =
 export function selectModuleConnection(
   bootstrap: AxisAuthenticatedBootstrap,
   moduleName: string,
+  selector?: Readonly<{ server?: string; environment?: string }>,
 ): AxisModuleConnection | undefined {
-  const connections = bootstrap.moduleConnections[moduleName] ?? [];
+  const connections = (bootstrap.moduleConnections[moduleName] ?? []).filter(
+    (connection) =>
+      (!selector?.server || connection.server === selector.server) &&
+      (!selector?.environment || connection.environment === selector.environment),
+  );
   return (
     connections.find((connection) => connection.state === 'UP') ??
     connections.find((connection) => connection.state === 'DEGRADED')
@@ -1078,6 +1084,14 @@ function parseDocumentationSources(value: unknown): readonly AxisDocumentationSo
         catalog: text(source.catalog, `${id} documentation catalog`),
         defaultPage: relativeRoute(source.defaultPage, `${id} default page`),
         packCode: text(source.packCode, `${id} content-pack code`),
+        ...(source.initializationProfile === undefined
+          ? {}
+          : {
+              initializationProfile: text(
+                source.initializationProfile,
+                `${id} initialization profile`,
+              ),
+            }),
       });
     }
     if (source.type === 'OPENAPI') {

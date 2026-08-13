@@ -57,27 +57,30 @@ const bootstrap: AxisAuthenticatedBootstrap = {
     catalog: [
       {
         moduleName: 'catalog',
-        instanceId: 'kickoffLocal:wcmsServer:catalog:0',
-        endpoint: 'http://localhost:4310/nodics/catalog',
+        instanceId: 'kickoffLocal:wcmsStagedServer:catalog:0',
+        endpoint: 'http://localhost:4312/nodics/catalog',
         environment: 'kickoffLocal',
+        server: 'wcmsStagedServer',
         state: 'UP',
       },
     ],
     cms: [
       {
         moduleName: 'cms',
-        instanceId: 'kickoffLocal:wcmsServer:cms:0',
-        endpoint: 'http://localhost:4310/nodics/cms',
+        instanceId: 'kickoffLocal:wcmsStagedServer:cms:0',
+        endpoint: 'http://localhost:4312/nodics/cms',
         environment: 'kickoffLocal',
+        server: 'wcmsStagedServer',
         state: 'UP',
       },
     ],
     media: [
       {
         moduleName: 'media',
-        instanceId: 'kickoffLocal:wcmsServer:media:0',
-        endpoint: 'http://localhost:4310/nodics/media',
+        instanceId: 'kickoffLocal:wcmsStagedServer:media:0',
+        endpoint: 'http://localhost:4312/nodics/media',
         environment: 'kickoffLocal',
+        server: 'wcmsStagedServer',
         state: 'UP',
       },
     ],
@@ -360,7 +363,7 @@ describe('ContentDesignerRoutePage', () => {
     });
     expect(fetchMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        href: 'http://localhost:4310/nodics/cms/v0/designer/composition/validate',
+        href: 'http://localhost:4312/nodics/cms/v0/designer/composition/validate',
       }),
       expect.objectContaining({ method: 'POST' }),
     );

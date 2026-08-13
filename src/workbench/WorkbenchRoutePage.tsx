@@ -596,40 +596,36 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
       lifecycleAction,
     ],
   );
-  const deepLinkTarget = useMemo(
-    () => {
-      const routeScopeKey = props.routeNavigation
-        ? JSON.stringify({
-            id: props.routeNavigation.id,
-            route: props.routeNavigation.route,
-            moduleName: props.routeNavigation.moduleName,
-            target: props.routeNavigation.workbenchTarget,
-            fixedFilters:
-              props.routeNavigation.workbenchPresentation?.fixedFilters ?? [],
-          })
-        : undefined;
-      return (
-        resolveWorkbenchDeepLinkTarget(location.search, schemas.data ?? []) ??
-        resolveWorkbenchRouteTarget(
-          props.routeSchema,
-          schemas.data ?? [],
-          {
-            environment: routeOwnerConnection?.environment,
-            server: routeOwnerConnection?.server,
-          },
-          routeScopeKey,
-        )
-      );
-    },
-    [
-      location.search,
-      props.routeNavigation,
-      props.routeSchema,
-      routeOwnerConnection?.environment,
-      routeOwnerConnection?.server,
-      schemas.data,
-    ],
-  );
+  const deepLinkTarget = useMemo(() => {
+    const routeScopeKey = props.routeNavigation
+      ? JSON.stringify({
+          id: props.routeNavigation.id,
+          route: props.routeNavigation.route,
+          moduleName: props.routeNavigation.moduleName,
+          target: props.routeNavigation.workbenchTarget,
+          fixedFilters: props.routeNavigation.workbenchPresentation?.fixedFilters ?? [],
+        })
+      : undefined;
+    return (
+      resolveWorkbenchDeepLinkTarget(location.search, schemas.data ?? []) ??
+      resolveWorkbenchRouteTarget(
+        props.routeSchema,
+        schemas.data ?? [],
+        {
+          environment: routeOwnerConnection?.environment,
+          server: routeOwnerConnection?.server,
+        },
+        routeScopeKey,
+      )
+    );
+  }, [
+    location.search,
+    props.routeNavigation,
+    props.routeSchema,
+    routeOwnerConnection?.environment,
+    routeOwnerConnection?.server,
+    schemas.data,
+  ]);
   useEffect(() => {
     if (!deepLinkTarget || consumedDeepLinkKey.current === deepLinkTarget.key) return;
     const timeout = globalThis.setTimeout(() => {

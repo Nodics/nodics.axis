@@ -9,6 +9,15 @@ import {
 } from './src/runtime/runtimeConfig';
 
 const RUNTIME_CONFIG_PATH = '/axis-config.json';
+const LOCAL_SECURITY_HEADERS = {
+  'Cache-Control': 'no-store',
+  'Content-Security-Policy':
+    "default-src 'self'; connect-src 'self' http://localhost:* http://127.0.0.1:*; img-src 'self' data: http://localhost:* http://127.0.0.1:*; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
+  'Cross-Origin-Resource-Policy': 'same-origin',
+  'Referrer-Policy': 'no-referrer',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+} as const;
 
 function required(env: Record<string, string>, name: string): string {
   const value = env[name]?.trim();
@@ -93,11 +102,13 @@ export default defineConfig(({ mode }) => {
       host,
       port,
       strictPort,
+      headers: LOCAL_SECURITY_HEADERS,
     },
     preview: {
       host,
       port,
       strictPort,
+      headers: LOCAL_SECURITY_HEADERS,
     },
     build: {
       sourcemap: booleanValue(env, 'AXIS_BUILD_SOURCEMAP'),

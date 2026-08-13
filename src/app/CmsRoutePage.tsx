@@ -1,5 +1,6 @@
 import { Box, Button, Stack } from '@mui/material';
 import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 
 import { CmsPageRenderer } from '../cms/CmsPageRenderer';
 import { resolveCmsPage } from '../cms/cmsClient';
@@ -20,6 +21,7 @@ interface CmsRoutePageProps {
   readonly actions?: CmsRendererActions | undefined;
   readonly onLogout?: (() => void) | undefined;
   readonly authenticationError?: string | undefined;
+  readonly unavailableFallback?: ReactNode;
 }
 
 type PageState =
@@ -74,6 +76,7 @@ export function CmsRoutePage(props: CmsRoutePageProps) {
 
   if (state.status === 'loading') return <LoadingScreen />;
   if (state.status === 'failed') {
+    if (props.unavailableFallback) return props.unavailableFallback;
     return (
       <RecoveryScreen
         state={{ kind: 'cms', detail: state.message, retryable: true }}

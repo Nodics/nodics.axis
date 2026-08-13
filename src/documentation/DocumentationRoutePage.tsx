@@ -21,7 +21,7 @@ import {
   type AxisModuleConnection,
 } from '../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../runtime/runtimeConfig';
-import { createDocumentationContentPackClient } from './api/documentationContentPackClient';
+import { createDocumentationPublicationClient } from './api/documentationPublicationClient';
 import { DocumentationDashboard } from './DocumentationDashboard';
 import { DocumentationSourceNavigation } from './DocumentationSourceNavigation';
 import { OpenApiDocumentationRenderer } from './OpenApiDocumentationRenderer';
@@ -36,8 +36,8 @@ interface DocumentationRoutePageProps {
   readonly runtime: AxisRuntimeConfig;
 }
 
-const queryKey = (enterpriseCode: string, packCode: string) =>
-  ['documentation-content-pack', enterpriseCode, packCode] as const;
+const queryKey = (enterpriseCode: string, profileCode: string) =>
+  ['documentation-publication', enterpriseCode, profileCode] as const;
 
 function sourceForPath(
   sources: readonly AxisDocumentationSource[],
@@ -53,75 +53,54 @@ function sourceForPath(
 }
 
 interface CmsDocumentationRoutePageProps extends DocumentationRoutePageProps {
+  readonly administrationConnection: AxisModuleConnection;
   readonly connection: AxisModuleConnection;
   readonly source: Extract<AxisDocumentationSource, { readonly type: 'CMS' }>;
 }
 
 function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
   const source = props.source;
-  const connection = props.connection;
+  if (!source.initializationProfile) {
+    throw new Error('Documentation initialization profile is unavailable');
+  }
+  const initializationProfile = source.initializationProfile;
   const queryClient = useQueryClient();
   const client = useMemo(
     () =>
-      createDocumentationContentPackClient({
-        connection,
+      createDocumentationPublicationClient({
+        connection: props.administrationConnection,
         enterpriseCode: props.runtime.enterpriseCode,
         accessToken: props.accessToken,
         timeoutMs: props.runtime.requestTimeoutMs,
-        packCode: source.packCode,
+        profileCode: initializationProfile,
       }),
     [
       props.accessToken,
-      connection,
+      props.administrationConnection,
       props.runtime.enterpriseCode,
       props.runtime.requestTimeoutMs,
-      source.packCode,
+      initializationProfile,
     ],
   );
   const status = useQuery({
-    queryKey: queryKey(props.runtime.enterpriseCode, source.packCode),
+    queryKey: queryKey(props.runtime.enterpriseCode, initializationProfile),
     queryFn: client.getStatus,
     refetchInterval: (query) =>
-      query.state.data?.state === 'IMPORTING' ? 2_000 : false,
+      query.state.data?.readiness === 'PUBLICATION_PENDING' ? 2_000 : false,
   });
   const importContent = useMutation({
-    mutationFn: client.importOrUpdate,
+    mutationFn: client.initiate,
     onSuccess: (nextStatus) => {
       queryClient.setQueryData(
-        queryKey(props.runtime.enterpriseCode, source.packCode),
+        queryKey(props.runtime.enterpriseCode, initializationProfile),
         nextStatus,
       );
     },
   });
 
-  if (
-    status.data?.installedVersion &&
-    ['CURRENT', 'UPDATE_AVAILABLE'].includes(status.data.state)
-  ) {
-    const updateAvailable = status.data.state === 'UPDATE_AVAILABLE';
+  if (status.data?.readiness === 'READY') {
     return (
       <Stack spacing={2}>
-        {updateAvailable ? (
-          <Alert
-            action={
-              <Button
-                disabled={importContent.isPending}
-                onClick={() => importContent.mutate()}
-                size="small"
-                variant="outlined"
-              >
-                {importContent.isPending
-                  ? 'Updating…'
-                  : status.data.presentation.updateAction}
-              </Button>
-            }
-            severity={importContent.isError ? 'error' : 'info'}
-          >
-            {importContent.error instanceof Error
-              ? importContent.error.message
-              : `Documentation version ${String(status.data.availableVersion)} is available.`}
-          </Alert>
-        ) : null}
         <CmsRoutePage
           channel={props.channel}
           cmsBaseUrl={props.cmsBaseUrl}
@@ -135,10 +114,7 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
     );
   }
 
-  const presentation = status.data?.presentation;
-  const operation = status.data?.allowedOperations[0];
-  const actionLabel =
-    operation === 'UPDATE' ? presentation?.updateAction : presentation?.importAction;
+  const operation = status.data?.allowedActions[0];
   const error =
     status.error instanceof Error
       ? status.error.message
@@ -167,21 +143,20 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
                 {status.data ? (
                   <Chip
                     color={
-                      status.data.state === 'UPDATE_AVAILABLE' ? 'warning' : 'default'
+                      ['FAILED', 'REJECTED'].includes(status.data.readiness)
+                        ? 'warning'
+                        : 'default'
                     }
-                    label={status.data.state.replaceAll('_', ' ')}
+                    label={status.data.readiness.replaceAll('_', ' ')}
                     size="small"
                   />
                 ) : null}
               </Stack>
               <WorkspaceHeading
                 description={
-                  status.data?.state === 'DISABLED'
-                    ? presentation?.disabledMessage
-                    : (presentation?.unavailableMessage ??
-                      'Checking documentation availability.')
+                  'Install the verified bundle to Staged, then submit it for approval and Online publication.'
                 }
-                title={presentation?.title ?? 'Nodics documentation'}
+                title={source.label}
               />
             </Stack>
 
@@ -194,10 +169,10 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
 
             {error ? <Alert severity="error">{error}</Alert> : null}
 
-            {status.data?.state === 'SOURCE_UNAVAILABLE' ? (
+            {status.data && ['FAILED', 'REJECTED'].includes(status.data.readiness) ? (
               <Alert severity="warning">
-                The configured documentation release could not be validated. Contact an
-                administrator or retry after the source is available.
+                The documentation publication did not complete. Review its Process
+                decision and audit evidence before retrying.
               </Alert>
             ) : null}
 
@@ -209,7 +184,9 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
                   size="large"
                   variant="contained"
                 >
-                  {importContent.isPending ? 'Importing documentation…' : actionLabel}
+                  {importContent.isPending
+                    ? 'Submitting documentation…'
+                    : 'Install and request publication'}
                 </Button>
               </Box>
             ) : null}
@@ -223,7 +200,7 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
                   }}
                   variant="outlined"
                 >
-                  {presentation?.retryAction ?? 'Retry'}
+                  Retry
                 </Button>
               </Box>
             ) : null}
@@ -251,6 +228,10 @@ export function DocumentationRoutePage(props: DocumentationRoutePageProps) {
     );
   }
   const connection = selectModuleConnection(props.bootstrap, source.connectionModule);
+  const administrationConnection = selectModuleConnection(
+    props.bootstrap,
+    'backoffice',
+  );
   const navigation = (
     <DocumentationSourceNavigation
       activeSourceId={source.id}
@@ -278,9 +259,23 @@ export function DocumentationRoutePage(props: DocumentationRoutePageProps) {
         source={source}
       />
     );
+  } else if (!administrationConnection) {
+    content = (
+      <WorkspaceContainer>
+        <Alert severity="warning">
+          Documentation administration is unavailable because Platform BackOffice is not
+          active.
+        </Alert>
+      </WorkspaceContainer>
+    );
   } else {
     content = (
-      <CmsDocumentationRoutePage {...props} connection={connection} source={source} />
+      <CmsDocumentationRoutePage
+        {...props}
+        administrationConnection={administrationConnection}
+        connection={connection}
+        source={source}
+      />
     );
   }
   return (

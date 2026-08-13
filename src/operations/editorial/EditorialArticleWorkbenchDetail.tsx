@@ -158,10 +158,9 @@ function editableRecordModel(
     schema.fields
       .filter((field) => editableFields.has(field.name))
       .flatMap((field) => {
-        const value =
-          Object.prototype.hasOwnProperty.call(changes, field.name)
-            ? changes[field.name]
-            : original?.[field.name];
+        const value = Object.prototype.hasOwnProperty.call(changes, field.name)
+          ? changes[field.name]
+          : original?.[field.name];
         return value === undefined ? [] : [[field.name, value]];
       }),
   );
@@ -219,20 +218,16 @@ function fieldSx() {
 }
 
 const editorialMediaPreviewByCode: Readonly<Record<string, string>> = Object.freeze({
-  nexusNewsPublicExperience:
-    '/assets/nodics/editorial/news-public-experience-v1.png',
+  nexusNewsPublicExperience: '/assets/nodics/editorial/news-public-experience-v1.png',
   nexusNewsAxisRuntime: '/assets/nodics/editorial/news-axis-runtime-v1.png',
   nexusNewsEngagementApi: '/assets/nodics/editorial/news-engagement-api-v1.png',
-  nexusNewsEditorialRelease:
-    '/assets/nodics/editorial/news-editorial-release-v1.png',
+  nexusNewsEditorialRelease: '/assets/nodics/editorial/news-editorial-release-v1.png',
   nexusBlogCustomerEngagement:
     '/assets/nodics/editorial/blog-customer-engagement-v1.png',
   nexusBlogEditorialPublication:
     '/assets/nodics/editorial/blog-editorial-publication-v1.png',
-  nexusBlogRuntimeDiscovery:
-    '/assets/nodics/editorial/blog-runtime-discovery-v1.png',
-  nexusBlogAxisOperations:
-    '/assets/nodics/editorial/blog-axis-operations-v1.png',
+  nexusBlogRuntimeDiscovery: '/assets/nodics/editorial/blog-runtime-discovery-v1.png',
+  nexusBlogAxisOperations: '/assets/nodics/editorial/blog-axis-operations-v1.png',
 });
 
 function mediaPreviewSource(featuredMediaCode: string): string | undefined {
@@ -267,10 +262,7 @@ async function loadSecuredMediaPreview(
 ): Promise<string> {
   const endpoint = new URL(input.mediaEndpoint);
   const controller = new AbortController();
-  const timeout = globalThis.setTimeout(
-    () => controller.abort(),
-    input.timeoutMs,
-  );
+  const timeout = globalThis.setTimeout(() => controller.abort(), input.timeoutMs);
   try {
     const response = await fetch(
       new URL(
@@ -301,7 +293,8 @@ function lifecycleStatus(record: WorkbenchRecord): string | undefined {
 }
 
 function lifecycleArticleFromResult(value: unknown): WorkbenchRecord | undefined {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
+    return undefined;
   const record = value as Record<string, unknown>;
   if (
     typeof record.article === 'object' &&
@@ -464,12 +457,7 @@ export function EditorialArticleWorkbenchDetail(
 
   useEffect(() => {
     const mappedPreview = mediaPreviewSource(draft.featuredMediaCode);
-    if (
-      !currentMediaCode ||
-      mappedPreview ||
-      pendingMediaPreview ||
-      !mediaEndpoint
-    ) {
+    if (!currentMediaCode || mappedPreview || pendingMediaPreview || !mediaEndpoint) {
       if (securedMediaPreviewRef.current) {
         URL.revokeObjectURL(securedMediaPreviewRef.current);
         securedMediaPreviewRef.current = undefined;
@@ -514,9 +502,9 @@ export function EditorialArticleWorkbenchDetail(
   ]);
   const canSaveLocalization = Boolean(
     localizationSchema &&
-      (localization
-        ? props.controller.relationshipRuntime.updateRecord
-        : localizationSchema.operations.includes('create')),
+    (localization
+      ? props.controller.relationshipRuntime.updateRecord
+      : localizationSchema.operations.includes('create')),
   );
 
   const save = async () => {
@@ -530,7 +518,9 @@ export function EditorialArticleWorkbenchDetail(
           slug: draft.slug.trim(),
           featuredMediaCode: draft.featuredMediaCode.trim() || undefined,
           special: draft.special,
-          specialLabel: draft.special ? draft.specialLabel.trim() || undefined : undefined,
+          specialLabel: draft.special
+            ? draft.specialLabel.trim() || undefined
+            : undefined,
           specialRank:
             draft.special && draft.specialRank.trim()
               ? Number(draft.specialRank.trim())
@@ -548,7 +538,9 @@ export function EditorialArticleWorkbenchDetail(
             : undefined,
           authorCodes: splitList(draft.authorCodes),
           taxonomyTermCodes: splitList(draft.taxonomyTermCodes),
-          status: ['READY', 'IN_REVIEW', 'CHANGES_REQUESTED', 'APPROVED'].includes(status)
+          status: ['READY', 'IN_REVIEW', 'CHANGES_REQUESTED', 'APPROVED'].includes(
+            status,
+          )
             ? 'DRAFT'
             : status || 'DRAFT',
           workflowInstanceCode: '',
@@ -558,28 +550,24 @@ export function EditorialArticleWorkbenchDetail(
       if (!localizationSchema || !canSaveLocalization) {
         throw new Error('Editorial localization schema is not editable.');
       }
-      const localizationModel = editableRecordModel(
-        localizationSchema,
-        localization,
-        {
-          code:
-            text(localization?.code) ||
-            `${articleCode}-${draft.localeCode || props.controller.locale || 'en'}`,
-          articleCode,
-          revision: localization?.revision ?? 1,
-          localeCode: draft.localeCode || props.controller.locale || 'en',
-          title: draft.title.trim(),
-          summary: draft.summary.trim(),
-          slug: draft.slug.trim(),
-          status: text(localization?.status) || 'READY',
-          body: bodyFromText(draft.bodyText),
-          takeaways: lineList(draft.takeawaysText),
-          seo: {
-            title: draft.seoTitle.trim(),
-            description: draft.seoDescription.trim(),
-          },
+      const localizationModel = editableRecordModel(localizationSchema, localization, {
+        code:
+          text(localization?.code) ||
+          `${articleCode}-${draft.localeCode || props.controller.locale || 'en'}`,
+        articleCode,
+        revision: localization?.revision ?? 1,
+        localeCode: draft.localeCode || props.controller.locale || 'en',
+        title: draft.title.trim(),
+        summary: draft.summary.trim(),
+        slug: draft.slug.trim(),
+        status: text(localization?.status) || 'READY',
+        body: bodyFromText(draft.bodyText),
+        takeaways: lineList(draft.takeawaysText),
+        seo: {
+          title: draft.seoTitle.trim(),
+          description: draft.seoDescription.trim(),
         },
-      );
+      });
       if (localization) {
         if (!props.controller.relationshipRuntime.updateRecord) {
           throw new Error('Editorial localization update is not available.');
@@ -602,16 +590,24 @@ export function EditorialArticleWorkbenchDetail(
         slug: draft.slug.trim(),
         featuredMediaCode: draft.featuredMediaCode.trim() || undefined,
         special: draft.special,
-        specialLabel: draft.special ? draft.specialLabel.trim() || undefined : undefined,
+        specialLabel: draft.special
+          ? draft.specialLabel.trim() || undefined
+          : undefined,
         specialRank:
           draft.special && draft.specialRank.trim()
             ? Number(draft.specialRank.trim())
             : undefined,
         specialFrom:
-          draft.special && draft.specialFrom.trim() ? draft.specialFrom.trim() : undefined,
+          draft.special && draft.specialFrom.trim()
+            ? draft.specialFrom.trim()
+            : undefined,
         specialUntil:
-          draft.special && draft.specialUntil.trim() ? draft.specialUntil.trim() : undefined,
-        specialVariant: draft.special ? draft.specialVariant.trim() || 'gold' : undefined,
+          draft.special && draft.specialUntil.trim()
+            ? draft.specialUntil.trim()
+            : undefined,
+        specialVariant: draft.special
+          ? draft.specialVariant.trim() || 'gold'
+          : undefined,
         authorCodes: splitList(draft.authorCodes),
         taxonomyTermCodes: splitList(draft.taxonomyTermCodes),
         status: ['READY', 'IN_REVIEW', 'CHANGES_REQUESTED', 'APPROVED'].includes(status)
@@ -712,9 +708,7 @@ export function EditorialArticleWorkbenchDetail(
       setPendingMediaFile(undefined);
     } catch (error) {
       setMediaUploadError(
-        error instanceof Error
-          ? error.message
-          : 'Editorial image upload failed.',
+        error instanceof Error ? error.message : 'Editorial image upload failed.',
       );
     } finally {
       setMediaUploading(false);
@@ -765,7 +759,10 @@ export function EditorialArticleWorkbenchDetail(
         <Stack
           direction={{ xs: 'column', md: 'row' }}
           spacing={2}
-          sx={{ alignItems: { xs: 'flex-start', md: 'center' }, justifyContent: 'space-between' }}
+          sx={{
+            alignItems: { xs: 'flex-start', md: 'center' },
+            justifyContent: 'space-between',
+          }}
         >
           <Box>
             <Typography
@@ -841,7 +838,9 @@ export function EditorialArticleWorkbenchDetail(
         {loading ? (
           <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
             <CircularProgress size={18} />
-            <Typography color="text.secondary">Loading public content fields…</Typography>
+            <Typography color="text.secondary">
+              Loading public content fields…
+            </Typography>
           </Stack>
         ) : null}
         {loadError ? (
@@ -897,8 +896,8 @@ export function EditorialArticleWorkbenchDetail(
                   {recordKey(props.record)}
                 </Typography>
                 <Typography color="text.secondary" sx={{ mt: 0.5 }}>
-                  This is the editable authoring record. Nexus listing cards and
-                  detail pages use the localized public fields on the right.
+                  This is the editable authoring record. Nexus listing cards and detail
+                  pages use the localized public fields on the right.
                 </Typography>
               </Box>
               <Divider />
@@ -1003,12 +1002,9 @@ export function EditorialArticleWorkbenchDetail(
                                 }}
                                 title={pendingMediaFile.name}
                               >
-                              {pendingMediaFile.name} ·{' '}
-                              {Math.max(
-                                1,
-                                Math.round(pendingMediaFile.size / 1024),
-                              )}
-                              KB
+                                {pendingMediaFile.name} ·{' '}
+                                {Math.max(1, Math.round(pendingMediaFile.size / 1024))}
+                                KB
                               </Typography>
                             </Paper>
                             <Button
@@ -1228,8 +1224,8 @@ export function EditorialArticleWorkbenchDetail(
                         }
                       />
                       <Typography color="text.secondary">
-                        Nexus listing pages use this section to highlight important
-                        News or Blog records.
+                        Nexus listing pages use this section to highlight important News
+                        or Blog records.
                       </Typography>
                       <TextField
                         fullWidth
@@ -1263,7 +1259,9 @@ export function EditorialArticleWorkbenchDetail(
                           size="small"
                           sx={fieldSx()}
                           value={
-                            draft.special ? draft.specialRank || 'Default' : 'Not applicable'
+                            draft.special
+                              ? draft.specialRank || 'Default'
+                              : 'Not applicable'
                           }
                         />
                       </Stack>
@@ -1303,13 +1301,19 @@ export function EditorialArticleWorkbenchDetail(
                   </Box>
                   <Typography color="text.secondary">
                     Authors:{' '}
-                    <Box component="span" sx={{ color: 'text.primary', fontWeight: 700 }}>
+                    <Box
+                      component="span"
+                      sx={{ color: 'text.primary', fontWeight: 700 }}
+                    >
                       {draft.authorCodes || 'Not assigned'}
                     </Box>
                   </Typography>
                   <Typography color="text.secondary">
                     Tags:{' '}
-                    <Box component="span" sx={{ color: 'text.primary', fontWeight: 700 }}>
+                    <Box
+                      component="span"
+                      sx={{ color: 'text.primary', fontWeight: 700 }}
+                    >
                       {draft.taxonomyTermCodes || 'Not tagged'}
                     </Box>
                   </Typography>
@@ -1497,7 +1501,8 @@ export function EditorialArticleWorkbenchDetail(
                     )
                     .then((result) => {
                       const resultArticle = lifecycleArticleFromResult(result);
-                      if (resultArticle) setArticle((current) => ({ ...current, ...resultArticle }));
+                      if (resultArticle)
+                        setArticle((current) => ({ ...current, ...resultArticle }));
                       void reloadLocalization();
                     });
                 }}

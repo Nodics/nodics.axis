@@ -311,6 +311,9 @@ describe('Axis bootstrap clients', () => {
     expect(selectModuleConnection(result, 'cms')?.endpoint).toBe(
       'https://cms.example.com/nodics/cms',
     );
+    expect(
+      selectModuleConnection(result, 'cms', { server: 'wcmsStagedServer' }),
+    ).toBeUndefined();
     expect(result.navigation).toEqual([
       expect.objectContaining({
         label: 'Content',
