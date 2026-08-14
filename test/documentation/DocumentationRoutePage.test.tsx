@@ -217,7 +217,8 @@ describe('DocumentationRoutePage', () => {
       expect.arrayContaining([
         [
           expect.objectContaining({
-            pathname: '/v0/applications/frameworkdocs/initialization/content-pack/install',
+            pathname:
+              '/v0/applications/frameworkdocs/initialization/content-pack/install',
           }),
           expect.objectContaining({ method: 'POST' }),
         ],

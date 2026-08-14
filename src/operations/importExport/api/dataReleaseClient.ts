@@ -120,30 +120,43 @@ function parseRelease(value: unknown): DataRelease {
 
 function parseInitializationProfile(value: unknown): InitializationProfile {
   const source = record(value, 'Initialization profile');
-  const status = text(source.status, 'Initialization profile status') as InitializationProfile['status'];
+  const status = text(
+    source.status,
+    'Initialization profile status',
+  ) as InitializationProfile['status'];
   if (!['ACTION_REQUIRED', 'BLOCKED', 'RUNNING', 'CURRENT'].includes(status)) {
     throw new Error('Initialization profile status is incompatible');
   }
-  if (!Array.isArray(source.steps)) throw new Error('Initialization profile steps are invalid');
+  if (!Array.isArray(source.steps))
+    throw new Error('Initialization profile steps are invalid');
   const destinationRole = optionalText(source.destinationRole);
   return Object.freeze({
     profileCode: text(source.profileCode, 'Initialization profile code'),
     label: text(source.label, 'Initialization profile label'),
     description: text(source.description, 'Initialization profile description'),
-    completionMessage: text(source.completionMessage, 'Initialization profile completion message'),
+    completionMessage: text(
+      source.completionMessage,
+      'Initialization profile completion message',
+    ),
     ...(destinationRole ? { destinationRole } : {}),
     status,
     blocked: source.blocked === true,
-    steps: Object.freeze(source.steps.map((value, index) => {
-      const step = record(value, 'Initialization profile step');
-      const dataType = text(step.dataType, 'Initialization profile step type') as DataReleaseType;
-      if (!types.has(dataType) || !Array.isArray(step.releases)) throw new Error('Initialization profile step is incompatible');
-      return Object.freeze({
-        order: optionalNumber(step.order) ?? index + 1,
-        dataType,
-        releases: Object.freeze(step.releases.map(parseRelease)),
-      });
-    })),
+    steps: Object.freeze(
+      source.steps.map((value, index) => {
+        const step = record(value, 'Initialization profile step');
+        const dataType = text(
+          step.dataType,
+          'Initialization profile step type',
+        ) as DataReleaseType;
+        if (!types.has(dataType) || !Array.isArray(step.releases))
+          throw new Error('Initialization profile step is incompatible');
+        return Object.freeze({
+          order: optionalNumber(step.order) ?? index + 1,
+          dataType,
+          releases: Object.freeze(step.releases.map(parseRelease)),
+        });
+      }),
+    ),
   });
 }
 
@@ -482,8 +495,15 @@ export async function loadInitializationProfiles(
   configuration: DataReleaseClientConfiguration,
   fetchImplementation: typeof fetch = fetch,
 ): Promise<readonly InitializationProfile[]> {
-  const value = await request(connection, '/initialization-profiles', configuration, {}, fetchImplementation);
-  if (!Array.isArray(value)) throw new Error('Initialization profile catalogue is invalid');
+  const value = await request(
+    connection,
+    '/initialization-profiles',
+    configuration,
+    {},
+    fetchImplementation,
+  );
+  if (!Array.isArray(value))
+    throw new Error('Initialization profile catalogue is invalid');
   return Object.freeze(value.map(parseInitializationProfile));
 }
 
@@ -494,12 +514,21 @@ export async function runInitializationProfile(
   mode: 'validate' | 'install',
   fetchImplementation: typeof fetch = fetch,
 ): Promise<InitializationProfileOperationResult> {
-  if (!/^[A-Za-z][A-Za-z0-9_-]{0,127}$/.test(profileCode)) throw new Error('Initialization profile code is invalid');
-  const value = record(await request(connection,
-    `/initialization-profiles/${encodeURIComponent(profileCode)}/${mode}`,
-    configuration, { method: 'POST', body: '{}' }, fetchImplementation), 'Initialization profile operation');
+  if (!/^[A-Za-z][A-Za-z0-9_-]{0,127}$/.test(profileCode))
+    throw new Error('Initialization profile code is invalid');
+  const value = record(
+    await request(
+      connection,
+      `/initialization-profiles/${encodeURIComponent(profileCode)}/${mode}`,
+      configuration,
+      { method: 'POST', body: '{}' },
+      fetchImplementation,
+    ),
+    'Initialization profile operation',
+  );
   const operationMode = text(value.mode, 'Initialization profile operation mode');
-  if (!['VALIDATE', 'INSTALL'].includes(operationMode)) throw new Error('Initialization profile operation mode is invalid');
+  if (!['VALIDATE', 'INSTALL'].includes(operationMode))
+    throw new Error('Initialization profile operation mode is invalid');
   return Object.freeze({
     profileCode: text(value.profileCode, 'Initialization profile operation code'),
     mode: operationMode as 'VALIDATE' | 'INSTALL',

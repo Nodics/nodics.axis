@@ -217,21 +217,33 @@ describe('ImportExportRoutePage', () => {
   });
 
   it('validates and initializes a backend-owned guided profile on Staged', async () => {
-    const pendingRelease = { ...currentRelease, dataType: 'init', status: 'NOT_INSTALLED', installedVersion: undefined };
+    const pendingRelease = {
+      ...currentRelease,
+      dataType: 'init',
+      status: 'NOT_INSTALLED',
+      installedVersion: undefined,
+    };
     const profile = {
-      profileCode: 'localWcmsFoundation', label: 'Local WCMS foundation',
+      profileCode: 'localWcmsFoundation',
+      label: 'Local WCMS foundation',
       description: 'Install the Local content foundation.',
       completionMessage: 'The Staged content foundation is ready.',
-      destinationRole: 'STAGED', status: 'ACTION_REQUIRED', blocked: false,
+      destinationRole: 'STAGED',
+      status: 'ACTION_REQUIRED',
+      blocked: false,
       steps: [{ order: 1, dataType: 'init', releases: [pendingRelease] }],
     };
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = fetchInputUrl(input);
-      if (url.endsWith('/initialization-profiles')) return Promise.resolve(jsonResponse([profile]));
+      if (url.endsWith('/initialization-profiles'))
+        return Promise.resolve(jsonResponse([profile]));
       if (url.endsWith('/initialization-profiles/localWcmsFoundation/validate')) {
-        return Promise.resolve(jsonResponse({ profileCode: profile.profileCode, mode: 'VALIDATE', profile }));
+        return Promise.resolve(
+          jsonResponse({ profileCode: profile.profileCode, mode: 'VALIDATE', profile }),
+        );
       }
-      if (url.endsWith('/init') || url.endsWith('/core') || url.endsWith('/sample')) return Promise.resolve(jsonResponse([]));
+      if (url.endsWith('/init') || url.endsWith('/core') || url.endsWith('/sample'))
+        return Promise.resolve(jsonResponse([]));
       return Promise.resolve(jsonResponse([]));
     });
     const user = userEvent.setup();
@@ -240,35 +252,76 @@ describe('ImportExportRoutePage', () => {
     expect(await screen.findByText('Local WCMS foundation')).toBeVisible();
     expect(screen.getByText('Target STAGED')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Validate plan' }));
-    expect(await screen.findByText(/backend validated the immutable initialization plan/iu)).toBeVisible();
-    const call = fetchMock.mock.calls.find(([input]) => fetchInputUrl(input).endsWith('/initialization-profiles/localWcmsFoundation/validate'));
+    expect(
+      await screen.findByText(/backend validated the immutable initialization plan/iu),
+    ).toBeVisible();
+    const call = fetchMock.mock.calls.find(([input]) =>
+      fetchInputUrl(input).endsWith(
+        '/initialization-profiles/localWcmsFoundation/validate',
+      ),
+    );
     expect(call?.[1]?.method).toBe('POST');
-    expect(fetchMock.mock.calls.some(([input]) => fetchInputUrl(input).startsWith('http://localhost:4314/'))).toBe(false);
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        fetchInputUrl(input).startsWith('http://localhost:4314/'),
+      ),
+    ).toBe(false);
   });
 
   it('shows a guided installation failure and allows a successful retry', async () => {
-    const pendingRelease = { ...currentRelease, dataType: 'init', status: 'FAILED', installedVersion: undefined };
+    const pendingRelease = {
+      ...currentRelease,
+      dataType: 'init',
+      status: 'FAILED',
+      installedVersion: undefined,
+    };
     const pendingProfile = {
-      profileCode: 'localWcmsFoundation', label: 'Local WCMS foundation',
+      profileCode: 'localWcmsFoundation',
+      label: 'Local WCMS foundation',
       description: 'Install the Local content foundation.',
       completionMessage: 'The Staged content foundation is ready.',
-      destinationRole: 'STAGED', status: 'ACTION_REQUIRED', blocked: false,
+      destinationRole: 'STAGED',
+      status: 'ACTION_REQUIRED',
+      blocked: false,
       steps: [{ order: 1, dataType: 'init', releases: [pendingRelease] }],
     };
     const currentProfile = {
-      ...pendingProfile, status: 'CURRENT',
-      steps: [{ order: 1, dataType: 'init', releases: [{ ...pendingRelease, status: 'CURRENT', installedVersion: '1.0.0' }] }],
+      ...pendingProfile,
+      status: 'CURRENT',
+      steps: [
+        {
+          order: 1,
+          dataType: 'init',
+          releases: [
+            { ...pendingRelease, status: 'CURRENT', installedVersion: '1.0.0' },
+          ],
+        },
+      ],
     };
     let attempts = 0;
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = fetchInputUrl(input);
-      if (url.endsWith('/initialization-profiles')) return Promise.resolve(jsonResponse([pendingProfile]));
+      if (url.endsWith('/initialization-profiles'))
+        return Promise.resolve(jsonResponse([pendingProfile]));
       if (url.endsWith('/initialization-profiles/localWcmsFoundation/install')) {
         attempts += 1;
-        if (attempts === 1) return Promise.resolve(new Response(JSON.stringify({ message: 'Controlled initialization failure' }), { status: 500, headers: { 'Content-Type': 'application/json' } }));
-        return Promise.resolve(jsonResponse({ profileCode: pendingProfile.profileCode, mode: 'INSTALL', profile: currentProfile }));
+        if (attempts === 1)
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ message: 'Controlled initialization failure' }),
+              { status: 500, headers: { 'Content-Type': 'application/json' } },
+            ),
+          );
+        return Promise.resolve(
+          jsonResponse({
+            profileCode: pendingProfile.profileCode,
+            mode: 'INSTALL',
+            profile: currentProfile,
+          }),
+        );
       }
-      if (url.endsWith('/init') || url.endsWith('/core') || url.endsWith('/sample')) return Promise.resolve(jsonResponse([]));
+      if (url.endsWith('/init') || url.endsWith('/core') || url.endsWith('/sample'))
+        return Promise.resolve(jsonResponse([]));
       return Promise.resolve(jsonResponse([]));
     });
     const user = userEvent.setup();
@@ -278,7 +331,9 @@ describe('ImportExportRoutePage', () => {
     await user.click(screen.getByRole('button', { name: 'Validate and initialize' }));
     expect(await screen.findByText('Controlled initialization failure')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Validate and initialize' }));
-    expect(await screen.findByText('The Staged content foundation is ready.')).toBeVisible();
+    expect(
+      await screen.findByText('The Staged content foundation is ready.'),
+    ).toBeVisible();
     expect(attempts).toBe(2);
   });
 

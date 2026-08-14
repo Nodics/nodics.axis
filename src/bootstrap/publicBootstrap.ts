@@ -182,10 +182,12 @@ export interface AxisModuleConnection {
   readonly endpoint: string;
   readonly environment: string;
   readonly server?: string | undefined;
-  readonly runtimeRole?: Readonly<{
-    readonly code: string;
-    readonly publication: string;
-  }> | undefined;
+  readonly runtimeRole?:
+    | Readonly<{
+        readonly code: string;
+        readonly publication: string;
+      }>
+    | undefined;
   readonly state: AxisModuleAvailability;
 }
 

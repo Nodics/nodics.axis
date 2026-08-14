@@ -276,7 +276,9 @@ export function App() {
         timeoutMs: runtime.requestTimeoutMs,
       };
       let tasks = await loadProcessTasks(processConnection, configuration, workflowRef);
-      let task = tasks.find((item) => ['OPEN', 'CLAIMED', 'ESCALATED'].includes(item.status));
+      let task = tasks.find((item) =>
+        ['OPEN', 'CLAIMED', 'ESCALATED'].includes(item.status),
+      );
       if (!task) {
         const replayed = await initiateAxisInitialization(
           runtime.backofficeBaseUrl,
@@ -284,8 +286,14 @@ export function App() {
           runtime.requestTimeoutMs,
         );
         const replayedWorkflowRef = replayed.publication?.workflowRef ?? workflowRef;
-        tasks = await loadProcessTasks(processConnection, configuration, replayedWorkflowRef);
-        task = tasks.find((item) => ['OPEN', 'CLAIMED', 'ESCALATED'].includes(item.status));
+        tasks = await loadProcessTasks(
+          processConnection,
+          configuration,
+          replayedWorkflowRef,
+        );
+        task = tasks.find((item) =>
+          ['OPEN', 'CLAIMED', 'ESCALATED'].includes(item.status),
+        );
       }
       if (!task) throw new Error('No actionable Process approval task was found');
       await completeProcessTask(processConnection, configuration, task.code, {

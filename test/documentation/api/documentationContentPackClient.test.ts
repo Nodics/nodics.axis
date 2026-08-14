@@ -58,7 +58,9 @@ describe('documentation content-pack client', () => {
     expect(result.allowedOperations).toEqual(['IMPORT']);
     expect(fetchImplementation).toHaveBeenNthCalledWith(
       1,
-      new URL('http://localhost:3000/nodics/backoffice/v0/applications/frameworkdocs/initialization/content-pack'),
+      new URL(
+        'http://localhost:3000/nodics/backoffice/v0/applications/frameworkdocs/initialization/content-pack',
+      ),
       expect.objectContaining({
         method: 'GET',
         credentials: 'omit',
@@ -69,7 +71,9 @@ describe('documentation content-pack client', () => {
     await client.importOrUpdate();
     expect(fetchImplementation).toHaveBeenNthCalledWith(
       2,
-      new URL('http://localhost:3000/nodics/backoffice/v0/applications/frameworkdocs/initialization/content-pack/install'),
+      new URL(
+        'http://localhost:3000/nodics/backoffice/v0/applications/frameworkdocs/initialization/content-pack/install',
+      ),
       expect.objectContaining({ method: 'POST' }),
     );
   });

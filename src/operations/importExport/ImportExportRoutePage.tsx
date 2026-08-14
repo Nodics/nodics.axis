@@ -210,12 +210,21 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
   const profileOperation = useMutation({
     mutationFn: (request: { profileCode: string; mode: 'validate' | 'install' }) => {
       if (!connection) throw new Error('Import service is unavailable');
-      return runInitializationProfile(connection, configuration, request.profileCode, request.mode);
+      return runInitializationProfile(
+        connection,
+        configuration,
+        request.profileCode,
+        request.mode,
+      );
     },
     onSuccess: async () => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['initialization-profiles', props.runtime.enterpriseCode] }),
-        queryClient.invalidateQueries({ queryKey: ['import-catalogue', props.runtime.enterpriseCode] }),
+        queryClient.invalidateQueries({
+          queryKey: ['initialization-profiles', props.runtime.enterpriseCode],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['import-catalogue', props.runtime.enterpriseCode],
+        }),
       ]);
     },
   });
@@ -308,8 +317,16 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
               operationError={profileOperation.error?.message}
               operationPending={profileOperation.isPending}
               profiles={profiles.data ?? []}
-              successMessage={profileOperation.data?.mode === 'INSTALL' ? profileOperation.data.profile.completionMessage : profileOperation.data ? 'The backend validated the immutable initialization plan. No data was changed.' : undefined}
-              onRun={(profileCode, mode) => profileOperation.mutate({ profileCode, mode })}
+              successMessage={
+                profileOperation.data?.mode === 'INSTALL'
+                  ? profileOperation.data.profile.completionMessage
+                  : profileOperation.data
+                    ? 'The backend validated the immutable initialization plan. No data was changed.'
+                    : undefined
+              }
+              onRun={(profileCode, mode) =>
+                profileOperation.mutate({ profileCode, mode })
+              }
             />
           ) : area === 'exports' ? (
             <ExportWorkspace
