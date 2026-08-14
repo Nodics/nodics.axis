@@ -631,6 +631,9 @@ export async function completeProcessTask(
   connection: AxisModuleConnection,
   configuration: ProcessDefinitionClientConfiguration,
   taskCode: string,
+  decision: Readonly<Record<string, unknown>> = {
+    outcome: 'completed-from-axis',
+  },
 ): Promise<unknown> {
   return envelopeData(
     await request(
@@ -639,10 +642,23 @@ export async function completeProcessTask(
       configuration,
       {
         method: 'POST',
-        body: JSON.stringify({ decision: { outcome: 'completed-from-axis' } }),
+        body: JSON.stringify({ decision }),
       },
     ),
   );
+}
+
+export async function loadProcessTasks(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  instanceCode: string,
+): Promise<readonly ProcessHumanTask[]> {
+  const value = await request(
+    connection,
+    `/tasks?limit=25&instanceCode=${encodeURIComponent(instanceCode)}`,
+    configuration,
+  );
+  return Object.freeze(listPayload(value).map(parseHumanTask));
 }
 
 export async function cancelProcessTask(

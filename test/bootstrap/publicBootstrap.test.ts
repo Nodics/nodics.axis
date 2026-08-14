@@ -47,6 +47,7 @@ const authenticatedData = {
         canonicalIdentity: 'nodics.wcms/modules/cms',
         instanceId: 'runtime-1',
         environment: 'kickoffLocal',
+        runtimeRole: { code: 'WCMS_STAGED', publication: 'STAGED' },
         clientCallable: true,
         endpoint: 'https://cms.example.com/nodics/cms',
         state: 'UP',
@@ -305,6 +306,7 @@ describe('Axis bootstrap clients', () => {
         instanceId: 'runtime-1',
         endpoint: 'https://cms.example.com/nodics/cms',
         environment: 'kickoffLocal',
+        runtimeRole: { code: 'WCMS_STAGED', publication: 'STAGED' },
         state: 'UP',
       },
     ]);
@@ -314,6 +316,9 @@ describe('Axis bootstrap clients', () => {
     expect(
       selectModuleConnection(result, 'cms', { server: 'wcmsStagedServer' }),
     ).toBeUndefined();
+    expect(
+      selectModuleConnection(result, 'cms', { publicationRole: 'STAGED' })?.endpoint,
+    ).toBe('https://cms.example.com/nodics/cms');
     expect(result.navigation).toEqual([
       expect.objectContaining({
         label: 'Content',

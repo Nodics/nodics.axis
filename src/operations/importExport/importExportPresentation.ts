@@ -11,7 +11,7 @@ export interface DataReleaseTypeCopy {
   readonly warning: string;
 }
 
-export type ImportExportArea = DataReleaseType | 'file-imports' | 'exports' | 'history';
+export type ImportExportArea = DataReleaseType | 'guided' | 'file-imports' | 'exports' | 'history';
 
 export type HistoryFilter = 'all' | 'imports' | 'exports';
 
@@ -38,6 +38,7 @@ export const typeCopy: Readonly<Record<DataReleaseType, DataReleaseTypeCopy>> = 
 export const releaseTypes: readonly DataReleaseType[] = ['init', 'core', 'sample'];
 
 export const importExportAreas: readonly ImportExportArea[] = [
+  'guided',
   ...releaseTypes,
   'file-imports',
   'exports',
@@ -55,6 +56,10 @@ export const areaCopy: Readonly<
     }
   >
 > = {
+  guided: {
+    label: 'Guided setup', eyebrow: 'Governed initialization', title: 'Guided setup',
+    help: 'Validate and install a backend-owned deterministic initialization profile.',
+  },
   'file-imports': {
     label: 'File imports',
     eyebrow: 'External data intake',

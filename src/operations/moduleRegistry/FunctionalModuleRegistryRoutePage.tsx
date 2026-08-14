@@ -433,7 +433,7 @@ export function FunctionalModuleRegistryRoutePage(
                     justifyContent: 'space-between',
                   }}
                 >
-                  <Box>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Typography component="h2" variant="h5">
                       Project module lifecycle
                     </Typography>
@@ -444,7 +444,20 @@ export function FunctionalModuleRegistryRoutePage(
                       Deregister returns an optional module to the available list.
                     </Typography>
                   </Box>
-                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                  <Box
+                    aria-label="Module lifecycle summary"
+                    sx={{
+                      alignSelf: { md: 'center' },
+                      display: 'grid',
+                      flexShrink: 0,
+                      gap: 1,
+                      gridTemplateColumns: {
+                        xs: 'repeat(2, minmax(0, max-content))',
+                        md: 'repeat(4, max-content)',
+                      },
+                      justifyContent: { xs: 'start', md: 'end' },
+                    }}
+                  >
                     <Chip
                       color="success"
                       label={`${String(enabledRegistered)} enabled`}
@@ -461,7 +474,7 @@ export function FunctionalModuleRegistryRoutePage(
                       color="warning"
                       label={`${String(available.length)} waiting`}
                     />
-                  </Stack>
+                  </Box>
                 </Stack>
               </CardContent>
             </Card>

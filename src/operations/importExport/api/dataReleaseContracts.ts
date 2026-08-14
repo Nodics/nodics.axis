@@ -41,6 +41,35 @@ export interface DataReleaseOperationResult {
   readonly importRun?: string;
 }
 
+export type InitializationProfileStatus =
+  | 'ACTION_REQUIRED'
+  | 'BLOCKED'
+  | 'RUNNING'
+  | 'CURRENT';
+
+export interface InitializationProfileStep {
+  readonly order: number;
+  readonly dataType: DataReleaseType;
+  readonly releases: readonly DataRelease[];
+}
+
+export interface InitializationProfile {
+  readonly profileCode: string;
+  readonly label: string;
+  readonly description: string;
+  readonly completionMessage: string;
+  readonly destinationRole?: string;
+  readonly status: InitializationProfileStatus;
+  readonly blocked: boolean;
+  readonly steps: readonly InitializationProfileStep[];
+}
+
+export interface InitializationProfileOperationResult {
+  readonly profileCode: string;
+  readonly mode: 'VALIDATE' | 'INSTALL';
+  readonly profile: InitializationProfile;
+}
+
 export interface ImportRunSummary {
   readonly runId: string;
   readonly status: string;

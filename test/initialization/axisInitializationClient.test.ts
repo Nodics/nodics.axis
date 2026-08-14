@@ -17,6 +17,36 @@ const status = {
       code: 'cmsBaseline_axis_1_0_0',
       state: 'PENDING_APPROVAL',
       revision: 2,
+      workflowRef: 'workflow-1',
+    },
+    review: {
+      title: 'Publish Axis',
+      summary: 'Review Axis.',
+      sourceRole: 'WCMS_STAGED',
+      targetRole: 'WCMS_ONLINE',
+      siteCode: 'axisCmsSite',
+      catalogCode: 'axisContentCatalog',
+      impactMessage: 'Axis becomes Online.',
+      rollbackMessage: 'Restore the previous release when available.',
+      releaseChecksum: 'checksum-1',
+      publicationCode: 'cmsBaseline_axis_1_0_0',
+      workflowRef: 'workflow-1',
+      tenant: 'default',
+      validation: { status: 'PASSED', warnings: [] },
+      entities: [
+        {
+          type: 'page',
+          label: 'Pages',
+          total: 10,
+          added: 10,
+          updated: 0,
+          unchanged: 0,
+          removed: 0,
+        },
+      ],
+      postPublicationCapabilities: [
+        { title: 'Open Axis', description: 'Use the managed workspace.' },
+      ],
     },
   },
 };
@@ -33,6 +63,8 @@ describe('Axis initialization client', () => {
       fetchImplementation,
     );
     expect(result.readiness).toBe('PUBLICATION_PENDING');
+    expect(result.review?.releaseChecksum).toBe('checksum-1');
+    expect(result.review?.entities[0]?.added).toBe(10);
     const [url, init] = fetchImplementation.mock.calls[0] ?? [];
     expect(
       url instanceof URL ? url.href : typeof url === 'string' ? url : url?.url,

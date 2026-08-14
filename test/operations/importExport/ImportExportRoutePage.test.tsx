@@ -36,9 +36,20 @@ const bootstrap: AxisAuthenticatedBootstrap = {
     import: [
       {
         moduleName: 'import',
-        instanceId: 'kickoffLocal:monoServer:import:0',
-        endpoint: 'http://localhost:3000/nodics/import',
+        instanceId: 'kickoffLocal:wcmsOnlineServer:import:0',
+        endpoint: 'http://localhost:4314/nodics/import',
         environment: 'kickoffLocal',
+        server: 'wcmsOnlineServer',
+        runtimeRole: { code: 'WCMS_ONLINE', publication: 'ONLINE' },
+        state: 'UP',
+      },
+      {
+        moduleName: 'import',
+        instanceId: 'kickoffLocal:wcmsStagedServer:import:0',
+        endpoint: 'http://localhost:4312/nodics/import',
+        environment: 'kickoffLocal',
+        server: 'wcmsStagedServer',
+        runtimeRole: { code: 'WCMS_STAGED', publication: 'STAGED' },
         state: 'UP',
       },
     ],
@@ -199,7 +210,76 @@ describe('ImportExportRoutePage', () => {
 
     await user.click(screen.getByRole('tab', { name: 'Initialization data' }));
 
+    expect(window.location.search).toBe('?area=init');
+
+    await user.click(screen.getByRole('tab', { name: 'Guided setup' }));
     expect(window.location.search).toBe('');
+  });
+
+  it('validates and initializes a backend-owned guided profile on Staged', async () => {
+    const pendingRelease = { ...currentRelease, dataType: 'init', status: 'NOT_INSTALLED', installedVersion: undefined };
+    const profile = {
+      profileCode: 'localWcmsFoundation', label: 'Local WCMS foundation',
+      description: 'Install the Local content foundation.',
+      completionMessage: 'The Staged content foundation is ready.',
+      destinationRole: 'STAGED', status: 'ACTION_REQUIRED', blocked: false,
+      steps: [{ order: 1, dataType: 'init', releases: [pendingRelease] }],
+    };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.endsWith('/initialization-profiles')) return Promise.resolve(jsonResponse([profile]));
+      if (url.endsWith('/initialization-profiles/localWcmsFoundation/validate')) {
+        return Promise.resolve(jsonResponse({ profileCode: profile.profileCode, mode: 'VALIDATE', profile }));
+      }
+      if (url.endsWith('/init') || url.endsWith('/core') || url.endsWith('/sample')) return Promise.resolve(jsonResponse([]));
+      return Promise.resolve(jsonResponse([]));
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText('Local WCMS foundation')).toBeVisible();
+    expect(screen.getByText('Target STAGED')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Validate plan' }));
+    expect(await screen.findByText(/backend validated the immutable initialization plan/iu)).toBeVisible();
+    const call = fetchMock.mock.calls.find(([input]) => fetchInputUrl(input).endsWith('/initialization-profiles/localWcmsFoundation/validate'));
+    expect(call?.[1]?.method).toBe('POST');
+    expect(fetchMock.mock.calls.some(([input]) => fetchInputUrl(input).startsWith('http://localhost:4314/'))).toBe(false);
+  });
+
+  it('shows a guided installation failure and allows a successful retry', async () => {
+    const pendingRelease = { ...currentRelease, dataType: 'init', status: 'FAILED', installedVersion: undefined };
+    const pendingProfile = {
+      profileCode: 'localWcmsFoundation', label: 'Local WCMS foundation',
+      description: 'Install the Local content foundation.',
+      completionMessage: 'The Staged content foundation is ready.',
+      destinationRole: 'STAGED', status: 'ACTION_REQUIRED', blocked: false,
+      steps: [{ order: 1, dataType: 'init', releases: [pendingRelease] }],
+    };
+    const currentProfile = {
+      ...pendingProfile, status: 'CURRENT',
+      steps: [{ order: 1, dataType: 'init', releases: [{ ...pendingRelease, status: 'CURRENT', installedVersion: '1.0.0' }] }],
+    };
+    let attempts = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.endsWith('/initialization-profiles')) return Promise.resolve(jsonResponse([pendingProfile]));
+      if (url.endsWith('/initialization-profiles/localWcmsFoundation/install')) {
+        attempts += 1;
+        if (attempts === 1) return Promise.resolve(new Response(JSON.stringify({ message: 'Controlled initialization failure' }), { status: 500, headers: { 'Content-Type': 'application/json' } }));
+        return Promise.resolve(jsonResponse({ profileCode: pendingProfile.profileCode, mode: 'INSTALL', profile: currentProfile }));
+      }
+      if (url.endsWith('/init') || url.endsWith('/core') || url.endsWith('/sample')) return Promise.resolve(jsonResponse([]));
+      return Promise.resolve(jsonResponse([]));
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Local WCMS foundation');
+
+    await user.click(screen.getByRole('button', { name: 'Validate and initialize' }));
+    expect(await screen.findByText('Controlled initialization failure')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Validate and initialize' }));
+    expect(await screen.findByText('The Staged content foundation is ready.')).toBeVisible();
+    expect(attempts).toBe(2);
   });
 
   it('validates current releases without enabling no-op installation', async () => {
@@ -224,6 +304,18 @@ describe('ImportExportRoutePage', () => {
 
     renderPage();
     await user.click(await screen.findByRole('tab', { name: 'Core data' }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([input]) =>
+          fetchInputUrl(input).startsWith('http://localhost:4312/nodics/import/'),
+        ),
+      ).toBe(true),
+    );
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        fetchInputUrl(input).startsWith('http://localhost:4314/nodics/import/'),
+      ),
+    ).toBe(false);
     await user.click(screen.getByRole('checkbox', { name: 'Select Scheduled Jobs' }));
 
     expect(screen.getByText(/Selected releases are already current/iu)).toBeVisible();

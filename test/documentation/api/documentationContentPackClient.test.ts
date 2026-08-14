@@ -3,9 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { createDocumentationContentPackClient } from '../../../src/documentation/api/documentationContentPackClient';
 
 const connection = {
-  moduleName: 'system',
-  instanceId: 'monoServer/import',
-  endpoint: 'http://localhost:3000',
+  moduleName: 'backoffice',
+  instanceId: 'platformServer/backoffice',
+  endpoint: 'http://localhost:3000/nodics/backoffice',
   environment: 'kickoffLocal',
   state: 'UP' as const,
 };
@@ -48,6 +48,7 @@ describe('documentation content-pack client', () => {
         enterpriseCode: 'default',
         accessToken: 'employee-token',
         timeoutMs: 1_000,
+        profileCode: 'frameworkdocs',
       },
       fetchImplementation,
     );
@@ -57,10 +58,7 @@ describe('documentation content-pack client', () => {
     expect(result.allowedOperations).toEqual(['IMPORT']);
     expect(fetchImplementation).toHaveBeenNthCalledWith(
       1,
-      new URL(
-        '/nodics/system/v0/content-packs/nodicsDocumentation',
-        connection.endpoint,
-      ),
+      new URL('http://localhost:3000/nodics/backoffice/v0/applications/frameworkdocs/initialization/content-pack'),
       expect.objectContaining({
         method: 'GET',
         credentials: 'omit',
@@ -71,10 +69,7 @@ describe('documentation content-pack client', () => {
     await client.importOrUpdate();
     expect(fetchImplementation).toHaveBeenNthCalledWith(
       2,
-      new URL(
-        '/nodics/system/v0/content-packs/nodicsDocumentation/imports',
-        connection.endpoint,
-      ),
+      new URL('http://localhost:3000/nodics/backoffice/v0/applications/frameworkdocs/initialization/content-pack/install'),
       expect.objectContaining({ method: 'POST' }),
     );
   });
@@ -88,6 +83,7 @@ describe('documentation content-pack client', () => {
         enterpriseCode: 'default',
         accessToken: 'employee-token',
         timeoutMs: 1_000,
+        profileCode: 'frameworkdocs',
       },
       vi
         .fn<typeof fetch>()
@@ -106,6 +102,7 @@ describe('documentation content-pack client', () => {
         enterpriseCode: 'default',
         accessToken: 'employee-token',
         timeoutMs: 1_000,
+        profileCode: 'frameworkdocs',
       },
       vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 403 })),
     );
@@ -122,6 +119,7 @@ describe('documentation content-pack client', () => {
         enterpriseCode: 'default',
         accessToken: 'employee-token',
         timeoutMs: 1_000,
+        profileCode: 'frameworkdocs',
       },
       vi.fn<typeof fetch>().mockResolvedValue(
         new Response(
@@ -151,6 +149,7 @@ describe('documentation content-pack client', () => {
         enterpriseCode: 'default',
         accessToken: 'employee-token',
         timeoutMs: 1_000,
+        profileCode: 'frameworkdocs',
       },
       vi.fn<typeof fetch>().mockResolvedValue(
         new Response(

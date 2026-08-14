@@ -12,9 +12,11 @@ import {
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
   installDataReleases,
+  loadInitializationProfiles,
   loadDataReleases,
   loadImportHistory,
   preflightDataReleases,
+  runInitializationProfile,
   type DataReleaseClientConfiguration,
 } from './api/dataReleaseClient';
 import type {
@@ -23,6 +25,7 @@ import type {
   DataReleaseType,
 } from './api/dataReleaseContracts';
 import { DataReleaseWorkbench } from './components/DataReleaseWorkbench';
+import { GuidedInitializationWorkspace } from './components/GuidedInitializationWorkspace';
 import { ExportWorkspace } from './components/ExportWorkspace';
 import { FileImportWorkspace } from './components/FileImportWorkspace';
 import { ImportExportHistoryPanel } from './components/ImportExportHistoryPanel';
@@ -55,13 +58,13 @@ function initialAreaFromLocation(): ImportExportArea {
   const candidate = new URLSearchParams(window.location.search).get('area');
   return importExportAreas.includes(candidate as ImportExportArea)
     ? (candidate as ImportExportArea)
-    : 'init';
+    : 'guided';
 }
 
 function replaceAreaInLocation(area: ImportExportArea): void {
   if (typeof window === 'undefined') return;
   const next = new URL(window.location.href);
-  if (area === 'init') next.searchParams.delete('area');
+  if (area === 'guided') next.searchParams.delete('area');
   else next.searchParams.set('area', area);
   window.history.replaceState(
     window.history.state,
@@ -85,6 +88,17 @@ function createPlan(
   });
 }
 
+function selectDataAdministrationConnection(
+  bootstrap: AxisAuthenticatedBootstrap,
+  moduleName: string,
+) {
+  return (
+    selectModuleConnection(bootstrap, moduleName, {
+      publicationRole: 'STAGED',
+    }) ?? selectModuleConnection(bootstrap, moduleName)
+  );
+}
+
 export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
   const [area, setArea] = useState<ImportExportArea>(() => initialAreaFromLocation());
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('all');
@@ -94,9 +108,12 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
     'validate' | 'install' | undefined
   >(undefined);
   const queryClient = useQueryClient();
-  const connection = selectModuleConnection(props.bootstrap, 'import');
-  const exportConnection = selectModuleConnection(props.bootstrap, 'export');
-  const mediaConnection = selectModuleConnection(props.bootstrap, 'media');
+  const connection = selectDataAdministrationConnection(props.bootstrap, 'import');
+  const exportConnection = selectDataAdministrationConnection(
+    props.bootstrap,
+    'export',
+  );
+  const mediaConnection = selectDataAdministrationConnection(props.bootstrap, 'media');
   const schemaConnections = useMemo(
     () =>
       Object.freeze(
@@ -119,6 +136,14 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
     queryFn: () => {
       if (!connection) throw new Error('Import service is unavailable');
       return loadDataReleases(connection, configuration);
+    },
+    enabled: Boolean(connection),
+  });
+  const profiles = useQuery({
+    queryKey: ['initialization-profiles', props.runtime.enterpriseCode],
+    queryFn: () => {
+      if (!connection) throw new Error('Import service is unavailable');
+      return loadInitializationProfiles(connection, configuration);
     },
     enabled: Boolean(connection),
   });
@@ -180,6 +205,18 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
       await queryClient.invalidateQueries({
         queryKey: ['import-catalogue', props.runtime.enterpriseCode],
       });
+    },
+  });
+  const profileOperation = useMutation({
+    mutationFn: (request: { profileCode: string; mode: 'validate' | 'install' }) => {
+      if (!connection) throw new Error('Import service is unavailable');
+      return runInitializationProfile(connection, configuration, request.profileCode, request.mode);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['initialization-profiles', props.runtime.enterpriseCode] }),
+        queryClient.invalidateQueries({ queryKey: ['import-catalogue', props.runtime.enterpriseCode] }),
+      ]);
     },
   });
   const operationTypeLabel = operation.data
@@ -264,7 +301,17 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
             </Tabs>
           </Box>
 
-          {area === 'exports' ? (
+          {area === 'guided' ? (
+            <GuidedInitializationWorkspace
+              errorMessage={profiles.error?.message}
+              isLoading={profiles.isLoading}
+              operationError={profileOperation.error?.message}
+              operationPending={profileOperation.isPending}
+              profiles={profiles.data ?? []}
+              successMessage={profileOperation.data?.mode === 'INSTALL' ? profileOperation.data.profile.completionMessage : profileOperation.data ? 'The backend validated the immutable initialization plan. No data was changed.' : undefined}
+              onRun={(profileCode, mode) => profileOperation.mutate({ profileCode, mode })}
+            />
+          ) : area === 'exports' ? (
             <ExportWorkspace
               configuration={configuration}
               enterpriseCode={props.runtime.enterpriseCode}

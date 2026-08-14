@@ -21,6 +21,7 @@ describe('bundled Axis initialization experience', () => {
     const user = userEvent.setup();
     const onInitiate = vi.fn();
     const onRefresh = vi.fn();
+    const onApprove = vi.fn();
     const base = {
       baselineCode: 'axis',
       releaseCode: 'axis:axisBaseline',
@@ -30,6 +31,7 @@ describe('bundled Axis initialization experience', () => {
     const view = render(
       <AxisInitializationWorkspace
         busy={false}
+        onApprove={onApprove}
         onInitiate={onInitiate}
         onLogout={vi.fn()}
         onRefresh={onRefresh}
@@ -41,19 +43,123 @@ describe('bundled Axis initialization experience', () => {
     view.rerender(
       <AxisInitializationWorkspace
         busy={false}
+        onApprove={onApprove}
         onInitiate={onInitiate}
         onLogout={vi.fn()}
         onRefresh={onRefresh}
         status={{
           ...base,
           readiness: 'PUBLICATION_PENDING',
-          publication: { code: 'publication', state: 'PENDING_APPROVAL', revision: 2 },
+          publication: {
+            code: 'publication',
+            state: 'PENDING_APPROVAL',
+            revision: 2,
+            workflowRef: 'axis-approval-1',
+          },
+          review: {
+            title: 'Publish the managed Nodics Axis workspace',
+            summary: 'Review this immutable release before approval.',
+            sourceRole: 'WCMS_STAGED',
+            targetRole: 'WCMS_ONLINE',
+            siteCode: 'axisCmsSite',
+            catalogCode: 'axisContentCatalog',
+            impactMessage: 'Axis will load its managed Online experience.',
+            rollbackMessage:
+              'The previous Online release can be restored when one exists.',
+            releaseChecksum: 'axis-release-checksum',
+            publicationCode: 'publication',
+            workflowRef: 'axis-approval-1',
+            requestedBy: 'admin',
+            requestedAt: '2026-08-14T11:00:00.000Z',
+            tenant: 'default',
+            validation: { status: 'PASSED', warnings: [] },
+            entities: [
+              {
+                type: 'page',
+                label: 'Pages',
+                total: 10,
+                added: 10,
+                updated: 0,
+                unchanged: 0,
+                removed: 0,
+              },
+              {
+                type: 'component',
+                label: 'Components',
+                total: 28,
+                added: 28,
+                updated: 0,
+                unchanged: 0,
+                removed: 0,
+              },
+            ],
+            postPublicationCapabilities: [
+              {
+                title: 'Open the full Axis workspace',
+                description: 'Use authorized business modules.',
+              },
+              {
+                title: 'Preview and publish later versions',
+                description: 'Keep changes safely in Staged.',
+              },
+            ],
+          },
         }}
       />,
     );
     expect(screen.queryByRole('button', { name: 'Initialize and submit' })).toBeNull();
-    expect(screen.getByText(/normal Process approval/)).toBeVisible();
+    expect(screen.getByText(/governed Process approval/)).toBeVisible();
+    expect(screen.getByText('38 records')).toBeVisible();
+    expect(screen.getByText(/After approval:/)).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Refresh status' }));
     expect(onRefresh).toHaveBeenCalledOnce();
+    await user.click(
+      screen.getByRole('button', { name: 'Review publication details' }),
+    );
+    expect(
+      screen.getByRole('heading', { name: 'What you are approving' }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/Immutable release checksum: axis-release-checksum/),
+    ).toBeVisible();
+    expect(screen.getByText(/Workflow: axis-approval-1/)).toBeVisible();
+    expect(screen.getByText(/Submitted by admin/)).toBeVisible();
+    expect(screen.getByText('Pages: 10')).toBeVisible();
+    expect(
+      screen.getByRole('heading', { name: 'What happens after approval' }),
+    ).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'What you can do next' })).toBeVisible();
+    expect(screen.getByText('Open the full Axis workspace')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Approve and publish' }));
+    expect(onApprove).toHaveBeenCalledOnce();
+  });
+
+  it('fails closed when the authoritative review is missing or does not match the workflow', () => {
+    render(
+      <AxisInitializationWorkspace
+        busy={false}
+        onApprove={vi.fn()}
+        onInitiate={vi.fn()}
+        onLogout={vi.fn()}
+        onRefresh={vi.fn()}
+        status={{
+          baselineCode: 'axis',
+          releaseCode: 'axis:axisBaseline',
+          releaseVersion: '1.0.0',
+          releaseStatus: 'CURRENT',
+          readiness: 'PUBLICATION_PENDING',
+          publication: {
+            code: 'publication',
+            state: 'PENDING_APPROVAL',
+            revision: 2,
+            workflowRef: 'workflow-1',
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText(/Approval is unavailable/)).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Review publication details' }),
+    ).toBeNull();
   });
 });

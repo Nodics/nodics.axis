@@ -1303,7 +1303,9 @@ export function ProcessWorkflowRoutePage({
   runtime,
 }: ProcessWorkflowRoutePageProps) {
   const queryClient = useQueryClient();
-  const processConnection = selectModuleConnection(bootstrap, 'flowApi');
+  const processConnection = selectModuleConnection(bootstrap, 'flowApi', {
+    server: 'processServer',
+  });
   const currentPath =
     typeof window !== 'undefined' && window.location.pathname.startsWith('/process')
       ? window.location.pathname

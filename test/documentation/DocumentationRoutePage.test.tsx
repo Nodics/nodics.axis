@@ -117,6 +117,27 @@ const response = {
     allowedActions: ['INITIALIZE'],
   },
 };
+const packResponse = {
+  code: 'SUC_IMP_00000',
+  data: {
+    code: 'nodicsDocumentation',
+    enabled: true,
+    state: 'NOT_INSTALLED',
+    available: true,
+    installedVersion: null,
+    availableVersion: '1.0.0',
+    runId: null,
+    allowedOperations: ['IMPORT'],
+    presentation: {
+      title: 'Nodics documentation',
+      unavailableMessage: 'Documentation is unavailable.',
+      disabledMessage: 'Documentation is disabled.',
+      importAction: 'Install documentation',
+      updateAction: 'Update documentation',
+      retryAction: 'Retry',
+    },
+  },
+};
 
 function renderPage(path = '/docs') {
   const queryClient = new QueryClient({
@@ -167,12 +188,20 @@ describe('DocumentationRoutePage', () => {
   });
 
   it('offers the governed import action when documentation is absent', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify(response), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    );
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation((request) =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify(
+              requestPathname(request).includes('/content-pack')
+                ? packResponse
+                : response,
+            ),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        ),
+      );
     const user = userEvent.setup();
     renderPage('/docs/framework');
 
@@ -182,13 +211,17 @@ describe('DocumentationRoutePage', () => {
     expect(screen.getByRole('tab', { name: 'Framework' })).toBeVisible();
     expect(screen.getByRole('tab', { name: 'Swaggers' })).toBeVisible();
     await user.click(
-      await screen.findByRole('button', { name: 'Install and request publication' }),
+      await screen.findByRole('button', { name: 'Install documentation' }),
     );
-    expect(fetchMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        pathname: '/v0/applications/frameworkdocs/initialization/initiate',
-      }),
-      expect.objectContaining({ method: 'POST' }),
+    expect(fetchMock.mock.calls).toEqual(
+      expect.arrayContaining([
+        [
+          expect.objectContaining({
+            pathname: '/v0/applications/frameworkdocs/initialization/content-pack/install',
+          }),
+          expect.objectContaining({ method: 'POST' }),
+        ],
+      ]),
     );
     fetchMock.mockRestore();
   });
@@ -211,6 +244,22 @@ describe('DocumentationRoutePage', () => {
               status: 200,
               headers: { 'Content-Type': 'application/json' },
             },
+          ),
+        );
+      }
+      if (url.pathname.includes('/content-pack')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ...packResponse,
+              data: {
+                ...packResponse.data,
+                state: 'CURRENT',
+                installedVersion: '1.0.0',
+                allowedOperations: [],
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
           ),
         );
       }
@@ -263,6 +312,60 @@ describe('DocumentationRoutePage', () => {
       .find((pathname) => pathname.includes('/delivery/pages/resolve'));
     expect(cmsRequest).toBe('/nodics/cms/v0/delivery/pages/resolve');
     expect(cmsRequest).not.toContain('/authenticated');
+    fetchMock.mockRestore();
+  });
+
+  it('keeps Staged validation separate from the governed publication request', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((request) => {
+      const pathname = requestPathname(request);
+      if (pathname.includes('/content-pack')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ...packResponse,
+              data: {
+                ...packResponse.data,
+                state: 'CURRENT',
+                installedVersion: '1.0.0',
+                allowedOperations: [],
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            ...response,
+            data: {
+              ...response.data,
+              readiness: pathname.endsWith('/initiate')
+                ? 'PUBLICATION_PENDING'
+                : 'IMPORTED',
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    });
+    const user = userEvent.setup();
+    renderPage('/docs/framework');
+
+    expect(await screen.findByText('Staged: CURRENT')).toBeVisible();
+    expect(screen.getByText('Online: IMPORTED')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Validate staged release' }));
+    await user.click(
+      screen.getByRole('button', { name: 'Publish / request approval' }),
+    );
+    expect(
+      fetchMock.mock.calls.some(
+        ([request, init]) =>
+          requestPathname(request).endsWith('/initialization/initiate') &&
+          init?.method === 'POST',
+      ),
+    ).toBe(true);
+    expect(await screen.findByText('Online: PUBLICATION PENDING')).toBeVisible();
     fetchMock.mockRestore();
   });
 

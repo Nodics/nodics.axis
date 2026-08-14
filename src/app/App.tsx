@@ -45,6 +45,10 @@ import {
   type AxisInitializationStatus,
 } from '../initialization/axisInitializationClient';
 import {
+  completeProcessTask,
+  loadProcessTasks,
+} from '../operations/processWorkflow/api/processDefinitionClient';
+import {
   clearScreenLock,
   persistScreenLock,
   restoreScreenLock,
@@ -239,6 +243,64 @@ export function App() {
       setInitializationBusy(false);
     }
   }, [runtime, session]);
+
+  const approveInitialization = useCallback(async () => {
+    const workflowRef = initializationStatus?.publication?.workflowRef;
+    if (!session || !workflowRef) {
+      setInitializationError('The governed Process approval task is unavailable');
+      return;
+    }
+    setInitializationBusy(true);
+    setInitializationError(undefined);
+    try {
+      const latestBootstrap = await loadAuthenticatedBootstrap(
+        runtime.backofficeBaseUrl,
+        runtime.clientContractVersion,
+        session.accessToken,
+        runtime.requestTimeoutMs,
+      );
+      setAuthenticatedBootstrap(latestBootstrap);
+      const processConnection =
+        selectModuleConnection(latestBootstrap, 'flowApi', {
+          server: 'processServer',
+        }) ??
+        selectModuleConnection(latestBootstrap, 'workflow', {
+          server: 'processServer',
+        });
+      if (!processConnection) {
+        throw new Error('The governed Process approval task is unavailable');
+      }
+      const configuration = {
+        accessToken: session.accessToken,
+        enterpriseCode: runtime.enterpriseCode,
+        timeoutMs: runtime.requestTimeoutMs,
+      };
+      let tasks = await loadProcessTasks(processConnection, configuration, workflowRef);
+      let task = tasks.find((item) => ['OPEN', 'CLAIMED', 'ESCALATED'].includes(item.status));
+      if (!task) {
+        const replayed = await initiateAxisInitialization(
+          runtime.backofficeBaseUrl,
+          session.accessToken,
+          runtime.requestTimeoutMs,
+        );
+        const replayedWorkflowRef = replayed.publication?.workflowRef ?? workflowRef;
+        tasks = await loadProcessTasks(processConnection, configuration, replayedWorkflowRef);
+        task = tasks.find((item) => ['OPEN', 'CLAIMED', 'ESCALATED'].includes(item.status));
+      }
+      if (!task) throw new Error('No actionable Process approval task was found');
+      await completeProcessTask(processConnection, configuration, task.code, {
+        approved: true,
+        reason: 'Axis baseline approved by the authenticated administrator',
+      });
+      await refreshInitialization();
+    } catch (error: unknown) {
+      setInitializationError(
+        error instanceof Error ? error.message : 'Axis baseline approval failed',
+      );
+    } finally {
+      setInitializationBusy(false);
+    }
+  }, [initializationStatus, refreshInitialization, runtime, session]);
 
   useEffect(() => {
     if (!session || !authenticatedBootstrap) {
@@ -784,6 +846,7 @@ export function App() {
         busy={initializationBusy}
         error={initializationError}
         onInitiate={() => void initiateInitialization()}
+        onApprove={() => void approveInitialization()}
         onLogout={logout}
         onRefresh={() => void refreshInitialization()}
         status={initializationStatus}

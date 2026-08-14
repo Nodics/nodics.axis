@@ -182,6 +182,10 @@ export interface AxisModuleConnection {
   readonly endpoint: string;
   readonly environment: string;
   readonly server?: string | undefined;
+  readonly runtimeRole?: Readonly<{
+    readonly code: string;
+    readonly publication: string;
+  }> | undefined;
   readonly state: AxisModuleAvailability;
 }
 
@@ -244,12 +248,21 @@ export type AxisDocumentationSource =
 export function selectModuleConnection(
   bootstrap: AxisAuthenticatedBootstrap,
   moduleName: string,
-  selector?: Readonly<{ server?: string; environment?: string }>,
+  selector?: Readonly<{
+    server?: string;
+    environment?: string;
+    publicationRole?: string;
+    runtimeRoleCode?: string;
+  }>,
 ): AxisModuleConnection | undefined {
   const connections = (bootstrap.moduleConnections[moduleName] ?? []).filter(
     (connection) =>
       (!selector?.server || connection.server === selector.server) &&
-      (!selector?.environment || connection.environment === selector.environment),
+      (!selector?.environment || connection.environment === selector.environment) &&
+      (!selector?.publicationRole ||
+        connection.runtimeRole?.publication === selector.publicationRole) &&
+      (!selector?.runtimeRoleCode ||
+        connection.runtimeRole?.code === selector.runtimeRoleCode),
   );
   return (
     connections.find((connection) => connection.state === 'UP') ??
@@ -1025,6 +1038,19 @@ function parseModuleContext(modulesValue: unknown): {
         environment
       ) {
         const server = optionalText(lease.server, `${moduleName} server`);
+        const runtimeRoleValue =
+          lease.runtimeRole === undefined
+            ? undefined
+            : record(lease.runtimeRole, `${moduleName} runtime role`);
+        const runtimeRole = runtimeRoleValue
+          ? Object.freeze({
+              code: text(runtimeRoleValue.code, `${moduleName} runtime role code`),
+              publication: text(
+                runtimeRoleValue.publication,
+                `${moduleName} publication role`,
+              ),
+            })
+          : undefined;
         moduleConnections.push(
           Object.freeze({
             moduleName,
@@ -1032,6 +1058,7 @@ function parseModuleContext(modulesValue: unknown): {
             endpoint: baseUrl(lease.endpoint, `${moduleName} endpoint`),
             environment,
             ...(server === undefined ? {} : { server }),
+            ...(runtimeRole === undefined ? {} : { runtimeRole }),
             state: availabilityState(lease.state),
           }),
         );

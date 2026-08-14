@@ -19,6 +19,14 @@ const LOCAL_SECURITY_HEADERS = {
   'X-Frame-Options': 'DENY',
 } as const;
 
+const LOCAL_DEVELOPMENT_SECURITY_HEADERS = {
+  ...LOCAL_SECURITY_HEADERS,
+  'Content-Security-Policy': LOCAL_SECURITY_HEADERS['Content-Security-Policy'].replace(
+    "script-src 'self'",
+    "script-src 'self' 'unsafe-inline'",
+  ),
+} as const;
+
 function required(env: Record<string, string>, name: string): string {
   const value = env[name]?.trim();
   if (!value) {
@@ -102,7 +110,9 @@ export default defineConfig(({ mode }) => {
       host,
       port,
       strictPort,
-      headers: LOCAL_SECURITY_HEADERS,
+      // Vite injects the React-refresh preamble as an inline development script.
+      // Preview and built deployments retain the strict script policy below.
+      headers: LOCAL_DEVELOPMENT_SECURITY_HEADERS,
     },
     preview: {
       host,

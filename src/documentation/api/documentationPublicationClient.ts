@@ -6,7 +6,11 @@ export type DocumentationPublicationReadiness =
   | 'PUBLICATION_PENDING'
   | 'READY'
   | 'REJECTED'
-  | 'FAILED';
+  | 'FAILED'
+  | 'ROLLED_BACK'
+  | 'RETIRED';
+
+export type DocumentationPublicationAction = 'INITIALIZE' | 'ROLLBACK' | 'RETIRE';
 
 export interface DocumentationPublicationStatus {
   readonly profileCode: string;
@@ -14,7 +18,8 @@ export interface DocumentationPublicationStatus {
   readonly readiness: DocumentationPublicationReadiness;
   readonly releaseCode: string;
   readonly releaseVersion: string;
-  readonly allowedActions: readonly 'INITIALIZE'[];
+  readonly releaseStatus?: string;
+  readonly allowedActions: readonly DocumentationPublicationAction[];
   readonly publication?: Readonly<{
     code: string;
     state: string;
@@ -58,12 +63,14 @@ function parse(value: unknown): DocumentationPublicationStatus {
       'READY',
       'REJECTED',
       'FAILED',
+      'ROLLED_BACK',
+      'RETIRED',
     ].includes(readiness) ||
     !Array.isArray(data.allowedActions)
   )
     throw new Error('Documentation publication status is incompatible');
   const actions = data.allowedActions.map((item) => text(item, 'Documentation action'));
-  if (actions.some((item) => item !== 'INITIALIZE'))
+  if (actions.some((item) => !['INITIALIZE', 'ROLLBACK', 'RETIRE'].includes(item)))
     throw new Error('Documentation publication action is unsupported');
   const publication =
     data.publication === undefined
@@ -75,7 +82,10 @@ function parse(value: unknown): DocumentationPublicationStatus {
     readiness: readiness as DocumentationPublicationReadiness,
     releaseCode: text(data.releaseCode, 'Documentation release'),
     releaseVersion: text(data.releaseVersion, 'Documentation release version'),
-    allowedActions: Object.freeze(actions as 'INITIALIZE'[]),
+    allowedActions: Object.freeze(actions as DocumentationPublicationAction[]),
+    ...(typeof data.releaseStatus === 'string'
+      ? { releaseStatus: data.releaseStatus }
+      : {}),
     ...(publication
       ? {
           publication: Object.freeze({
@@ -96,13 +106,14 @@ async function invoke(
   options: Options,
   method: 'GET' | 'POST',
   fetchImplementation: typeof fetch,
+  operation?: 'initiate' | 'rollback' | 'retire',
 ) {
   if (!/^[a-z][a-z0-9_-]{0,63}$/.test(options.profileCode))
     throw new Error('Documentation profile is invalid');
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => controller.abort(), options.timeoutMs);
   const endpoint = options.connection.endpoint.replace(/\/$/, '');
-  const path = `/v0/applications/${encodeURIComponent(options.profileCode)}/initialization${method === 'POST' ? '/initiate' : ''}`;
+  const path = `/v0/applications/${encodeURIComponent(options.profileCode)}/initialization${operation ? `/${operation}` : ''}`;
   try {
     const requestInit: RequestInit = {
       method,
@@ -116,7 +127,7 @@ async function invoke(
       credentials: 'omit',
       redirect: 'error',
       signal: controller.signal,
-      ...(method === 'POST'
+      ...(operation === 'initiate'
         ? {
             body: JSON.stringify({
               reason: 'Axis administrator requested documentation publication',
@@ -143,6 +154,8 @@ export function createDocumentationPublicationClient(
 ) {
   return Object.freeze({
     getStatus: () => invoke(options, 'GET', fetchImplementation),
-    initiate: () => invoke(options, 'POST', fetchImplementation),
+    initiate: () => invoke(options, 'POST', fetchImplementation, 'initiate'),
+    rollback: () => invoke(options, 'POST', fetchImplementation, 'rollback'),
+    retire: () => invoke(options, 'POST', fetchImplementation, 'retire'),
   });
 }

@@ -6,7 +6,8 @@ export type DocumentationContentPackState =
   | 'NOT_INSTALLED'
   | 'IMPORTING'
   | 'CURRENT'
-  | 'UPDATE_AVAILABLE';
+  | 'UPDATE_AVAILABLE'
+  | 'INVALID_RELEASE';
 
 export interface DocumentationContentPackPresentation {
   readonly title: string;
@@ -34,7 +35,7 @@ interface DocumentationContentPackClientOptions {
   readonly enterpriseCode: string;
   readonly accessToken: string;
   readonly timeoutMs: number;
-  readonly packCode?: string;
+  readonly profileCode: string;
 }
 
 const DOCUMENTATION_ERROR_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
@@ -72,6 +73,7 @@ function parseStatus(value: unknown): DocumentationContentPackStatus {
       'IMPORTING',
       'CURRENT',
       'UPDATE_AVAILABLE',
+      'INVALID_RELEASE',
     ].includes(state) ||
     typeof data.enabled !== 'boolean' ||
     typeof data.available !== 'boolean' ||
@@ -143,11 +145,11 @@ function createRequest(
 ): Promise<DocumentationContentPackStatus> {
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => controller.abort(), options.timeoutMs);
-  const packCode = encodeURIComponent(options.packCode ?? 'nodicsDocumentation');
-  const suffix = method === 'POST' ? '/imports' : '';
+  const profileCode = encodeURIComponent(options.profileCode);
+  const suffix = method === 'POST' ? '/install' : '';
+  const endpoint = options.connection.endpoint.replace(/\/$/, '');
   const url = new URL(
-    `/nodics/system/v0/content-packs/${packCode}${suffix}`,
-    options.connection.endpoint,
+    `${endpoint}/v0/applications/${profileCode}/initialization/content-pack${suffix}`,
   );
   return fetchImplementation(url, {
     method,

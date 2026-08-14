@@ -47,6 +47,9 @@ test. The Axis component and favicon tests are the current executable reference.
 - Module registry and health views backed by sanitized Back Office projections.
 - Governed initialization, core, and sample data release operations through
   nImport.
+- Fail-closed Axis baseline approval review showing the backend-owned immutable
+  release identity, Staged-to-Online scope, entity changes, validation evidence,
+  operational impact, recovery guidance, and post-publication capabilities.
 - Dynamic Framework, Swagger, Axis, and future project documentation products.
 
 ## Local setup

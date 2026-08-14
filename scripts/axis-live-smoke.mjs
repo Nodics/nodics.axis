@@ -46,7 +46,7 @@ const axisRoutes = [
   '/docs/swaggers',
 ];
 const requiredModules = [
-  'nodics.core',
+  'nodics.foundation',
   'nodics.localization',
   'nodics.platform',
   'nodics.wcms',
