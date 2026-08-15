@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { commerceProviderReadiness } from '../../src/operations/providerCertification/providerCertificationReadiness';
+import { commerceProviderReadiness } from './providerCertificationReadiness';
 
 describe('commerceProviderReadiness', () => {
   it('does not mark demo or partial provider declarations as live certified', () => {

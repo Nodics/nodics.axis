@@ -523,4 +523,80 @@ describe('Schema Workbench API client', () => {
     expect(body.items).toHaveLength(1);
     expect(body.idempotencyKey).toBe('axis-action-0001');
   });
+
+  it('executes commerce order and promotion actions only through backend-declared operation routes', async () => {
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json({ status: 'APPROVED' }))
+      .mockResolvedValueOnce(json({ status: 'SCHEDULED' }));
+    const orderSchema = {
+      ...address,
+      moduleName: 'order',
+      schemaName: 'orderLifecycleRequest',
+    };
+    const promotionSchema = {
+      ...address,
+      moduleName: 'promotion',
+      schemaName: 'promotion',
+    };
+
+    await executeWorkbenchLifecycleAction(
+      { ...connection, moduleName: 'order', endpoint: 'https://commerce.example.com/nodics/order' },
+      orderSchema,
+      {
+        id: 'approve',
+        label: 'Approve',
+        intent: 'APPROVE',
+        order: 10,
+        operationRoute: '/operator/order-lifecycle/:requestCode/actions/APPROVE',
+        inputFields: [
+          { name: 'requestCode', label: 'Request code', type: 'HIDDEN', required: true, valueFromRecord: 'code', maximumLength: 128 },
+          { name: 'reason', label: 'Reason', type: 'MULTILINE', required: false, maximumLength: 512 },
+        ],
+      },
+      { code: 'order-1:return:1', status: 'SUBMITTED' },
+      configuration,
+      'axis-order-action-1',
+      { requestCode: 'order-1:return:1', reason: 'Approved by operator' },
+      request,
+    );
+
+    await executeWorkbenchLifecycleAction(
+      { ...connection, moduleName: 'promotion', endpoint: 'https://commerce.example.com/nodics/promotion' },
+      promotionSchema,
+      {
+        id: 'schedule',
+        label: 'Schedule',
+        intent: 'ACTIVATE',
+        order: 20,
+        operationRoute: '/operator/promotions/:code/actions/SCHEDULE',
+        inputFields: [
+          { name: 'validFrom', label: 'Valid from', type: 'TEXT', required: true, maximumLength: 32 },
+          { name: 'validTo', label: 'Valid to', type: 'TEXT', required: true, maximumLength: 32 },
+        ],
+      },
+      { code: 'agoraWelcome10', status: 'APPROVED' },
+      configuration,
+      'axis-promotion-action-1',
+      { validFrom: '2026-08-15T00:00:00Z', validTo: '2026-09-15T00:00:00Z' },
+      request,
+    );
+
+    expect((request.mock.calls[0]?.[0] as URL).pathname).toContain(
+      '/nodics/order/v0/operator/order-lifecycle/order-1%3Areturn%3A1/actions/APPROVE',
+    );
+    expect((request.mock.calls[1]?.[0] as URL).pathname).toContain(
+      '/nodics/promotion/v0/operator/promotions/agoraWelcome10/actions/SCHEDULE',
+    );
+    const promotionBody = JSON.parse(String(request.mock.calls[1]?.[1]?.body)) as {
+      actionId: string;
+      validFrom: string;
+      idempotencyKey: string;
+    };
+    expect(promotionBody).toMatchObject({
+      actionId: 'schedule',
+      validFrom: '2026-08-15T00:00:00Z',
+      idempotencyKey: 'axis-promotion-action-1',
+    });
+  });
 });

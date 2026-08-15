@@ -52,7 +52,7 @@ describe('Promotions Builder presentation', () => {
 
     expect(screen.getByRole('heading', { name: 'Promotions Builder' })).toBeVisible();
     expect(screen.getByText(/does not calculate eligibility/i)).toBeVisible();
-    expect(screen.getByText('Eligibility')).toBeVisible();
+    expect(screen.getAllByText('Eligibility').length).toBeGreaterThan(0);
     expect(screen.getByText('Coupon and budget')).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Business-user flow' })).toBeVisible();
     expect(screen.getByText('Create or edit draft')).toBeVisible();
@@ -74,6 +74,15 @@ describe('Promotions Builder presentation', () => {
     expect(screen.getByText('Maker-checker status')).toBeVisible();
     expect(screen.getByText('Redemption audit')).toBeVisible();
     expect(screen.getByText('Redemption code')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Second-slice workspaces' })).toBeVisible();
+    expect(screen.getByText('Editable draft sections')).toBeVisible();
+    expect(screen.getByText('Coupon inventory table')).toBeVisible();
+    expect(screen.getByText('Budget usage display')).toBeVisible();
+    expect(screen.getByText('Preview simulation panel')).toBeVisible();
+    expect(screen.getByText('Redemption and reversal audit')).toBeVisible();
+    expect(screen.getByText('remaining')).toBeVisible();
+    expect(screen.getByText('expected discount')).toBeVisible();
+    expect(screen.getByText('reversalReasonCode')).toBeVisible();
     expect(screen.getByText(/Customer checkout receives only the approved/i)).toBeVisible();
     expect(screen.getByLabelText('Loading Axis configuration')).toBeInTheDocument();
   });

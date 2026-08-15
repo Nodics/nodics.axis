@@ -85,6 +85,34 @@ const builderFieldGroups = Object.freeze([
   },
 ]);
 
+const secondSlicePanels = Object.freeze([
+  {
+    title: 'Editable draft sections',
+    detail: 'Business users edit identity, eligibility, actions, coupon rules, budget and schedule before maker-checker submission.',
+    items: ['Identity', 'Eligibility', 'Discount action', 'Coupon rules', 'Budget', 'Schedule'],
+  },
+  {
+    title: 'Coupon inventory table',
+    detail: 'Coupon rows stay backend-owned; Axis shows token policy, max uses, used count and status.',
+    items: ['tokenHash', 'maxUses', 'usedCount', 'status'],
+  },
+  {
+    title: 'Budget usage display',
+    detail: 'Budget spend is read from Promotion evidence and adjusted only by backend redemption/reversal operations.',
+    items: ['limit', 'spent', 'remaining', 'reversal compensation'],
+  },
+  {
+    title: 'Preview simulation panel',
+    detail: 'Preview uses a checkout-like cart context and never mutates coupon, budget or redemption state.',
+    items: ['cart subtotal', 'product codes', 'customer segment', 'expected discount'],
+  },
+  {
+    title: 'Redemption and reversal audit',
+    detail: 'Operators inspect decision, redemption and reversal evidence without editing customer checkout history.',
+    items: ['decisionCode', 'redemptionCode', 'targetCode', 'reversalReasonCode'],
+  },
+]);
+
 /**
  * Renders the Promotion-owned builder workbench. Axis owns layout, operator
  * guidance, and safe presentation defaults only; promotion rules, validation,
@@ -166,6 +194,32 @@ export function PromotionsBuilderRoutePage(props: PromotionsBuilderRoutePageProp
                   {group.fields.map((field) => (
                     <Chip key={field} label={field} size="small" variant="outlined" />
                   ))}
+                </Stack>
+              </Paper>
+            ))}
+          </Stack>
+        </Stack>
+      </Paper>
+      <Paper component="section" sx={{ p: 2 }} variant="outlined">
+        <Stack spacing={1.5}>
+          <Typography component="h2" variant="h6">
+            Second-slice workspaces
+          </Typography>
+          <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
+            {secondSlicePanels.map((panel) => (
+              <Paper component="article" key={panel.title} sx={{ minWidth: 240, p: 1.5 }} variant="outlined">
+                <Stack spacing={1}>
+                  <Typography component="h3" sx={{ fontWeight: 700 }} variant="subtitle2">
+                    {panel.title}
+                  </Typography>
+                  <Typography color="text.secondary" variant="body2">
+                    {panel.detail}
+                  </Typography>
+                  <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
+                    {panel.items.map((item) => (
+                      <Chip key={item} label={item} size="small" variant="outlined" />
+                    ))}
+                  </Stack>
                 </Stack>
               </Paper>
             ))}
