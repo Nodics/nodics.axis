@@ -4,11 +4,11 @@ import { MemoryRouter } from 'react-router';
 import { describe, expect, it } from 'vitest';
 
 import { OrderLifecycleManagementRoutePage } from '../../src/operations/orderLifecycle/OrderLifecycleManagementRoutePage';
-import { orderLifecycleDashboardItem } from '../../src/operations/orderLifecycle/orderLifecycleDashboard';
+import { orderLifecycleDashboardItem, orderLifecycleOperatorQueues } from '../../src/operations/orderLifecycle/orderLifecycleDashboard';
 import { orderLifecycleGuidance } from '../../src/operations/orderLifecycle/orderLifecycleGuidance';
 
 describe('Order Lifecycle Management presentation', () => {
-  it('uses the compact Workbench composition without duplicating navigation and guidance', () => {
+  it('uses backend navigation to show operator queues above the Workbench', () => {
     const navigation = {
       id: 'order-refunds',
       moduleName: 'order',
@@ -24,10 +24,34 @@ describe('Order Lifecycle Management presentation', () => {
       requiredPermissions: ['order.refund.support.read'],
       perspectives: [],
       contexts: [],
+      workbenchPresentation: {
+        fixedFilters: [{ id: 'request-type-refund', label: 'Refund requests', field: 'requestType', value: 'REFUND', order: 10 }],
+      },
+    } as const;
+    const exchangeNavigation = {
+      ...navigation,
+      id: 'order-exchanges',
+      label: 'Exchanges & Replacements',
+      route: '/commerce/exchanges',
+      workbenchPresentation: {
+        fixedFilters: [
+          { id: 'request-type-exchange', label: 'Exchange requests', field: 'requestType', value: 'EXCHANGE', order: 10 },
+          { id: 'request-type-replacement', label: 'Replacement requests', field: 'requestType', value: 'REPLACEMENT', order: 20 },
+        ],
+      },
+    } as const;
+    const appealNavigation = {
+      ...navigation,
+      id: 'order-appeals',
+      label: 'Lifecycle Appeals',
+      route: '/commerce/appeals',
+      workbenchPresentation: {
+        fixedFilters: [{ id: 'request-type-appeal', label: 'Appeal requests', field: 'requestType', value: 'APPEAL', order: 10 }],
+      },
     } as const;
     const bootstrap = {
       tenantCode: 'tenant1',
-      navigation: [navigation],
+      navigation: [navigation, exchangeNavigation, appealNavigation],
       moduleConnections: {},
       axisPolicy: { recentNavigationLimit: 10 },
     } as never;
@@ -48,19 +72,22 @@ describe('Order Lifecycle Management presentation', () => {
         </MemoryRouter>
       </QueryClientProvider>,
     );
+    expect(screen.getByRole('heading', { name: 'Order Lifecycle Operator Queues' })).toBeInTheDocument();
+    expect(screen.getByText(/Refund Cases: REFUND/)).toBeInTheDocument();
+    expect(screen.getByText(/Exchanges & Replacements: EXCHANGE\/REPLACEMENT/)).toBeInTheDocument();
+    expect(screen.getByText(/Lifecycle Appeals: APPEAL/)).toBeInTheDocument();
+    expect(screen.getByText(/Actions still execute only through Commerce-owned/)).toBeInTheDocument();
     expect(screen.getByLabelText('Loading Axis configuration')).toBeInTheDocument();
-    expect(screen.queryByText('Backend authorized')).not.toBeInTheDocument();
-    expect(screen.queryByText('Owner evidence')).not.toBeInTheDocument();
-    expect(screen.queryByText('Order Lifecycle Management')).not.toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('explains distinct cancellation, Return and Refund decisions', () => {
+  it('explains distinct cancellation, Return, Refund, Exchange and Appeal decisions', () => {
     expect(orderLifecycleGuidance('orderCancellationRequest')).toContain(
       'settlement impact',
     );
     expect(orderLifecycleGuidance('orderReturnRequest')).toContain('Fulfillment owns');
     expect(orderLifecycleGuidance('orderRefundRequest')).toContain('maker-checker');
+    expect(orderLifecycleGuidance('orderExchangeRequest')).toContain('replacement selection');
+    expect(orderLifecycleGuidance('orderAppealRequest')).toContain('customer appeal evidence');
   });
 
   it('groups backend lifecycle records into operator dashboard buckets without owning actions', () => {
@@ -86,5 +113,35 @@ describe('Order Lifecycle Management presentation', () => {
       urgent: true,
       recommendedActionIds: ['reconcile'],
     });
+    expect(orderLifecycleDashboardItem({ code: 'exchange-1', requestType: 'EXCHANGE', status: 'SUBMITTED', evidence: { rmaCode: 'RMA-2' } }, actions)).toMatchObject({
+      bucket: 'returnHandling',
+      recommendedActionIds: ['mark-received', 'record-disposition'],
+    });
+  });
+
+  it('derives cancellation return refund exchange replacement and appeal queues from backend navigation', () => {
+    const base = {
+      moduleName: 'order',
+      category: 'commerce',
+      icon: 'commerce',
+      availability: 'UP',
+      featureState: 'ACTIVE',
+      workbenchTarget: { moduleName: 'order', schemaName: 'orderLifecycleRequest' },
+      requiredPermissions: ['commerce.lifecycle.read'],
+      perspectives: [],
+      contexts: [],
+      order: 1,
+    } as const;
+    const queues = orderLifecycleOperatorQueues([
+      { ...base, id: 'order-cancellations', label: 'Cancellations', route: '/commerce/cancellations' },
+      { ...base, id: 'order-returns', label: 'Returns', route: '/commerce/returns' },
+      { ...base, id: 'order-refunds', label: 'Refunds', route: '/commerce/refunds' },
+      { ...base, id: 'order-exchanges', label: 'Exchanges & Replacements', route: '/commerce/exchanges' },
+      { ...base, id: 'order-appeals', label: 'Lifecycle Appeals', route: '/commerce/appeals' },
+    ] as never);
+
+    expect(queues.map((queue) => queue.code)).toEqual(['cancellations', 'returns', 'refunds', 'exchanges', 'appeals']);
+    expect(queues.find((queue) => queue.code === 'exchanges')?.requestTypes).toEqual(['EXCHANGE', 'REPLACEMENT']);
+    expect(queues.find((queue) => queue.code === 'appeals')?.requestTypes).toEqual(['APPEAL']);
   });
 });

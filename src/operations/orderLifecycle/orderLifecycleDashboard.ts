@@ -1,4 +1,4 @@
-import type { AxisNavigationLifecycleAction } from '../../bootstrap/publicBootstrap';
+import type { AxisNavigationItem, AxisNavigationLifecycleAction } from '../../bootstrap/publicBootstrap';
 import type { WorkbenchRecord } from '../../workbench/api/workbenchContracts';
 
 export type OrderLifecycleBucket =
@@ -16,6 +16,23 @@ export interface OrderLifecycleDashboardItem {
   readonly recommendedActionIds: readonly string[];
 }
 
+export type OrderLifecycleOperatorQueueCode =
+  | 'cancellations'
+  | 'returns'
+  | 'refunds'
+  | 'exchanges'
+  | 'appeals';
+
+export interface OrderLifecycleOperatorQueue {
+  readonly code: OrderLifecycleOperatorQueueCode;
+  readonly label: string;
+  readonly route: string;
+  readonly ownerModule: string;
+  readonly requestTypes: readonly string[];
+  readonly actionLabels: readonly string[];
+  readonly summary: string;
+}
+
 const refundStatuses = new Set(['REFUND_DELAYED', 'REFUND_RECONCILIATION_REQUIRED', 'RECONCILING']);
 const returnStatuses = new Set(['RETURN_RECEIVED', 'INSPECTED', 'DISPOSITION_RECORDED']);
 const terminalStatuses = new Set(['APPROVED', 'REJECTED', 'COMPLETED', 'REFUND_SUCCEEDED']);
@@ -31,6 +48,53 @@ function requestType(record: WorkbenchRecord): string {
 function hasEvidence(record: WorkbenchRecord, key: string): boolean {
   const evidence = record.evidence;
   return typeof evidence === 'object' && evidence !== null && key in evidence;
+}
+
+function queueCode(navigation: AxisNavigationItem): OrderLifecycleOperatorQueueCode | undefined {
+  const value = `${navigation.id} ${navigation.label} ${navigation.route}`.toLowerCase();
+  if (value.includes('appeal')) return 'appeals';
+  if (value.includes('exchange') || value.includes('replacement')) return 'exchanges';
+  if (value.includes('refund')) return 'refunds';
+  if (value.includes('return')) return 'returns';
+  if (value.includes('cancellation') || value.includes('cancel')) return 'cancellations';
+  return undefined;
+}
+
+function requestTypes(navigation: AxisNavigationItem, code: OrderLifecycleOperatorQueueCode): readonly string[] {
+  const filterTypes = navigation.workbenchPresentation?.fixedFilters
+    ?.flatMap((filter) => filter.values ?? (filter.value ? [filter.value] : []))
+    .filter((value) => value && /^[A-Z_]+$/u.test(value));
+  if (filterTypes?.length) return Array.from(new Set(filterTypes));
+  return {
+    cancellations: ['CANCELLATION'],
+    returns: ['RETURN'],
+    refunds: ['REFUND'],
+    exchanges: ['EXCHANGE', 'REPLACEMENT'],
+    appeals: ['APPEAL'],
+  }[code];
+}
+
+/**
+ * Builds the operator queue overview from backend-published navigation and
+ * lifecycle-action metadata. Axis may group and label queues, but the routes,
+ * modules, filters, and executable actions remain backend-owned.
+ */
+export function orderLifecycleOperatorQueues(navigation: readonly AxisNavigationItem[]): readonly OrderLifecycleOperatorQueue[] {
+  return navigation
+    .map((item): OrderLifecycleOperatorQueue | undefined => {
+      const code = queueCode(item);
+      if (!code || item.moduleName !== 'order') return undefined;
+      return {
+        code,
+        label: item.label,
+        route: item.route,
+        ownerModule: item.moduleName,
+        requestTypes: requestTypes(item, code),
+        actionLabels: Object.freeze((item.lifecycleActions ?? []).map((action) => action.label)),
+        summary: item.help?.summary ?? item.workbenchPresentation?.fixedFilters?.[0]?.label ?? item.label,
+      };
+    })
+    .filter((item): item is OrderLifecycleOperatorQueue => Boolean(item));
 }
 
 /**
@@ -61,7 +125,7 @@ export function orderLifecycleDashboardItem(
       recommendedActionIds: ['reconcile', 'approve-refund'].filter((id) => actionIds.has(id)),
     };
   }
-  if (type === 'RETURN' && (returnStatuses.has(currentStatus) || hasEvidence(record, 'rmaCode'))) {
+  if ((type === 'RETURN' || type === 'EXCHANGE' || type === 'REPLACEMENT') && (returnStatuses.has(currentStatus) || hasEvidence(record, 'rmaCode'))) {
     return {
       bucket: 'returnHandling',
       label: 'Return receipt, inspection or disposition',

@@ -58,7 +58,31 @@ const backendOwnedActions = Object.freeze([
   'approve',
   'schedule',
   'suspend',
+  'archive',
   'audit',
+]);
+
+const builderFieldGroups = Object.freeze([
+  {
+    title: 'Eligibility conditions',
+    fields: ['Store', 'Customer segment', 'Cart subtotal', 'Product/category mix', 'Channel', 'Date window'],
+  },
+  {
+    title: 'Coupon inventory',
+    fields: ['Coupon type', 'Token hash policy', 'Max uses', 'Per-customer limit', 'Import/export source'],
+  },
+  {
+    title: 'Budget controls',
+    fields: ['Budget limit', 'Spent amount', 'Currency', 'Overspend policy', 'Reversal compensation'],
+  },
+  {
+    title: 'Schedule and approval',
+    fields: ['Valid from', 'Valid to', 'Priority', 'Maker-checker status', 'Suspend/archive reason'],
+  },
+  {
+    title: 'Redemption audit',
+    fields: ['Decision code', 'Redemption code', 'Coupon code', 'Target cart/order', 'Reversed state'],
+  },
 ]);
 
 /**
@@ -123,6 +147,27 @@ export function PromotionsBuilderRoutePage(props: PromotionsBuilderRoutePageProp
           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
             {backendOwnedActions.map((action) => (
               <Chip color="primary" key={action} label={`backend:${action}`} size="small" />
+            ))}
+          </Stack>
+        </Stack>
+      </Paper>
+      <Paper component="section" sx={{ p: 2 }} variant="outlined">
+        <Stack spacing={1.5}>
+          <Typography component="h2" variant="h6">
+            Builder form model
+          </Typography>
+          <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
+            {builderFieldGroups.map((group) => (
+              <Paper component="article" key={group.title} sx={{ minWidth: 220, p: 1.5 }} variant="outlined">
+                <Typography component="h3" sx={{ fontWeight: 700 }} variant="subtitle2">
+                  {group.title}
+                </Typography>
+                <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', mt: 1 }}>
+                  {group.fields.map((field) => (
+                    <Chip key={field} label={field} size="small" variant="outlined" />
+                  ))}
+                </Stack>
+              </Paper>
             ))}
           </Stack>
         </Stack>

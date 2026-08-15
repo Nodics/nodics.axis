@@ -62,6 +62,18 @@ describe('Promotions Builder presentation', () => {
     expect(screen.getByText('Audit redemption')).toBeVisible();
     expect(screen.getByText('backend:approve')).toBeVisible();
     expect(screen.getByText('backend:suspend')).toBeVisible();
+    expect(screen.getByText('backend:archive')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Builder form model' })).toBeVisible();
+    expect(screen.getByText('Eligibility conditions')).toBeVisible();
+    expect(screen.getByText('Customer segment')).toBeVisible();
+    expect(screen.getByText('Coupon inventory')).toBeVisible();
+    expect(screen.getByText('Token hash policy')).toBeVisible();
+    expect(screen.getByText('Budget controls')).toBeVisible();
+    expect(screen.getByText('Reversal compensation')).toBeVisible();
+    expect(screen.getByText('Schedule and approval')).toBeVisible();
+    expect(screen.getByText('Maker-checker status')).toBeVisible();
+    expect(screen.getByText('Redemption audit')).toBeVisible();
+    expect(screen.getByText('Redemption code')).toBeVisible();
     expect(screen.getByText(/Customer checkout receives only the approved/i)).toBeVisible();
     expect(screen.getByLabelText('Loading Axis configuration')).toBeInTheDocument();
   });
