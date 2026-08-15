@@ -35,6 +35,7 @@ import { MediaManagementRoutePage } from '../operations/mediaManagement/MediaMan
 import { ProcessWorkflowRoutePage } from '../operations/processWorkflow/ProcessWorkflowRoutePage';
 import { ProductManagementRoutePage } from '../operations/productManagement/ProductManagementRoutePage';
 import { DiscoveryManagementRoutePage } from '../operations/discovery/DiscoveryManagementRoutePage';
+import { PromotionsBuilderRoutePage } from '../operations/promotions/PromotionsBuilderRoutePage';
 import { LocalizationOperationsRoutePage } from '../operations/localization/LocalizationOperationsRoutePage';
 import { CustomerEngagementRoutePage } from '../operations/customerEngagement/CustomerEngagementRoutePage';
 import { useIdleScreenLock } from '../auth/useIdleScreenLock';
@@ -721,7 +722,37 @@ export function App() {
           ),
         )
       : sessionFallback;
-  const orderLifecycleNavigation = currentNavigation?.route.startsWith('/commerce')
+  const promotionBuilderNavigation = currentNavigation?.route.startsWith(
+    '/commerce/promotions',
+  )
+    ? currentNavigation
+    : authenticatedBootstrap?.navigation.find(
+        (item) => item.id === 'promotions-builder' || item.route === '/commerce/promotions',
+      );
+  const promotionBuilderElement =
+    session && !locked && authenticatedBootstrap && promotionBuilderNavigation
+      ? authenticatedShell(
+          ['UP', 'DEGRADED'].includes(promotionBuilderNavigation.availability) ? (
+            <PromotionsBuilderRoutePage
+              accessToken={session.accessToken}
+              bootstrap={authenticatedBootstrap}
+              channel={composition.channel}
+              cmsBaseUrl={bootstrap.endpoints.cms}
+              employeeId={session.loginId}
+              locale={composition.locale}
+              navigation={promotionBuilderNavigation}
+              runtime={runtime}
+              site={composition.site}
+            />
+          ) : (
+            <ModuleWorkspacePlaceholder item={promotionBuilderNavigation} />
+          ),
+        )
+      : sessionFallback;
+  const orderLifecycleNavigation = currentNavigation?.route.startsWith('/commerce') &&
+    !currentNavigation.route.startsWith('/commerce/promotions') &&
+    !currentNavigation.route.startsWith('/commerce/catalog/products') &&
+    !currentNavigation.route.startsWith('/commerce/search')
     ? currentNavigation
     : undefined;
   const discoveryNavigation =
@@ -1259,6 +1290,7 @@ export function App() {
         <Route path="/notifications/*" element={notificationElement} />
         <Route path="/commerce/catalog/products/*" element={productManagementElement} />
         <Route path="/commerce/search/*" element={discoveryManagementElement} />
+        <Route path="/commerce/promotions/*" element={promotionBuilderElement} />
         <Route path="/discovery/*" element={discoveryManagementElement} />
         <Route path="/localization/*" element={localizationOperationsElement} />
         <Route path="/commerce/*" element={orderLifecycleElement} />

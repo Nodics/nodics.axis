@@ -19,7 +19,7 @@
     "format:check": "prettier --check .",
     "smoke:live": "node scripts/axis-live-smoke.mjs",
     "test": "vitest run",
-    "test:commerce": "vitest run --run test/workbench/detail/WorkbenchRecordDetail.test.tsx test/orderLifecycle/OrderLifecycleManagementRoutePage.test.tsx",
+    "test:commerce": "vitest run --run test/workbench/detail/WorkbenchRecordDetail.test.tsx test/orderLifecycle/OrderLifecycleManagementRoutePage.test.tsx test/promotions/PromotionsBuilderRoutePage.test.tsx",
     "test:watch": "vitest",
     "verify:commerce": "npm run typecheck && npm run test:commerce",
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build"
