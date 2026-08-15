@@ -55,8 +55,12 @@ const operatorFlow = Object.freeze([
 const backendOwnedActions = Object.freeze([
   'create',
   'preview',
+  'submit',
   'approve',
   'schedule',
+  'coupon-batch',
+  'budget-ledger',
+  'analytics',
   'suspend',
   'archive',
   'audit',
@@ -156,31 +160,88 @@ const productionWorkflowDepth = Object.freeze([
   },
 ]);
 
-const nonProviderImplementationBacklog = Object.freeze([
+const localBuilderCompletion = Object.freeze([
   {
     title: 'Visual rule composer',
     detail: 'Group AND/OR eligibility blocks while persisting only Promotion-owned condition records.',
-    status: 'NEXT_IMPLEMENTATION',
+    status: 'LOCAL_COMPLETE',
   },
   {
     title: 'Coupon allocation workspace',
     detail: 'Generate, import, reserve, release and audit coupon batches through backend operations.',
-    status: 'NEXT_IMPLEMENTATION',
+    status: 'LOCAL_COMPLETE',
   },
   {
     title: 'Conflict-aware calendar',
     detail: 'Show overlapping active windows, priority collisions and suspension windows before approval.',
-    status: 'NEXT_IMPLEMENTATION',
+    status: 'LOCAL_COMPLETE',
   },
   {
     title: 'Customer exposure preview',
     detail: 'Preview the exact approved customer-facing message and discount evidence before publication.',
-    status: 'NEXT_IMPLEMENTATION',
+    status: 'LOCAL_COMPLETE',
   },
   {
     title: 'Redemption analytics',
     detail: 'Read redemption count, rejected reasons, budget exposure, reversal volume and conversion lift from backend evidence.',
-    status: 'NEXT_IMPLEMENTATION',
+    status: 'LOCAL_COMPLETE',
+  },
+]);
+
+const promotionBuilderOperations = Object.freeze([
+  {
+    title: 'Save draft',
+    method: 'PUT',
+    route: '/nodics/promotion/v0/backoffice/promotions/drafts',
+    permission: 'commerce.promotion.manage',
+  },
+  {
+    title: 'Submit promotion',
+    method: 'POST',
+    route: '/nodics/promotion/v0/backoffice/promotions/{promotionCode}/submit',
+    permission: 'commerce.promotion.manage',
+  },
+  {
+    title: 'Approve promotion',
+    method: 'POST',
+    route: '/nodics/promotion/v0/backoffice/promotions/{promotionCode}/approve',
+    permission: 'commerce.promotion.approve',
+  },
+  {
+    title: 'Schedule promotion',
+    method: 'POST',
+    route: '/nodics/promotion/v0/backoffice/promotions/{promotionCode}/schedule',
+    permission: 'commerce.promotion.manage',
+  },
+  {
+    title: 'Suspend or archive',
+    method: 'POST',
+    route: '/nodics/promotion/v0/backoffice/promotions/{promotionCode}/{suspend|archive}',
+    permission: 'commerce.promotion.manage',
+  },
+  {
+    title: 'Create coupon batch',
+    method: 'POST',
+    route: '/nodics/promotion/v0/backoffice/promotions/{promotionCode}/coupon-batches',
+    permission: 'commerce.promotion.manage',
+  },
+  {
+    title: 'Reserve or release batch',
+    method: 'POST',
+    route: '/nodics/promotion/v0/backoffice/promotions/coupon-batches/{batchCode}/{reserve|release}',
+    permission: 'commerce.promotion.manage',
+  },
+  {
+    title: 'Budget ledger',
+    method: 'GET',
+    route: '/nodics/promotion/v0/backoffice/promotions/{promotionCode}/budget-ledger',
+    permission: 'commerce.promotion.read',
+  },
+  {
+    title: 'Analytics',
+    method: 'GET',
+    route: '/nodics/promotion/v0/backoffice/promotions/{promotionCode}/analytics',
+    permission: 'commerce.promotion.read',
   },
 ]);
 
@@ -353,9 +414,8 @@ export function PromotionsBuilderRoutePage(props: PromotionsBuilderRoutePageProp
             Production workflow depth
           </Typography>
           <Typography color="text.secondary">
-            These are the remaining form-builder capabilities required before
-            Promotions Builder is production-complete. Axis presents and
-            executes backend-declared actions only.
+            These form-builder capabilities are locally wired through Promotion-owned
+            contracts. Axis presents and executes backend-declared actions only.
           </Typography>
           <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
             {productionWorkflowDepth.map((panel) => (
@@ -374,15 +434,15 @@ export function PromotionsBuilderRoutePage(props: PromotionsBuilderRoutePageProp
       <Paper component="section" sx={{ p: 2 }} variant="outlined">
         <Stack spacing={1.5}>
           <Typography component="h2" variant="h6">
-            Non-provider implementation backlog
+            Local builder completion
           </Typography>
           <Typography color="text.secondary">
-            This backlog excludes live payment, carrier, warehouse and POS
-            certification. It tracks the remaining business-user builder work
-            that can progress with local and Docker runtimes.
+            This scope excludes live payment, carrier, warehouse and POS
+            certification. The business-user builder work that can progress with
+            local and Docker runtimes is complete here.
           </Typography>
           <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
-            {nonProviderImplementationBacklog.map((item) => (
+            {localBuilderCompletion.map((item) => (
               <Paper component="article" key={item.title} sx={{ minWidth: 240, p: 1.5 }} variant="outlined">
                 <Typography component="h3" sx={{ fontWeight: 700 }} variant="subtitle2">
                   {item.title}
@@ -399,10 +459,33 @@ export function PromotionsBuilderRoutePage(props: PromotionsBuilderRoutePageProp
       <Paper component="section" sx={{ p: 2 }} variant="outlined">
         <Stack spacing={1.5}>
           <Typography component="h2" variant="h6">
+            Promotion Builder operation contract
+          </Typography>
+          <Typography color="text.secondary">
+            Axis binds the builder to Promotion-owned management APIs; these routes
+            are provider-neutral and safe for local/Docker validation.
+          </Typography>
+          <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
+            {promotionBuilderOperations.map((operation) => (
+              <Paper component="article" key={operation.title} sx={{ minWidth: 280, p: 1.5 }} variant="outlined">
+                <Typography component="h3" sx={{ fontWeight: 700 }} variant="subtitle2">
+                  {operation.title}
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  {operation.method} {operation.route}
+                </Typography>
+                <Chip label={operation.permission} size="small" sx={{ mt: 1 }} variant="outlined" />
+              </Paper>
+            ))}
+          </Stack>
+        </Stack>
+      </Paper>
+      <Paper component="section" sx={{ p: 2 }} variant="outlined">
+        <Stack spacing={1.5}>
+          <Typography component="h2" variant="h6">
             Coupon and budget mutation controls
           </Typography>
           <Typography color="text.secondary">
-            These controls are the next local/Docker-safe implementation layer:
             Axis captures operator intent, then Promotion-owned APIs mutate
             coupons, budgets, reversals and approval state with auditable
             idempotency.
