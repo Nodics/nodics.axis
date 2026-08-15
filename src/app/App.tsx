@@ -34,6 +34,7 @@ import { MediaManagementDashboardRoutePage } from '../operations/mediaManagement
 import { MediaManagementRoutePage } from '../operations/mediaManagement/MediaManagementRoutePage';
 import { ProcessWorkflowRoutePage } from '../operations/processWorkflow/ProcessWorkflowRoutePage';
 import { ProductManagementRoutePage } from '../operations/productManagement/ProductManagementRoutePage';
+import { DiscoveryManagementRoutePage } from '../operations/discovery/DiscoveryManagementRoutePage';
 import { LocalizationOperationsRoutePage } from '../operations/localization/LocalizationOperationsRoutePage';
 import { CustomerEngagementRoutePage } from '../operations/customerEngagement/CustomerEngagementRoutePage';
 import { useIdleScreenLock } from '../auth/useIdleScreenLock';
@@ -723,6 +724,33 @@ export function App() {
   const orderLifecycleNavigation = currentNavigation?.route.startsWith('/commerce')
     ? currentNavigation
     : undefined;
+  const discoveryNavigation =
+    currentNavigation?.route.startsWith('/discovery') ||
+    currentNavigation?.route.startsWith('/commerce/search')
+      ? currentNavigation
+      : authenticatedBootstrap?.navigation.find(
+          (item) => item.id === 'discovery-management',
+        );
+  const discoveryManagementElement =
+    session && !locked && authenticatedBootstrap && discoveryNavigation
+      ? authenticatedShell(
+          ['UP', 'DEGRADED'].includes(discoveryNavigation.availability) ? (
+            <DiscoveryManagementRoutePage
+              accessToken={session.accessToken}
+              bootstrap={authenticatedBootstrap}
+              channel={composition.channel}
+              cmsBaseUrl={bootstrap.endpoints.cms}
+              employeeId={session.loginId}
+              locale={composition.locale}
+              navigation={discoveryNavigation}
+              runtime={runtime}
+              site={composition.site}
+            />
+          ) : (
+            <ModuleWorkspacePlaceholder item={discoveryNavigation} />
+          ),
+        )
+      : sessionFallback;
   const orderLifecycleElement =
     session && !locked && authenticatedBootstrap && orderLifecycleNavigation
       ? authenticatedShell(
@@ -1230,6 +1258,8 @@ export function App() {
         <Route path="/compliance-management/*" element={complianceElement} />
         <Route path="/notifications/*" element={notificationElement} />
         <Route path="/commerce/catalog/products/*" element={productManagementElement} />
+        <Route path="/commerce/search/*" element={discoveryManagementElement} />
+        <Route path="/discovery/*" element={discoveryManagementElement} />
         <Route path="/localization/*" element={localizationOperationsElement} />
         <Route path="/commerce/*" element={orderLifecycleElement} />
         <Route path="/process/*" element={processWorkflowElement} />
