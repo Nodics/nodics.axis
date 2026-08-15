@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router';
 import { describe, expect, it } from 'vitest';
 
 import { OrderLifecycleManagementRoutePage } from '../../src/operations/orderLifecycle/OrderLifecycleManagementRoutePage';
+import { orderLifecycleDashboardItem } from '../../src/operations/orderLifecycle/orderLifecycleDashboard';
 import { orderLifecycleGuidance } from '../../src/operations/orderLifecycle/orderLifecycleGuidance';
 
 describe('Order Lifecycle Management presentation', () => {
@@ -60,5 +61,30 @@ describe('Order Lifecycle Management presentation', () => {
     );
     expect(orderLifecycleGuidance('orderReturnRequest')).toContain('Fulfillment owns');
     expect(orderLifecycleGuidance('orderRefundRequest')).toContain('maker-checker');
+  });
+
+  it('groups backend lifecycle records into operator dashboard buckets without owning actions', () => {
+    const actions = [
+      { id: 'approve', label: 'Approve', intent: 'APPROVE', order: 10 },
+      { id: 'reject', label: 'Reject', intent: 'REJECT', order: 20 },
+      { id: 'mark-received', label: 'Mark received', intent: 'OTHER', order: 30 },
+      { id: 'record-disposition', label: 'Record disposition', intent: 'OTHER', order: 40 },
+      { id: 'reconcile', label: 'Reconcile', intent: 'RECONCILE', order: 50 },
+    ] as const;
+
+    expect(orderLifecycleDashboardItem({ code: 'cancel-1', requestType: 'CANCELLATION', status: 'SUBMITTED' }, actions)).toMatchObject({
+      bucket: 'pendingApproval',
+      urgent: true,
+      recommendedActionIds: ['approve', 'reject'],
+    });
+    expect(orderLifecycleDashboardItem({ code: 'return-1', requestType: 'RETURN', status: 'SUBMITTED', evidence: { rmaCode: 'RMA-1' } }, actions)).toMatchObject({
+      bucket: 'returnHandling',
+      recommendedActionIds: ['mark-received', 'record-disposition'],
+    });
+    expect(orderLifecycleDashboardItem({ code: 'refund-1', requestType: 'REFUND', status: 'REFUND_RECONCILIATION_REQUIRED' }, actions)).toMatchObject({
+      bucket: 'refundReconciliation',
+      urgent: true,
+      recommendedActionIds: ['reconcile'],
+    });
   });
 });
