@@ -66,6 +66,14 @@ describe('MediaManagementDashboardRoutePage', () => {
     expect(screen.getByText('Rollback readiness')).toBeTruthy();
     expect(screen.getByText('approval timestamp')).toBeTruthy();
     expect(screen.getByText('activation revision')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Media reference lifecycle operations' })).toBeTruthy();
+    expect(screen.getByText('Approve reference')).toBeTruthy();
+    expect(screen.getByText('POST /nodics/media/v0/references/{referenceCode}/approve')).toBeTruthy();
+    expect(screen.getByText('Activate reference')).toBeTruthy();
+    expect(screen.getByText('POST /nodics/media/v0/references/{referenceCode}/activate')).toBeTruthy();
+    expect(screen.getByText('Deactivate reference')).toBeTruthy();
+    expect(screen.getByText('POST /nodics/media/v0/references/{referenceCode}/deactivate')).toBeTruthy();
+    expect(screen.getAllByText('media.reference.lifecycle.manage').length).toBe(3);
     expect(screen.getByText(/Sample or reference-site media remains inactive/)).toBeTruthy();
   });
 });

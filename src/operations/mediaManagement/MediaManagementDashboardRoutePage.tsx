@@ -199,6 +199,24 @@ const productionMediaApprovalChecklist = Object.freeze([
   },
 ]);
 
+const mediaReferenceLifecycleActions = Object.freeze([
+  {
+    label: 'Approve reference',
+    route: 'POST /nodics/media/v0/references/{referenceCode}/approve',
+    permission: 'media.reference.lifecycle.manage',
+  },
+  {
+    label: 'Activate reference',
+    route: 'POST /nodics/media/v0/references/{referenceCode}/activate',
+    permission: 'media.reference.lifecycle.manage',
+  },
+  {
+    label: 'Deactivate reference',
+    route: 'POST /nodics/media/v0/references/{referenceCode}/deactivate',
+    permission: 'media.reference.lifecycle.manage',
+  },
+]);
+
 async function loadMediaDashboardData(
   connections: ReturnType<typeof activeConnections>,
   bootstrap: AxisAuthenticatedBootstrap,
@@ -363,6 +381,21 @@ export function MediaManagementDashboardRoutePage({
                       <Chip key={proof} label={proof} size="small" variant="outlined" />
                     ))}
                   </Stack>
+                </Paper>
+              ))}
+            </Stack>
+            <WorkspaceHeading
+              description="Axis surfaces these as Media-owned lifecycle operations; it does not approve rights or activate files by itself."
+              eyebrow="Executable backend actions"
+              headingVariant="h5"
+              title="Media reference lifecycle operations"
+            />
+            <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
+              {mediaReferenceLifecycleActions.map((action) => (
+                <Paper component="article" key={action.label} sx={{ minWidth: 260, p: 1.5 }} variant="outlined">
+                  <strong>{action.label}</strong>
+                  <p>{action.route}</p>
+                  <Chip label={action.permission} size="small" variant="outlined" />
                 </Paper>
               ))}
             </Stack>
