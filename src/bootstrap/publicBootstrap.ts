@@ -119,8 +119,10 @@ export interface AxisNavigationLifecycleAction {
     | 'OTHER';
   readonly permission?: string | undefined;
   readonly ownerModule?: string | undefined;
+  readonly handlerAction?: string | undefined;
   readonly summary?: string | undefined;
   readonly operationRoute?: string | undefined;
+  readonly httpMethod?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | undefined;
   readonly inputFields?: readonly AxisNavigationLifecycleActionInputField[] | undefined;
   readonly targetStatuses?: readonly string[] | undefined;
   readonly featureState?: AxisNavigationFeatureState | undefined;
@@ -595,6 +597,21 @@ function parseNavigationLifecycleActions(
             `${moduleName} navigation lifecycle action summary is too long`,
           );
         }
+        const httpMethod =
+          action.httpMethod === undefined
+            ? undefined
+            : text(
+                action.httpMethod,
+                `${moduleName} navigation lifecycle action HTTP method`,
+              ).toUpperCase();
+        if (
+          httpMethod !== undefined &&
+          !['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(httpMethod)
+        ) {
+          throw new Error(
+            `${moduleName} navigation lifecycle action HTTP method is unsupported`,
+          );
+        }
         return Object.freeze({
           id,
           label: text(action.label, `${moduleName} navigation lifecycle action label`),
@@ -610,6 +627,10 @@ function parseNavigationLifecycleActions(
                   action.ownerModule,
                   `${moduleName} navigation lifecycle action owner module`,
                 ),
+          handlerAction: optionalText(
+            action.handlerAction,
+            `${moduleName} navigation lifecycle action handler`,
+          ),
           summary,
           operationRoute:
             action.operationRoute === undefined
@@ -618,6 +639,10 @@ function parseNavigationLifecycleActions(
                   action.operationRoute,
                   `${moduleName} navigation lifecycle action operation route`,
                 ),
+          httpMethod:
+            httpMethod === undefined
+              ? undefined
+              : (httpMethod as AxisNavigationLifecycleAction['httpMethod']),
           inputFields:
             action.inputFields === undefined
               ? undefined

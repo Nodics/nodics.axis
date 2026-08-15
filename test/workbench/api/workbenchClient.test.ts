@@ -524,6 +524,39 @@ describe('Schema Workbench API client', () => {
     expect(body.idempotencyKey).toBe('axis-action-0001');
   });
 
+  it('executes read-style lifecycle actions with declared GET method and no request body', async () => {
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(json({ promotionCode: 'agoraWelcome10', redemptionCount: 2 }));
+
+    await executeWorkbenchLifecycleAction(
+      { ...connection, moduleName: 'promotion', endpoint: 'https://commerce.example.com/nodics/promotion' },
+      { ...address, moduleName: 'promotion', schemaName: 'promotion' },
+      {
+        id: 'promotion-analytics',
+        label: 'Analytics',
+        intent: 'VALIDATE',
+        order: 110,
+        httpMethod: 'GET',
+        operationRoute: '/backoffice/promotions/:promotionCode/analytics',
+        inputFields: [
+          { name: 'promotionCode', label: 'Promotion code', type: 'HIDDEN', required: true, valueFromRecord: 'code', maximumLength: 128 },
+        ],
+      },
+      { code: 'agoraWelcome10', status: 'SCHEDULED' },
+      configuration,
+      'axis-promotion-analytics-1',
+      { promotionCode: 'agoraWelcome10' },
+      request,
+    );
+
+    expect((request.mock.calls[0]?.[0] as URL).pathname).toContain(
+      '/nodics/promotion/v0/backoffice/promotions/agoraWelcome10/analytics',
+    );
+    expect(request.mock.calls[0]?.[1]?.method).toBe('GET');
+    expect(request.mock.calls[0]?.[1]?.body).toBeUndefined();
+  });
+
   it('executes commerce order and promotion actions only through backend-declared operation routes', async () => {
     const request = vi
       .fn<typeof fetch>()
@@ -569,6 +602,7 @@ describe('Schema Workbench API client', () => {
         label: 'Schedule',
         intent: 'ACTIVATE',
         order: 20,
+        httpMethod: 'POST',
         operationRoute: '/operator/promotions/:code/actions/SCHEDULE',
         inputFields: [
           { name: 'validFrom', label: 'Valid from', type: 'TEXT', required: true, maximumLength: 32 },

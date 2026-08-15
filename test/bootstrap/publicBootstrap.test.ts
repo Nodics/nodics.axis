@@ -125,8 +125,10 @@ const authenticatedData = {
               permission: 'cms.publish',
               summary: 'Request publication through the owning CMS workflow.',
               operationRoute: '/content/pages/publish',
+              httpMethod: 'POST',
               targetStatuses: ['DRAFT'],
               ownerModule: 'workflow',
+              handlerAction: 'publishCmsPage',
               inputFields: [
                 {
                   name: 'decision',
@@ -381,6 +383,8 @@ describe('Axis bootstrap clients', () => {
             intent: 'APPROVE',
             operationRoute: '/content/pages/publish',
             ownerModule: 'workflow',
+            handlerAction: 'publishCmsPage',
+            httpMethod: 'POST',
           }),
           expect.objectContaining({
             id: 'validate-provider',

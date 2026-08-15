@@ -170,6 +170,151 @@ describe('WorkbenchRecordDetail', () => {
     expect(screen.getByText(/DISPOSITION_RECORDED/)).toBeVisible();
   });
 
+  it('renders Promotion Builder coupon and analytics actions from backend metadata', async () => {
+    const user = userEvent.setup();
+    const execute = vi.fn().mockResolvedValue({ batch: { status: 'GENERATED' } });
+    render(
+      <WorkbenchRecordDetail
+        closeLabel="Close"
+        deleteLabel="Delete"
+        editLabel="Edit"
+        falseLabel="No"
+        lifecycleActions={[
+          {
+            id: 'promotion-create-coupon-batch',
+            label: 'Create coupon batch',
+            intent: 'CREATE',
+            ownerModule: 'promotion',
+            handlerAction: 'createCouponBatch',
+            httpMethod: 'POST',
+            operationRoute: '/backoffice/promotions/:promotionCode/coupon-batches',
+            order: 70,
+            inputFields: [
+              {
+                name: 'promotionCode',
+                label: 'Promotion code',
+                type: 'HIDDEN',
+                required: true,
+                valueFromRecord: 'code',
+                maximumLength: 128,
+              },
+              {
+                name: 'batchCode',
+                label: 'Coupon batch code',
+                type: 'TEXT',
+                required: true,
+                maximumLength: 128,
+              },
+              {
+                name: 'couponCodes',
+                label: 'Coupon codes JSON',
+                type: 'JSON',
+                required: true,
+                defaultValue: '["PROMO10A","PROMO10B"]',
+                maximumLength: 4000,
+              },
+            ],
+          },
+          {
+            id: 'promotion-analytics',
+            label: 'Analytics',
+            intent: 'VALIDATE',
+            ownerModule: 'promotion',
+            handlerAction: 'analytics',
+            httpMethod: 'GET',
+            operationRoute: '/backoffice/promotions/:promotionCode/analytics',
+            order: 110,
+            inputFields: [
+              {
+                name: 'promotionCode',
+                label: 'Promotion code',
+                type: 'HIDDEN',
+                required: true,
+                valueFromRecord: 'code',
+                maximumLength: 128,
+              },
+            ],
+          },
+        ]}
+        record={{ code: 'agoraWelcome10', status: 'APPROVED' }}
+        schema={{ ...schema, moduleName: 'promotion', schemaName: 'promotion' }}
+        trueLabel="Yes"
+        onClose={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={vi.fn()}
+        onLifecycleAction={execute}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /Create coupon batch/ }));
+
+    expect(screen.getByText(/POST \/backoffice\/promotions\/:promotionCode\/coupon-batches/)).toBeVisible();
+    expect(screen.getByDisplayValue('["PROMO10A","PROMO10B"]')).toBeVisible();
+    await user.type(screen.getAllByRole('textbox')[0]!, 'agoraWelcome10-batch');
+    await user.click(screen.getAllByRole('button', { name: /Create coupon batch/ }).at(-1)!);
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({ handlerAction: 'createCouponBatch' }),
+      expect.objectContaining({ code: 'agoraWelcome10' }),
+      expect.objectContaining({
+        promotionCode: 'agoraWelcome10',
+        batchCode: 'agoraWelcome10-batch',
+        couponCodes: '["PROMO10A","PROMO10B"]',
+      }),
+    );
+  });
+
+  it('executes hidden-field Promotion Builder analytics actions without opening a form', async () => {
+    const user = userEvent.setup();
+    const execute = vi.fn().mockResolvedValue({ redemptionCount: 2 });
+    render(
+      <WorkbenchRecordDetail
+        closeLabel="Close"
+        deleteLabel="Delete"
+        editLabel="Edit"
+        falseLabel="No"
+        lifecycleActions={[
+          {
+            id: 'promotion-analytics',
+            label: 'Analytics',
+            intent: 'VALIDATE',
+            ownerModule: 'promotion',
+            handlerAction: 'analytics',
+            httpMethod: 'GET',
+            operationRoute: '/backoffice/promotions/:promotionCode/analytics',
+            order: 110,
+            inputFields: [
+              {
+                name: 'promotionCode',
+                label: 'Promotion code',
+                type: 'HIDDEN',
+                required: true,
+                valueFromRecord: 'code',
+                maximumLength: 128,
+              },
+            ],
+          },
+        ]}
+        record={{ code: 'agoraWelcome10', status: 'APPROVED' }}
+        schema={{ ...schema, moduleName: 'promotion', schemaName: 'promotion' }}
+        trueLabel="Yes"
+        onClose={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={vi.fn()}
+        onLifecycleAction={execute}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /Analytics/ }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({ handlerAction: 'analytics', httpMethod: 'GET' }),
+      expect.objectContaining({ code: 'agoraWelcome10' }),
+      expect.objectContaining({ promotionCode: 'agoraWelcome10' }),
+    );
+  });
+
   it('renders dates and booleans as user-friendly localized values', () => {
     const formattedSchema: WorkbenchSchema = {
       ...schema,

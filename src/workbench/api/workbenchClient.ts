@@ -416,20 +416,25 @@ export async function executeWorkbenchLifecycleAction(
       }
     }),
   );
+  const method = action.httpMethod ?? 'POST';
+  const body =
+    method === 'GET'
+      ? undefined
+      : JSON.stringify({
+          actionId: action.id,
+          identity: recordIdentity(schema, record),
+          model: record,
+          idempotencyKey,
+          ...payloadInput,
+        });
   return request(
     connection,
     operationRoute,
     configuration,
     {
-      method: 'POST',
+      method,
       headers: { 'Idempotency-Key': idempotencyKey },
-      body: JSON.stringify({
-        actionId: action.id,
-        identity: recordIdentity(schema, record),
-        model: record,
-        idempotencyKey,
-        ...payloadInput,
-      }),
+      ...(body === undefined ? {} : { body }),
     },
     fetchImplementation,
   );
