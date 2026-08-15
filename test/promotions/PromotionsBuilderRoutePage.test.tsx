@@ -54,6 +54,14 @@ describe('Promotions Builder presentation', () => {
     expect(screen.getByText(/does not calculate eligibility/i)).toBeVisible();
     expect(screen.getByText('Eligibility')).toBeVisible();
     expect(screen.getByText('Coupon and budget')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Business-user flow' })).toBeVisible();
+    expect(screen.getByText('Create or edit draft')).toBeVisible();
+    expect(screen.getByText('Preview eligibility')).toBeVisible();
+    expect(screen.getByText('Submit and approve')).toBeVisible();
+    expect(screen.getByText('Schedule, suspend or archive')).toBeVisible();
+    expect(screen.getByText('Audit redemption')).toBeVisible();
+    expect(screen.getByText('backend:approve')).toBeVisible();
+    expect(screen.getByText('backend:suspend')).toBeVisible();
     expect(screen.getByText(/Customer checkout receives only the approved/i)).toBeVisible();
     expect(screen.getByLabelText('Loading Axis configuration')).toBeInTheDocument();
   });
