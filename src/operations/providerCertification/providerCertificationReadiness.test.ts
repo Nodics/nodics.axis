@@ -25,17 +25,17 @@ describe('commerceProviderReadiness', () => {
 
     expect(readiness.find((item) => item.domain === 'payment')).toMatchObject({
       liveCertified: false,
-      missing: ['liveEvidenceReference'],
+      missing: ['liveEvidenceReference', 'certifiedAt', 'certifiedBy', 'productionTrafficApproved'],
     });
     expect(readiness.find((item) => item.domain === 'carrier')).toMatchObject({
       liveCertified: false,
-      missing: ['liveEvidenceReference'],
+      missing: ['liveEvidenceReference', 'certifiedAt', 'certifiedBy', 'productionTrafficApproved'],
     });
     expect(readiness.find((item) => item.domain === 'warehouse')?.operatorMessage).toContain('not live-certified');
     expect(readiness.find((item) => item.domain === 'pos')?.missing).toContain('providerCode');
   });
 
-  it('requires live evidence before showing live certification', () => {
+  it('requires live evidence, owner, timestamp and production approval before showing live certification', () => {
     const readiness = commerceProviderReadiness([
       {
         domain: 'payment',
@@ -45,12 +45,16 @@ describe('commerceProviderReadiness', () => {
         idempotencySupported: true,
         secretReference: 'vault://stripe/live',
         liveEvidenceReference: 'CERT-PAY-001',
+        certifiedAt: '2026-08-15T10:00:00.000Z',
+        certifiedBy: 'payments-ops',
+        productionTrafficApproved: true,
       },
     ]);
 
     expect(readiness.find((item) => item.domain === 'payment')).toMatchObject({
       liveCertified: true,
       missing: [],
+      evidenceSummary: 'Evidence CERT-PAY-001 by payments-ops on 2026-08-15T10:00:00.000Z.',
     });
   });
 });

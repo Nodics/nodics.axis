@@ -35,6 +35,9 @@ export function ProviderCertificationReadinessPanel(props: ProviderCertification
                 <Typography color="text.secondary" variant="body2">
                   {item.operatorMessage}
                 </Typography>
+                <Typography color="text.secondary" variant="caption">
+                  {item.evidenceSummary}
+                </Typography>
                 {item.missing.length ? (
                   <Typography variant="caption">Missing: {item.missing.join(', ')}</Typography>
                 ) : null}
@@ -43,7 +46,7 @@ export function ProviderCertificationReadinessPanel(props: ProviderCertification
           ))}
         </Stack>
         <Alert severity="info">
-          Sandbox or offline conformance is not live certification. Axis shows evidence state only; backend provider declarations and operational sign-off remain authoritative.
+          Sandbox or offline conformance is not live certification. Axis shows evidence state only; backend provider declarations, named certification owner, certification timestamp and production-traffic approval remain authoritative.
         </Alert>
       </Stack>
     </Paper>

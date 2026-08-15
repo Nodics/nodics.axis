@@ -27,6 +27,8 @@ describe('ProviderCertificationReadinessPanel', () => {
     expect(screen.getByText('POS provider')).toBeTruthy();
     expect(screen.getByText('OFFLINE_CONFORMANCE')).toBeTruthy();
     expect(screen.getAllByText(/not live-certified/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/No live certification evidence reference/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/production-traffic approval remain authoritative/)).toBeTruthy();
     expect(screen.getByText(/Sandbox or offline conformance is not live certification/)).toBeTruthy();
   });
 });

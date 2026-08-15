@@ -119,6 +119,8 @@ describe('WorkbenchRecordDetail', () => {
 
     await user.click(screen.getByRole('button', { name: /Record disposition/ }));
 
+    expect(screen.getByText(/Confirm backend action/)).toBeVisible();
+    expect(screen.getByText(/\/operator\/order-lifecycle\/:requestCode\/actions\/DISPOSITION/)).toBeVisible();
     expect(screen.getByLabelText('RMA code')).toHaveValue('RMA-1');
     expect(screen.getByText('Disposition')).toBeVisible();
     expect(screen.getByText('RESTOCK')).toBeVisible();
@@ -134,6 +136,38 @@ describe('WorkbenchRecordDetail', () => {
         disposition: 'RESTOCK',
       }),
     );
+  });
+
+  it('renders backend lifecycle action result summaries passed by the route controller', () => {
+    render(
+      <WorkbenchRecordDetail
+        closeLabel="Close"
+        deleteLabel="Delete"
+        editLabel="Edit"
+        falseLabel="No"
+        lifecycleActionResult={{ status: 'DISPOSITION_RECORDED' }}
+        lifecycleActions={[
+          {
+            id: 'record-disposition',
+            label: 'Record disposition',
+            intent: 'OTHER',
+            ownerModule: 'order',
+            operationRoute: '/operator/order-lifecycle/:requestCode/actions/DISPOSITION',
+            order: 70,
+          },
+        ]}
+        record={{ code: 'order-1:return:1', status: 'SUBMITTED' }}
+        schema={{ ...schema, moduleName: 'order', schemaName: 'orderLifecycleRequest' }}
+        trueLabel="Yes"
+        onClose={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={vi.fn()}
+        onLifecycleAction={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Backend lifecycle action completed.')).toBeVisible();
+    expect(screen.getByText(/DISPOSITION_RECORDED/)).toBeVisible();
   });
 
   it('renders dates and booleans as user-friendly localized values', () => {

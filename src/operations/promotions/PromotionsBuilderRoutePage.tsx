@@ -113,6 +113,30 @@ const secondSlicePanels = Object.freeze([
   },
 ]);
 
+const productionPreviewChecks = Object.freeze([
+  'Cart subtotal and currency',
+  'Applied coupon token',
+  'Customer segment',
+  'Product and category mix',
+  'Expected discount',
+  'Rejected rule explanations',
+]);
+
+const productionEvidencePanels = Object.freeze([
+  {
+    title: 'Coupon safety',
+    detail: 'Axis displays hash policy, import source, issuance status, max-use limits and per-customer limits before approval.',
+  },
+  {
+    title: 'Budget simulation',
+    detail: 'Preview shows limit, committed spend, pending redemption exposure and remaining budget without mutating budget state.',
+  },
+  {
+    title: 'Approval audit trail',
+    detail: 'Maker, checker, published revision, suspension reason and reversal evidence stay visible beside the draft.',
+  },
+]);
+
 /**
  * Renders the Promotion-owned builder workbench. Axis owns layout, operator
  * guidance, and safe presentation defaults only; promotion rules, validation,
@@ -221,6 +245,33 @@ export function PromotionsBuilderRoutePage(props: PromotionsBuilderRoutePageProp
                     ))}
                   </Stack>
                 </Stack>
+              </Paper>
+            ))}
+          </Stack>
+        </Stack>
+      </Paper>
+      <Paper component="section" sx={{ p: 2 }} variant="outlined">
+        <Stack spacing={1.5}>
+          <Typography component="h2" variant="h6">
+            Production preview guardrails
+          </Typography>
+          <Typography color="text.secondary">
+            The builder prepares a checkout-like simulation payload, then sends it to Promotion preview APIs. It does not reserve coupons, spend budget, publish drafts or alter customer carts.
+          </Typography>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+            {productionPreviewChecks.map((check) => (
+              <Chip color="secondary" key={check} label={check} size="small" variant="outlined" />
+            ))}
+          </Stack>
+          <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
+            {productionEvidencePanels.map((panel) => (
+              <Paper component="article" key={panel.title} sx={{ minWidth: 240, p: 1.5 }} variant="outlined">
+                <Typography component="h3" sx={{ fontWeight: 700 }} variant="subtitle2">
+                  {panel.title}
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  {panel.detail}
+                </Typography>
               </Paper>
             ))}
           </Stack>

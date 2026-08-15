@@ -13,6 +13,9 @@ export interface CommerceProviderDeclaration {
   readonly idempotencySupported?: boolean | undefined;
   readonly secretReference?: string | undefined;
   readonly liveEvidenceReference?: string | undefined;
+  readonly certifiedAt?: string | undefined;
+  readonly certifiedBy?: string | undefined;
+  readonly productionTrafficApproved?: boolean | undefined;
 }
 
 export interface CommerceProviderReadinessItem {
@@ -21,6 +24,7 @@ export interface CommerceProviderReadinessItem {
   readonly state: CommerceProviderCertificationState;
   readonly liveCertified: boolean;
   readonly missing: readonly string[];
+  readonly evidenceSummary: string;
   readonly operatorMessage: string;
 }
 
@@ -33,10 +37,44 @@ const labels: Readonly<Record<CommerceProviderDomain, string>> = Object.freeze({
 
 const requiredControls: Readonly<Record<CommerceProviderDomain, readonly string[]>> =
   Object.freeze({
-    payment: ['providerCode', 'webhookSecured', 'idempotencySupported', 'secretReference', 'liveEvidenceReference'],
-    carrier: ['providerCode', 'webhookSecured', 'idempotencySupported', 'secretReference', 'liveEvidenceReference'],
-    warehouse: ['providerCode', 'idempotencySupported', 'secretReference', 'liveEvidenceReference'],
-    pos: ['providerCode', 'idempotencySupported', 'secretReference', 'liveEvidenceReference'],
+    payment: [
+      'providerCode',
+      'webhookSecured',
+      'idempotencySupported',
+      'secretReference',
+      'liveEvidenceReference',
+      'certifiedAt',
+      'certifiedBy',
+      'productionTrafficApproved',
+    ],
+    carrier: [
+      'providerCode',
+      'webhookSecured',
+      'idempotencySupported',
+      'secretReference',
+      'liveEvidenceReference',
+      'certifiedAt',
+      'certifiedBy',
+      'productionTrafficApproved',
+    ],
+    warehouse: [
+      'providerCode',
+      'idempotencySupported',
+      'secretReference',
+      'liveEvidenceReference',
+      'certifiedAt',
+      'certifiedBy',
+      'productionTrafficApproved',
+    ],
+    pos: [
+      'providerCode',
+      'idempotencySupported',
+      'secretReference',
+      'liveEvidenceReference',
+      'certifiedAt',
+      'certifiedBy',
+      'productionTrafficApproved',
+    ],
   });
 
 function hasControl(declaration: CommerceProviderDeclaration | undefined, control: string): boolean {
@@ -46,6 +84,9 @@ function hasControl(declaration: CommerceProviderDeclaration | undefined, contro
   if (control === 'idempotencySupported') return declaration.idempotencySupported === true;
   if (control === 'secretReference') return Boolean(declaration.secretReference);
   if (control === 'liveEvidenceReference') return Boolean(declaration.liveEvidenceReference);
+  if (control === 'certifiedAt') return Boolean(declaration.certifiedAt);
+  if (control === 'certifiedBy') return Boolean(declaration.certifiedBy);
+  if (control === 'productionTrafficApproved') return declaration.productionTrafficApproved === true;
   return false;
 }
 
@@ -69,6 +110,9 @@ export function commerceProviderReadiness(
       state,
       liveCertified,
       missing,
+      evidenceSummary: declaration?.liveEvidenceReference
+        ? `Evidence ${declaration.liveEvidenceReference}${declaration.certifiedBy ? ` by ${declaration.certifiedBy}` : ''}${declaration.certifiedAt ? ` on ${declaration.certifiedAt}` : ''}.`
+        : 'No live certification evidence reference has been recorded.',
       operatorMessage: liveCertified
         ? `${labels[domain]} is live certified.`
         : `${labels[domain]} is not live-certified; missing ${missing.join(', ') || 'live certification approval'}.`,
