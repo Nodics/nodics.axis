@@ -30,5 +30,9 @@ describe('ProviderCertificationReadinessPanel', () => {
     expect(screen.getAllByText(/No live certification evidence reference/).length).toBeGreaterThan(0);
     expect(screen.getByText(/production-traffic approval remain authoritative/)).toBeTruthy();
     expect(screen.getByText(/Sandbox or offline conformance is not live certification/)).toBeTruthy();
+    expect(screen.getByText('Webhook signature verified')).toBeTruthy();
+    expect(screen.getByText('Return pickup/drop-off SLA approved')).toBeTruthy();
+    expect(screen.getByText('Receipt and inspection evidence mapped')).toBeTruthy();
+    expect(screen.getByText('Till reconciliation runbook approved')).toBeTruthy();
   });
 });

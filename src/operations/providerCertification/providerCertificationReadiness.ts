@@ -26,6 +26,7 @@ export interface CommerceProviderReadinessItem {
   readonly missing: readonly string[];
   readonly evidenceSummary: string;
   readonly operatorMessage: string;
+  readonly cutoverChecklist: readonly string[];
 }
 
 const labels: Readonly<Record<CommerceProviderDomain, string>> = Object.freeze({
@@ -77,6 +78,13 @@ const requiredControls: Readonly<Record<CommerceProviderDomain, readonly string[
     ],
   });
 
+const cutoverChecklists: Readonly<Record<CommerceProviderDomain, readonly string[]>> = Object.freeze({
+  payment: ['Webhook signature verified', 'Idempotent authorization/capture/refund', 'Reconciliation runbook approved'],
+  carrier: ['Rate and label sandbox certified', 'Tracking webhook verified', 'Return pickup/drop-off SLA approved'],
+  warehouse: ['Reservation and release contract verified', 'Receipt and inspection evidence mapped', 'Disposition codes approved'],
+  pos: ['Store inventory sync verified', 'In-store return/exchange identity proof checked', 'Till reconciliation runbook approved'],
+});
+
 function hasControl(declaration: CommerceProviderDeclaration | undefined, control: string): boolean {
   if (!declaration) return false;
   if (control === 'providerCode') return Boolean(declaration.providerCode);
@@ -116,6 +124,7 @@ export function commerceProviderReadiness(
       operatorMessage: liveCertified
         ? `${labels[domain]} is live certified.`
         : `${labels[domain]} is not live-certified; missing ${missing.join(', ') || 'live certification approval'}.`,
+      cutoverChecklist: cutoverChecklists[domain],
     });
   });
 }

@@ -41,6 +41,15 @@ export function ProviderCertificationReadinessPanel(props: ProviderCertification
                 {item.missing.length ? (
                   <Typography variant="caption">Missing: {item.missing.join(', ')}</Typography>
                 ) : null}
+                <Stack component="ul" spacing={0.5} sx={{ m: 0, pl: 2 }}>
+                  {item.cutoverChecklist.map((check) => (
+                    <li key={check}>
+                      <Typography color="text.secondary" variant="caption">
+                        {check}
+                      </Typography>
+                    </li>
+                  ))}
+                </Stack>
               </Stack>
             </Paper>
           ))}

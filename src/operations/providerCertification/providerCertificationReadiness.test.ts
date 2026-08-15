@@ -27,10 +27,12 @@ describe('commerceProviderReadiness', () => {
       liveCertified: false,
       missing: ['liveEvidenceReference', 'certifiedAt', 'certifiedBy', 'productionTrafficApproved'],
     });
+    expect(readiness.find((item) => item.domain === 'payment')?.cutoverChecklist).toContain('Webhook signature verified');
     expect(readiness.find((item) => item.domain === 'carrier')).toMatchObject({
       liveCertified: false,
       missing: ['liveEvidenceReference', 'certifiedAt', 'certifiedBy', 'productionTrafficApproved'],
     });
+    expect(readiness.find((item) => item.domain === 'warehouse')?.cutoverChecklist).toContain('Receipt and inspection evidence mapped');
     expect(readiness.find((item) => item.domain === 'warehouse')?.operatorMessage).toContain('not live-certified');
     expect(readiness.find((item) => item.domain === 'pos')?.missing).toContain('providerCode');
   });

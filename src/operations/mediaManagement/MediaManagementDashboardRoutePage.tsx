@@ -149,6 +149,14 @@ const productionMediaIntakeSteps = Object.freeze([
   'Activate media reference for content or product',
 ]);
 
+const productionMediaEvidenceStates = Object.freeze([
+  'UPLOADED',
+  'CHECKSUM_RECORDED',
+  'RIGHTS_APPROVED',
+  'TARGET_USAGE_APPROVED',
+  'REFERENCE_ACTIVATED',
+]);
+
 async function loadMediaDashboardData(
   connections: ReturnType<typeof activeConnections>,
   bootstrap: AxisAuthenticatedBootstrap,
@@ -282,6 +290,11 @@ export function MediaManagementDashboardRoutePage({
             <Stack component="ol" spacing={1} sx={{ m: 0, pl: 3 }}>
               {productionMediaIntakeSteps.map((step) => (
                 <li key={step}>{step}</li>
+              ))}
+            </Stack>
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+              {productionMediaEvidenceStates.map((state) => (
+                <Chip key={state} label={state} size="small" variant="outlined" />
               ))}
             </Stack>
             <Alert severity="warning">

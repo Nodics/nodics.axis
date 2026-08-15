@@ -137,6 +137,25 @@ const productionEvidencePanels = Object.freeze([
   },
 ]);
 
+const productionWorkflowDepth = Object.freeze([
+  {
+    title: 'Condition editor',
+    detail: 'Segment, category, product, subtotal, channel and date-window conditions are composed as backend schema values, not browser logic.',
+  },
+  {
+    title: 'Approval workflow',
+    detail: 'Draft, submitted, approved, scheduled, suspended and archived states must be driven by backend lifecycle actions.',
+  },
+  {
+    title: 'Scheduling calendar',
+    detail: 'Operators need visible overlap and priority conflict checks before publishing an active promotion window.',
+  },
+  {
+    title: 'Analytics and exposure',
+    detail: 'Budget exposure, redemption count, rejected eligibility reasons and reversal volume are read from backend evidence.',
+  },
+]);
+
 /**
  * Renders the Promotion-owned builder workbench. Axis owns layout, operator
  * guidance, and safe presentation defaults only; promotion rules, validation,
@@ -265,6 +284,30 @@ export function PromotionsBuilderRoutePage(props: PromotionsBuilderRoutePageProp
           </Stack>
           <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
             {productionEvidencePanels.map((panel) => (
+              <Paper component="article" key={panel.title} sx={{ minWidth: 240, p: 1.5 }} variant="outlined">
+                <Typography component="h3" sx={{ fontWeight: 700 }} variant="subtitle2">
+                  {panel.title}
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  {panel.detail}
+                </Typography>
+              </Paper>
+            ))}
+          </Stack>
+        </Stack>
+      </Paper>
+      <Paper component="section" sx={{ p: 2 }} variant="outlined">
+        <Stack spacing={1.5}>
+          <Typography component="h2" variant="h6">
+            Production workflow depth
+          </Typography>
+          <Typography color="text.secondary">
+            These are the remaining form-builder capabilities required before
+            Promotions Builder is production-complete. Axis presents and
+            executes backend-declared actions only.
+          </Typography>
+          <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
+            {productionWorkflowDepth.map((panel) => (
               <Paper component="article" key={panel.title} sx={{ minWidth: 240, p: 1.5 }} variant="outlined">
                 <Typography component="h3" sx={{ fontWeight: 700 }} variant="subtitle2">
                   {panel.title}

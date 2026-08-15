@@ -90,6 +90,11 @@ describe('Promotions Builder presentation', () => {
     expect(screen.getByText('Coupon safety')).toBeTruthy();
     expect(screen.getByText('Budget simulation')).toBeTruthy();
     expect(screen.getByText('Approval audit trail')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Production workflow depth' })).toBeTruthy();
+    expect(screen.getByText('Condition editor')).toBeTruthy();
+    expect(screen.getByText('Approval workflow')).toBeTruthy();
+    expect(screen.getByText('Scheduling calendar')).toBeTruthy();
+    expect(screen.getByText('Analytics and exposure')).toBeTruthy();
     expect(screen.getByText(/Customer checkout receives only the approved/i)).toBeTruthy();
     expect(screen.getByLabelText('Loading Axis configuration')).toBeTruthy();
   });
