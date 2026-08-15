@@ -61,6 +61,81 @@ describe('WorkbenchRecordDetail', () => {
     expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
   });
 
+  it('renders backend-declared Order lifecycle operator action panels with disposition inputs', async () => {
+    const user = userEvent.setup();
+    const execute = vi.fn().mockResolvedValue({ status: 'DISPOSITION_RECORDED' });
+    render(
+      <WorkbenchRecordDetail
+        closeLabel="Close"
+        deleteLabel="Delete"
+        editLabel="Edit"
+        falseLabel="No"
+        lifecycleActions={[
+          {
+            id: 'record-disposition',
+            label: 'Record disposition',
+            intent: 'OTHER',
+            ownerModule: 'order',
+            operationRoute: '/operator/order-lifecycle/:requestCode/actions/DISPOSITION',
+            order: 70,
+            inputFields: [
+              {
+                name: 'requestCode',
+                label: 'Request code',
+                type: 'HIDDEN',
+                required: true,
+                valueFromRecord: 'code',
+                maximumLength: 128,
+              },
+              {
+                name: 'rmaCode',
+                label: 'RMA code',
+                type: 'TEXT',
+                required: false,
+                valueFromRecord: 'evidence.rmaCode',
+                maximumLength: 128,
+              },
+              {
+                name: 'disposition',
+                label: 'Disposition',
+                type: 'SELECT',
+                required: true,
+                options: ['RESTOCK', 'REFURBISH', 'SCRAP', 'REJECT_RETURN'],
+                defaultValue: 'RESTOCK',
+                maximumLength: 32,
+              },
+            ],
+          },
+        ]}
+        record={{ code: 'order-1:return:1', status: 'SUBMITTED', evidence: { rmaCode: 'RMA-1' } }}
+        schema={{ ...schema, moduleName: 'order', schemaName: 'orderLifecycleRequest' }}
+        trueLabel="Yes"
+        onClose={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={vi.fn()}
+        onLifecycleAction={execute}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /Record disposition/ }));
+
+    expect(screen.getByLabelText('RMA code')).toHaveValue('RMA-1');
+    expect(screen.getByText('Disposition')).toBeVisible();
+    expect(screen.getByText('RESTOCK')).toBeVisible();
+
+    await user.click(screen.getAllByRole('button', { name: /Record disposition/ }).at(-1)!);
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'record-disposition' }),
+      expect.objectContaining({ code: 'order-1:return:1' }),
+      expect.objectContaining({
+        requestCode: 'order-1:return:1',
+        rmaCode: 'RMA-1',
+        disposition: 'RESTOCK',
+      }),
+    );
+  });
+
   it('renders dates and booleans as user-friendly localized values', () => {
     const formattedSchema: WorkbenchSchema = {
       ...schema,
