@@ -157,6 +157,25 @@ const productionMediaEvidenceStates = Object.freeze([
   'REFERENCE_ACTIVATED',
 ]);
 
+const productionMediaControls = Object.freeze([
+  {
+    title: 'Rights policy check',
+    detail: 'Reject production activation unless the media record carries approved license, owner and target-usage evidence.',
+  },
+  {
+    title: 'Checksum and source proof',
+    detail: 'Show checksum, source system, original filename and intake run so operators can audit replacement assets.',
+  },
+  {
+    title: 'Target usage approval',
+    detail: 'Approve each content, product, category or promotion usage separately before the media reference becomes active.',
+  },
+  {
+    title: 'Emergency deactivation',
+    detail: 'Allow operators to deactivate a bad reference without deleting audit history or the owning product/content record.',
+  },
+]);
+
 async function loadMediaDashboardData(
   connections: ReturnType<typeof activeConnections>,
   bootstrap: AxisAuthenticatedBootstrap,
@@ -295,6 +314,14 @@ export function MediaManagementDashboardRoutePage({
             <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
               {productionMediaEvidenceStates.map((state) => (
                 <Chip key={state} label={state} size="small" variant="outlined" />
+              ))}
+            </Stack>
+            <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
+              {productionMediaControls.map((control) => (
+                <Paper component="article" key={control.title} sx={{ minWidth: 240, p: 1.5 }} variant="outlined">
+                  <strong>{control.title}</strong>
+                  <p>{control.detail}</p>
+                </Paper>
               ))}
             </Stack>
             <Alert severity="warning">

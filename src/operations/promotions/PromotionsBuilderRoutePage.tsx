@@ -156,6 +156,34 @@ const productionWorkflowDepth = Object.freeze([
   },
 ]);
 
+const nonProviderImplementationBacklog = Object.freeze([
+  {
+    title: 'Visual rule composer',
+    detail: 'Group AND/OR eligibility blocks while persisting only Promotion-owned condition records.',
+    status: 'NEXT_IMPLEMENTATION',
+  },
+  {
+    title: 'Coupon allocation workspace',
+    detail: 'Generate, import, reserve, release and audit coupon batches through backend operations.',
+    status: 'NEXT_IMPLEMENTATION',
+  },
+  {
+    title: 'Conflict-aware calendar',
+    detail: 'Show overlapping active windows, priority collisions and suspension windows before approval.',
+    status: 'NEXT_IMPLEMENTATION',
+  },
+  {
+    title: 'Customer exposure preview',
+    detail: 'Preview the exact approved customer-facing message and discount evidence before publication.',
+    status: 'NEXT_IMPLEMENTATION',
+  },
+  {
+    title: 'Redemption analytics',
+    detail: 'Read redemption count, rejected reasons, budget exposure, reversal volume and conversion lift from backend evidence.',
+    status: 'NEXT_IMPLEMENTATION',
+  },
+]);
+
 /**
  * Renders the Promotion-owned builder workbench. Axis owns layout, operator
  * guidance, and safe presentation defaults only; promotion rules, validation,
@@ -315,6 +343,31 @@ export function PromotionsBuilderRoutePage(props: PromotionsBuilderRoutePageProp
                 <Typography color="text.secondary" variant="body2">
                   {panel.detail}
                 </Typography>
+              </Paper>
+            ))}
+          </Stack>
+        </Stack>
+      </Paper>
+      <Paper component="section" sx={{ p: 2 }} variant="outlined">
+        <Stack spacing={1.5}>
+          <Typography component="h2" variant="h6">
+            Non-provider implementation backlog
+          </Typography>
+          <Typography color="text.secondary">
+            This backlog excludes live payment, carrier, warehouse and POS
+            certification. It tracks the remaining business-user builder work
+            that can progress with local and Docker runtimes.
+          </Typography>
+          <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
+            {nonProviderImplementationBacklog.map((item) => (
+              <Paper component="article" key={item.title} sx={{ minWidth: 240, p: 1.5 }} variant="outlined">
+                <Typography component="h3" sx={{ fontWeight: 700 }} variant="subtitle2">
+                  {item.title}
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  {item.detail}
+                </Typography>
+                <Chip label={item.status} size="small" sx={{ mt: 1 }} variant="outlined" />
               </Paper>
             ))}
           </Stack>

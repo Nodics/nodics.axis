@@ -95,6 +95,14 @@ describe('Promotions Builder presentation', () => {
     expect(screen.getByText('Approval workflow')).toBeTruthy();
     expect(screen.getByText('Scheduling calendar')).toBeTruthy();
     expect(screen.getByText('Analytics and exposure')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Non-provider implementation backlog' })).toBeTruthy();
+    expect(screen.getByText(/excludes live payment, carrier, warehouse and POS certification/i)).toBeTruthy();
+    expect(screen.getByText('Visual rule composer')).toBeTruthy();
+    expect(screen.getByText('Coupon allocation workspace')).toBeTruthy();
+    expect(screen.getByText('Conflict-aware calendar')).toBeTruthy();
+    expect(screen.getByText('Customer exposure preview')).toBeTruthy();
+    expect(screen.getByText('Redemption analytics')).toBeTruthy();
+    expect(screen.getAllByText('NEXT_IMPLEMENTATION').length).toBeGreaterThanOrEqual(5);
     expect(screen.getByText(/Customer checkout receives only the approved/i)).toBeTruthy();
     expect(screen.getByLabelText('Loading Axis configuration')).toBeTruthy();
   });

@@ -55,6 +55,10 @@ describe('MediaManagementDashboardRoutePage', () => {
     expect(screen.getByText('Activate media reference for content or product')).toBeTruthy();
     expect(screen.getByText('RIGHTS_APPROVED')).toBeTruthy();
     expect(screen.getByText('REFERENCE_ACTIVATED')).toBeTruthy();
+    expect(screen.getByText('Rights policy check')).toBeTruthy();
+    expect(screen.getByText('Checksum and source proof')).toBeTruthy();
+    expect(screen.getByText('Target usage approval')).toBeTruthy();
+    expect(screen.getByText('Emergency deactivation')).toBeTruthy();
     expect(screen.getByText(/Sample or reference-site media remains inactive/)).toBeTruthy();
   });
 });
