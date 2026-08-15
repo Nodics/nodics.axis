@@ -59,6 +59,13 @@ describe('MediaManagementDashboardRoutePage', () => {
     expect(screen.getByText('Checksum and source proof')).toBeTruthy();
     expect(screen.getByText('Target usage approval')).toBeTruthy();
     expect(screen.getByText('Emergency deactivation')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Media intake approval checklist' })).toBeTruthy();
+    expect(screen.getByText('Replacement intake')).toBeTruthy();
+    expect(screen.getByText('Rights approval')).toBeTruthy();
+    expect(screen.getByText('Target promotion')).toBeTruthy();
+    expect(screen.getByText('Rollback readiness')).toBeTruthy();
+    expect(screen.getByText('approval timestamp')).toBeTruthy();
+    expect(screen.getByText('activation revision')).toBeTruthy();
     expect(screen.getByText(/Sample or reference-site media remains inactive/)).toBeTruthy();
   });
 });

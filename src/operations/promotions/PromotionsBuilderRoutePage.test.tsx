@@ -104,6 +104,13 @@ describe('Promotions Builder presentation', () => {
     expect(screen.getByText('Redemption analytics')).toBeTruthy();
     expect(screen.getAllByText('NEXT_IMPLEMENTATION').length).toBeGreaterThanOrEqual(5);
     expect(screen.getByText(/Customer checkout receives only the approved/i)).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Coupon and budget mutation controls' })).toBeTruthy();
+    expect(screen.getByText('Coupon batch operation')).toBeTruthy();
+    expect(screen.getByText('Budget mutation ledger')).toBeTruthy();
+    expect(screen.getByText('Redemption reversal')).toBeTruthy();
+    expect(screen.getByText('Approval checklist')).toBeTruthy();
+    expect(screen.getByText('idempotency key')).toBeTruthy();
+    expect(screen.getByText('Owner: Promotion API')).toBeTruthy();
     expect(screen.getByLabelText('Loading Axis configuration')).toBeTruthy();
   });
 });

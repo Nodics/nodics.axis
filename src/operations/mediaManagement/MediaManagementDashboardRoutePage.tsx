@@ -176,6 +176,29 @@ const productionMediaControls = Object.freeze([
   },
 ]);
 
+const productionMediaApprovalChecklist = Object.freeze([
+  {
+    title: 'Replacement intake',
+    owner: 'Media operator',
+    proof: ['original filename', 'source system', 'checksum', 'intake run'],
+  },
+  {
+    title: 'Rights approval',
+    owner: 'Content reviewer',
+    proof: ['license type', 'asset owner', 'reviewer', 'approval timestamp'],
+  },
+  {
+    title: 'Target promotion',
+    owner: 'Media governance',
+    proof: ['target type', 'target code', 'usage scope', 'activation revision'],
+  },
+  {
+    title: 'Rollback readiness',
+    owner: 'Operations',
+    proof: ['previous reference', 'deactivation reason', 'audit trail', 'recovery note'],
+  },
+]);
+
 async function loadMediaDashboardData(
   connections: ReturnType<typeof activeConnections>,
   bootstrap: AxisAuthenticatedBootstrap,
@@ -321,6 +344,25 @@ export function MediaManagementDashboardRoutePage({
                 <Paper component="article" key={control.title} sx={{ minWidth: 240, p: 1.5 }} variant="outlined">
                   <strong>{control.title}</strong>
                   <p>{control.detail}</p>
+                </Paper>
+              ))}
+            </Stack>
+            <WorkspaceHeading
+              description="Operator checklist for replacing reference assets with approved Nodics media while preserving audit and rollback evidence."
+              eyebrow="Media governance"
+              headingVariant="h5"
+              title="Media intake approval checklist"
+            />
+            <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
+              {productionMediaApprovalChecklist.map((item) => (
+                <Paper component="article" key={item.title} sx={{ minWidth: 240, p: 1.5 }} variant="outlined">
+                  <strong>{item.title}</strong>
+                  <p>Owner: {item.owner}</p>
+                  <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
+                    {item.proof.map((proof) => (
+                      <Chip key={proof} label={proof} size="small" variant="outlined" />
+                    ))}
+                  </Stack>
                 </Paper>
               ))}
             </Stack>

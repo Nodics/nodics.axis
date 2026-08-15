@@ -184,6 +184,29 @@ const nonProviderImplementationBacklog = Object.freeze([
   },
 ]);
 
+const couponBudgetMutationControls = Object.freeze([
+  {
+    title: 'Coupon batch operation',
+    owner: 'Promotion API',
+    evidence: ['batch code', 'token hash policy', 'issued count', 'reserved count'],
+  },
+  {
+    title: 'Budget mutation ledger',
+    owner: 'Promotion service',
+    evidence: ['previous spend', 'committed spend', 'remaining budget', 'idempotency key'],
+  },
+  {
+    title: 'Redemption reversal',
+    owner: 'Promotion + Order',
+    evidence: ['order reference', 'reversal reason', 'compensated amount', 'audit actor'],
+  },
+  {
+    title: 'Approval checklist',
+    owner: 'Workflow',
+    evidence: ['maker', 'checker', 'conflict result', 'publication revision'],
+  },
+]);
+
 /**
  * Renders the Promotion-owned builder workbench. Axis owns layout, operator
  * guidance, and safe presentation defaults only; promotion rules, validation,
@@ -368,6 +391,36 @@ export function PromotionsBuilderRoutePage(props: PromotionsBuilderRoutePageProp
                   {item.detail}
                 </Typography>
                 <Chip label={item.status} size="small" sx={{ mt: 1 }} variant="outlined" />
+              </Paper>
+            ))}
+          </Stack>
+        </Stack>
+      </Paper>
+      <Paper component="section" sx={{ p: 2 }} variant="outlined">
+        <Stack spacing={1.5}>
+          <Typography component="h2" variant="h6">
+            Coupon and budget mutation controls
+          </Typography>
+          <Typography color="text.secondary">
+            These controls are the next local/Docker-safe implementation layer:
+            Axis captures operator intent, then Promotion-owned APIs mutate
+            coupons, budgets, reversals and approval state with auditable
+            idempotency.
+          </Typography>
+          <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
+            {couponBudgetMutationControls.map((control) => (
+              <Paper component="article" key={control.title} sx={{ minWidth: 240, p: 1.5 }} variant="outlined">
+                <Typography component="h3" sx={{ fontWeight: 700 }} variant="subtitle2">
+                  {control.title}
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  Owner: {control.owner}
+                </Typography>
+                <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', mt: 1 }}>
+                  {control.evidence.map((item) => (
+                    <Chip key={item} label={item} size="small" variant="outlined" />
+                  ))}
+                </Stack>
               </Paper>
             ))}
           </Stack>
