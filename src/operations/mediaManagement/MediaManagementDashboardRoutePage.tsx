@@ -142,6 +142,13 @@ const mediaFolderMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
 
 const allMetrics = Object.freeze([...mediaMetrics, ...mediaFolderMetrics]);
 
+const productionMediaIntakeSteps = Object.freeze([
+  'Upload or select Nodics-owned asset',
+  'Capture checksum and source evidence',
+  'Reviewer approves rights and target usage',
+  'Activate media reference for content or product',
+]);
+
 async function loadMediaDashboardData(
   connections: ReturnType<typeof activeConnections>,
   bootstrap: AxisAuthenticatedBootstrap,
@@ -259,6 +266,29 @@ export function MediaManagementDashboardRoutePage({
           metrics={metricsById(metrics, mediaFolderMetrics)}
           title="Media by source"
         />
+
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+        >
+          <Stack spacing={dashboardContentGap}>
+            <WorkspaceHeading
+              description="Replacement media for Agora and other storefronts must pass upload, checksum, reviewer approval, and media-reference activation before production use."
+              eyebrow="Production intake"
+              headingVariant="h4"
+              title="Approved media activation flow"
+            />
+            <Stack component="ol" spacing={1} sx={{ m: 0, pl: 3 }}>
+              {productionMediaIntakeSteps.map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </Stack>
+            <Alert severity="warning">
+              Sample or reference-site media remains inactive until a Nodics-owned asset is uploaded, checksum evidence is recorded, reviewer approval is captured, and the media reference is activated.
+            </Alert>
+          </Stack>
+        </Paper>
       </Stack>
     </WorkspaceContainer>
   );
