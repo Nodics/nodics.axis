@@ -455,7 +455,7 @@ describe('ImportExportRoutePage', () => {
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              message: 'Import service is unavailable for runtime destination PLATFORM',
+              message: 'Controlled backend validation failure',
             }),
             { status: 500, headers: { 'Content-Type': 'application/json' } },
           ),
@@ -481,10 +481,60 @@ describe('ImportExportRoutePage', () => {
       name: 'Core data action footer',
     });
     expect(
-      await within(footer).findByText(
-        'Import service is unavailable for runtime destination PLATFORM',
+      await within(footer).findByText('Controlled backend validation failure'),
+    ).toBeVisible();
+  });
+
+  it('validates Platform-targeted releases through the configured Platform import endpoint', async () => {
+    const platformRelease = {
+      ...currentRelease,
+      releaseCode: 'catalog:init',
+      displayName: 'Catalog Framework',
+      dataType: 'init',
+      destinationRole: 'PLATFORM',
+      status: 'NOT_INSTALLED',
+      installedVersion: undefined,
+    };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.endsWith('/init'))
+        return Promise.resolve(jsonResponse([platformRelease]));
+      if (url === 'http://localhost:3000/nodics/import/v0/init/validate') {
+        return Promise.resolve(
+          jsonResponse({
+            dataType: 'init',
+            tenant: 'default',
+            releases: [platformRelease],
+          }),
+        );
+      }
+      if (url.endsWith('/core') || url.endsWith('/sample')) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      return Promise.resolve(jsonResponse([]));
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(await screen.findByRole('tab', { name: 'Initialization data' }));
+    await user.click(
+      await screen.findByRole('checkbox', {
+        name: 'Select Catalog Framework',
+      }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Validate selected' }));
+
+    expect(
+      await screen.findByText(
+        '1 initialization data release(s) validated by the backend.',
       ),
     ).toBeVisible();
+    const validateCalls = fetchMock.mock.calls.filter(([input]) =>
+      fetchInputUrl(input).includes('/init/validate'),
+    );
+    expect(validateCalls.map(([input]) => fetchInputUrl(input as RequestInfo))).toEqual(
+      ['http://localhost:3000/nodics/import/v0/init/validate'],
+    );
   });
 
   it('groups invalid releases as repair-required and keeps them non-selectable', async () => {

@@ -7,6 +7,7 @@ import type { AxisNavigationItem } from '../../bootstrap/publicBootstrap';
 import { WorkspaceContainer } from '../../app/shell/ShellPrimitives';
 import {
   selectModuleConnection,
+  type AxisModuleConnection,
   type AxisAuthenticatedBootstrap,
 } from '../../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
@@ -114,8 +115,27 @@ function selectDataAdministrationConnection(
   );
 }
 
+function createPlatformImportConnection(
+  bootstrap: AxisAuthenticatedBootstrap,
+  runtime: AxisRuntimeConfig,
+): AxisModuleConnection {
+  return Object.freeze({
+    moduleName: 'import',
+    instanceId: `${runtime.enterpriseCode}:platformServer:import:fallback`,
+    endpoint: new URL('/nodics/import', runtime.backofficeBaseUrl).toString(),
+    environment: bootstrap.environments[0] ?? runtime.enterpriseCode,
+    server: 'platformServer',
+    runtimeRole: Object.freeze({
+      code: 'PLATFORM',
+      publication: 'OPERATIONAL',
+    }),
+    state: 'UP',
+  });
+}
+
 function selectReleaseOperationConnection(
   bootstrap: AxisAuthenticatedBootstrap,
+  runtime: AxisRuntimeConfig,
   moduleName: string,
   destinationRole: string | undefined,
 ) {
@@ -123,6 +143,13 @@ function selectReleaseOperationConnection(
     const destinationConnection = selectModuleConnection(bootstrap, moduleName, {
       runtimeRoleCode: destinationRole,
     });
+    if (
+      !destinationConnection &&
+      moduleName === 'import' &&
+      destinationRole === 'PLATFORM'
+    ) {
+      return createPlatformImportConnection(bootstrap, runtime);
+    }
     if (!destinationConnection) {
       throw new Error(
         `Import service is unavailable for runtime destination ${destinationRole}`,
@@ -146,6 +173,7 @@ function groupReleasesByDestination(
 
 async function executeDataReleaseOperationByDestination(
   bootstrap: AxisAuthenticatedBootstrap,
+  runtime: AxisRuntimeConfig,
   configuration: DataReleaseClientConfiguration,
   releaseType: DataReleaseType,
   releases: readonly DataRelease[],
@@ -157,6 +185,7 @@ async function executeDataReleaseOperationByDestination(
   )) {
     const operationConnection = selectReleaseOperationConnection(
       bootstrap,
+      runtime,
       'import',
       destinationRole || undefined,
     );
@@ -267,6 +296,7 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
       }
       return executeDataReleaseOperationByDestination(
         props.bootstrap,
+        props.runtime,
         configuration,
         releaseType,
         executableChosen,
