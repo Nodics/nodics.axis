@@ -14,6 +14,7 @@ import {
 
 import type { DataRelease, DataReleaseType } from '../api/dataReleaseContracts';
 import {
+  isInstallableStatus,
   releaseDisabledReason,
   releaseKey,
   typeCopy,
@@ -33,7 +34,6 @@ interface DataReleaseWorkbenchProps {
   readonly catalogueIsSuccess: boolean;
   readonly connectionAvailable: boolean;
   readonly executableReleaseCount: number;
-  readonly hasOnlyCurrentSelection: boolean;
   readonly operationErrorMessage: string | undefined;
   readonly operationIsError: boolean;
   readonly operationIsPending: boolean;
@@ -52,12 +52,28 @@ interface DataReleaseWorkbenchProps {
 }
 
 export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
-  const selectableReleaseCount = props.visibleReleases.filter(
-    (release) => release.status !== 'RUNNING',
+  const selectableReleaseCount = props.visibleReleases.filter((release) =>
+    isInstallableStatus(release.status),
   ).length;
   const selectedVisibleCount = props.visibleReleases.filter((release) =>
     props.selectedReleaseKeys.has(releaseKey(release)),
   ).length;
+  const groupedReleases = [
+    {
+      heading: 'Available to install or update',
+      help: 'These releases need action and can be selected for validation or installation.',
+      releases: props.visibleReleases.filter((release) =>
+        isInstallableStatus(release.status),
+      ),
+    },
+    {
+      heading: 'Installed / already current',
+      help: 'These releases are already installed at the available version and are shown for audit only.',
+      releases: props.visibleReleases.filter(
+        (release) => !isInstallableStatus(release.status),
+      ),
+    },
+  ].filter((group) => group.releases.length > 0);
 
   return (
     <>
@@ -136,8 +152,8 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
             }}
           >
             <Typography color="text.secondary" variant="body2">
-              {selectedVisibleCount} of {props.visibleReleases.length} visible
-              release(s) selected
+              {selectedVisibleCount} of {selectableReleaseCount} actionable release(s)
+              selected
             </Typography>
             <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>
               <Button
@@ -163,109 +179,125 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
             </Stack>
           </Stack>
           <Divider />
-          {props.visibleReleases.map((release, index) => {
-            const checked = props.selectedReleaseKeys.has(releaseKey(release));
-            const disabledReason = releaseDisabledReason(release);
-            const installedMatchesAvailable =
-              release.installedVersion === release.version;
-            return (
+          {groupedReleases.map((group, groupIndex) => (
+            <Box key={group.heading}>
+              {groupIndex > 0 ? <Divider /> : null}
               <Box
-                key={releaseKey(release)}
-                sx={(theme) => ({
-                  bgcolor: checked
-                    ? alpha(theme.palette.primary.main, 0.06)
-                    : 'background.paper',
-                  transition: 'background-color 160ms ease, box-shadow 160ms ease',
-                  '&:hover': {
-                    bgcolor: checked
-                      ? alpha(theme.palette.primary.main, 0.08)
-                      : 'background.default',
-                  },
-                })}
+                sx={{
+                  bgcolor: 'background.default',
+                  px: { xs: 1.25, md: 1.5 },
+                  py: 1,
+                }}
               >
-                {index > 0 ? <Divider /> : null}
-                <Stack
-                  direction={{ xs: 'column', sm: 'row' }}
-                  sx={{
-                    alignItems: { sm: 'center' },
-                    gap: { xs: 1, sm: 1.5 },
-                    px: { xs: 1.25, md: 1.5 },
-                    py: { xs: 1.2, md: 1.35 },
-                  }}
-                >
-                  <Box sx={{ pt: { sm: 0.25 } }}>
-                    <Checkbox
-                      checked={checked}
-                      disabled={release.status === 'RUNNING'}
-                      slotProps={{
-                        input: {
-                          'aria-label': `Select ${release.displayName}`,
-                        },
-                      }}
-                      sx={{ p: 0.5 }}
-                      onChange={() => props.onToggleRelease(release)}
-                    />
-                  </Box>
-                  <Stack sx={{ flex: 1 }} spacing={0.4}>
-                    <Stack
-                      direction="row"
-                      sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 1 }}
-                    >
-                      <Typography component="h2" variant="h6">
-                        {release.displayName}
-                      </Typography>
-                      <Chip
-                        label={release.status.replaceAll('_', ' ')}
-                        size="small"
-                        sx={{
-                          bgcolor:
-                            release.status === 'CURRENT'
-                              ? 'success.light'
-                              : 'background.default',
-                        }}
-                      />
-                    </Stack>
-                    <Typography color="text.secondary" sx={{ maxWidth: 900 }}>
-                      {release.description}
-                    </Typography>
-                    <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 0.75 }}>
-                      <Chip
-                        label={
-                          installedMatchesAvailable
-                            ? `Version ${release.version}`
-                            : `Available ${release.version}`
-                        }
-                        size="small"
-                        variant="outlined"
-                      />
-                      {release.installedVersion && !installedMatchesAvailable ? (
-                        <Chip
-                          label={`Installed ${release.installedVersion}`}
-                          size="small"
-                          variant="outlined"
-                        />
-                      ) : null}
-                    </Stack>
-                    {disabledReason ? (
-                      <Typography color="text.secondary" variant="caption">
-                        {disabledReason}
-                      </Typography>
-                    ) : null}
-                  </Stack>
-                </Stack>
+                <Typography component="h2" variant="subtitle1">
+                  {group.heading}
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  {group.help}
+                </Typography>
               </Box>
-            );
-          })}
+              {group.releases.map((release, index) => {
+                const checked = props.selectedReleaseKeys.has(releaseKey(release));
+                const disabledReason = releaseDisabledReason(release);
+                const installedMatchesAvailable =
+                  release.installedVersion === release.version;
+                const selectable = isInstallableStatus(release.status);
+                return (
+                  <Box
+                    key={releaseKey(release)}
+                    sx={(theme) => ({
+                      bgcolor: checked
+                        ? alpha(theme.palette.primary.main, 0.06)
+                        : 'background.paper',
+                      transition: 'background-color 160ms ease, box-shadow 160ms ease',
+                      '&:hover': {
+                        bgcolor: checked
+                          ? alpha(theme.palette.primary.main, 0.08)
+                          : 'background.default',
+                      },
+                    })}
+                  >
+                    {index > 0 ? <Divider /> : null}
+                    <Stack
+                      direction={{ xs: 'column', sm: 'row' }}
+                      sx={{
+                        alignItems: { sm: 'center' },
+                        gap: { xs: 1, sm: 1.5 },
+                        px: { xs: 1.25, md: 1.5 },
+                        py: { xs: 1.2, md: 1.35 },
+                      }}
+                    >
+                      <Box sx={{ pt: { sm: 0.25 } }}>
+                        <Checkbox
+                          checked={checked}
+                          disabled={!selectable}
+                          slotProps={{
+                            input: {
+                              'aria-label': selectable
+                                ? `Select ${release.displayName}`
+                                : `${release.displayName} is already current`,
+                            },
+                          }}
+                          sx={{ p: 0.5 }}
+                          onChange={() => props.onToggleRelease(release)}
+                        />
+                      </Box>
+                      <Stack sx={{ flex: 1 }} spacing={0.4}>
+                        <Stack
+                          direction="row"
+                          sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 1 }}
+                        >
+                          <Typography component="h3" variant="h6">
+                            {release.displayName}
+                          </Typography>
+                          <Chip
+                            label={release.status.replaceAll('_', ' ')}
+                            size="small"
+                            sx={{
+                              bgcolor:
+                                release.status === 'CURRENT'
+                                  ? 'success.light'
+                                  : 'background.default',
+                            }}
+                          />
+                        </Stack>
+                        <Typography color="text.secondary" sx={{ maxWidth: 900 }}>
+                          {release.description}
+                        </Typography>
+                        <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 0.75 }}>
+                          <Chip
+                            label={
+                              installedMatchesAvailable
+                                ? `Version ${release.version}`
+                                : `Available ${release.version}`
+                            }
+                            size="small"
+                            variant="outlined"
+                          />
+                          {release.installedVersion && !installedMatchesAvailable ? (
+                            <Chip
+                              label={`Installed ${release.installedVersion}`}
+                              size="small"
+                              variant="outlined"
+                            />
+                          ) : null}
+                        </Stack>
+                        {disabledReason ? (
+                          <Typography color="text.secondary" variant="caption">
+                            {disabledReason}
+                          </Typography>
+                        ) : null}
+                      </Stack>
+                    </Stack>
+                  </Box>
+                );
+              })}
+            </Box>
+          ))}
         </Paper>
       ) : null}
 
       <Divider sx={{ my: 0.5 }} />
-      {props.hasOnlyCurrentSelection ? (
-        <Alert severity="info">
-          Selected releases are already current. You can validate their immutable
-          manifest state, but there is nothing to install or update.
-        </Alert>
-      ) : null}
       <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ gap: 1.5 }}>
         <Button
           disabled={props.operationIsPending || props.selectedReleaseCount === 0}

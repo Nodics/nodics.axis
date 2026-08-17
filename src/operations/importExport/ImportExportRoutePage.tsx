@@ -243,8 +243,6 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
   const executableChosen = chosen.filter((release) =>
     isInstallableStatus(release.status),
   );
-  const hasOnlyCurrentSelection =
-    chosen.length > 0 && chosen.every((release) => release.status === 'CURRENT');
   const releaseSummary = useMemo(
     () => ({
       total: visible.length,
@@ -264,18 +262,14 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
   }, [history.data, historyFilter, historySearch]);
   const operation = useMutation({
     mutationFn: async (mode: 'validate' | 'install') => {
-      if (!isDataReleaseArea(area) || chosen.length === 0) {
+      if (!isDataReleaseArea(area) || executableChosen.length === 0) {
         throw new Error('Select at least one available data release');
-      }
-      const operationReleases = mode === 'validate' ? chosen : executableChosen;
-      if (operationReleases.length === 0) {
-        throw new Error('Select at least one installable data release');
       }
       return executeDataReleaseOperationByDestination(
         props.bootstrap,
         configuration,
         releaseType,
-        operationReleases,
+        executableChosen,
         mode,
       );
     },
@@ -446,7 +440,6 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
               catalogueIsSuccess={catalogue.isSuccess}
               connectionAvailable={Boolean(connection)}
               executableReleaseCount={executableChosen.length}
-              hasOnlyCurrentSelection={hasOnlyCurrentSelection}
               operationErrorMessage={operation.error?.message}
               operationIsError={operation.isError}
               operationIsPending={operation.isPending}
@@ -473,13 +466,14 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
                   new Set([
                     ...selected,
                     ...visible
-                      .filter((release) => release.status !== 'RUNNING')
+                      .filter((release) => isInstallableStatus(release.status))
                       .map(releaseKey),
                   ]),
                 );
                 operation.reset();
               }}
               onToggleRelease={(release) => {
+                if (!isInstallableStatus(release.status)) return;
                 const next = new Set(selected);
                 if (selected.has(releaseKey(release))) next.delete(releaseKey(release));
                 else next.add(releaseKey(release));

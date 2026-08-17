@@ -346,18 +346,9 @@ describe('ImportExportRoutePage', () => {
     expect(attempts).toBe(2);
   });
 
-  it('validates current releases without enabling no-op installation', async () => {
+  it('shows current releases as audit-only without enabling no-op actions', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = fetchInputUrl(input);
-      if (url.includes('/core/validate')) {
-        return Promise.resolve(
-          jsonResponse({
-            dataType: 'core',
-            tenant: 'default',
-            releases: [currentRelease],
-          }),
-        );
-      }
       if (url.endsWith('/core')) return Promise.resolve(jsonResponse([currentRelease]));
       if (url.endsWith('/init') || url.endsWith('/sample')) {
         return Promise.resolve(jsonResponse([]));
@@ -383,25 +374,20 @@ describe('ImportExportRoutePage', () => {
     expect(screen.getByText('Version 1.0.0')).toBeVisible();
     expect(screen.queryByText('Available 1.0.0')).not.toBeInTheDocument();
     expect(screen.queryByText('Installed 1.0.0')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('checkbox', { name: 'Select Scheduled Jobs' }));
-
-    expect(screen.getByText(/Selected releases are already current/iu)).toBeVisible();
+    expect(screen.getByText('Installed / already current')).toBeVisible();
+    expect(
+      screen.getByRole('checkbox', { name: 'Scheduled Jobs is already current' }),
+    ).toBeDisabled();
+    expect(screen.getByText('0 of 0 actionable release(s) selected')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Validate selected' })).toBeDisabled();
     expect(
       screen.getByRole('button', { name: 'Install or update selected' }),
     ).toBeDisabled();
-
-    await user.click(screen.getByRole('button', { name: 'Validate selected' }));
-
-    expect(
-      await screen.findByText(
-        /validated\. Everything is already current; no import or update was required/iu,
-      ),
-    ).toBeVisible();
     expect(
       fetchMock.mock.calls.some(([input]) =>
         fetchInputUrl(input).includes('/core/validate'),
       ),
-    ).toBe(true);
+    ).toBe(false);
     fetchMock.mockRestore();
   });
 
@@ -426,6 +412,7 @@ describe('ImportExportRoutePage', () => {
     renderPage();
     await user.click(await screen.findByRole('tab', { name: 'Core data' }));
 
+    expect(await screen.findByText('Available to install or update')).toBeVisible();
     expect(await screen.findByText('Available 1.1.0')).toBeVisible();
     expect(screen.getByText('Installed 1.0.0')).toBeVisible();
   });
@@ -556,7 +543,7 @@ describe('ImportExportRoutePage', () => {
       name: 'Select CMS Publication Approval Workflow',
     });
     const foundationCheckbox = screen.getByRole('checkbox', {
-      name: 'Select CMS Foundation',
+      name: 'CMS Foundation is already current',
     });
 
     await user.click(approvalCheckbox);
@@ -564,39 +551,28 @@ describe('ImportExportRoutePage', () => {
     expect(approvalCheckbox).toBeChecked();
     expect(foundationCheckbox).not.toBeChecked();
 
-    await user.click(foundationCheckbox);
-
     expect(approvalCheckbox).toBeChecked();
-    expect(foundationCheckbox).toBeChecked();
+    expect(foundationCheckbox).not.toBeChecked();
+    expect(foundationCheckbox).toBeDisabled();
 
     await user.click(screen.getByRole('button', { name: 'Validate selected' }));
 
     expect(
       await screen.findByText(
-        '2 initialization data release(s) validated by the backend.',
+        '1 initialization data release(s) validated by the backend.',
       ),
     ).toBeVisible();
     const validateCalls = fetchMock.mock.calls.filter(([input]) =>
       fetchInputUrl(input).includes('/init/validate'),
     );
     expect(validateCalls.map(([input]) => fetchInputUrl(input as RequestInfo))).toEqual(
-      [
-        'http://localhost:4330/nodics/import/v0/init/validate',
-        'http://localhost:4312/nodics/import/v0/init/validate',
-      ],
+      ['http://localhost:4330/nodics/import/v0/init/validate'],
     );
     expect(validateCalls[0]?.[1]?.body).toBe(
       JSON.stringify({
         dataType: 'init',
         releaseCodes: ['cms:cmsPublicationApproval'],
         expectedReleases: { 'cms:cmsPublicationApproval': '1.0.0' },
-      }),
-    );
-    expect(validateCalls[1]?.[1]?.body).toBe(
-      JSON.stringify({
-        dataType: 'init',
-        releaseCodes: ['cms:init'],
-        expectedReleases: { 'cms:init': '1.0.3' },
       }),
     );
   });
