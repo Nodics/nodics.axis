@@ -537,6 +537,77 @@ describe('ImportExportRoutePage', () => {
     );
   });
 
+  it('clears selected releases when validation refreshes them as already current', async () => {
+    const updateRelease = {
+      ...currentRelease,
+      releaseCode: 'cronjob:core',
+      version: '1.1.0',
+      installedVersion: undefined,
+      status: 'NOT_INSTALLED',
+    };
+    const currentAfterValidation = {
+      ...updateRelease,
+      installedVersion: '1.1.0',
+      status: 'CURRENT',
+    };
+    let coreCatalogueReads = 0;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.endsWith('/core')) {
+        coreCatalogueReads += 1;
+        return Promise.resolve(
+          jsonResponse(
+            coreCatalogueReads > 1 ? [currentAfterValidation] : [updateRelease],
+          ),
+        );
+      }
+      if (url.endsWith('/core/validate')) {
+        return Promise.resolve(
+          jsonResponse({
+            dataType: 'core',
+            tenant: 'default',
+            releases: [currentAfterValidation],
+          }),
+        );
+      }
+      if (url.endsWith('/init') || url.endsWith('/sample')) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      return Promise.resolve(jsonResponse([]));
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(await screen.findByRole('tab', { name: 'Core data' }));
+    await user.click(
+      await screen.findByRole('checkbox', {
+        name: 'Select Scheduled Jobs',
+      }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Validate selected' }));
+
+    expect(
+      await screen.findByText(
+        '1 core data release(s) validated. Everything is already current; no import or update was required.',
+      ),
+    ).toBeVisible();
+    expect(
+      await screen.findByRole('checkbox', {
+        name: 'Scheduled Jobs is already current',
+      }),
+    ).not.toBeChecked();
+    expect(screen.getByText('0 of 0 actionable release(s) selected')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Validate selected' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Install or update selected' }),
+    ).toBeDisabled();
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        fetchInputUrl(input).includes('/core/install'),
+      ),
+    ).toBe(false);
+  });
+
   it('groups invalid releases as repair-required and keeps them non-selectable', async () => {
     const invalidRelease = {
       ...currentRelease,

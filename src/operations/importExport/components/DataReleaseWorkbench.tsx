@@ -77,8 +77,10 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
   const selectableReleaseCount = props.visibleReleases.filter((release) =>
     isInstallableStatus(release.status),
   ).length;
-  const selectedVisibleCount = props.visibleReleases.filter((release) =>
-    props.selectedReleaseKeys.has(releaseKey(release)),
+  const selectedVisibleCount = props.visibleReleases.filter(
+    (release) =>
+      isInstallableStatus(release.status) &&
+      props.selectedReleaseKeys.has(releaseKey(release)),
   ).length;
   const allVisibleSelected =
     selectableReleaseCount > 0 && selectedVisibleCount === selectableReleaseCount;
@@ -290,13 +292,13 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                 {!collapsed ? (
                   <Box id={groupPanelId}>
                     {group.releases.map((release, index) => {
-                      const checked = props.selectedReleaseKeys.has(
-                        releaseKey(release),
-                      );
                       const disabledReason = releaseDisabledReason(release);
                       const installedMatchesAvailable =
                         release.installedVersion === release.version;
                       const selectable = isInstallableStatus(release.status);
+                      const checked =
+                        selectable &&
+                        props.selectedReleaseKeys.has(releaseKey(release));
                       return (
                         <Box
                           key={releaseKey(release)}

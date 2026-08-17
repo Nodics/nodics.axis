@@ -268,7 +268,15 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
         : [],
     [area, catalogue.data],
   );
-  const chosen = visible.filter((release) => selected.has(releaseKey(release)));
+  const effectiveSelected = useMemo(() => {
+    const executableKeys = new Set(
+      visible.filter((release) => isInstallableStatus(release.status)).map(releaseKey),
+    );
+    return new Set([...selected].filter((key) => executableKeys.has(key)));
+  }, [selected, visible]);
+  const chosen = visible.filter((release) =>
+    effectiveSelected.has(releaseKey(release)),
+  );
   const executableChosen = chosen.filter((release) =>
     isInstallableStatus(release.status),
   );
@@ -278,9 +286,9 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
       current: visible.filter((release) => release.status === 'CURRENT').length,
       installable: visible.filter((release) => isInstallableStatus(release.status))
         .length,
-      selected: chosen.length,
+      selected: executableChosen.length,
     }),
-    [chosen.length, visible],
+    [executableChosen.length, visible],
   );
   const filteredHistory = useMemo(() => {
     if (historyFilter === 'exports') return [];
@@ -303,8 +311,20 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
         mode,
       );
     },
-    onSuccess: async (_data, mode) => {
+    onSuccess: async (data, mode) => {
       if (mode === 'install') setSelected(new Set());
+      if (mode === 'validate') {
+        const nonExecutableKeys = new Set(
+          data.releases
+            .filter((release) => !isInstallableStatus(release.status))
+            .map(releaseKey),
+        );
+        if (nonExecutableKeys.size > 0) {
+          setSelected(
+            new Set([...selected].filter((key) => !nonExecutableKeys.has(key))),
+          );
+        }
+      }
       await queryClient.invalidateQueries({
         queryKey: ['import-catalogue', props.runtime.enterpriseCode],
       });
@@ -475,8 +495,8 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
               operationIsPending={operation.isPending}
               operationIsSuccess={operation.isSuccess}
               releaseType={releaseType}
-              selectedReleaseCount={chosen.length}
-              selectedReleaseKeys={selected}
+              selectedReleaseCount={executableChosen.length}
+              selectedReleaseKeys={effectiveSelected}
               successMessage={successMessage}
               summary={releaseSummary}
               visibleReleases={visible}
