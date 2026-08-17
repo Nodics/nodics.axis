@@ -169,8 +169,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
           variant="outlined"
           sx={{
             bgcolor: 'background.paper',
-            maxHeight: { xs: '58vh', md: 'calc(100vh - 360px)' },
-            overflow: 'auto',
+            overflow: 'hidden',
           }}
         >
           <Stack
@@ -343,7 +342,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
           borderColor: 'divider',
           bottom: 0,
           boxShadow: theme.shadows[4],
-          mt: 1,
+          mt: 2,
           position: 'sticky',
           px: { xs: 1.25, md: 1.5 },
           py: 1.25,
