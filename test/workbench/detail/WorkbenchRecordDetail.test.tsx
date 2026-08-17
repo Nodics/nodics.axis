@@ -76,7 +76,8 @@ describe('WorkbenchRecordDetail', () => {
             label: 'Record disposition',
             intent: 'OTHER',
             ownerModule: 'order',
-            operationRoute: '/operator/order-lifecycle/:requestCode/actions/DISPOSITION',
+            operationRoute:
+              '/operator/order-lifecycle/:requestCode/actions/DISPOSITION',
             order: 70,
             inputFields: [
               {
@@ -107,7 +108,11 @@ describe('WorkbenchRecordDetail', () => {
             ],
           },
         ]}
-        record={{ code: 'order-1:return:1', status: 'SUBMITTED', evidence: { rmaCode: 'RMA-1' } }}
+        record={{
+          code: 'order-1:return:1',
+          status: 'SUBMITTED',
+          evidence: { rmaCode: 'RMA-1' },
+        }}
         schema={{ ...schema, moduleName: 'order', schemaName: 'orderLifecycleRequest' }}
         trueLabel="Yes"
         onClose={vi.fn()}
@@ -120,12 +125,18 @@ describe('WorkbenchRecordDetail', () => {
     await user.click(screen.getByRole('button', { name: /Record disposition/ }));
 
     expect(screen.getByText(/Confirm backend action/)).toBeVisible();
-    expect(screen.getByText(/\/operator\/order-lifecycle\/:requestCode\/actions\/DISPOSITION/)).toBeVisible();
+    expect(
+      screen.getByText(
+        /\/operator\/order-lifecycle\/:requestCode\/actions\/DISPOSITION/,
+      ),
+    ).toBeVisible();
     expect(screen.getByLabelText('RMA code')).toHaveValue('RMA-1');
     expect(screen.getByText('Disposition')).toBeVisible();
     expect(screen.getByText('RESTOCK')).toBeVisible();
 
-    await user.click(screen.getAllByRole('button', { name: /Record disposition/ }).at(-1)!);
+    await user.click(
+      screen.getAllByRole('button', { name: /Record disposition/ }).at(-1)!,
+    );
 
     expect(execute).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'record-disposition' }),
@@ -152,7 +163,8 @@ describe('WorkbenchRecordDetail', () => {
             label: 'Record disposition',
             intent: 'OTHER',
             ownerModule: 'order',
-            operationRoute: '/operator/order-lifecycle/:requestCode/actions/DISPOSITION',
+            operationRoute:
+              '/operator/order-lifecycle/:requestCode/actions/DISPOSITION',
             order: 70,
           },
         ]}
@@ -248,10 +260,14 @@ describe('WorkbenchRecordDetail', () => {
 
     await user.click(screen.getByRole('button', { name: /Create coupon batch/ }));
 
-    expect(screen.getByText(/POST \/backoffice\/promotions\/:promotionCode\/coupon-batches/)).toBeVisible();
+    expect(
+      screen.getByText(/POST \/backoffice\/promotions\/:promotionCode\/coupon-batches/),
+    ).toBeVisible();
     expect(screen.getByDisplayValue('["PROMO10A","PROMO10B"]')).toBeVisible();
     await user.type(screen.getAllByRole('textbox')[0]!, 'agoraWelcome10-batch');
-    await user.click(screen.getAllByRole('button', { name: /Create coupon batch/ }).at(-1)!);
+    await user.click(
+      screen.getAllByRole('button', { name: /Create coupon batch/ }).at(-1)!,
+    );
 
     expect(execute).toHaveBeenCalledWith(
       expect.objectContaining({ handlerAction: 'createCouponBatch' }),

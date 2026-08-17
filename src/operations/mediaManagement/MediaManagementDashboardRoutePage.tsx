@@ -160,19 +160,23 @@ const productionMediaEvidenceStates = Object.freeze([
 const productionMediaControls = Object.freeze([
   {
     title: 'Rights policy check',
-    detail: 'Reject production activation unless the media record carries approved license, owner and target-usage evidence.',
+    detail:
+      'Reject production activation unless the media record carries approved license, owner and target-usage evidence.',
   },
   {
     title: 'Checksum and source proof',
-    detail: 'Show checksum, source system, original filename and intake run so operators can audit replacement assets.',
+    detail:
+      'Show checksum, source system, original filename and intake run so operators can audit replacement assets.',
   },
   {
     title: 'Target usage approval',
-    detail: 'Approve each content, product, category or promotion usage separately before the media reference becomes active.',
+    detail:
+      'Approve each content, product, category or promotion usage separately before the media reference becomes active.',
   },
   {
     title: 'Emergency deactivation',
-    detail: 'Allow operators to deactivate a bad reference without deleting audit history or the owning product/content record.',
+    detail:
+      'Allow operators to deactivate a bad reference without deleting audit history or the owning product/content record.',
   },
 ]);
 
@@ -195,7 +199,12 @@ const productionMediaApprovalChecklist = Object.freeze([
   {
     title: 'Rollback readiness',
     owner: 'Operations',
-    proof: ['previous reference', 'deactivation reason', 'audit trail', 'recovery note'],
+    proof: [
+      'previous reference',
+      'deactivation reason',
+      'audit trail',
+      'recovery note',
+    ],
   },
 ]);
 
@@ -359,7 +368,12 @@ export function MediaManagementDashboardRoutePage({
             </Stack>
             <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
               {productionMediaControls.map((control) => (
-                <Paper component="article" key={control.title} sx={{ minWidth: 240, p: 1.5 }} variant="outlined">
+                <Paper
+                  component="article"
+                  key={control.title}
+                  sx={{ minWidth: 240, p: 1.5 }}
+                  variant="outlined"
+                >
                   <strong>{control.title}</strong>
                   <p>{control.detail}</p>
                 </Paper>
@@ -373,7 +387,12 @@ export function MediaManagementDashboardRoutePage({
             />
             <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
               {productionMediaApprovalChecklist.map((item) => (
-                <Paper component="article" key={item.title} sx={{ minWidth: 240, p: 1.5 }} variant="outlined">
+                <Paper
+                  component="article"
+                  key={item.title}
+                  sx={{ minWidth: 240, p: 1.5 }}
+                  variant="outlined"
+                >
                   <strong>{item.title}</strong>
                   <p>Owner: {item.owner}</p>
                   <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
@@ -392,7 +411,12 @@ export function MediaManagementDashboardRoutePage({
             />
             <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
               {mediaReferenceLifecycleActions.map((action) => (
-                <Paper component="article" key={action.label} sx={{ minWidth: 260, p: 1.5 }} variant="outlined">
+                <Paper
+                  component="article"
+                  key={action.label}
+                  sx={{ minWidth: 260, p: 1.5 }}
+                  variant="outlined"
+                >
                   <strong>{action.label}</strong>
                   <p>{action.route}</p>
                   <Chip label={action.permission} size="small" variant="outlined" />
@@ -400,7 +424,9 @@ export function MediaManagementDashboardRoutePage({
               ))}
             </Stack>
             <Alert severity="warning">
-              Sample or reference-site media remains inactive until a Nodics-owned asset is uploaded, checksum evidence is recorded, reviewer approval is captured, and the media reference is activated.
+              Sample or reference-site media remains inactive until a Nodics-owned asset
+              is uploaded, checksum evidence is recorded, reviewer approval is captured,
+              and the media reference is activated.
             </Alert>
           </Stack>
         </Paper>

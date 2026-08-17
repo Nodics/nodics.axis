@@ -727,7 +727,8 @@ export function App() {
   )
     ? currentNavigation
     : authenticatedBootstrap?.navigation.find(
-        (item) => item.id === 'promotions-builder' || item.route === '/commerce/promotions',
+        (item) =>
+          item.id === 'promotions-builder' || item.route === '/commerce/promotions',
       );
   const promotionBuilderElement =
     session && !locked && authenticatedBootstrap && promotionBuilderNavigation
@@ -749,12 +750,13 @@ export function App() {
           ),
         )
       : sessionFallback;
-  const orderLifecycleNavigation = currentNavigation?.route.startsWith('/commerce') &&
+  const orderLifecycleNavigation =
+    currentNavigation?.route.startsWith('/commerce') &&
     !currentNavigation.route.startsWith('/commerce/promotions') &&
     !currentNavigation.route.startsWith('/commerce/catalog/products') &&
     !currentNavigation.route.startsWith('/commerce/search')
-    ? currentNavigation
-    : undefined;
+      ? currentNavigation
+      : undefined;
   const discoveryNavigation =
     currentNavigation?.route.startsWith('/discovery') ||
     currentNavigation?.route.startsWith('/commerce/search')

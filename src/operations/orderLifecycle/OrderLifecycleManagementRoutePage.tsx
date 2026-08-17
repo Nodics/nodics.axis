@@ -31,7 +31,9 @@ export function OrderLifecycleManagementRoutePage(
 ) {
   if (!props.navigation.workbenchTarget) return null;
   const queues = orderLifecycleOperatorQueues(props.bootstrap.navigation);
-  const guidance = orderLifecycleGuidance(props.navigation.id || props.navigation.workbenchTarget.schemaName);
+  const guidance = orderLifecycleGuidance(
+    props.navigation.id || props.navigation.workbenchTarget.schemaName,
+  );
   return (
     <Stack spacing={2}>
       <Paper component="section" sx={{ p: 2 }} variant="outlined">
@@ -51,7 +53,9 @@ export function OrderLifecycleManagementRoutePage(
             ))}
           </Stack>
           <Alert severity="info">
-            Axis groups cancellation, return, refund, exchange, replacement and appeal queues from backend navigation metadata. Actions still execute only through Commerce-owned workbench contracts.
+            Axis groups cancellation, return, refund, exchange, replacement and appeal
+            queues from backend navigation metadata. Actions still execute only through
+            Commerce-owned workbench contracts.
           </Alert>
         </Stack>
       </Paper>

@@ -530,7 +530,11 @@ describe('Schema Workbench API client', () => {
       .mockResolvedValue(json({ promotionCode: 'agoraWelcome10', redemptionCount: 2 }));
 
     await executeWorkbenchLifecycleAction(
-      { ...connection, moduleName: 'promotion', endpoint: 'https://commerce.example.com/nodics/promotion' },
+      {
+        ...connection,
+        moduleName: 'promotion',
+        endpoint: 'https://commerce.example.com/nodics/promotion',
+      },
       { ...address, moduleName: 'promotion', schemaName: 'promotion' },
       {
         id: 'promotion-analytics',
@@ -540,7 +544,14 @@ describe('Schema Workbench API client', () => {
         httpMethod: 'GET',
         operationRoute: '/backoffice/promotions/:promotionCode/analytics',
         inputFields: [
-          { name: 'promotionCode', label: 'Promotion code', type: 'HIDDEN', required: true, valueFromRecord: 'code', maximumLength: 128 },
+          {
+            name: 'promotionCode',
+            label: 'Promotion code',
+            type: 'HIDDEN',
+            required: true,
+            valueFromRecord: 'code',
+            maximumLength: 128,
+          },
         ],
       },
       { code: 'agoraWelcome10', status: 'SCHEDULED' },
@@ -574,7 +585,11 @@ describe('Schema Workbench API client', () => {
     };
 
     await executeWorkbenchLifecycleAction(
-      { ...connection, moduleName: 'order', endpoint: 'https://commerce.example.com/nodics/order' },
+      {
+        ...connection,
+        moduleName: 'order',
+        endpoint: 'https://commerce.example.com/nodics/order',
+      },
       orderSchema,
       {
         id: 'approve',
@@ -583,8 +598,21 @@ describe('Schema Workbench API client', () => {
         order: 10,
         operationRoute: '/operator/order-lifecycle/:requestCode/actions/APPROVE',
         inputFields: [
-          { name: 'requestCode', label: 'Request code', type: 'HIDDEN', required: true, valueFromRecord: 'code', maximumLength: 128 },
-          { name: 'reason', label: 'Reason', type: 'MULTILINE', required: false, maximumLength: 512 },
+          {
+            name: 'requestCode',
+            label: 'Request code',
+            type: 'HIDDEN',
+            required: true,
+            valueFromRecord: 'code',
+            maximumLength: 128,
+          },
+          {
+            name: 'reason',
+            label: 'Reason',
+            type: 'MULTILINE',
+            required: false,
+            maximumLength: 512,
+          },
         ],
       },
       { code: 'order-1:return:1', status: 'SUBMITTED' },
@@ -595,7 +623,11 @@ describe('Schema Workbench API client', () => {
     );
 
     await executeWorkbenchLifecycleAction(
-      { ...connection, moduleName: 'promotion', endpoint: 'https://commerce.example.com/nodics/promotion' },
+      {
+        ...connection,
+        moduleName: 'promotion',
+        endpoint: 'https://commerce.example.com/nodics/promotion',
+      },
       promotionSchema,
       {
         id: 'schedule',
@@ -605,8 +637,20 @@ describe('Schema Workbench API client', () => {
         httpMethod: 'POST',
         operationRoute: '/operator/promotions/:code/actions/SCHEDULE',
         inputFields: [
-          { name: 'validFrom', label: 'Valid from', type: 'TEXT', required: true, maximumLength: 32 },
-          { name: 'validTo', label: 'Valid to', type: 'TEXT', required: true, maximumLength: 32 },
+          {
+            name: 'validFrom',
+            label: 'Valid from',
+            type: 'TEXT',
+            required: true,
+            maximumLength: 32,
+          },
+          {
+            name: 'validTo',
+            label: 'Valid to',
+            type: 'TEXT',
+            required: true,
+            maximumLength: 32,
+          },
         ],
       },
       { code: 'agoraWelcome10', status: 'APPROVED' },
@@ -622,7 +666,9 @@ describe('Schema Workbench API client', () => {
     expect((request.mock.calls[1]?.[0] as URL).pathname).toContain(
       '/nodics/promotion/v0/operator/promotions/agoraWelcome10/actions/SCHEDULE',
     );
-    const promotionBody = JSON.parse(String(request.mock.calls[1]?.[1]?.body)) as {
+    const rawPromotionBody = request.mock.calls[1]?.[1]?.body;
+    expect(typeof rawPromotionBody).toBe('string');
+    const promotionBody = JSON.parse(rawPromotionBody as string) as {
       actionId: string;
       validFrom: string;
       idempotencyKey: string;

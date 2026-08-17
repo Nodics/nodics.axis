@@ -25,16 +25,34 @@ describe('commerceProviderReadiness', () => {
 
     expect(readiness.find((item) => item.domain === 'payment')).toMatchObject({
       liveCertified: false,
-      missing: ['liveEvidenceReference', 'certifiedAt', 'certifiedBy', 'productionTrafficApproved'],
+      missing: [
+        'liveEvidenceReference',
+        'certifiedAt',
+        'certifiedBy',
+        'productionTrafficApproved',
+      ],
     });
-    expect(readiness.find((item) => item.domain === 'payment')?.cutoverChecklist).toContain('Webhook signature verified');
+    expect(
+      readiness.find((item) => item.domain === 'payment')?.cutoverChecklist,
+    ).toContain('Webhook signature verified');
     expect(readiness.find((item) => item.domain === 'carrier')).toMatchObject({
       liveCertified: false,
-      missing: ['liveEvidenceReference', 'certifiedAt', 'certifiedBy', 'productionTrafficApproved'],
+      missing: [
+        'liveEvidenceReference',
+        'certifiedAt',
+        'certifiedBy',
+        'productionTrafficApproved',
+      ],
     });
-    expect(readiness.find((item) => item.domain === 'warehouse')?.cutoverChecklist).toContain('Receipt and inspection evidence mapped');
-    expect(readiness.find((item) => item.domain === 'warehouse')?.operatorMessage).toContain('not live-certified');
-    expect(readiness.find((item) => item.domain === 'pos')?.missing).toContain('providerCode');
+    expect(
+      readiness.find((item) => item.domain === 'warehouse')?.cutoverChecklist,
+    ).toContain('Receipt and inspection evidence mapped');
+    expect(
+      readiness.find((item) => item.domain === 'warehouse')?.operatorMessage,
+    ).toContain('not live-certified');
+    expect(readiness.find((item) => item.domain === 'pos')?.missing).toContain(
+      'providerCode',
+    );
   });
 
   it('requires live evidence, owner, timestamp and production approval before showing live certification', () => {
@@ -56,7 +74,8 @@ describe('commerceProviderReadiness', () => {
     expect(readiness.find((item) => item.domain === 'payment')).toMatchObject({
       liveCertified: true,
       missing: [],
-      evidenceSummary: 'Evidence CERT-PAY-001 by payments-ops on 2026-08-15T10:00:00.000Z.',
+      evidenceSummary:
+        'Evidence CERT-PAY-001 by payments-ops on 2026-08-15T10:00:00.000Z.',
     });
   });
 });

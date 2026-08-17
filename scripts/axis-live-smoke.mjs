@@ -22,7 +22,7 @@ const strictModules = process.env.AXIS_EXPECT_MODULES === '1';
 const verifyDocumentationPacks = process.env.AXIS_EXPECT_DOCUMENTATION === '1';
 const runCronLifecycle = process.env.AXIS_CRON_LIFECYCLE === '1';
 const runProcessLifecycle = process.env.AXIS_PROCESS_LIFECYCLE === '1';
-const wcmsUrl = process.env.AXIS_WCMS_URL || 'http://127.0.0.1:4310';
+const wcmsUrl = process.env.AXIS_WCMS_URL || 'http://127.0.0.1:4312';
 
 const axisRoutes = [
   '/',

@@ -77,7 +77,9 @@ describe('Promotions Builder presentation', () => {
     expect(screen.getByText('Maker-checker status')).toBeTruthy();
     expect(screen.getByText('Redemption audit')).toBeTruthy();
     expect(screen.getByText('Redemption code')).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Second-slice workspaces' })).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { name: 'Second-slice workspaces' }),
+    ).toBeTruthy();
     expect(screen.getByText('Editable draft sections')).toBeTruthy();
     expect(screen.getByText('Coupon inventory table')).toBeTruthy();
     expect(screen.getByText('Budget usage display')).toBeTruthy();
@@ -86,20 +88,30 @@ describe('Promotions Builder presentation', () => {
     expect(screen.getByText('remaining')).toBeTruthy();
     expect(screen.getByText('expected discount')).toBeTruthy();
     expect(screen.getByText('reversalReasonCode')).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Production preview guardrails' })).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { name: 'Production preview guardrails' }),
+    ).toBeTruthy();
     expect(screen.getByText(/does not reserve coupons/)).toBeTruthy();
     expect(screen.getByText('Applied coupon token')).toBeTruthy();
     expect(screen.getByText('Rejected rule explanations')).toBeTruthy();
     expect(screen.getByText('Coupon safety')).toBeTruthy();
     expect(screen.getByText('Budget simulation')).toBeTruthy();
     expect(screen.getByText('Approval audit trail')).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Production workflow depth' })).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { name: 'Production workflow depth' }),
+    ).toBeTruthy();
     expect(screen.getByText('Condition editor')).toBeTruthy();
     expect(screen.getByText('Approval workflow')).toBeTruthy();
     expect(screen.getByText('Scheduling calendar')).toBeTruthy();
     expect(screen.getByText('Analytics and exposure')).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Local builder completion' })).toBeTruthy();
-    expect(screen.getByText(/excludes live payment, carrier, warehouse and POS certification/i)).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { name: 'Local builder completion' }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        /excludes live payment, carrier, warehouse and POS certification/i,
+      ),
+    ).toBeTruthy();
     expect(screen.getByText('Visual rule composer')).toBeTruthy();
     expect(screen.getByText('Coupon allocation workspace')).toBeTruthy();
     expect(screen.getByText('Conflict-aware calendar')).toBeTruthy();
@@ -107,7 +119,9 @@ describe('Promotions Builder presentation', () => {
     expect(screen.getByText('Redemption analytics')).toBeTruthy();
     expect(screen.getAllByText('LOCAL_COMPLETE').length).toBeGreaterThanOrEqual(5);
     expect(screen.queryByText('NEXT_IMPLEMENTATION')).toBeNull();
-    expect(screen.getByRole('heading', { name: 'Promotion Builder operation contract' })).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { name: 'Promotion Builder operation contract' }),
+    ).toBeTruthy();
     expect(screen.getByText('Save draft')).toBeTruthy();
     expect(screen.getByText('Submit promotion')).toBeTruthy();
     expect(screen.getByText('Approve promotion')).toBeTruthy();
@@ -116,11 +130,17 @@ describe('Promotions Builder presentation', () => {
     expect(screen.getByText('Reserve or release batch')).toBeTruthy();
     expect(screen.getByText('Budget ledger')).toBeTruthy();
     expect(screen.getByText('Analytics')).toBeTruthy();
-    expect(screen.getByText(/PUT \/nodics\/promotion\/v0\/backoffice\/promotions\/drafts/)).toBeTruthy();
+    expect(
+      screen.getByText(/PUT \/nodics\/promotion\/v0\/backoffice\/promotions\/drafts/),
+    ).toBeTruthy();
     expect(screen.getAllByText('commerce.promotion.manage').length).toBeGreaterThan(0);
     expect(screen.getByText('commerce.promotion.approve')).toBeTruthy();
-    expect(screen.getByText(/Customer checkout receives only the approved/i)).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Coupon and budget mutation controls' })).toBeTruthy();
+    expect(
+      screen.getByText(/Customer checkout receives only the approved/i),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { name: 'Coupon and budget mutation controls' }),
+    ).toBeTruthy();
     expect(screen.getByText('Coupon batch operation')).toBeTruthy();
     expect(screen.getByText('Budget mutation ledger')).toBeTruthy();
     expect(screen.getByText('Redemption reversal')).toBeTruthy();

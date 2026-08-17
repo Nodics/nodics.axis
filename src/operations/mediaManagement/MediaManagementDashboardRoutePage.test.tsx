@@ -39,7 +39,9 @@ describe('MediaManagementDashboardRoutePage', () => {
   it('shows the production media approval and activation workflow', () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));
     render(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
         <MediaManagementDashboardRoutePage
           accessToken="employee-token"
           bootstrap={bootstrap}
@@ -48,32 +50,48 @@ describe('MediaManagementDashboardRoutePage', () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByRole('heading', { name: 'Approved media activation flow' })).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { name: 'Approved media activation flow' }),
+    ).toBeTruthy();
     expect(screen.getByText('Upload or select Nodics-owned asset')).toBeTruthy();
     expect(screen.getByText('Capture checksum and source evidence')).toBeTruthy();
     expect(screen.getByText('Reviewer approves rights and target usage')).toBeTruthy();
-    expect(screen.getByText('Activate media reference for content or product')).toBeTruthy();
+    expect(
+      screen.getByText('Activate media reference for content or product'),
+    ).toBeTruthy();
     expect(screen.getByText('RIGHTS_APPROVED')).toBeTruthy();
     expect(screen.getByText('REFERENCE_ACTIVATED')).toBeTruthy();
     expect(screen.getByText('Rights policy check')).toBeTruthy();
     expect(screen.getByText('Checksum and source proof')).toBeTruthy();
     expect(screen.getByText('Target usage approval')).toBeTruthy();
     expect(screen.getByText('Emergency deactivation')).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Media intake approval checklist' })).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { name: 'Media intake approval checklist' }),
+    ).toBeTruthy();
     expect(screen.getByText('Replacement intake')).toBeTruthy();
     expect(screen.getByText('Rights approval')).toBeTruthy();
     expect(screen.getByText('Target promotion')).toBeTruthy();
     expect(screen.getByText('Rollback readiness')).toBeTruthy();
     expect(screen.getByText('approval timestamp')).toBeTruthy();
     expect(screen.getByText('activation revision')).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Media reference lifecycle operations' })).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { name: 'Media reference lifecycle operations' }),
+    ).toBeTruthy();
     expect(screen.getByText('Approve reference')).toBeTruthy();
-    expect(screen.getByText('POST /nodics/media/v0/references/{referenceCode}/approve')).toBeTruthy();
+    expect(
+      screen.getByText('POST /nodics/media/v0/references/{referenceCode}/approve'),
+    ).toBeTruthy();
     expect(screen.getByText('Activate reference')).toBeTruthy();
-    expect(screen.getByText('POST /nodics/media/v0/references/{referenceCode}/activate')).toBeTruthy();
+    expect(
+      screen.getByText('POST /nodics/media/v0/references/{referenceCode}/activate'),
+    ).toBeTruthy();
     expect(screen.getByText('Deactivate reference')).toBeTruthy();
-    expect(screen.getByText('POST /nodics/media/v0/references/{referenceCode}/deactivate')).toBeTruthy();
+    expect(
+      screen.getByText('POST /nodics/media/v0/references/{referenceCode}/deactivate'),
+    ).toBeTruthy();
     expect(screen.getAllByText('media.reference.lifecycle.manage').length).toBe(3);
-    expect(screen.getByText(/Sample or reference-site media remains inactive/)).toBeTruthy();
+    expect(
+      screen.getByText(/Sample or reference-site media remains inactive/),
+    ).toBeTruthy();
   });
 });

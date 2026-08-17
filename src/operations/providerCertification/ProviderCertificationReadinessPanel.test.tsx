@@ -20,16 +20,24 @@ describe('ProviderCertificationReadinessPanel', () => {
       />,
     );
 
-    expect(screen.getByRole('heading', { name: 'Commerce Provider Certification' })).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { name: 'Commerce Provider Certification' }),
+    ).toBeTruthy();
     expect(screen.getByText('Payment provider')).toBeTruthy();
     expect(screen.getByText('Carrier provider')).toBeTruthy();
     expect(screen.getByText('Warehouse or inspection provider')).toBeTruthy();
     expect(screen.getByText('POS provider')).toBeTruthy();
     expect(screen.getByText('OFFLINE_CONFORMANCE')).toBeTruthy();
     expect(screen.getAllByText(/not live-certified/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/No live certification evidence reference/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/production-traffic approval remain authoritative/)).toBeTruthy();
-    expect(screen.getByText(/Sandbox or offline conformance is not live certification/)).toBeTruthy();
+    expect(
+      screen.getAllByText(/No live certification evidence reference/).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getByText(/production-traffic approval remain authoritative/),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/Sandbox or offline conformance is not live certification/),
+    ).toBeTruthy();
     expect(screen.getByText('Webhook signature verified')).toBeTruthy();
     expect(screen.getByText('Return pickup/drop-off SLA approved')).toBeTruthy();
     expect(screen.getByText('Receipt and inspection evidence mapped')).toBeTruthy();

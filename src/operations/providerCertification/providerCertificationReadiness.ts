@@ -78,23 +78,46 @@ const requiredControls: Readonly<Record<CommerceProviderDomain, readonly string[
     ],
   });
 
-const cutoverChecklists: Readonly<Record<CommerceProviderDomain, readonly string[]>> = Object.freeze({
-  payment: ['Webhook signature verified', 'Idempotent authorization/capture/refund', 'Reconciliation runbook approved'],
-  carrier: ['Rate and label sandbox certified', 'Tracking webhook verified', 'Return pickup/drop-off SLA approved'],
-  warehouse: ['Reservation and release contract verified', 'Receipt and inspection evidence mapped', 'Disposition codes approved'],
-  pos: ['Store inventory sync verified', 'In-store return/exchange identity proof checked', 'Till reconciliation runbook approved'],
-});
+const cutoverChecklists: Readonly<Record<CommerceProviderDomain, readonly string[]>> =
+  Object.freeze({
+    payment: [
+      'Webhook signature verified',
+      'Idempotent authorization/capture/refund',
+      'Reconciliation runbook approved',
+    ],
+    carrier: [
+      'Rate and label sandbox certified',
+      'Tracking webhook verified',
+      'Return pickup/drop-off SLA approved',
+    ],
+    warehouse: [
+      'Reservation and release contract verified',
+      'Receipt and inspection evidence mapped',
+      'Disposition codes approved',
+    ],
+    pos: [
+      'Store inventory sync verified',
+      'In-store return/exchange identity proof checked',
+      'Till reconciliation runbook approved',
+    ],
+  });
 
-function hasControl(declaration: CommerceProviderDeclaration | undefined, control: string): boolean {
+function hasControl(
+  declaration: CommerceProviderDeclaration | undefined,
+  control: string,
+): boolean {
   if (!declaration) return false;
   if (control === 'providerCode') return Boolean(declaration.providerCode);
   if (control === 'webhookSecured') return declaration.webhookSecured === true;
-  if (control === 'idempotencySupported') return declaration.idempotencySupported === true;
+  if (control === 'idempotencySupported')
+    return declaration.idempotencySupported === true;
   if (control === 'secretReference') return Boolean(declaration.secretReference);
-  if (control === 'liveEvidenceReference') return Boolean(declaration.liveEvidenceReference);
+  if (control === 'liveEvidenceReference')
+    return Boolean(declaration.liveEvidenceReference);
   if (control === 'certifiedAt') return Boolean(declaration.certifiedAt);
   if (control === 'certifiedBy') return Boolean(declaration.certifiedBy);
-  if (control === 'productionTrafficApproved') return declaration.productionTrafficApproved === true;
+  if (control === 'productionTrafficApproved')
+    return declaration.productionTrafficApproved === true;
   return false;
 }
 
@@ -108,10 +131,16 @@ export function commerceProviderReadiness(
 ): readonly CommerceProviderReadinessItem[] {
   return (Object.keys(labels) as CommerceProviderDomain[]).map((domain) => {
     const declaration = declarations.find((item) => item.domain === domain);
-    const missing = requiredControls[domain].filter((control) => !hasControl(declaration, control));
+    const missing = requiredControls[domain].filter(
+      (control) => !hasControl(declaration, control),
+    );
     const declaredState = declaration?.state ?? 'NOT_DECLARED';
     const liveCertified = declaredState === 'LIVE_CERTIFIED' && missing.length === 0;
-    const state = liveCertified ? 'LIVE_CERTIFIED' : declaredState === 'NOT_DECLARED' ? 'NOT_DECLARED' : declaredState;
+    const state = liveCertified
+      ? 'LIVE_CERTIFIED'
+      : declaredState === 'NOT_DECLARED'
+        ? 'NOT_DECLARED'
+        : declaredState;
     return Object.freeze({
       domain,
       label: labels[domain],

@@ -35,7 +35,15 @@ const tabTargets: Readonly<
   indexes: {
     moduleName: 'discoveryConfig',
     schemaName: 'discoveryIndexConfiguration',
-    columns: ['code', 'name', 'ownerType', 'indexType', 'engine', 'indexName', 'status'],
+    columns: [
+      'code',
+      'name',
+      'ownerType',
+      'indexType',
+      'engine',
+      'indexName',
+      'status',
+    ],
   },
   sources: {
     moduleName: 'discoveryConfig',
@@ -60,7 +68,14 @@ const tabTargets: Readonly<
   publication: {
     moduleName: 'discoveryConfig',
     schemaName: 'discoveryPublicationPolicy',
-    columns: ['code', 'ownerType', 'batchSize', 'aliasSwitch', 'rollbackEnabled', 'status'],
+    columns: [
+      'code',
+      'ownerType',
+      'batchSize',
+      'aliasSwitch',
+      'rollbackEnabled',
+      'status',
+    ],
   },
   commerceRules: {
     moduleName: 'commerceSearchCore',
@@ -128,7 +143,8 @@ export function DiscoveryManagementRoutePage(props: DiscoveryManagementRoutePage
       </Stack>
       <Alert severity="info">
         Axis renders backend-owned workbench contracts only. Publication, schema
-        validation, tenant security, and search-engine execution remain backend-governed.
+        validation, tenant security, and search-engine execution remain
+        backend-governed.
       </Alert>
       <WorkbenchRoutePage
         accessToken={props.accessToken}

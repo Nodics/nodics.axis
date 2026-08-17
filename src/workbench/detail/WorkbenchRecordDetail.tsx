@@ -117,7 +117,8 @@ function WorkbenchLifecycleActionPanel({
       : typeof result === 'string'
         ? result
         : JSON.stringify(result, null, 2);
-  const selectedOperationRoute = selectedAction?.operationRoute ?? 'the declared backend operation route';
+  const selectedOperationRoute =
+    selectedAction?.operationRoute ?? 'the declared backend operation route';
   const selectedHttpMethod = selectedAction?.httpMethod ?? 'POST';
   return (
     <AxisMetadataPanel
@@ -189,7 +190,9 @@ function WorkbenchLifecycleActionPanel({
               <Typography color="text.secondary">{selectedAction.summary}</Typography>
             ) : null}
             <Alert severity="warning">
-              Confirm backend action: Axis will execute {selectedAction?.label} only through {selectedHttpMethod} {selectedOperationRoute}. Review the request, required evidence and permissions before submitting.
+              Confirm backend action: Axis will execute {selectedAction?.label} only
+              through {selectedHttpMethod} {selectedOperationRoute}. Review the request,
+              required evidence and permissions before submitting.
             </Alert>
             {visibleFields.map((field) => (
               <TextField

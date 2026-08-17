@@ -1,6 +1,9 @@
 import { Alert, Chip, Paper, Stack, Typography } from '@mui/material';
 
-import { commerceProviderReadiness, type CommerceProviderDeclaration } from './providerCertificationReadiness';
+import {
+  commerceProviderReadiness,
+  type CommerceProviderDeclaration,
+} from './providerCertificationReadiness';
 
 interface ProviderCertificationReadinessPanelProps {
   readonly declarations: readonly CommerceProviderDeclaration[];
@@ -11,7 +14,9 @@ interface ProviderCertificationReadinessPanelProps {
  * provider in the browser. Payment, carrier, warehouse and POS certification
  * remain backend/operator evidence decisions.
  */
-export function ProviderCertificationReadinessPanel(props: ProviderCertificationReadinessPanelProps) {
+export function ProviderCertificationReadinessPanel(
+  props: ProviderCertificationReadinessPanelProps,
+) {
   const readiness = commerceProviderReadiness(props.declarations);
   return (
     <Paper component="section" sx={{ p: 2 }} variant="outlined">
@@ -21,17 +26,27 @@ export function ProviderCertificationReadinessPanel(props: ProviderCertification
             Commerce Provider Certification
           </Typography>
           <Typography color="text.secondary">
-            Review payment, carrier, warehouse and POS certification evidence before enabling live commerce operations.
+            Review payment, carrier, warehouse and POS certification evidence before
+            enabling live commerce operations.
           </Typography>
         </Stack>
         <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
           {readiness.map((item) => (
-            <Paper component="article" key={item.domain} sx={{ minWidth: 220, p: 1.5 }} variant="outlined">
+            <Paper
+              component="article"
+              key={item.domain}
+              sx={{ minWidth: 220, p: 1.5 }}
+              variant="outlined"
+            >
               <Stack spacing={1}>
                 <Typography component="h3" sx={{ fontWeight: 700 }} variant="subtitle2">
                   {item.label}
                 </Typography>
-                <Chip color={item.liveCertified ? 'success' : 'warning'} label={item.state} size="small" />
+                <Chip
+                  color={item.liveCertified ? 'success' : 'warning'}
+                  label={item.state}
+                  size="small"
+                />
                 <Typography color="text.secondary" variant="body2">
                   {item.operatorMessage}
                 </Typography>
@@ -39,7 +54,9 @@ export function ProviderCertificationReadinessPanel(props: ProviderCertification
                   {item.evidenceSummary}
                 </Typography>
                 {item.missing.length ? (
-                  <Typography variant="caption">Missing: {item.missing.join(', ')}</Typography>
+                  <Typography variant="caption">
+                    Missing: {item.missing.join(', ')}
+                  </Typography>
                 ) : null}
                 <Stack component="ul" spacing={0.5} sx={{ m: 0, pl: 2 }}>
                   {item.cutoverChecklist.map((check) => (
@@ -55,7 +72,9 @@ export function ProviderCertificationReadinessPanel(props: ProviderCertification
           ))}
         </Stack>
         <Alert severity="info">
-          Sandbox or offline conformance is not live certification. Axis shows evidence state only; backend provider declarations, named certification owner, certification timestamp and production-traffic approval remain authoritative.
+          Sandbox or offline conformance is not live certification. Axis shows evidence
+          state only; backend provider declarations, named certification owner,
+          certification timestamp and production-traffic approval remain authoritative.
         </Alert>
       </Stack>
     </Paper>

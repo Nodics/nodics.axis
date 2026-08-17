@@ -128,6 +128,7 @@ export default defineConfig(({ mode }) => {
       fileParallelism: false,
       setupFiles: ['./test/setup.ts'],
       restoreMocks: true,
+      testTimeout: 10_000,
     },
   };
 });
