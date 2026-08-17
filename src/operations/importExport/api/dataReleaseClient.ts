@@ -101,6 +101,7 @@ function parseRelease(value: unknown): DataRelease {
   const optionalValues = {
     releaseCode: optionalText(source.releaseCode),
     sectionCode: optionalText(source.sectionCode),
+    destinationRole: optionalText(source.destinationRole),
     invalidReason: optionalText(source.invalidReason),
     parentModule: optionalText(source.parentModule),
     installedVersion: optionalText(source.installedVersion),

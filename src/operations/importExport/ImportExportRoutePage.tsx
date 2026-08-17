@@ -113,6 +113,40 @@ function selectDataAdministrationConnection(
   );
 }
 
+function selectReleaseOperationConnection(
+  bootstrap: AxisAuthenticatedBootstrap,
+  moduleName: string,
+  releases: readonly DataRelease[],
+) {
+  const destinationRoles = [
+    ...new Set(
+      releases
+        .map((release) => release.destinationRole)
+        .filter((role): role is string => Boolean(role)),
+    ),
+  ];
+  if (destinationRoles.length > 1) {
+    throw new Error(
+      'Selected releases target multiple runtimes. Validate or install one runtime destination at a time.',
+    );
+  }
+  if (destinationRoles.length === 1) {
+    const destinationRole = destinationRoles[0];
+    if (!destinationRole)
+      return selectDataAdministrationConnection(bootstrap, moduleName);
+    const destinationConnection = selectModuleConnection(bootstrap, moduleName, {
+      runtimeRoleCode: destinationRole,
+    });
+    if (!destinationConnection) {
+      throw new Error(
+        `Import service is unavailable for runtime destination ${destinationRole}`,
+      );
+    }
+    return destinationConnection;
+  }
+  return selectDataAdministrationConnection(bootstrap, moduleName);
+}
+
 export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
   const [area, setArea] = useState<ImportExportArea>(() => initialAreaFromLocation());
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('all');
@@ -202,17 +236,23 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
   }, [history.data, historyFilter, historySearch]);
   const operation = useMutation({
     mutationFn: async (mode: 'validate' | 'install') => {
-      if (!connection || !isDataReleaseArea(area) || chosen.length === 0) {
+      if (!isDataReleaseArea(area) || chosen.length === 0) {
         throw new Error('Select at least one available data release');
       }
       const operationReleases = mode === 'validate' ? chosen : executableChosen;
       if (operationReleases.length === 0) {
         throw new Error('Select at least one installable data release');
       }
+      const operationConnection = selectReleaseOperationConnection(
+        props.bootstrap,
+        'import',
+        operationReleases,
+      );
+      if (!operationConnection) throw new Error('Import service is unavailable');
       const plan = createPlan(releaseType, operationReleases);
       return mode === 'validate'
-        ? preflightDataReleases(connection, configuration, plan)
-        : installDataReleases(connection, configuration, plan);
+        ? preflightDataReleases(operationConnection, configuration, plan)
+        : installDataReleases(operationConnection, configuration, plan);
     },
     onSuccess: async (_data, mode) => {
       if (mode === 'install') setSelected(new Set());

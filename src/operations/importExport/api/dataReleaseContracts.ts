@@ -21,6 +21,7 @@ export interface DataRelease {
   readonly dataType: DataReleaseType;
   readonly version: string;
   readonly description: string;
+  readonly destinationRole?: string;
   readonly checksum: string;
   readonly invalidReason?: string;
   readonly installedVersion?: string;

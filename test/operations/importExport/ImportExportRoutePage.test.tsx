@@ -52,6 +52,15 @@ const bootstrap: AxisAuthenticatedBootstrap = {
         runtimeRole: { code: 'WCMS_STAGED', publication: 'STAGED' },
         state: 'UP',
       },
+      {
+        moduleName: 'import',
+        instanceId: 'kickoffLocal:processServer:import:0',
+        endpoint: 'http://localhost:4330/nodics/import',
+        environment: 'kickoffLocal',
+        server: 'processServer',
+        runtimeRole: { code: 'PROCESS', publication: 'PROCESS' },
+        state: 'UP',
+      },
     ],
     media: [
       {
@@ -402,6 +411,7 @@ describe('ImportExportRoutePage', () => {
       displayName: 'CMS Foundation',
       dataType: 'init',
       version: '1.0.3',
+      destinationRole: 'WCMS_STAGED',
       status: 'CURRENT',
       installedVersion: '1.0.3',
     };
@@ -413,6 +423,7 @@ describe('ImportExportRoutePage', () => {
       displayName: 'CMS Publication Approval Workflow',
       dataType: 'init',
       version: '1.0.0',
+      destinationRole: 'PROCESS',
       status: 'NOT_INSTALLED',
       installedVersion: undefined,
     };
@@ -454,6 +465,9 @@ describe('ImportExportRoutePage', () => {
 
     const validateCall = fetchMock.mock.calls.find(([input]) =>
       fetchInputUrl(input).includes('/init/validate'),
+    );
+    expect(fetchInputUrl(validateCall?.[0] as RequestInfo)).toBe(
+      'http://localhost:4330/nodics/import/v0/init/validate',
     );
     expect(validateCall?.[1]?.body).toBe(
       JSON.stringify({
