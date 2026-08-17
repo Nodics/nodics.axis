@@ -297,23 +297,53 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
         </Paper>
       ) : null}
 
-      <Divider sx={{ my: 0.5 }} />
-      <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ gap: 1.5 }}>
-        <Button
-          disabled={props.operationIsPending || props.selectedReleaseCount === 0}
-          onClick={props.onValidateSelected}
-          variant="outlined"
+      <Paper
+        aria-label={`${typeCopy[props.releaseType].label} action footer`}
+        component="section"
+        elevation={3}
+        sx={(theme) => ({
+          bgcolor: alpha(theme.palette.background.paper, 0.96),
+          border: 1,
+          borderColor: 'divider',
+          bottom: 0,
+          boxShadow: theme.shadows[4],
+          mt: 1,
+          position: 'sticky',
+          px: { xs: 1.25, md: 1.5 },
+          py: 1.25,
+          zIndex: theme.zIndex.appBar - 1,
+        })}
+      >
+        <Stack
+          direction={{ xs: 'column', md: 'row' }}
+          sx={{
+            alignItems: { md: 'center' },
+            gap: 1.5,
+            justifyContent: 'space-between',
+          }}
         >
-          Validate selected
-        </Button>
-        <Button
-          disabled={props.operationIsPending || props.executableReleaseCount === 0}
-          onClick={props.onInstallSelected}
-          variant="contained"
-        >
-          {props.operationIsPending ? 'Working…' : 'Install or update selected'}
-        </Button>
-      </Stack>
+          <Typography color="text.secondary" variant="body2">
+            {selectedVisibleCount} of {selectableReleaseCount} actionable release(s)
+            selected
+          </Typography>
+          <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ gap: 1.5 }}>
+            <Button
+              disabled={props.operationIsPending || props.selectedReleaseCount === 0}
+              onClick={props.onValidateSelected}
+              variant="outlined"
+            >
+              Validate selected
+            </Button>
+            <Button
+              disabled={props.operationIsPending || props.executableReleaseCount === 0}
+              onClick={props.onInstallSelected}
+              variant="contained"
+            >
+              {props.operationIsPending ? 'Working…' : 'Install or update selected'}
+            </Button>
+          </Stack>
+        </Stack>
+      </Paper>
       {props.operationIsError ? (
         <Alert severity="error">{props.operationErrorMessage}</Alert>
       ) : null}

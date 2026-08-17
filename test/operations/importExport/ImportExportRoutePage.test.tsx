@@ -378,7 +378,9 @@ describe('ImportExportRoutePage', () => {
     expect(
       screen.getByRole('checkbox', { name: 'Scheduled Jobs is already current' }),
     ).toBeDisabled();
-    expect(screen.getByText('0 of 0 actionable release(s) selected')).toBeVisible();
+    expect(screen.getAllByText('0 of 0 actionable release(s) selected')).toHaveLength(
+      2,
+    );
     expect(screen.getByRole('button', { name: 'Validate selected' })).toBeDisabled();
     expect(
       screen.getByRole('button', { name: 'Install or update selected' }),
@@ -455,6 +457,10 @@ describe('ImportExportRoutePage', () => {
     renderPage();
 
     await user.click(await screen.findByRole('tab', { name: 'Initialization data' }));
+    expect(
+      screen.getByRole('region', { name: 'Initialization data action footer' }),
+    ).toBeVisible();
+    expect(screen.getByText('Available to install or update')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Select all visible' }));
     expect(
       screen.getByRole('checkbox', { name: 'Select Profile Foundation' }),
@@ -465,6 +471,10 @@ describe('ImportExportRoutePage', () => {
     ).not.toBeChecked();
 
     await user.click(screen.getByRole('tab', { name: 'Core data' }));
+    expect(
+      await screen.findByRole('region', { name: 'Core data action footer' }),
+    ).toBeVisible();
+    expect(screen.getByText('Available to install or update')).toBeVisible();
     await user.click(await screen.findByRole('button', { name: 'Select all visible' }));
     expect(screen.getByRole('checkbox', { name: 'Select Profile Core' })).toBeChecked();
     await user.click(screen.getByRole('button', { name: 'Deselect all visible' }));
@@ -473,6 +483,10 @@ describe('ImportExportRoutePage', () => {
     ).not.toBeChecked();
 
     await user.click(screen.getByRole('tab', { name: 'Sample data' }));
+    expect(
+      await screen.findByRole('region', { name: 'Sample data action footer' }),
+    ).toBeVisible();
+    expect(screen.getByText('Available to install or update')).toBeVisible();
     await user.click(await screen.findByRole('button', { name: 'Select all visible' }));
     expect(
       screen.getByRole('checkbox', { name: 'Select Profile Sample' }),
