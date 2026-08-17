@@ -166,6 +166,8 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
           {props.visibleReleases.map((release, index) => {
             const checked = props.selectedReleaseKeys.has(releaseKey(release));
             const disabledReason = releaseDisabledReason(release);
+            const installedMatchesAvailable =
+              release.installedVersion === release.version;
             return (
               <Box
                 key={releaseKey(release)}
@@ -228,11 +230,15 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                     </Typography>
                     <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 0.75 }}>
                       <Chip
-                        label={`Available ${release.version}`}
+                        label={
+                          installedMatchesAvailable
+                            ? `Version ${release.version}`
+                            : `Available ${release.version}`
+                        }
                         size="small"
                         variant="outlined"
                       />
-                      {release.installedVersion ? (
+                      {release.installedVersion && !installedMatchesAvailable ? (
                         <Chip
                           label={`Installed ${release.installedVersion}`}
                           size="small"

@@ -380,6 +380,9 @@ describe('ImportExportRoutePage', () => {
         fetchInputUrl(input).startsWith('http://localhost:4314/nodics/import/'),
       ),
     ).toBe(false);
+    expect(screen.getByText('Version 1.0.0')).toBeVisible();
+    expect(screen.queryByText('Available 1.0.0')).not.toBeInTheDocument();
+    expect(screen.queryByText('Installed 1.0.0')).not.toBeInTheDocument();
     await user.click(screen.getByRole('checkbox', { name: 'Select Scheduled Jobs' }));
 
     expect(screen.getByText(/Selected releases are already current/iu)).toBeVisible();
@@ -400,6 +403,31 @@ describe('ImportExportRoutePage', () => {
       ),
     ).toBe(true);
     fetchMock.mockRestore();
+  });
+
+  it('shows available and installed versions only when they differ', async () => {
+    const updateRelease = {
+      ...currentRelease,
+      releaseCode: 'cronjob:core',
+      version: '1.1.0',
+      installedVersion: '1.0.0',
+      status: 'UPDATE_AVAILABLE',
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.endsWith('/core')) return Promise.resolve(jsonResponse([updateRelease]));
+      if (url.endsWith('/init') || url.endsWith('/sample')) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      return Promise.resolve(jsonResponse([]));
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(await screen.findByRole('tab', { name: 'Core data' }));
+
+    expect(await screen.findByText('Available 1.1.0')).toBeVisible();
+    expect(screen.getByText('Installed 1.0.0')).toBeVisible();
   });
 
   it('supports visible select and deselect controls for all data release tabs', async () => {
