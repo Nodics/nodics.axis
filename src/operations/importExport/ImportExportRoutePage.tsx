@@ -160,6 +160,24 @@ function selectReleaseOperationConnection(
   return selectDataAdministrationConnection(bootstrap, moduleName);
 }
 
+function selectReleaseCatalogueConnections(
+  bootstrap: AxisAuthenticatedBootstrap,
+  runtime: AxisRuntimeConfig,
+): readonly AxisModuleConnection[] {
+  const connections = (bootstrap.moduleConnections.import ?? []).filter(
+    (connection) => connection.state === 'UP' || connection.state === 'DEGRADED',
+  );
+  const values = [...connections];
+  if (!values.some((connection) => connection.runtimeRole?.code === 'PLATFORM')) {
+    values.push(createPlatformImportConnection(bootstrap, runtime));
+  }
+  return Object.freeze(
+    Array.from(
+      new Map(values.map((connection) => [connection.instanceId, connection])).values(),
+    ),
+  );
+}
+
 function groupReleasesByDestination(
   releases: readonly DataRelease[],
 ): ReadonlyMap<string, readonly DataRelease[]> {
@@ -169,6 +187,40 @@ function groupReleasesByDestination(
     groups.set(key, [...(groups.get(key) ?? []), release]);
   });
   return groups;
+}
+
+function releaseBelongsToConnection(
+  release: DataRelease,
+  connection: AxisModuleConnection,
+): boolean {
+  const runtimeRoleCode = connection.runtimeRole?.code;
+  return !release.destinationRole || !runtimeRoleCode
+    ? true
+    : release.destinationRole === runtimeRoleCode;
+}
+
+function mergeDataReleaseCatalogue(
+  releases: readonly DataRelease[],
+): readonly DataRelease[] {
+  return Object.freeze(
+    Array.from(
+      new Map(releases.map((release) => [releaseKey(release), release])).values(),
+    ),
+  );
+}
+
+async function loadDataReleasesByDestination(
+  connections: readonly AxisModuleConnection[],
+  configuration: DataReleaseClientConfiguration,
+): Promise<readonly DataRelease[]> {
+  const values = await Promise.all(
+    connections.map(async (connection) =>
+      (await loadDataReleases(connection, configuration)).filter((release) =>
+        releaseBelongsToConnection(release, connection),
+      ),
+    ),
+  );
+  return mergeDataReleaseCatalogue(values.flat());
 }
 
 async function executeDataReleaseOperationByDestination(
@@ -214,6 +266,10 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
   >(undefined);
   const queryClient = useQueryClient();
   const connection = selectDataAdministrationConnection(props.bootstrap, 'import');
+  const catalogueConnections = useMemo(
+    () => selectReleaseCatalogueConnections(props.bootstrap, props.runtime),
+    [props.bootstrap, props.runtime],
+  );
   const exportConnection = selectDataAdministrationConnection(
     props.bootstrap,
     'export',
@@ -239,10 +295,11 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
   const catalogue = useQuery({
     queryKey: ['import-catalogue', props.runtime.enterpriseCode],
     queryFn: () => {
-      if (!connection) throw new Error('Import service is unavailable');
-      return loadDataReleases(connection, configuration);
+      if (catalogueConnections.length === 0)
+        throw new Error('Import service is unavailable');
+      return loadDataReleasesByDestination(catalogueConnections, configuration);
     },
-    enabled: Boolean(connection),
+    enabled: catalogueConnections.length > 0,
   });
   const profiles = useQuery({
     queryKey: ['initialization-profiles', props.runtime.enterpriseCode],
@@ -476,7 +533,7 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
               catalogueIsError={catalogue.isError}
               catalogueIsLoading={catalogue.isLoading}
               catalogueIsSuccess={catalogue.isSuccess}
-              connectionAvailable={Boolean(connection)}
+              connectionAvailable={catalogueConnections.length > 0}
               executableReleaseCount={executableChosen.length}
               operationErrorMessage={operation.error?.message}
               operationIsError={operation.isError}

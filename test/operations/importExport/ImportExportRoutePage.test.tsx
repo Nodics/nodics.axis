@@ -270,11 +270,6 @@ describe('ImportExportRoutePage', () => {
       ),
     );
     expect(call?.[1]?.method).toBe('POST');
-    expect(
-      fetchMock.mock.calls.some(([input]) =>
-        fetchInputUrl(input).startsWith('http://localhost:4314/'),
-      ),
-    ).toBe(false);
   });
 
   it('shows a guided installation failure and allows a successful retry', async () => {
@@ -366,11 +361,6 @@ describe('ImportExportRoutePage', () => {
         ),
       ).toBe(true),
     );
-    expect(
-      fetchMock.mock.calls.some(([input]) =>
-        fetchInputUrl(input).startsWith('http://localhost:4314/nodics/import/'),
-      ),
-    ).toBe(false);
     expect(screen.getByText('Version 1.0.0')).toBeVisible();
     expect(screen.queryByText('Available 1.0.0')).not.toBeInTheDocument();
     expect(screen.queryByText('Installed 1.0.0')).not.toBeInTheDocument();
@@ -535,6 +525,59 @@ describe('ImportExportRoutePage', () => {
     expect(validateCalls.map(([input]) => fetchInputUrl(input as RequestInfo))).toEqual(
       ['http://localhost:3000/nodics/import/v0/init/validate'],
     );
+  });
+
+  it('uses destination runtime catalogue status for Platform releases', async () => {
+    const stagedProjection = {
+      ...currentRelease,
+      releaseCode: 'catalog:init',
+      displayName: 'Catalog Framework',
+      dataType: 'init',
+      destinationRole: 'PLATFORM',
+      status: 'NOT_INSTALLED',
+      installedVersion: undefined,
+    };
+    const platformProjection = {
+      ...stagedProjection,
+      status: 'CURRENT',
+      installedVersion: '1.0.3',
+      version: '1.0.3',
+    };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url === 'http://localhost:4312/nodics/import/v0/init') {
+        return Promise.resolve(jsonResponse([stagedProjection]));
+      }
+      if (url === 'http://localhost:3000/nodics/import/v0/init') {
+        return Promise.resolve(jsonResponse([platformProjection]));
+      }
+      if (url.endsWith('/init') || url.endsWith('/core') || url.endsWith('/sample')) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      return Promise.resolve(jsonResponse([]));
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(await screen.findByRole('tab', { name: 'Initialization data' }));
+
+    expect(await screen.findByText('Installed / already current')).toBeVisible();
+    expect(screen.getByText('Catalog Framework')).toBeVisible();
+    expect(screen.getByText('Version 1.0.3')).toBeVisible();
+    expect(
+      screen.getByRole('checkbox', {
+        name: 'Catalog Framework is already current',
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.queryByText('Available to install or update'),
+    ).not.toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(
+        ([input]) =>
+          fetchInputUrl(input) === 'http://localhost:3000/nodics/import/v0/init',
+      ),
+    ).toBe(true);
   });
 
   it('keeps selected releases after validation so users can install the validated plan', async () => {
