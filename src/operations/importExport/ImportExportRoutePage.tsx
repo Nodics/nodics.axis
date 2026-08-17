@@ -311,20 +311,8 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
         mode,
       );
     },
-    onSuccess: async (data, mode) => {
+    onSuccess: async (_data, mode) => {
       if (mode === 'install') setSelected(new Set());
-      if (mode === 'validate') {
-        const nonExecutableKeys = new Set(
-          data.releases
-            .filter((release) => !isInstallableStatus(release.status))
-            .map(releaseKey),
-        );
-        if (nonExecutableKeys.size > 0) {
-          setSelected(
-            new Set([...selected].filter((key) => !nonExecutableKeys.has(key))),
-          );
-        }
-      }
       await queryClient.invalidateQueries({
         queryKey: ['import-catalogue', props.runtime.enterpriseCode],
       });

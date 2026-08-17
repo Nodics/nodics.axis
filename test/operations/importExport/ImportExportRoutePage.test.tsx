@@ -537,7 +537,7 @@ describe('ImportExportRoutePage', () => {
     );
   });
 
-  it('clears selected releases when validation refreshes them as already current', async () => {
+  it('keeps selected releases after validation so users can install the validated plan', async () => {
     const updateRelease = {
       ...currentRelease,
       releaseCode: 'cronjob:core',
@@ -550,16 +550,10 @@ describe('ImportExportRoutePage', () => {
       installedVersion: '1.1.0',
       status: 'CURRENT',
     };
-    let coreCatalogueReads = 0;
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = fetchInputUrl(input);
       if (url.endsWith('/core')) {
-        coreCatalogueReads += 1;
-        return Promise.resolve(
-          jsonResponse(
-            coreCatalogueReads > 1 ? [currentAfterValidation] : [updateRelease],
-          ),
-        );
+        return Promise.resolve(jsonResponse([updateRelease]));
       }
       if (url.endsWith('/core/validate')) {
         return Promise.resolve(
@@ -593,14 +587,14 @@ describe('ImportExportRoutePage', () => {
     ).toBeVisible();
     expect(
       await screen.findByRole('checkbox', {
-        name: 'Scheduled Jobs is already current',
+        name: 'Select Scheduled Jobs',
       }),
-    ).not.toBeChecked();
-    expect(screen.getByText('0 of 0 actionable release(s) selected')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Validate selected' })).toBeDisabled();
+    ).toBeChecked();
+    expect(screen.getByText('1 of 1 actionable release(s) selected')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Validate selected' })).toBeEnabled();
     expect(
       screen.getByRole('button', { name: 'Install or update selected' }),
-    ).toBeDisabled();
+    ).toBeEnabled();
     expect(
       fetchMock.mock.calls.some(([input]) =>
         fetchInputUrl(input).includes('/core/install'),
