@@ -329,7 +329,7 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
         sx={{
           border: 1,
           borderColor: 'divider',
-          overflow: 'hidden',
+          overflow: 'visible',
         }}
       >
         <Stack

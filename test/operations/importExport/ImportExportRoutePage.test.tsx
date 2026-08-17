@@ -419,6 +419,50 @@ describe('ImportExportRoutePage', () => {
     expect(screen.getByText('Installed 1.0.0')).toBeVisible();
   });
 
+  it('groups invalid releases as repair-required and keeps them non-selectable', async () => {
+    const invalidRelease = {
+      ...currentRelease,
+      releaseCode: 'agoraCustomerReview:sample',
+      displayName: 'Agora Customer Review Source',
+      dataType: 'sample',
+      description:
+        'This data release manifest is invalid and must be repaired before it can be validated or installed.',
+      invalidReason:
+        'Invalid operation request: Publishable data must target a Staged runtime with immutable, administrator-initiated publication semantics',
+      installedVersion: undefined,
+      status: 'INVALID_RELEASE',
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.endsWith('/sample'))
+        return Promise.resolve(jsonResponse([invalidRelease]));
+      if (url.endsWith('/init') || url.endsWith('/core')) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      return Promise.resolve(jsonResponse([]));
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(await screen.findByRole('tab', { name: 'Sample data' }));
+
+    expect(await screen.findByText('Requires repair')).toBeVisible();
+    expect(screen.getByText(/Repair the owning module data release/iu)).toBeVisible();
+    expect(screen.getByText('Agora Customer Review Source')).toBeVisible();
+    expect(
+      screen.getByText(/Publishable data must target a Staged runtime/iu),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('checkbox', {
+        name: 'Agora Customer Review Source has an invalid release manifest',
+      }),
+    ).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Validate selected' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Install or update selected' }),
+    ).toBeDisabled();
+  });
+
   it('supports visible select and deselect controls for all data release tabs', async () => {
     const initRelease = {
       ...currentRelease,

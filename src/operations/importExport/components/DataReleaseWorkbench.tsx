@@ -51,6 +51,25 @@ interface DataReleaseWorkbenchProps {
   readonly onValidateSelected: () => void;
 }
 
+function releaseActionGroup(release: DataRelease): 'available' | 'current' | 'repair' {
+  if (isInstallableStatus(release.status)) return 'available';
+  if (release.status === 'CURRENT') return 'current';
+  return 'repair';
+}
+
+function releaseSelectionLabel(release: DataRelease): string {
+  if (isInstallableStatus(release.status)) return `Select ${release.displayName}`;
+  if (release.status === 'CURRENT') return `${release.displayName} is already current`;
+  if (release.status === 'INVALID_RELEASE') {
+    return `${release.displayName} has an invalid release manifest`;
+  }
+  if (release.status === 'DOWNGRADE_AVAILABLE') {
+    return `${release.displayName} cannot be downgraded from Axis`;
+  }
+  if (release.status === 'RUNNING') return `${release.displayName} import is running`;
+  return `${release.displayName} cannot be selected`;
+}
+
 export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
   const selectableReleaseCount = props.visibleReleases.filter((release) =>
     isInstallableStatus(release.status),
@@ -62,16 +81,26 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
     {
       heading: 'Available to install or update',
       help: 'These releases need action and can be selected for validation or installation.',
-      releases: props.visibleReleases.filter((release) =>
-        isInstallableStatus(release.status),
+      releases: props.visibleReleases.filter(
+        (release) => releaseActionGroup(release) === 'available',
       ),
+      tone: 'default',
+    },
+    {
+      heading: 'Requires repair',
+      help: 'These releases are blocked by their manifest or runtime contract. Repair the owning module data release, rebuild, restart, and refresh this page.',
+      releases: props.visibleReleases.filter(
+        (release) => releaseActionGroup(release) === 'repair',
+      ),
+      tone: 'warning',
     },
     {
       heading: 'Installed / already current',
       help: 'These releases are already installed at the available version and are shown for audit only.',
       releases: props.visibleReleases.filter(
-        (release) => !isInstallableStatus(release.status),
+        (release) => releaseActionGroup(release) === 'current',
       ),
+      tone: 'default',
     },
   ].filter((group) => group.releases.length > 0);
 
@@ -138,7 +167,11 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
       {props.visibleReleases.length > 0 ? (
         <Paper
           variant="outlined"
-          sx={{ bgcolor: 'background.paper', overflow: 'hidden' }}
+          sx={{
+            bgcolor: 'background.paper',
+            maxHeight: { xs: '58vh', md: 'calc(100vh - 360px)' },
+            overflow: 'auto',
+          }}
         >
           <Stack
             direction={{ xs: 'column', sm: 'row' }}
@@ -183,11 +216,14 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
             <Box key={group.heading}>
               {groupIndex > 0 ? <Divider /> : null}
               <Box
-                sx={{
-                  bgcolor: 'background.default',
+                sx={(theme) => ({
+                  bgcolor:
+                    group.tone === 'warning'
+                      ? alpha(theme.palette.warning.main, 0.08)
+                      : 'background.default',
                   px: { xs: 1.25, md: 1.5 },
                   py: 1,
-                }}
+                })}
               >
                 <Typography component="h2" variant="subtitle1">
                   {group.heading}
@@ -233,9 +269,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                           disabled={!selectable}
                           slotProps={{
                             input: {
-                              'aria-label': selectable
-                                ? `Select ${release.displayName}`
-                                : `${release.displayName} is already current`,
+                              'aria-label': releaseSelectionLabel(release),
                             },
                           }}
                           sx={{ p: 0.5 }}
@@ -257,7 +291,9 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                               bgcolor:
                                 release.status === 'CURRENT'
                                   ? 'success.light'
-                                  : 'background.default',
+                                  : release.status === 'INVALID_RELEASE'
+                                    ? 'error.light'
+                                    : 'background.default',
                             }}
                           />
                         </Stack>
