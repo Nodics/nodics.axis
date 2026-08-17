@@ -12,6 +12,7 @@ import {
   Typography,
   alpha,
 } from '@mui/material';
+import { useState } from 'react';
 
 import type { DataRelease, DataReleaseType } from '../api/dataReleaseContracts';
 import {
@@ -84,6 +85,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
     selectedVisibleCount > 0 && selectedVisibleCount < selectableReleaseCount;
   const groupedReleases = [
     {
+      id: 'available',
       heading: 'Available to install or update',
       help: 'These releases need action and can be selected for validation or installation.',
       releases: props.visibleReleases.filter(
@@ -92,6 +94,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
       tone: 'default',
     },
     {
+      id: 'repair',
       heading: 'Requires repair',
       help: 'These releases are blocked by their manifest or runtime contract. Repair the owning module data release, rebuild, restart, and refresh this page.',
       releases: props.visibleReleases.filter(
@@ -100,6 +103,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
       tone: 'warning',
     },
     {
+      id: 'current',
       heading: 'Installed / already current',
       help: 'These releases are already installed at the available version and are shown for audit only.',
       releases: props.visibleReleases.filter(
@@ -108,6 +112,20 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
       tone: 'default',
     },
   ].filter((group) => group.releases.length > 0);
+  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const toggleGroup = (groupKey: string) => {
+    setCollapsedGroups((previousGroups) => {
+      const nextGroups = new Set(previousGroups);
+      if (nextGroups.has(groupKey)) {
+        nextGroups.delete(groupKey);
+      } else {
+        nextGroups.add(groupKey);
+      }
+      return nextGroups;
+    });
+  };
 
   return (
     <>
@@ -177,124 +195,190 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
             overflow: 'hidden',
           }}
         >
-          {groupedReleases.map((group, groupIndex) => (
-            <Box key={group.heading}>
-              {groupIndex > 0 ? <Divider /> : null}
-              <Box
-                sx={(theme) => ({
-                  bgcolor:
-                    group.tone === 'warning'
-                      ? alpha(theme.palette.warning.main, 0.08)
-                      : 'background.default',
-                  px: { xs: 1.25, md: 1.5 },
-                  py: 1,
-                })}
-              >
-                <Typography component="h2" variant="subtitle1">
-                  {group.heading}
-                </Typography>
-                <Typography color="text.secondary" variant="body2">
-                  {group.help}
-                </Typography>
-              </Box>
-              {group.releases.map((release, index) => {
-                const checked = props.selectedReleaseKeys.has(releaseKey(release));
-                const disabledReason = releaseDisabledReason(release);
-                const installedMatchesAvailable =
-                  release.installedVersion === release.version;
-                const selectable = isInstallableStatus(release.status);
-                return (
-                  <Box
-                    key={releaseKey(release)}
-                    sx={(theme) => ({
-                      bgcolor: checked
-                        ? alpha(theme.palette.primary.main, 0.06)
-                        : 'background.paper',
-                      transition: 'background-color 160ms ease, box-shadow 160ms ease',
-                      '&:hover': {
-                        bgcolor: checked
-                          ? alpha(theme.palette.primary.main, 0.08)
-                          : 'background.default',
-                      },
-                    })}
+          {groupedReleases.map((group, groupIndex) => {
+            const groupKey = `${props.releaseType}:${group.id}`;
+            const groupPanelId = `${props.releaseType}-${group.id}-releases`;
+            const collapsed = collapsedGroups.has(groupKey);
+            return (
+              <Box key={group.heading}>
+                {groupIndex > 0 ? <Divider /> : null}
+                <Box
+                  aria-controls={groupPanelId}
+                  aria-expanded={!collapsed}
+                  component="button"
+                  type="button"
+                  sx={(theme) => ({
+                    bgcolor:
+                      group.tone === 'warning'
+                        ? alpha(theme.palette.warning.main, 0.08)
+                        : 'background.default',
+                    border: 0,
+                    color: 'text.primary',
+                    cursor: 'pointer',
+                    display: 'block',
+                    font: 'inherit',
+                    px: { xs: 1.25, md: 1.5 },
+                    py: 1,
+                    textAlign: 'left',
+                    width: '100%',
+                    '&:focus-visible': {
+                      outline: `3px solid ${alpha(theme.palette.primary.main, 0.35)}`,
+                      outlineOffset: -3,
+                    },
+                    '&:hover': {
+                      bgcolor:
+                        group.tone === 'warning'
+                          ? alpha(theme.palette.warning.main, 0.12)
+                          : alpha(theme.palette.primary.main, 0.04),
+                    },
+                  })}
+                  onClick={() => toggleGroup(groupKey)}
+                >
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    sx={{
+                      alignItems: { sm: 'center' },
+                      gap: 1,
+                      justifyContent: 'space-between',
+                    }}
                   >
-                    {index > 0 ? <Divider /> : null}
+                    <Box>
+                      <Typography component="h2" variant="subtitle1">
+                        {group.heading}
+                      </Typography>
+                      <Typography color="text.secondary" variant="body2">
+                        {group.help}
+                      </Typography>
+                    </Box>
                     <Stack
-                      direction={{ xs: 'column', sm: 'row' }}
+                      direction="row"
                       sx={{
-                        alignItems: { sm: 'center' },
-                        gap: { xs: 1, sm: 1.5 },
-                        px: { xs: 1.25, md: 1.5 },
-                        py: { xs: 1.2, md: 1.35 },
+                        alignItems: 'center',
+                        flexShrink: 0,
+                        gap: 0.75,
                       }}
                     >
-                      <Box sx={{ pt: { sm: 0.25 } }}>
-                        <Checkbox
-                          checked={checked}
-                          disabled={!selectable}
-                          slotProps={{
-                            input: {
-                              'aria-label': releaseSelectionLabel(release),
-                            },
-                          }}
-                          sx={{ p: 0.5 }}
-                          onChange={() => props.onToggleRelease(release)}
-                        />
-                      </Box>
-                      <Stack sx={{ flex: 1 }} spacing={0.4}>
-                        <Stack
-                          direction="row"
-                          sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 1 }}
-                        >
-                          <Typography component="h3" variant="h6">
-                            {release.displayName}
-                          </Typography>
-                          <Chip
-                            label={release.status.replaceAll('_', ' ')}
-                            size="small"
-                            sx={{
-                              bgcolor:
-                                release.status === 'CURRENT'
-                                  ? 'success.light'
-                                  : release.status === 'INVALID_RELEASE'
-                                    ? 'error.light'
-                                    : 'background.default',
-                            }}
-                          />
-                        </Stack>
-                        <Typography color="text.secondary" sx={{ maxWidth: 900 }}>
-                          {release.description}
-                        </Typography>
-                        <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 0.75 }}>
-                          <Chip
-                            label={
-                              installedMatchesAvailable
-                                ? `Version ${release.version}`
-                                : `Available ${release.version}`
-                            }
-                            size="small"
-                            variant="outlined"
-                          />
-                          {release.installedVersion && !installedMatchesAvailable ? (
-                            <Chip
-                              label={`Installed ${release.installedVersion}`}
-                              size="small"
-                              variant="outlined"
-                            />
-                          ) : null}
-                        </Stack>
-                        {disabledReason ? (
-                          <Typography color="text.secondary" variant="caption">
-                            {disabledReason}
-                          </Typography>
-                        ) : null}
-                      </Stack>
+                      <Chip
+                        label={`${group.releases.length} release(s)`}
+                        size="small"
+                        variant="outlined"
+                      />
+                      <Typography color="primary" variant="button">
+                        {collapsed ? 'Expand' : 'Collapse'}
+                      </Typography>
                     </Stack>
+                  </Stack>
+                </Box>
+                {!collapsed ? (
+                  <Box id={groupPanelId}>
+                    {group.releases.map((release, index) => {
+                      const checked = props.selectedReleaseKeys.has(
+                        releaseKey(release),
+                      );
+                      const disabledReason = releaseDisabledReason(release);
+                      const installedMatchesAvailable =
+                        release.installedVersion === release.version;
+                      const selectable = isInstallableStatus(release.status);
+                      return (
+                        <Box
+                          key={releaseKey(release)}
+                          sx={(theme) => ({
+                            bgcolor: checked
+                              ? alpha(theme.palette.primary.main, 0.06)
+                              : 'background.paper',
+                            transition:
+                              'background-color 160ms ease, box-shadow 160ms ease',
+                            '&:hover': {
+                              bgcolor: checked
+                                ? alpha(theme.palette.primary.main, 0.08)
+                                : 'background.default',
+                            },
+                          })}
+                        >
+                          {index > 0 ? <Divider /> : null}
+                          <Stack
+                            direction={{ xs: 'column', sm: 'row' }}
+                            sx={{
+                              alignItems: { sm: 'center' },
+                              gap: { xs: 1, sm: 1.5 },
+                              px: { xs: 1.25, md: 1.5 },
+                              py: { xs: 1.2, md: 1.35 },
+                            }}
+                          >
+                            <Box sx={{ pt: { sm: 0.25 } }}>
+                              <Checkbox
+                                checked={checked}
+                                disabled={!selectable}
+                                slotProps={{
+                                  input: {
+                                    'aria-label': releaseSelectionLabel(release),
+                                  },
+                                }}
+                                sx={{ p: 0.5 }}
+                                onChange={() => props.onToggleRelease(release)}
+                              />
+                            </Box>
+                            <Stack sx={{ flex: 1 }} spacing={0.4}>
+                              <Stack
+                                direction="row"
+                                sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 1 }}
+                              >
+                                <Typography component="h3" variant="h6">
+                                  {release.displayName}
+                                </Typography>
+                                <Chip
+                                  label={release.status.replaceAll('_', ' ')}
+                                  size="small"
+                                  sx={{
+                                    bgcolor:
+                                      release.status === 'CURRENT'
+                                        ? 'success.light'
+                                        : release.status === 'INVALID_RELEASE'
+                                          ? 'error.light'
+                                          : 'background.default',
+                                  }}
+                                />
+                              </Stack>
+                              <Typography color="text.secondary" sx={{ maxWidth: 900 }}>
+                                {release.description}
+                              </Typography>
+                              <Stack
+                                direction="row"
+                                sx={{ flexWrap: 'wrap', gap: 0.75 }}
+                              >
+                                <Chip
+                                  label={
+                                    installedMatchesAvailable
+                                      ? `Version ${release.version}`
+                                      : `Available ${release.version}`
+                                  }
+                                  size="small"
+                                  variant="outlined"
+                                />
+                                {release.installedVersion &&
+                                !installedMatchesAvailable ? (
+                                  <Chip
+                                    label={`Installed ${release.installedVersion}`}
+                                    size="small"
+                                    variant="outlined"
+                                  />
+                                ) : null}
+                              </Stack>
+                              {disabledReason ? (
+                                <Typography color="text.secondary" variant="caption">
+                                  {disabledReason}
+                                </Typography>
+                              ) : null}
+                            </Stack>
+                          </Stack>
+                        </Box>
+                      );
+                    })}
                   </Box>
-                );
-              })}
-            </Box>
-          ))}
+                ) : null}
+              </Box>
+            );
+          })}
         </Paper>
       ) : null}
 

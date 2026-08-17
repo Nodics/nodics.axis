@@ -375,6 +375,16 @@ describe('ImportExportRoutePage', () => {
     expect(screen.queryByText('Available 1.0.0')).not.toBeInTheDocument();
     expect(screen.queryByText('Installed 1.0.0')).not.toBeInTheDocument();
     expect(screen.getByText('Installed / already current')).toBeVisible();
+    const currentGroupToggle = screen.getByRole('button', {
+      name: /Installed \/ already current/iu,
+    });
+    expect(currentGroupToggle).toHaveAttribute('aria-expanded', 'true');
+    await user.click(currentGroupToggle);
+    expect(currentGroupToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Version 1.0.0')).not.toBeInTheDocument();
+    await user.click(currentGroupToggle);
+    expect(currentGroupToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Version 1.0.0')).toBeVisible();
     expect(
       screen.getByRole('checkbox', { name: 'Scheduled Jobs is already current' }),
     ).toBeDisabled();
@@ -413,6 +423,18 @@ describe('ImportExportRoutePage', () => {
     await user.click(await screen.findByRole('tab', { name: 'Core data' }));
 
     expect(await screen.findByText('Available to install or update')).toBeVisible();
+    expect(await screen.findByText('Available 1.1.0')).toBeVisible();
+    expect(screen.getByText('Installed 1.0.0')).toBeVisible();
+    const availableGroupToggle = screen.getByRole('button', {
+      name: /Available to install or update/iu,
+    });
+    expect(availableGroupToggle).toHaveAttribute('aria-expanded', 'true');
+    await user.click(availableGroupToggle);
+    expect(availableGroupToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Available 1.1.0')).not.toBeInTheDocument();
+    expect(screen.queryByText('Installed 1.0.0')).not.toBeInTheDocument();
+    await user.click(availableGroupToggle);
+    expect(availableGroupToggle).toHaveAttribute('aria-expanded', 'true');
     expect(await screen.findByText('Available 1.1.0')).toBeVisible();
     expect(screen.getByText('Installed 1.0.0')).toBeVisible();
   });
@@ -506,6 +528,15 @@ describe('ImportExportRoutePage', () => {
     expect(
       screen.getByRole('button', { name: 'Install or update selected' }),
     ).toBeDisabled();
+    const repairGroupToggle = screen.getByRole('button', {
+      name: /Requires repair/iu,
+    });
+    await user.click(repairGroupToggle);
+    expect(repairGroupToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Agora Customer Review Source')).not.toBeInTheDocument();
+    await user.click(repairGroupToggle);
+    expect(repairGroupToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(await screen.findByText('Agora Customer Review Source')).toBeVisible();
   });
 
   it('supports visible select and deselect controls for all data release tabs', async () => {
