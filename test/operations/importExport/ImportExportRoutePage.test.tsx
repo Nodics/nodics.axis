@@ -630,7 +630,7 @@ describe('ImportExportRoutePage', () => {
     ).toBe(true);
   });
 
-  it('keeps selected releases after validation so users can install the validated plan', async () => {
+  it('removes current-only validated releases from install selection', async () => {
     const updateRelease = {
       ...currentRelease,
       releaseCode: 'cronjob:core',
@@ -682,12 +682,12 @@ describe('ImportExportRoutePage', () => {
       await screen.findByRole('checkbox', {
         name: 'Select Scheduled Jobs',
       }),
-    ).toBeChecked();
-    expect(screen.getByText('1 of 1 actionable release(s) selected')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Validate selected' })).toBeEnabled();
+    ).not.toBeChecked();
+    expect(screen.getByText('0 of 1 actionable release(s) selected')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Validate selected' })).toBeDisabled();
     expect(
       screen.getByRole('button', { name: 'Install or update selected' }),
-    ).toBeEnabled();
+    ).toBeDisabled();
     expect(
       fetchMock.mock.calls.some(([input]) =>
         fetchInputUrl(input).includes('/core/install'),

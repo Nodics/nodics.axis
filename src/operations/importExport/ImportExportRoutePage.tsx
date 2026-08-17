@@ -391,8 +391,24 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
         mode,
       );
     },
-    onSuccess: async (_data, mode) => {
-      if (mode === 'install') setSelected(new Set());
+    onSuccess: async (data, mode) => {
+      if (mode === 'install') {
+        setSelected(new Set());
+      } else {
+        const currentReleaseKeys = new Set(
+          data.releases
+            .filter((release) => release.status === 'CURRENT')
+            .map(releaseKey),
+        );
+        if (currentReleaseKeys.size > 0) {
+          setSelected(
+            (previousSelection) =>
+              new Set(
+                [...previousSelection].filter((key) => !currentReleaseKeys.has(key)),
+              ),
+          );
+        }
+      }
       await queryClient.invalidateQueries({
         queryKey: ['import-catalogue', props.runtime.enterpriseCode],
       });
