@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -378,9 +378,7 @@ describe('ImportExportRoutePage', () => {
     expect(
       screen.getByRole('checkbox', { name: 'Scheduled Jobs is already current' }),
     ).toBeDisabled();
-    expect(screen.getAllByText('0 of 0 actionable release(s) selected')).toHaveLength(
-      2,
-    );
+    expect(screen.getByText('0 of 0 actionable release(s) selected')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Validate selected' })).toBeDisabled();
     expect(
       screen.getByRole('button', { name: 'Install or update selected' }),
@@ -417,6 +415,53 @@ describe('ImportExportRoutePage', () => {
     expect(await screen.findByText('Available to install or update')).toBeVisible();
     expect(await screen.findByText('Available 1.1.0')).toBeVisible();
     expect(screen.getByText('Installed 1.0.0')).toBeVisible();
+  });
+
+  it('shows selected data release operation errors inside the action footer', async () => {
+    const updateRelease = {
+      ...currentRelease,
+      releaseCode: 'cronjob:core',
+      version: '1.1.0',
+      installedVersion: '1.0.0',
+      status: 'UPDATE_AVAILABLE',
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.endsWith('/core')) return Promise.resolve(jsonResponse([updateRelease]));
+      if (url.endsWith('/core/validate')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              message: 'Import service is unavailable for runtime destination PLATFORM',
+            }),
+            { status: 500, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      if (url.endsWith('/init') || url.endsWith('/sample')) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      return Promise.resolve(jsonResponse([]));
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(await screen.findByRole('tab', { name: 'Core data' }));
+    await user.click(
+      await screen.findByRole('checkbox', {
+        name: 'Select all actionable releases',
+      }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Validate selected' }));
+
+    const footer = await screen.findByRole('region', {
+      name: 'Core data action footer',
+    });
+    expect(
+      await within(footer).findByText(
+        'Import service is unavailable for runtime destination PLATFORM',
+      ),
+    ).toBeVisible();
   });
 
   it('groups invalid releases as repair-required and keeps them non-selectable', async () => {
@@ -505,11 +550,15 @@ describe('ImportExportRoutePage', () => {
       screen.getByRole('region', { name: 'Initialization data action footer' }),
     ).toBeVisible();
     expect(screen.getByText('Available to install or update')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Select all visible' }));
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Select all actionable releases' }),
+    );
     expect(
       screen.getByRole('checkbox', { name: 'Select Profile Foundation' }),
     ).toBeChecked();
-    await user.click(screen.getByRole('button', { name: 'Deselect all visible' }));
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Select all actionable releases' }),
+    );
     expect(
       screen.getByRole('checkbox', { name: 'Select Profile Foundation' }),
     ).not.toBeChecked();
@@ -519,9 +568,15 @@ describe('ImportExportRoutePage', () => {
       await screen.findByRole('region', { name: 'Core data action footer' }),
     ).toBeVisible();
     expect(screen.getByText('Available to install or update')).toBeVisible();
-    await user.click(await screen.findByRole('button', { name: 'Select all visible' }));
+    await user.click(
+      await screen.findByRole('checkbox', {
+        name: 'Select all actionable releases',
+      }),
+    );
     expect(screen.getByRole('checkbox', { name: 'Select Profile Core' })).toBeChecked();
-    await user.click(screen.getByRole('button', { name: 'Deselect all visible' }));
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Select all actionable releases' }),
+    );
     expect(
       screen.getByRole('checkbox', { name: 'Select Profile Core' }),
     ).not.toBeChecked();
@@ -531,11 +586,17 @@ describe('ImportExportRoutePage', () => {
       await screen.findByRole('region', { name: 'Sample data action footer' }),
     ).toBeVisible();
     expect(screen.getByText('Available to install or update')).toBeVisible();
-    await user.click(await screen.findByRole('button', { name: 'Select all visible' }));
+    await user.click(
+      await screen.findByRole('checkbox', {
+        name: 'Select all actionable releases',
+      }),
+    );
     expect(
       screen.getByRole('checkbox', { name: 'Select Profile Sample' }),
     ).toBeChecked();
-    await user.click(screen.getByRole('button', { name: 'Deselect all visible' }));
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Select all actionable releases' }),
+    );
     expect(
       screen.getByRole('checkbox', { name: 'Select Profile Sample' }),
     ).not.toBeChecked();

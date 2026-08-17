@@ -6,6 +6,7 @@ import {
   Chip,
   CircularProgress,
   Divider,
+  FormControlLabel,
   Paper,
   Stack,
   Typography,
@@ -77,6 +78,10 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
   const selectedVisibleCount = props.visibleReleases.filter((release) =>
     props.selectedReleaseKeys.has(releaseKey(release)),
   ).length;
+  const allVisibleSelected =
+    selectableReleaseCount > 0 && selectedVisibleCount === selectableReleaseCount;
+  const someVisibleSelected =
+    selectedVisibleCount > 0 && selectedVisibleCount < selectableReleaseCount;
   const groupedReleases = [
     {
       heading: 'Available to install or update',
@@ -172,45 +177,6 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
             overflow: 'hidden',
           }}
         >
-          <Stack
-            direction={{ xs: 'column', sm: 'row' }}
-            sx={{
-              alignItems: { sm: 'center' },
-              bgcolor: 'background.default',
-              gap: 1,
-              justifyContent: 'space-between',
-              px: { xs: 1.25, md: 1.5 },
-              py: 1,
-            }}
-          >
-            <Typography color="text.secondary" variant="body2">
-              {selectedVisibleCount} of {selectableReleaseCount} actionable release(s)
-              selected
-            </Typography>
-            <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>
-              <Button
-                disabled={
-                  props.operationIsPending ||
-                  selectableReleaseCount === 0 ||
-                  selectedVisibleCount === selectableReleaseCount
-                }
-                onClick={props.onSelectVisible}
-                size="small"
-                variant="outlined"
-              >
-                Select all visible
-              </Button>
-              <Button
-                disabled={props.operationIsPending || selectedVisibleCount === 0}
-                onClick={props.onDeselectVisible}
-                size="small"
-                variant="text"
-              >
-                Deselect all visible
-              </Button>
-            </Stack>
-          </Stack>
-          <Divider />
           {groupedReleases.map((group, groupIndex) => (
             <Box key={group.heading}>
               {groupIndex > 0 ? <Divider /> : null}
@@ -349,42 +315,64 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
           zIndex: theme.zIndex.appBar - 1,
         })}
       >
-        <Stack
-          direction={{ xs: 'column', md: 'row' }}
-          sx={{
-            alignItems: { md: 'center' },
-            gap: 1.5,
-            justifyContent: 'space-between',
-          }}
-        >
-          <Typography color="text.secondary" variant="body2">
-            {selectedVisibleCount} of {selectableReleaseCount} actionable release(s)
-            selected
-          </Typography>
-          <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ gap: 1.5 }}>
-            <Button
-              disabled={props.operationIsPending || props.selectedReleaseCount === 0}
-              onClick={props.onValidateSelected}
-              variant="outlined"
-            >
-              Validate selected
-            </Button>
-            <Button
-              disabled={props.operationIsPending || props.executableReleaseCount === 0}
-              onClick={props.onInstallSelected}
-              variant="contained"
-            >
-              {props.operationIsPending ? 'Working…' : 'Install or update selected'}
-            </Button>
+        <Stack spacing={1.25}>
+          {props.operationIsError ? (
+            <Alert severity="error">{props.operationErrorMessage}</Alert>
+          ) : null}
+          {props.operationIsSuccess ? (
+            <Alert severity="success">{props.successMessage}</Alert>
+          ) : null}
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            sx={{
+              alignItems: { md: 'center' },
+              gap: 1.5,
+              justifyContent: 'space-between',
+            }}
+          >
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={allVisibleSelected}
+                  disabled={props.operationIsPending || selectableReleaseCount === 0}
+                  indeterminate={someVisibleSelected}
+                  slotProps={{
+                    input: {
+                      'aria-label': 'Select all actionable releases',
+                    },
+                  }}
+                  onChange={() => {
+                    if (allVisibleSelected || someVisibleSelected) {
+                      props.onDeselectVisible();
+                    } else {
+                      props.onSelectVisible();
+                    }
+                  }}
+                />
+              }
+              label={`${selectedVisibleCount} of ${selectableReleaseCount} actionable release(s) selected`}
+            />
+            <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ gap: 1.5 }}>
+              <Button
+                disabled={props.operationIsPending || props.selectedReleaseCount === 0}
+                onClick={props.onValidateSelected}
+                variant="outlined"
+              >
+                Validate selected
+              </Button>
+              <Button
+                disabled={
+                  props.operationIsPending || props.executableReleaseCount === 0
+                }
+                onClick={props.onInstallSelected}
+                variant="contained"
+              >
+                {props.operationIsPending ? 'Working…' : 'Install or update selected'}
+              </Button>
+            </Stack>
           </Stack>
         </Stack>
       </Paper>
-      {props.operationIsError ? (
-        <Alert severity="error">{props.operationErrorMessage}</Alert>
-      ) : null}
-      {props.operationIsSuccess ? (
-        <Alert severity="success">{props.successMessage}</Alert>
-      ) : null}
     </>
   );
 }
