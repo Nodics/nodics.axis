@@ -120,7 +120,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
             const disabledReason = releaseDisabledReason(release);
             return (
               <Box
-                key={`${release.dataType}:${release.moduleName}`}
+                key={releaseKey(release)}
                 sx={(theme) => ({
                   bgcolor: checked
                     ? alpha(theme.palette.primary.main, 0.06)

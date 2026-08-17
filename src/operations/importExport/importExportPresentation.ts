@@ -88,7 +88,10 @@ export const areaCopy: Readonly<
 };
 
 export function releaseKey(release: DataRelease): string {
-  return `${release.dataType}:${release.moduleName}`;
+  return (
+    release.releaseCode ??
+    `${release.dataType}:${release.moduleName}:${release.version}:${release.checksum}`
+  );
 }
 
 export function isInstallableStatus(status: DataReleaseStatus): boolean {

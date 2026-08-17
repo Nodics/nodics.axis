@@ -12,6 +12,8 @@ export type DataReleaseStatus =
   | 'FAILED';
 
 export interface DataRelease {
+  readonly releaseCode?: string;
+  readonly sectionCode?: string;
   readonly moduleName: string;
   readonly displayName: string;
   readonly parentModule?: string;
@@ -30,7 +32,8 @@ export interface DataRelease {
 
 export interface DataReleasePlan {
   readonly dataType: DataReleaseType;
-  readonly modules: readonly string[];
+  readonly modules?: readonly string[];
+  readonly releaseCodes?: readonly string[];
   readonly expectedReleases: Readonly<Record<string, string>>;
 }
 

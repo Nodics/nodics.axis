@@ -77,6 +77,20 @@ function createPlan(
   type: DataReleaseType,
   releases: readonly DataRelease[],
 ): DataReleasePlan {
+  const releaseCodes = releases
+    .map((release) => release.releaseCode)
+    .filter((releaseCode): releaseCode is string => Boolean(releaseCode));
+  if (releaseCodes.length === releases.length) {
+    return Object.freeze({
+      dataType: type,
+      releaseCodes: Object.freeze(releaseCodes),
+      expectedReleases: Object.freeze(
+        Object.fromEntries(
+          releases.map((release) => [release.releaseCode as string, release.version]),
+        ),
+      ),
+    });
+  }
   return Object.freeze({
     dataType: type,
     modules: Object.freeze(releases.map((release) => release.moduleName)),

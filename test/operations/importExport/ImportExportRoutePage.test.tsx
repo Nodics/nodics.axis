@@ -393,6 +393,77 @@ describe('ImportExportRoutePage', () => {
     fetchMock.mockRestore();
   });
 
+  it('selects same-module data release sections independently', async () => {
+    const cmsFoundation = {
+      ...currentRelease,
+      releaseCode: 'cms:init',
+      sectionCode: 'init',
+      moduleName: 'cms',
+      displayName: 'CMS Foundation',
+      dataType: 'init',
+      version: '1.0.3',
+      status: 'CURRENT',
+      installedVersion: '1.0.3',
+    };
+    const cmsApproval = {
+      ...currentRelease,
+      releaseCode: 'cms:cmsPublicationApproval',
+      sectionCode: 'cmsPublicationApproval',
+      moduleName: 'cms',
+      displayName: 'CMS Publication Approval Workflow',
+      dataType: 'init',
+      version: '1.0.0',
+      status: 'NOT_INSTALLED',
+      installedVersion: undefined,
+    };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.includes('/init/validate')) {
+        return Promise.resolve(
+          jsonResponse({
+            dataType: 'init',
+            tenant: 'default',
+            releases: [cmsApproval],
+          }),
+        );
+      }
+      if (url.endsWith('/init'))
+        return Promise.resolve(jsonResponse([cmsApproval, cmsFoundation]));
+      if (url.endsWith('/core') || url.endsWith('/sample')) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      return Promise.resolve(jsonResponse([]));
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(await screen.findByRole('tab', { name: 'Initialization data' }));
+    const approvalCheckbox = await screen.findByRole('checkbox', {
+      name: 'Select CMS Publication Approval Workflow',
+    });
+    const foundationCheckbox = screen.getByRole('checkbox', {
+      name: 'Select CMS Foundation',
+    });
+
+    await user.click(approvalCheckbox);
+
+    expect(approvalCheckbox).toBeChecked();
+    expect(foundationCheckbox).not.toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: 'Validate selected' }));
+
+    const validateCall = fetchMock.mock.calls.find(([input]) =>
+      fetchInputUrl(input).includes('/init/validate'),
+    );
+    expect(validateCall?.[1]?.body).toBe(
+      JSON.stringify({
+        dataType: 'init',
+        releaseCodes: ['cms:cmsPublicationApproval'],
+        expectedReleases: { 'cms:cmsPublicationApproval': '1.0.0' },
+      }),
+    );
+  });
+
   it('renders backend-owned generic file import workflow from discovered schemas', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = fetchInputUrl(input);
