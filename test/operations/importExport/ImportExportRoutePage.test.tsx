@@ -429,12 +429,21 @@ describe('ImportExportRoutePage', () => {
     };
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = fetchInputUrl(input);
-      if (url.includes('/init/validate')) {
+      if (url === 'http://localhost:4330/nodics/import/v0/init/validate') {
         return Promise.resolve(
           jsonResponse({
             dataType: 'init',
             tenant: 'default',
             releases: [cmsApproval],
+          }),
+        );
+      }
+      if (url === 'http://localhost:4312/nodics/import/v0/init/validate') {
+        return Promise.resolve(
+          jsonResponse({
+            dataType: 'init',
+            tenant: 'default',
+            releases: [cmsFoundation],
           }),
         );
       }
@@ -461,19 +470,39 @@ describe('ImportExportRoutePage', () => {
     expect(approvalCheckbox).toBeChecked();
     expect(foundationCheckbox).not.toBeChecked();
 
+    await user.click(foundationCheckbox);
+
+    expect(approvalCheckbox).toBeChecked();
+    expect(foundationCheckbox).toBeChecked();
+
     await user.click(screen.getByRole('button', { name: 'Validate selected' }));
 
-    const validateCall = fetchMock.mock.calls.find(([input]) =>
+    expect(
+      await screen.findByText(
+        '2 initialization data release(s) validated by the backend.',
+      ),
+    ).toBeVisible();
+    const validateCalls = fetchMock.mock.calls.filter(([input]) =>
       fetchInputUrl(input).includes('/init/validate'),
     );
-    expect(fetchInputUrl(validateCall?.[0] as RequestInfo)).toBe(
-      'http://localhost:4330/nodics/import/v0/init/validate',
+    expect(validateCalls.map(([input]) => fetchInputUrl(input as RequestInfo))).toEqual(
+      [
+        'http://localhost:4330/nodics/import/v0/init/validate',
+        'http://localhost:4312/nodics/import/v0/init/validate',
+      ],
     );
-    expect(validateCall?.[1]?.body).toBe(
+    expect(validateCalls[0]?.[1]?.body).toBe(
       JSON.stringify({
         dataType: 'init',
         releaseCodes: ['cms:cmsPublicationApproval'],
         expectedReleases: { 'cms:cmsPublicationApproval': '1.0.0' },
+      }),
+    );
+    expect(validateCalls[1]?.[1]?.body).toBe(
+      JSON.stringify({
+        dataType: 'init',
+        releaseCodes: ['cms:init'],
+        expectedReleases: { 'cms:init': '1.0.3' },
       }),
     );
   });

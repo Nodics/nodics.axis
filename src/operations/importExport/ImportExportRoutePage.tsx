@@ -21,6 +21,7 @@ import {
 } from './api/dataReleaseClient';
 import type {
   DataRelease,
+  DataReleaseOperationResult,
   DataReleasePlan,
   DataReleaseType,
 } from './api/dataReleaseContracts';
@@ -116,24 +117,9 @@ function selectDataAdministrationConnection(
 function selectReleaseOperationConnection(
   bootstrap: AxisAuthenticatedBootstrap,
   moduleName: string,
-  releases: readonly DataRelease[],
+  destinationRole: string | undefined,
 ) {
-  const destinationRoles = [
-    ...new Set(
-      releases
-        .map((release) => release.destinationRole)
-        .filter((role): role is string => Boolean(role)),
-    ),
-  ];
-  if (destinationRoles.length > 1) {
-    throw new Error(
-      'Selected releases target multiple runtimes. Validate or install one runtime destination at a time.',
-    );
-  }
-  if (destinationRoles.length === 1) {
-    const destinationRole = destinationRoles[0];
-    if (!destinationRole)
-      return selectDataAdministrationConnection(bootstrap, moduleName);
+  if (destinationRole) {
     const destinationConnection = selectModuleConnection(bootstrap, moduleName, {
       runtimeRoleCode: destinationRole,
     });
@@ -145,6 +131,48 @@ function selectReleaseOperationConnection(
     return destinationConnection;
   }
   return selectDataAdministrationConnection(bootstrap, moduleName);
+}
+
+function groupReleasesByDestination(
+  releases: readonly DataRelease[],
+): ReadonlyMap<string, readonly DataRelease[]> {
+  const groups = new Map<string, DataRelease[]>();
+  releases.forEach((release) => {
+    const key = release.destinationRole ?? '';
+    groups.set(key, [...(groups.get(key) ?? []), release]);
+  });
+  return groups;
+}
+
+async function executeDataReleaseOperationByDestination(
+  bootstrap: AxisAuthenticatedBootstrap,
+  configuration: DataReleaseClientConfiguration,
+  releaseType: DataReleaseType,
+  releases: readonly DataRelease[],
+  mode: 'validate' | 'install',
+): Promise<DataReleaseOperationResult> {
+  const results: DataReleaseOperationResult[] = [];
+  for (const [destinationRole, destinationReleases] of groupReleasesByDestination(
+    releases,
+  )) {
+    const operationConnection = selectReleaseOperationConnection(
+      bootstrap,
+      'import',
+      destinationRole || undefined,
+    );
+    if (!operationConnection) throw new Error('Import service is unavailable');
+    const plan = createPlan(releaseType, destinationReleases);
+    results.push(
+      mode === 'validate'
+        ? await preflightDataReleases(operationConnection, configuration, plan)
+        : await installDataReleases(operationConnection, configuration, plan),
+    );
+  }
+  return Object.freeze({
+    dataType: releaseType,
+    tenant: results[0]?.tenant ?? configuration.enterpriseCode,
+    releases: Object.freeze(results.flatMap((result) => result.releases)),
+  });
 }
 
 export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
@@ -243,16 +271,13 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
       if (operationReleases.length === 0) {
         throw new Error('Select at least one installable data release');
       }
-      const operationConnection = selectReleaseOperationConnection(
+      return executeDataReleaseOperationByDestination(
         props.bootstrap,
-        'import',
+        configuration,
+        releaseType,
         operationReleases,
+        mode,
       );
-      if (!operationConnection) throw new Error('Import service is unavailable');
-      const plan = createPlan(releaseType, operationReleases);
-      return mode === 'validate'
-        ? preflightDataReleases(operationConnection, configuration, plan)
-        : installDataReleases(operationConnection, configuration, plan);
     },
     onSuccess: async (_data, mode) => {
       if (mode === 'install') setSelected(new Set());
