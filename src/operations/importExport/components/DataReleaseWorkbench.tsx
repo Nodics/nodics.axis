@@ -14,6 +14,7 @@ import {
 } from '@mui/material';
 import { useState } from 'react';
 
+import { ShellIcon } from '../../../app/shell/ShellIcon';
 import type { DataRelease, DataReleaseType } from '../api/dataReleaseContracts';
 import {
   isInstallableStatus,
@@ -203,6 +204,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
               <Box key={group.heading}>
                 {groupIndex > 0 ? <Divider /> : null}
                 <Box
+                  aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${group.heading}`}
                   aria-controls={groupPanelId}
                   aria-expanded={!collapsed}
                   component="button"
@@ -263,9 +265,25 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                         size="small"
                         variant="outlined"
                       />
-                      <Typography color="primary" variant="button">
-                        {collapsed ? 'Expand' : 'Collapse'}
-                      </Typography>
+                      <Box
+                        aria-hidden="true"
+                        component="span"
+                        sx={(theme) => ({
+                          alignItems: 'center',
+                          bgcolor: alpha(theme.palette.primary.main, 0.08),
+                          borderRadius: '999px',
+                          color: 'primary.main',
+                          display: 'inline-flex',
+                          height: 32,
+                          justifyContent: 'center',
+                          width: 32,
+                        })}
+                      >
+                        <ShellIcon
+                          fontSize="small"
+                          name={collapsed ? 'chevron-down' : 'chevron-up'}
+                        />
+                      </Box>
                     </Stack>
                   </Stack>
                 </Box>

@@ -375,6 +375,7 @@ describe('ImportExportRoutePage', () => {
     expect(screen.queryByText('Available 1.0.0')).not.toBeInTheDocument();
     expect(screen.queryByText('Installed 1.0.0')).not.toBeInTheDocument();
     expect(screen.getByText('Installed / already current')).toBeVisible();
+    expect(screen.queryByText('Collapse')).not.toBeInTheDocument();
     const currentGroupToggle = screen.getByRole('button', {
       name: /Installed \/ already current/iu,
     });
