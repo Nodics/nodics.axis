@@ -580,6 +580,56 @@ describe('ImportExportRoutePage', () => {
     ).toBe(true);
   });
 
+  it('ignores runtimes where the data import API category is disabled', async () => {
+    const platformProjection = {
+      ...currentRelease,
+      releaseCode: 'catalog:init',
+      displayName: 'Catalog Framework',
+      dataType: 'init',
+      destinationRole: 'PLATFORM',
+      status: 'CURRENT',
+      installedVersion: '1.0.3',
+      version: '1.0.3',
+    };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url === 'http://localhost:4314/nodics/import/v0/init') {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              message:
+                'Access denied: API category is disabled for this runtime: dataImport',
+            }),
+            { status: 403, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      if (url === 'http://localhost:3000/nodics/import/v0/init') {
+        return Promise.resolve(jsonResponse([platformProjection]));
+      }
+      if (url.endsWith('/init') || url.endsWith('/core') || url.endsWith('/sample')) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      return Promise.resolve(jsonResponse([]));
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(await screen.findByRole('tab', { name: 'Initialization data' }));
+
+    expect(await screen.findByText('Catalog Framework')).toBeVisible();
+    expect(screen.getByText('Version 1.0.3')).toBeVisible();
+    expect(
+      screen.queryByText(/API category is disabled for this runtime/iu),
+    ).not.toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(
+        ([input]) =>
+          fetchInputUrl(input) === 'http://localhost:4314/nodics/import/v0/init',
+      ),
+    ).toBe(true);
+  });
+
   it('keeps selected releases after validation so users can install the validated plan', async () => {
     const updateRelease = {
       ...currentRelease,

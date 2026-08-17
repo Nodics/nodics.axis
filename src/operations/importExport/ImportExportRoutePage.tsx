@@ -209,18 +209,41 @@ function mergeDataReleaseCatalogue(
   );
 }
 
+function isDisabledDataImportCategory(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    /API category is disabled for this runtime:\s*dataImport/iu.test(error.message)
+  );
+}
+
 async function loadDataReleasesByDestination(
   connections: readonly AxisModuleConnection[],
   configuration: DataReleaseClientConfiguration,
 ): Promise<readonly DataRelease[]> {
-  const values = await Promise.all(
+  const values = await Promise.allSettled(
     connections.map(async (connection) =>
       (await loadDataReleases(connection, configuration)).filter((release) =>
         releaseBelongsToConnection(release, connection),
       ),
     ),
   );
-  return mergeDataReleaseCatalogue(values.flat());
+  const fulfilledValues = values.reduce<DataRelease[][]>((items, value) => {
+    if (value.status === 'fulfilled') items.push([...value.value]);
+    return items;
+  }, []);
+  if (fulfilledValues.length > 0) {
+    return mergeDataReleaseCatalogue(fulfilledValues.flat());
+  }
+  const firstActionableRejection = values.find(
+    (value): value is PromiseRejectedResult =>
+      value.status === 'rejected' && !isDisabledDataImportCategory(value.reason),
+  );
+  if (firstActionableRejection?.reason) {
+    throw firstActionableRejection.reason instanceof Error
+      ? firstActionableRejection.reason
+      : new Error('Import service returned an unreadable catalogue error');
+  }
+  return Object.freeze([]);
 }
 
 async function executeDataReleaseOperationByDestination(
