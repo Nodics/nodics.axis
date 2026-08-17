@@ -44,12 +44,21 @@ interface DataReleaseWorkbenchProps {
   readonly successMessage: string;
   readonly summary: DataReleaseSummary;
   readonly visibleReleases: readonly DataRelease[];
+  readonly onDeselectVisible: () => void;
   readonly onInstallSelected: () => void;
+  readonly onSelectVisible: () => void;
   readonly onToggleRelease: (release: DataRelease) => void;
   readonly onValidateSelected: () => void;
 }
 
 export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
+  const selectableReleaseCount = props.visibleReleases.filter(
+    (release) => release.status !== 'RUNNING',
+  ).length;
+  const selectedVisibleCount = props.visibleReleases.filter((release) =>
+    props.selectedReleaseKeys.has(releaseKey(release)),
+  ).length;
+
   return (
     <>
       <Alert severity={props.releaseType === 'sample' ? 'warning' : 'info'}>
@@ -115,6 +124,45 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
           variant="outlined"
           sx={{ bgcolor: 'background.paper', overflow: 'hidden' }}
         >
+          <Stack
+            direction={{ xs: 'column', sm: 'row' }}
+            sx={{
+              alignItems: { sm: 'center' },
+              bgcolor: 'background.default',
+              gap: 1,
+              justifyContent: 'space-between',
+              px: { xs: 1.25, md: 1.5 },
+              py: 1,
+            }}
+          >
+            <Typography color="text.secondary" variant="body2">
+              {selectedVisibleCount} of {props.visibleReleases.length} visible
+              release(s) selected
+            </Typography>
+            <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>
+              <Button
+                disabled={
+                  props.operationIsPending ||
+                  selectableReleaseCount === 0 ||
+                  selectedVisibleCount === selectableReleaseCount
+                }
+                onClick={props.onSelectVisible}
+                size="small"
+                variant="outlined"
+              >
+                Select all visible
+              </Button>
+              <Button
+                disabled={props.operationIsPending || selectedVisibleCount === 0}
+                onClick={props.onDeselectVisible}
+                size="small"
+                variant="text"
+              >
+                Deselect all visible
+              </Button>
+            </Stack>
+          </Stack>
+          <Divider />
           {props.visibleReleases.map((release, index) => {
             const checked = props.selectedReleaseKeys.has(releaseKey(release));
             const disabledReason = releaseDisabledReason(release);

@@ -457,9 +457,27 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
               successMessage={successMessage}
               summary={releaseSummary}
               visibleReleases={visible}
+              onDeselectVisible={() => {
+                const visibleKeys = new Set(visible.map(releaseKey));
+                setSelected(
+                  new Set([...selected].filter((key) => !visibleKeys.has(key))),
+                );
+                operation.reset();
+              }}
               onInstallSelected={() => {
                 setLastOperationMode('install');
                 operation.mutate('install');
+              }}
+              onSelectVisible={() => {
+                setSelected(
+                  new Set([
+                    ...selected,
+                    ...visible
+                      .filter((release) => release.status !== 'RUNNING')
+                      .map(releaseKey),
+                  ]),
+                );
+                operation.reset();
               }}
               onToggleRelease={(release) => {
                 const next = new Set(selected);

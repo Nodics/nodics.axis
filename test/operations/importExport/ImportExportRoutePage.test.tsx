@@ -402,6 +402,72 @@ describe('ImportExportRoutePage', () => {
     fetchMock.mockRestore();
   });
 
+  it('supports visible select and deselect controls for all data release tabs', async () => {
+    const initRelease = {
+      ...currentRelease,
+      releaseCode: 'profile:init',
+      displayName: 'Profile Foundation',
+      dataType: 'init',
+      status: 'NOT_INSTALLED',
+      installedVersion: undefined,
+    };
+    const coreRelease = {
+      ...currentRelease,
+      releaseCode: 'profile:core',
+      displayName: 'Profile Core',
+      dataType: 'core',
+      status: 'NOT_INSTALLED',
+      installedVersion: undefined,
+    };
+    const sampleRelease = {
+      ...currentRelease,
+      releaseCode: 'profile:sample',
+      displayName: 'Profile Sample',
+      dataType: 'sample',
+      status: 'NOT_INSTALLED',
+      installedVersion: undefined,
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.endsWith('/init')) return Promise.resolve(jsonResponse([initRelease]));
+      if (url.endsWith('/core')) return Promise.resolve(jsonResponse([coreRelease]));
+      if (url.endsWith('/sample'))
+        return Promise.resolve(jsonResponse([sampleRelease]));
+      return Promise.resolve(jsonResponse([]));
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+
+    await user.click(await screen.findByRole('tab', { name: 'Initialization data' }));
+    await user.click(screen.getByRole('button', { name: 'Select all visible' }));
+    expect(
+      screen.getByRole('checkbox', { name: 'Select Profile Foundation' }),
+    ).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Deselect all visible' }));
+    expect(
+      screen.getByRole('checkbox', { name: 'Select Profile Foundation' }),
+    ).not.toBeChecked();
+
+    await user.click(screen.getByRole('tab', { name: 'Core data' }));
+    await user.click(await screen.findByRole('button', { name: 'Select all visible' }));
+    expect(screen.getByRole('checkbox', { name: 'Select Profile Core' })).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Deselect all visible' }));
+    expect(
+      screen.getByRole('checkbox', { name: 'Select Profile Core' }),
+    ).not.toBeChecked();
+
+    await user.click(screen.getByRole('tab', { name: 'Sample data' }));
+    await user.click(await screen.findByRole('button', { name: 'Select all visible' }));
+    expect(
+      screen.getByRole('checkbox', { name: 'Select Profile Sample' }),
+    ).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Deselect all visible' }));
+    expect(
+      screen.getByRole('checkbox', { name: 'Select Profile Sample' }),
+    ).not.toBeChecked();
+  });
+
   it('selects same-module data release sections independently', async () => {
     const cmsFoundation = {
       ...currentRelease,
