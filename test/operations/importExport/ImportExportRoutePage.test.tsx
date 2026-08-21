@@ -120,16 +120,24 @@ function fetchInputUrl(input: RequestInfo | URL): string {
   return input.url;
 }
 
-function renderPage() {
+function renderPage(overrides: Partial<AxisAuthenticatedBootstrap> = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
+  const effectiveBootstrap = {
+    ...bootstrap,
+    ...overrides,
+    moduleConnections: {
+      ...bootstrap.moduleConnections,
+      ...(overrides.moduleConnections ?? {}),
+    },
+  };
   return render(
     <AxisThemeProvider>
       <QueryClientProvider client={queryClient}>
         <ImportExportRoutePage
           accessToken="employee-token"
-          bootstrap={bootstrap}
+          bootstrap={effectiveBootstrap}
           runtime={runtime}
         />
       </QueryClientProvider>
@@ -630,7 +638,7 @@ describe('ImportExportRoutePage', () => {
     ).toBe(true);
   });
 
-  it('removes current-only validated releases from install selection', async () => {
+  it('preserves selected releases after validation so the user can install next', async () => {
     const updateRelease = {
       ...currentRelease,
       releaseCode: 'cronjob:core',
@@ -682,12 +690,12 @@ describe('ImportExportRoutePage', () => {
       await screen.findByRole('checkbox', {
         name: 'Select Scheduled Jobs',
       }),
-    ).not.toBeChecked();
-    expect(screen.getByText('0 of 1 actionable release(s) selected')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Validate selected' })).toBeDisabled();
+    ).toBeChecked();
+    expect(screen.getByText('1 of 1 actionable release(s) selected')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Validate selected' })).toBeEnabled();
     expect(
       screen.getByRole('button', { name: 'Install or update selected' }),
-    ).toBeDisabled();
+    ).toBeEnabled();
     expect(
       fetchMock.mock.calls.some(([input]) =>
         fetchInputUrl(input).includes('/core/install'),
@@ -968,6 +976,47 @@ describe('ImportExportRoutePage', () => {
       'true',
     );
     expect(screen.getByRole('button', { name: 'Validate file import' })).toBeDisabled();
+  });
+
+  it('shows export models when export and media services are environment-scoped', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.includes('/schema/workbench')) {
+        return Promise.resolve(
+          jsonResponse({
+            schemas: [tenantSchema],
+          }),
+        );
+      }
+      if (url.endsWith('/core')) return Promise.resolve(jsonResponse([currentRelease]));
+      if (url.endsWith('/init') || url.endsWith('/sample')) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      return Promise.resolve(jsonResponse([]));
+    });
+    window.history.replaceState({}, '', '/operations/import-export?area=exports');
+    const user = userEvent.setup();
+
+    renderPage({
+      moduleConnections: {
+        ...bootstrap.moduleConnections,
+        export: [
+          {
+            moduleName: 'export',
+            instanceId: 'kickoffLocal:platformServer:export:0',
+            endpoint: 'http://localhost:4300/nodics/export',
+            environment: 'kickoffLocal',
+            server: 'platformServer',
+            runtimeRole: { code: 'PLATFORM', publication: 'OPERATIONAL' },
+            state: 'UP',
+          },
+        ],
+      },
+    });
+
+    await user.click(await screen.findByRole('combobox', { name: 'Export model' }));
+
+    expect(await screen.findByText('Tenant records')).toBeVisible();
   });
 
   it('enables file validation only after explicit target model selection', async () => {

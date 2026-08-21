@@ -993,10 +993,12 @@ describe('MediaManagementRoutePage', () => {
       return url.pathname === '/nodics/media/v0/schema/workbench/media/records';
     });
     expect(JSON.parse(fetchBodyText(mediaRecordRequest?.[1]))).toEqual({
-      search: '',
-      pageNumber: 1,
-      pageSize: 10,
-      sort: { field: 'code', direction: 'ASC' },
+      query: {
+        search: '',
+        pageNumber: 1,
+        pageSize: 10,
+        sort: { field: 'code', direction: 'ASC' },
+      },
     });
 
     await user.click(screen.getByRole('button', { name: 'Expand upload media' }));

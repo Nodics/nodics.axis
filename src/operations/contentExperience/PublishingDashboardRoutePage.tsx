@@ -1,14 +1,21 @@
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Chip, Paper, Stack } from '@mui/material';
+import { Alert, Box, Button, Chip, Paper, Stack, Typography } from '@mui/material';
 import { useMemo } from 'react';
+import { Link as RouterLink } from 'react-router';
 
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
 import { WorkspaceContainer } from '../../app/shell/ShellPrimitives';
-import type {
+import {
+  selectModuleConnection,
+  type AxisModuleConnection,
   AxisAuthenticatedBootstrap,
   AxisNavigationItem,
 } from '../../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
+import {
+  loadProcessOperationsSummary,
+  type ProcessHumanTask,
+} from '../processWorkflow/api/processDefinitionClient';
 import { DashboardSection } from '../shared/WorkbenchMetricDashboard';
 import {
   activeConnections,
@@ -42,8 +49,8 @@ const publishingMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
   Object.freeze({
     id: 'publishing-status',
     label: 'Publishing status',
-    moduleName: 'publish',
-    schemaName: 'publicationStatus',
+    moduleName: 'cms',
+    schemaName: 'cmsOnlinePublicationPointer',
     description: 'Operational status for staged-to-online publication flow.',
     route: '/publishing/status',
     icon: 'status',
@@ -77,6 +84,23 @@ const publishingMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
   }),
 ]);
 
+const approvalTaskStates = Object.freeze(['OPEN', 'CLAIMED', 'ESCALATED']);
+
+function taskIsActionable(task: ProcessHumanTask): boolean {
+  return approvalTaskStates.includes(task.status);
+}
+
+function workflowConnection(
+  bootstrap: AxisAuthenticatedBootstrap,
+): AxisModuleConnection | undefined {
+  return (
+    selectModuleConnection(bootstrap, 'flowApi', { server: 'processServer' }) ??
+    selectModuleConnection(bootstrap, 'flowApi') ??
+    selectModuleConnection(bootstrap, 'workflow', { server: 'processServer' }) ??
+    selectModuleConnection(bootstrap, 'workflow')
+  );
+}
+
 export function PublishingDashboardRoutePage({
   accessToken,
   bootstrap,
@@ -92,6 +116,7 @@ export function PublishingDashboardRoutePage({
     }),
     [accessToken, runtime.enterpriseCode, runtime.requestTimeoutMs],
   );
+  const processConnection = useMemo(() => workflowConnection(bootstrap), [bootstrap]);
   const data = useQuery({
     queryKey: [
       'publishing-dashboard',
@@ -101,9 +126,25 @@ export function PublishingDashboardRoutePage({
     queryFn: () =>
       loadWorkbenchMetrics(connections, bootstrap, configuration, publishingMetrics),
   });
+  const processSummary = useQuery({
+    enabled: Boolean(processConnection),
+    queryKey: [
+      'publishing-approval-tasks',
+      runtime.enterpriseCode,
+      processConnection?.instanceId ?? 'unavailable',
+      processConnection?.state ?? 'unavailable',
+    ],
+    queryFn: async () => {
+      if (!processConnection) return undefined;
+      return loadProcessOperationsSummary(processConnection, configuration);
+    },
+  });
   const metrics = data.data;
   const readyCount = totalReadyMetrics(metrics);
   const unavailableCount = (metrics?.length ?? publishingMetrics.length) - readyCount;
+  const approvalTasks = Object.freeze(
+    (processSummary.data?.tasks ?? []).filter(taskIsActionable),
+  );
 
   return (
     <WorkspaceContainer>
@@ -155,6 +196,100 @@ export function PublishingDashboardRoutePage({
           metrics={metricsById(metrics, publishingMetrics)}
           title="Publishing operations"
         />
+
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+        >
+          <Stack spacing={dashboardContentGap}>
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={2}
+              sx={{ justifyContent: 'space-between' }}
+            >
+              <Box>
+                <Typography variant="h5">Approval tasks</Typography>
+                <Typography color="text.secondary">
+                  Publication approvals are governed Process tasks. Review them here
+                  or open the full task inbox to claim, approve, reject, or inspect
+                  workflow evidence.
+                </Typography>
+              </Box>
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
+                <Chip
+                  color={processConnection ? 'success' : 'warning'}
+                  label={processConnection ? processConnection.state : 'Process unavailable'}
+                  variant={processConnection ? 'filled' : 'outlined'}
+                />
+                <Chip
+                  color={approvalTasks.length ? 'warning' : 'success'}
+                  label={`${String(approvalTasks.length)} pending`}
+                  variant={approvalTasks.length ? 'filled' : 'outlined'}
+                />
+              </Stack>
+            </Stack>
+
+            {!processConnection ? (
+              <Alert severity="warning">
+                The Process runtime is not available, so Axis cannot show publication
+                approval tasks. Start Process and return to Publishing → Approval
+                Tasks.
+              </Alert>
+            ) : processSummary.isError ? (
+              <Alert severity="warning">
+                {processSummary.error instanceof Error
+                  ? processSummary.error.message
+                  : 'Approval tasks are currently unavailable.'}
+              </Alert>
+            ) : approvalTasks.length === 0 ? (
+              <Alert severity="success">
+                No publishing approval tasks are waiting. If Nexus or Agora still show
+                unpublished content, inspect Publishing Requests and Staged-to-Online
+                Status next.
+              </Alert>
+            ) : (
+              <Stack spacing={1.5}>
+                {approvalTasks.slice(0, 5).map((task) => (
+                  <Paper
+                    component="article"
+                    elevation={0}
+                    key={task.code}
+                    sx={{ border: 1, borderColor: 'divider', p: 2 }}
+                  >
+                    <Stack
+                      direction={{ xs: 'column', md: 'row' }}
+                      spacing={1.5}
+                      sx={{ justifyContent: 'space-between' }}
+                    >
+                      <Box>
+                        <Typography variant="h6">{task.code}</Typography>
+                        <Typography color="text.secondary">
+                          Instance {task.instanceCode ?? 'unknown'} · node{' '}
+                          {task.nodeCode ?? 'unknown'} · assignee{' '}
+                          {task.assignee ?? 'unassigned'}
+                        </Typography>
+                      </Box>
+                      <Chip color="warning" label={task.status} />
+                    </Stack>
+                  </Paper>
+                ))}
+              </Stack>
+            )}
+
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+              <Button component={RouterLink} to="/process/tasks" variant="contained">
+                Review approval tasks
+              </Button>
+              <Button component={RouterLink} to="/publishing/requests" variant="outlined">
+                View publishing requests
+              </Button>
+              <Button component={RouterLink} to="/publishing/status" variant="outlined">
+                Check Online status
+              </Button>
+            </Stack>
+          </Stack>
+        </Paper>
       </Stack>
     </WorkspaceContainer>
   );

@@ -43,8 +43,8 @@ import type { DataExportFileFormat } from '../api/dataReleaseContracts';
 interface ExportWorkspaceProps {
   readonly configuration: DataReleaseClientConfiguration;
   readonly enterpriseCode: string;
-  readonly exportConnection: AxisModuleConnection | undefined;
-  readonly mediaConnection: AxisModuleConnection | undefined;
+  readonly exportConnections: readonly AxisModuleConnection[];
+  readonly mediaConnections: readonly AxisModuleConnection[];
   readonly schemaConnections: readonly AxisModuleConnection[];
   readonly tenantCode: string;
 }
@@ -64,6 +64,10 @@ function schemaKey(schema: WorkbenchSchema): string {
   return `${schema.moduleName}/${schema.schemaName}`;
 }
 
+function schemaOptionKey(schema: WorkbenchSchema): string {
+  return `${schema.connectionModuleName ?? schema.moduleName}/${schema.connectionInstanceId ?? 'unknown'}/${schemaKey(schema)}`;
+}
+
 function schemaLabel(schema: WorkbenchSchema): string {
   return `${schema.label} - ${titleCase(schema.moduleName)}`;
 }
@@ -79,6 +83,110 @@ function recordKey(record: WorkbenchRecord, index: number): string {
     }
   }
   return `export-preview-record-${index.toString()}`;
+}
+
+function connectionMatchesRuntime(
+  candidate: AxisModuleConnection,
+  target: AxisModuleConnection,
+): boolean {
+  return (
+    candidate.environment === target.environment &&
+    candidate.server === target.server &&
+    candidate.runtimeRole?.code === target.runtimeRole?.code
+  );
+}
+
+function connectionMatchesEnvironment(
+  candidate: AxisModuleConnection,
+  target: AxisModuleConnection,
+): boolean {
+  return candidate.environment === target.environment;
+}
+
+function selectServiceConnectionForSchemaRuntime(
+  target: AxisModuleConnection | undefined,
+  serviceConnections: readonly AxisModuleConnection[],
+): AxisModuleConnection | undefined {
+  if (!target) return undefined;
+  return (
+    serviceConnections.find((connection) =>
+      connectionMatchesRuntime(connection, target),
+    ) ??
+    serviceConnections.find((connection) =>
+      connectionMatchesEnvironment(connection, target),
+    ) ??
+    serviceConnections[0]
+  );
+}
+
+function runtimeCanGenerateExport(
+  schemaConnection: AxisModuleConnection,
+  exportConnections: readonly AxisModuleConnection[],
+  mediaConnections: readonly AxisModuleConnection[],
+): boolean {
+  if (schemaConnection.runtimeRole?.publication === 'ONLINE') return false;
+  return (
+    Boolean(selectServiceConnectionForSchemaRuntime(schemaConnection, exportConnections)) &&
+    Boolean(selectServiceConnectionForSchemaRuntime(schemaConnection, mediaConnections))
+  );
+}
+
+function isExportSchemaSource(connection: AxisModuleConnection): boolean {
+  return !['import', 'export'].includes(connection.moduleName);
+}
+
+function schemaConnectionModuleName(schema: WorkbenchSchema): string {
+  return schema.connectionModuleName ?? schema.moduleName;
+}
+
+function findSchemaConnection(
+  schema: WorkbenchSchema,
+  connections: readonly AxisModuleConnection[],
+): AxisModuleConnection | undefined {
+  return (
+    connections.find(
+      (connection) =>
+        connection.moduleName === schemaConnectionModuleName(schema) &&
+        connection.instanceId === schema.connectionInstanceId,
+    ) ??
+    connections.find(
+      (connection) => connection.instanceId === schema.connectionInstanceId,
+    )
+  );
+}
+
+function exportSchemaConnectionRank(
+  schema: WorkbenchSchema,
+  connection: AxisModuleConnection | undefined,
+): number {
+  if (!connection) return 100;
+  const ownerRank = connection.moduleName === schema.moduleName ? -10 : 0;
+  if (connection.runtimeRole?.publication === 'STAGED') return ownerRank;
+  if (connection.runtimeRole?.publication === 'PROCESS') return ownerRank + 1;
+  if (connection.runtimeRole?.publication === 'OPERATIONAL') return ownerRank + 2;
+  return ownerRank + 3;
+}
+
+function preferredExportSchema(
+  existing: WorkbenchSchema | undefined,
+  candidate: WorkbenchSchema,
+  connections: readonly AxisModuleConnection[],
+): WorkbenchSchema {
+  if (!existing) return candidate;
+  const existingConnection = connections.find(
+    (connection) =>
+      connection.moduleName === schemaConnectionModuleName(existing) &&
+      connection.instanceId === existing.connectionInstanceId,
+  );
+  const candidateConnection = connections.find(
+    (connection) =>
+      connection.moduleName === schemaConnectionModuleName(candidate) &&
+      connection.instanceId === candidate.connectionInstanceId,
+  );
+  return exportSchemaConnectionRank(candidate, candidateConnection) <
+    exportSchemaConnectionRank(existing, existingConnection)
+    ? candidate
+    : existing;
 }
 
 function previewColumns(schema: WorkbenchSchema | undefined): readonly string[] {
@@ -163,28 +271,78 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
   const schemaOptions = useMemo(() => {
     const byKey = new Map<string, WorkbenchSchema>();
     for (const schema of schemas.data ?? []) {
-      if (schema.operations.includes('search')) byKey.set(schemaKey(schema), schema);
+      const schemaConnection = findSchemaConnection(schema, props.schemaConnections);
+      if (
+        schemaConnection &&
+        isExportSchemaSource(schemaConnection) &&
+        schema.operations.includes('search') &&
+        runtimeCanGenerateExport(
+          schemaConnection,
+          props.exportConnections,
+          props.mediaConnections,
+        )
+      ) {
+        byKey.set(
+          schemaKey(schema),
+          preferredExportSchema(byKey.get(schemaKey(schema)), schema, props.schemaConnections),
+        );
+      }
     }
     return Object.freeze([...byKey.values()]);
-  }, [schemas.data]);
+  }, [
+    props.exportConnections,
+    props.mediaConnections,
+    props.schemaConnections,
+    schemas.data,
+  ]);
   const selectedSchema = useMemo(
-    () => schemaOptions.find((schema) => schemaKey(schema) === schemaSelection),
+    () => schemaOptions.find((schema) => schemaOptionKey(schema) === schemaSelection),
     [schemaOptions, schemaSelection],
   );
   const selectedSort = sort ?? selectedSchema?.queryCapabilities.defaultSort;
   const selectedConnection = useMemo(
-    () =>
-      selectedSchema
-        ? props.schemaConnections.find(
-            (connection) => connection.moduleName === selectedSchema.moduleName,
-          )
-        : undefined,
+    () => {
+      if (!selectedSchema) return undefined;
+      const selectedInstance = findSchemaConnection(
+        selectedSchema,
+        props.schemaConnections,
+      );
+      if (
+        selectedInstance &&
+        isExportSchemaSource(selectedInstance) &&
+        selectedInstance.runtimeRole?.publication !== 'ONLINE'
+      ) {
+        return selectedInstance;
+      }
+      return (
+        props.schemaConnections.find(
+          (connection) =>
+            connection.moduleName === selectedSchema.moduleName &&
+            connection.state === 'UP' &&
+            connection.runtimeRole?.publication !== 'ONLINE',
+        ) ?? selectedInstance
+      );
+    },
     [props.schemaConnections, selectedSchema],
   );
+  const selectedExportConnection = useMemo(() => {
+    return selectServiceConnectionForSchemaRuntime(
+      selectedConnection,
+      props.exportConnections,
+    );
+  }, [props.exportConnections, selectedConnection]);
+  const selectedMediaConnection = useMemo(() => {
+    return selectServiceConnectionForSchemaRuntime(
+      selectedConnection,
+      props.mediaConnections,
+    );
+  }, [props.mediaConnections, selectedConnection]);
   const columns = useMemo(() => previewColumns(selectedSchema), [selectedSchema]);
   const canChooseSchema = hasEnterprise;
   const canPreview = Boolean(hasEnterprise && selectedSchema && selectedConnection);
-  const canGenerate = Boolean(canPreview && props.exportConnection);
+  const canGenerate = Boolean(
+    canPreview && selectedExportConnection && selectedMediaConnection,
+  );
 
   const preview = useMutation({
     mutationFn: async () => {
@@ -208,11 +366,16 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
   });
   const generate = useMutation({
     mutationFn: async () => {
-      if (!props.exportConnection) throw new Error('Export service is unavailable');
+      if (!selectedExportConnection) {
+        throw new Error('Export service is unavailable for the selected model runtime');
+      }
+      if (!selectedMediaConnection) {
+        throw new Error('Media service is unavailable for the selected model runtime');
+      }
       if (!hasEnterprise)
         throw new Error('Select the target enterprise before exporting');
       if (!selectedSchema) throw new Error('Choose an export model before exporting');
-      return generateDataExport(props.exportConnection, selectedClientConfiguration, {
+      return generateDataExport(selectedExportConnection, selectedClientConfiguration, {
         enterpriseCode: selectedEnterpriseCode,
         moduleName: selectedSchema.moduleName,
         schemaName: selectedSchema.schemaName,
@@ -229,11 +392,11 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
   });
   const download = useMutation({
     mutationFn: async () => {
-      if (!props.mediaConnection)
+      if (!selectedMediaConnection)
         throw new Error('Media download service is unavailable');
       if (!generate.data) throw new Error('Generate an export file before downloading');
       const file = await downloadDataExportMedia(
-        props.mediaConnection,
+        selectedMediaConnection,
         selectedClientConfiguration,
         generate.data.media,
       );
@@ -263,14 +426,14 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
         and asks the backend to generate a governed media file.
       </Alert>
 
-      {!props.exportConnection ? (
+      {props.exportConnections.length === 0 ? (
         <Alert severity="error">
           Export service is unavailable. Start or register the export module before
           generating files.
         </Alert>
       ) : null}
 
-      {!props.mediaConnection ? (
+      {props.mediaConnections.length === 0 ? (
         <Alert severity="error">
           Media download service is unavailable. Generated files require the media
           module for governed delivery.
@@ -350,7 +513,8 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
                 </Typography>
                 <Typography color="text.secondary">
                   Select the backend schema that owns the records. The dropdown is
-                  grouped by owning module and searchable by model or module name.
+                  grouped by owning module and only includes runtimes that can
+                  generate governed export media.
                 </Typography>
               </Stack>
               {!hasEnterprise ? (
@@ -370,16 +534,18 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
                   autoHighlight
                   disablePortal
                   disabled={!canChooseSchema}
+                  getOptionKey={schemaOptionKey}
                   groupBy={(schema) => titleCase(schema.moduleName)}
                   getOptionLabel={schemaLabel}
                   isOptionEqualToValue={(option, value) =>
                     option.moduleName === value.moduleName &&
-                    option.schemaName === value.schemaName
+                    option.schemaName === value.schemaName &&
+                    option.connectionInstanceId === value.connectionInstanceId
                   }
                   options={schemaOptions}
                   value={selectedSchema ?? null}
                   onChange={(_event, schema) => {
-                    setSchemaSelection(schema ? schemaKey(schema) : '');
+                    setSchemaSelection(schema ? schemaOptionKey(schema) : '');
                     setSearch('');
                     setFilters(undefined);
                     setSort(schema?.queryCapabilities.defaultSort);
@@ -396,7 +562,7 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
                     />
                   )}
                   renderOption={(optionProps, schema) => (
-                    <Box component="li" {...optionProps} key={schemaKey(schema)}>
+                    <Box component="li" {...optionProps} key={schemaOptionKey(schema)}>
                       <Stack spacing={0.25}>
                         <Typography component="span" sx={{ fontWeight: 700 }}>
                           {schema.label}
@@ -456,6 +622,12 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
                         label={`Schema: ${selectedSchema.schemaName}`}
                         size="small"
                       />
+                      {selectedConnection?.runtimeRole?.code ? (
+                        <Chip
+                          label={`Runtime: ${titleCase(selectedConnection.runtimeRole.code)}`}
+                          size="small"
+                        />
+                      ) : null}
                       <Chip label="Operation: Search and export" size="small" />
                       {selectedSort ? (
                         <Chip

@@ -188,7 +188,7 @@ export async function loadWorkbenchRecords(
       configuration,
       {
         method: 'POST',
-        body: JSON.stringify(query),
+        body: JSON.stringify({ query }),
         ...(signal ? { signal } : {}),
       },
       fetchImplementation,

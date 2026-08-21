@@ -67,9 +67,11 @@ export function activeConnections(
   bootstrap: AxisAuthenticatedBootstrap,
 ): readonly AxisModuleConnection[] {
   return Object.freeze(
-    Object.keys(bootstrap.moduleConnections)
-      .map((moduleName) => selectModuleConnection(bootstrap, moduleName))
-      .filter((connection) => connection !== undefined),
+    Object.values(bootstrap.moduleConnections)
+      .flatMap((connections) => [...connections])
+      .filter(
+        (connection) => connection.state === 'UP' || connection.state === 'DEGRADED',
+      ),
   );
 }
 
@@ -81,10 +83,30 @@ function findMetricSchema(
   schemas: readonly WorkbenchSchema[],
   definition: WorkbenchMetricDefinition,
 ): WorkbenchSchema | undefined {
-  return schemas.find(
+  const candidates = schemas.filter(
     (schema) =>
       schema.moduleName === definition.moduleName &&
       schema.schemaName === definition.schemaName,
+  );
+  return (
+    candidates.find((schema) => schema.connectionServer?.includes('Staged')) ??
+    candidates.find((schema) => schema.connectionModuleName === definition.moduleName) ??
+    candidates[0]
+  );
+}
+
+function findSchemaConnection(
+  bootstrap: AxisAuthenticatedBootstrap,
+  schema: WorkbenchSchema,
+): AxisModuleConnection | undefined {
+  const moduleName = workbenchConnectionModuleName(schema);
+  const connections = bootstrap.moduleConnections[moduleName] ?? [];
+  return (
+    connections.find(
+      (connection) =>
+        connection.moduleName === moduleName &&
+        connection.instanceId === schema.connectionInstanceId,
+    ) ?? selectModuleConnection(bootstrap, moduleName)
   );
 }
 
@@ -132,10 +154,7 @@ export async function loadWorkbenchMetric(
     });
   }
   const schema = schemaWithValidQueryCapabilities(discoveredSchema);
-  const connection = selectModuleConnection(
-    bootstrap,
-    workbenchConnectionModuleName(schema),
-  );
+  const connection = findSchemaConnection(bootstrap, schema);
   if (!connection) {
     return Object.freeze({
       ...definition,

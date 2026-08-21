@@ -437,7 +437,7 @@ export function SystemIntegrationsDashboardRoutePage({
               help={routeNavigation?.help}
               eyebrow="Platform operations"
               headingVariant="h3"
-              title="System & Integrations"
+              title="Runtime Dashboard"
             />
             <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
               <Chip color="success" label="Live registry" size="small" />
@@ -511,6 +511,88 @@ export function SystemIntegrationsDashboardRoutePage({
               value={systemDashboard.data?.degradedModules ?? '—'}
             />
           </Box>
+          <Paper
+            elevation={0}
+            sx={(theme) => ({
+              bgcolor: alpha(theme.palette.background.default, 0.7),
+              border: 1,
+              borderColor: 'divider',
+              borderRadius: `${String(axisTokens.radius.medium)}px`,
+              p: 1.5,
+            })}
+          >
+            <Stack spacing={1.25}>
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={1}
+                sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
+              >
+                <Stack spacing={0.25}>
+                  <Typography variant="subtitle1">Runtime topology</Typography>
+                  <Typography color="text.secondary" variant="body2">
+                    Load Balancer → Nodes. Single-server runtimes are displayed as
+                    Node 0 so operators have the same mental model locally and in
+                    multi-node environments.
+                  </Typography>
+                </Stack>
+                <Button
+                  disabled={systemDashboard.isFetching}
+                  size="small"
+                  variant="outlined"
+                  onClick={() => {
+                    void systemDashboard.refetch();
+                  }}
+                >
+                  {systemDashboard.isFetching ? 'Refreshing…' : 'Refresh health'}
+                </Button>
+              </Stack>
+              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+                <Chip color="primary" label="Load Balancer" variant="outlined" />
+                {(systemDashboard.data?.runtimeServers.length
+                  ? systemDashboard.data.runtimeServers
+                  : ['No runtime observations yet']
+                ).map((server, index) => (
+                  <Chip
+                    key={server}
+                    label={`Node ${String(index)} · ${server}`}
+                    variant="outlined"
+                  />
+                ))}
+              </Stack>
+              <Box sx={metricsGrid(210)}>
+                <MetricCard
+                  detail="Awaiting CPU utilization in the backend health contract."
+                  label="CPU utilization"
+                  loading={systemDashboard.isPending}
+                  value="Not reported"
+                />
+                <MetricCard
+                  detail="Awaiting memory utilization in the backend health contract."
+                  label="Memory utilization"
+                  loading={systemDashboard.isPending}
+                  value="Not reported"
+                />
+                <MetricCard
+                  detail="Awaiting thread-pool metrics in the backend health contract."
+                  label="Thread overview"
+                  loading={systemDashboard.isPending}
+                  value="Not reported"
+                />
+                <MetricCard
+                  detail="Awaiting task-queue metrics in the backend health contract."
+                  label="Task queue overview"
+                  loading={systemDashboard.isPending}
+                  value="Not reported"
+                />
+                <MetricCard
+                  detail="Awaiting database pool and ping health in the backend health contract."
+                  label="Database health"
+                  loading={systemDashboard.isPending}
+                  value="Not reported"
+                />
+              </Box>
+            </Stack>
+          </Paper>
         </WorkspaceSection>
 
         <WorkspaceSection

@@ -361,9 +361,9 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
 
             {publication.data?.readiness === 'PUBLICATION_PENDING' ? (
               <Alert severity="info">
-                Publication is running or waiting for workflow approval. Axis will
-                reconcile this status automatically; Online delivery remains unchanged
-                until activation completes.
+                Publication is waiting for completion or approval. Open Publishing
+                Requests to review the workflow task, then use Staged-to-Online Status
+                to confirm when Online delivery has been activated.
               </Alert>
             ) : null}
 

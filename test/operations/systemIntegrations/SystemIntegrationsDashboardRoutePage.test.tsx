@@ -232,6 +232,17 @@ describe('SystemIntegrationsDashboardRoutePage', () => {
     expect(
       within(systemSection!).getByRole('link', { name: 'Module Registry' }),
     ).toBeVisible();
+    expect(within(systemSection!).getByText('Runtime topology')).toBeVisible();
+    expect(within(systemSection!).getByText('Load Balancer')).toBeVisible();
+    expect(within(systemSection!).getByText('Node 0 · platformServer')).toBeVisible();
+    expect(within(systemSection!).getByText('CPU utilization')).toBeVisible();
+    expect(within(systemSection!).getByText('Memory utilization')).toBeVisible();
+    expect(within(systemSection!).getByText('Thread overview')).toBeVisible();
+    expect(within(systemSection!).getByText('Task queue overview')).toBeVisible();
+    expect(within(systemSection!).getByText('Database health')).toBeVisible();
+    expect(
+      within(systemSection!).getByRole('button', { name: 'Refresh health' }),
+    ).toBeVisible();
 
     const integration = screen.getByRole('heading', {
       name: 'Integration Workspace',

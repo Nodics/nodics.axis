@@ -161,14 +161,16 @@ describe('Schema Workbench API client', () => {
     const body = options?.body;
     if (typeof body !== 'string') throw new Error('Expected a JSON request body');
     expect(JSON.parse(body)).toEqual({
-      search: '',
-      filters: {
-        operator: 'AND',
-        items: [{ field: 'code', operator: 'CONTAINS', value: 'DXB' }],
+      query: {
+        search: '',
+        filters: {
+          operator: 'AND',
+          items: [{ field: 'code', operator: 'CONTAINS', value: 'DXB' }],
+        },
+        pageNumber: 1,
+        pageSize: 25,
+        sort: { field: 'code', direction: 'ASC' },
       },
-      pageNumber: 1,
-      pageSize: 25,
-      sort: { field: 'code', direction: 'ASC' },
     });
   });
 

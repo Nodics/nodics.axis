@@ -293,11 +293,25 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
     () => selectReleaseCatalogueConnections(props.bootstrap, props.runtime),
     [props.bootstrap, props.runtime],
   );
-  const exportConnection = selectDataAdministrationConnection(
-    props.bootstrap,
-    'export',
+  const exportConnections = useMemo(
+    () =>
+      Object.freeze(
+        (props.bootstrap.moduleConnections.export ?? []).filter(
+          (connection) => connection.state === 'UP' || connection.state === 'DEGRADED',
+        ),
+      ),
+    [props.bootstrap.moduleConnections],
   );
   const mediaConnection = selectDataAdministrationConnection(props.bootstrap, 'media');
+  const mediaConnections = useMemo(
+    () =>
+      Object.freeze(
+        (props.bootstrap.moduleConnections.media ?? []).filter(
+          (connection) => connection.state === 'UP' || connection.state === 'DEGRADED',
+        ),
+      ),
+    [props.bootstrap.moduleConnections],
+  );
   const schemaConnections = useMemo(
     () =>
       Object.freeze(
@@ -391,23 +405,9 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
         mode,
       );
     },
-    onSuccess: async (data, mode) => {
+    onSuccess: async (_data, mode) => {
       if (mode === 'install') {
         setSelected(new Set());
-      } else {
-        const currentReleaseKeys = new Set(
-          data.releases
-            .filter((release) => release.status === 'CURRENT')
-            .map(releaseKey),
-        );
-        if (currentReleaseKeys.size > 0) {
-          setSelected(
-            (previousSelection) =>
-              new Set(
-                [...previousSelection].filter((key) => !currentReleaseKeys.has(key)),
-              ),
-          );
-        }
       }
       await queryClient.invalidateQueries({
         queryKey: ['import-catalogue', props.runtime.enterpriseCode],
@@ -539,8 +539,8 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
             <ExportWorkspace
               configuration={configuration}
               enterpriseCode={props.runtime.enterpriseCode}
-              exportConnection={exportConnection}
-              mediaConnection={mediaConnection}
+              exportConnections={exportConnections}
+              mediaConnections={mediaConnections}
               schemaConnections={schemaConnections}
               tenantCode={props.bootstrap.tenantCode}
             />

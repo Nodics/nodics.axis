@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { composeShellNavigation } from '../../../src/app/shell/shellNavigation';
 
 describe('Axis shell navigation composition', () => {
-  it('keeps the local dashboard and groups backend-authorized capabilities', () => {
+  it('keeps the local runtime dashboard and groups backend capabilities by business area', () => {
     const groups = composeShellNavigation([
       {
         id: 'cms',
@@ -28,12 +28,12 @@ describe('Axis shell navigation composition', () => {
     ]);
 
     expect(groups.map((group) => group.label)).toEqual([
-      'Workspace',
+      'System and Integrations',
       'Content and Experience',
-      'Commerce',
+      'Catalogs and Products',
     ]);
     expect(groups[0]?.items[0]).toEqual(
-      expect.objectContaining({ label: 'Dashboard', local: true }),
+      expect.objectContaining({ label: 'Runtime Dashboard', local: true }),
     );
     expect(groups[2]?.items[0]).toEqual(
       expect.objectContaining({ label: 'Pricing', availability: 'DEGRADED' }),
@@ -41,8 +41,17 @@ describe('Axis shell navigation composition', () => {
   });
 
   it('uses backend-owned groups and places children directly after their parent', () => {
-    const group = { id: 'operations', label: 'Operations', order: 600 };
     const groups = composeShellNavigation([
+      {
+        id: 'platform-dashboard',
+        label: 'Dashboard',
+        route: '/system-integrations/dashboard',
+        order: 0,
+        moduleName: 'backoffice',
+        category: 'platform',
+        icon: 'dashboard',
+        availability: 'UP',
+      },
       {
         id: 'administration',
         label: 'Administration',
@@ -52,7 +61,6 @@ describe('Axis shell navigation composition', () => {
         category: 'platform',
         icon: 'registry',
         availability: 'UP',
-        group,
       },
       {
         id: 'registry',
@@ -64,16 +72,63 @@ describe('Axis shell navigation composition', () => {
         category: 'platform',
         icon: 'registry',
         availability: 'UP',
-        group,
       },
     ]);
 
-    const operations = groups.find((entry) => entry.id === 'operations');
+    const operations = groups.find((entry) => entry.id === 'system-integrations');
     expect(operations?.items.map((item) => [item.id, item.depth])).toEqual([
+      ['dashboard', 0],
       ['administration', 0],
       ['registry', 1],
     ]);
-    expect(operations?.items[0]?.hasChildren).toBe(true);
+    expect(operations?.items[1]?.hasChildren).toBe(true);
+  });
+
+  it('moves WCMS page composition items out of system operations into content experience', () => {
+    const groups = composeShellNavigation([
+      {
+        id: 'wcms',
+        label: 'Web Content Management System',
+        route: '/content',
+        order: 100,
+        moduleName: 'cms',
+        category: 'platform',
+        icon: 'content',
+        availability: 'UP',
+      },
+      {
+        id: 'renderer-mappings',
+        parentId: 'wcms',
+        label: 'Renderer Mappings',
+        route: '/content/renderer-mappings',
+        order: 110,
+        moduleName: 'cms',
+        category: 'platform',
+        icon: 'content',
+        availability: 'UP',
+      },
+      {
+        id: 'assigned-work',
+        label: 'Assigned to Me',
+        route: '/work/assigned',
+        order: 120,
+        moduleName: 'workflow',
+        category: 'platform',
+        icon: 'task',
+        availability: 'UP',
+      },
+    ]);
+
+    const system = groups.find((entry) => entry.id === 'system-integrations');
+    const content = groups.find((entry) => entry.id === 'content-experience');
+    const process = groups.find((entry) => entry.id === 'process-automations');
+
+    expect(system?.items.map((item) => item.id)).toEqual(['dashboard']);
+    expect(content?.items.map((item) => [item.id, item.depth])).toEqual([
+      ['wcms', 0],
+      ['renderer-mappings', 1],
+    ]);
+    expect(process?.items.map((item) => item.id)).toEqual(['assigned-work']);
   });
 
   it('places explicit cross-module children below their backend-owned parent', () => {
@@ -105,7 +160,7 @@ describe('Axis shell navigation composition', () => {
       },
     ]);
 
-    const commerce = groups.find((entry) => entry.id === 'commerce');
+    const commerce = groups.find((entry) => entry.id === 'catalogs-products');
     expect(
       commerce?.items.map((item) => [item.moduleName, item.id, item.depth]),
     ).toEqual([
@@ -116,11 +171,6 @@ describe('Axis shell navigation composition', () => {
   });
 
   it('keeps backend-driven payment operations as an expandable operations group', () => {
-    const group = {
-      id: 'payment-operations',
-      label: 'Payment Operations',
-      order: 360,
-    };
     const groups = composeShellNavigation([
       {
         id: 'payment-operations',
@@ -131,7 +181,6 @@ describe('Axis shell navigation composition', () => {
         category: 'commerce',
         icon: 'payment',
         availability: 'UP',
-        group,
         workbenchTarget: {
           moduleName: 'payment',
           schemaName: 'paymentTransaction',
@@ -147,7 +196,6 @@ describe('Axis shell navigation composition', () => {
         category: 'commerce',
         icon: 'payment',
         availability: 'UP',
-        group,
         workbenchTarget: {
           moduleName: 'payment',
           schemaName: 'paymentMethod',
@@ -163,7 +211,6 @@ describe('Axis shell navigation composition', () => {
         category: 'commerce',
         icon: 'payment',
         availability: 'UP',
-        group,
         workbenchTarget: {
           moduleName: 'payment',
           schemaName: 'paymentProvider',
@@ -178,6 +225,56 @@ describe('Axis shell navigation composition', () => {
       ['payment-operations', 0, true],
       ['payment-methods', 1, false],
       ['payment-providers', 1, false],
+    ]);
+  });
+
+  it('merges customer experience, discovery, and publishing into business areas', () => {
+    const groups = composeShellNavigation([
+      {
+        id: 'contact-submissions',
+        label: 'Contact Submissions',
+        route: '/engagement/contact-submissions',
+        order: 10,
+        moduleName: 'contactSubmission',
+        category: 'experience',
+        icon: 'message',
+        availability: 'UP',
+        group: {
+          id: 'customer-experience',
+          label: 'Customer Experience',
+          order: 320,
+        },
+      },
+      {
+        id: 'discovery-config',
+        label: 'Discovery Configuration',
+        route: '/discovery/configuration',
+        order: 20,
+        moduleName: 'discoveryConfig',
+        category: 'platform',
+        icon: 'search',
+        availability: 'UP',
+      },
+      {
+        id: 'publishing-requests',
+        label: 'Publishing Requests',
+        route: '/publishing/requests',
+        order: 30,
+        moduleName: 'publish',
+        category: 'content',
+        icon: 'publish',
+        availability: 'UP',
+      },
+    ]);
+
+    expect(
+      groups
+        .filter((group) => group.items.some((item) => item.id !== 'dashboard'))
+        .map((group) => [group.id, group.label]),
+    ).toEqual([
+      ['customers-organisation', 'Customers and Organisation'],
+      ['search-navigations', 'Search and Navigations'],
+      ['publishing', 'Publishing'],
     ]);
   });
 });

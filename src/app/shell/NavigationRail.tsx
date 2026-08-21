@@ -395,7 +395,7 @@ export function NavigationRail({
                         {item.hasChildren ? (
                           <Tooltip
                             placement="right"
-                            title={`${itemExpanded ? 'Collapse' : 'Expand'} ${item.label}`}
+                            title={`${itemExpanded ? 'Collapse' : 'Expand'} ${item.label} submenu`}
                           >
                             <Box
                               component="span"
@@ -411,7 +411,7 @@ export function NavigationRail({
                               }}
                             >
                               <IconButton
-                                aria-label={`${itemExpanded ? 'Collapse' : 'Expand'} ${item.label}`}
+                                aria-label={`${itemExpanded ? 'Collapse' : 'Expand'} ${item.label} submenu`}
                                 aria-expanded={itemExpanded}
                                 data-navigation-expander="item"
                                 disabled={unavailable || featureDisabled}
@@ -541,7 +541,17 @@ function visibleNavigationItems(
   );
   const visibleIds = new Set<string>();
   items.forEach((item) => {
-    const matches = `${groupLabel} ${item.label} ${item.moduleName}`
+    const matches = [
+      groupLabel,
+      item.label,
+      item.moduleName,
+      item.category,
+      item.route,
+      item.group?.label,
+      item.group?.id,
+      ...(item.perspectives ?? []),
+    ]
+      .join(' ')
       .toLocaleLowerCase()
       .includes(normalizedQuery);
     if (!matches) return;

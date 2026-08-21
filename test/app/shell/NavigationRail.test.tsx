@@ -72,7 +72,7 @@ describe('Axis navigation rail', () => {
     );
 
     expect(
-      screen.getByRole('button', { name: 'Collapse Disabled Parent' }),
+      screen.getByRole('button', { name: 'Collapse Disabled Parent submenu' }),
     ).toBeDisabled();
     expect(
       screen
@@ -80,7 +80,7 @@ describe('Axis navigation rail', () => {
         .querySelector('[data-navigation-expander="group"]'),
     ).toHaveStyle({ width: '40px' });
     expect(
-      screen.getByRole('button', { name: 'Collapse Disabled Parent' }),
+      screen.getByRole('button', { name: 'Collapse Disabled Parent submenu' }),
     ).toHaveStyle({ width: '40px' });
     expect(consoleError).not.toHaveBeenCalledWith(
       expect.stringContaining('disabled `button` child'),
