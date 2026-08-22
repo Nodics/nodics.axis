@@ -12,6 +12,10 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   MenuItem,
   Stack,
@@ -50,6 +54,16 @@ type AcceleratorOperation = 'initiate' | 'rollback' | 'retire' | 'approve';
 
 type AcceleratorFilter = 'ALL' | 'PROJECT' | 'DOCUMENTATION' | 'NEEDS_ACTION';
 
+type DestructiveAcceleratorOperation = Extract<
+  AcceleratorOperation,
+  'rollback' | 'retire'
+>;
+
+interface DestructiveConfirmationState {
+  readonly operation: DestructiveAcceleratorOperation;
+  readonly profile: ApplicationInitializationProfile;
+  readonly status: ApplicationInitializationStatus;
+}
 
 const queryRoot = ['setup-accelerators'] as const;
 
@@ -115,6 +129,9 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [filter, setFilter] = useState<AcceleratorFilter>('ALL');
+  const [destructiveConfirmation, setDestructiveConfirmation] =
+    useState<DestructiveConfirmationState>();
+  const [destructiveReason, setDestructiveReason] = useState('');
   const backofficeConnection = selectModuleConnection(props.bootstrap, 'backoffice');
   const processConnection =
     selectModuleConnection(props.bootstrap, 'flowApi', { server: 'processServer' }) ??
@@ -172,10 +189,12 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
       profile,
       status,
       operation,
+      reason,
     }: {
       readonly profile: ApplicationInitializationProfile;
       readonly status?: ApplicationInitializationStatus | undefined;
       readonly operation: AcceleratorOperation;
+      readonly reason?: string | undefined;
     }) => {
       const client = clients.get(profile.code);
       if (!client) throw new Error('BackOffice application initialization is unavailable');
@@ -211,11 +230,15 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
         );
         return client.getStatus();
       }
-      if (operation === 'rollback') return client.rollback();
-      if (operation === 'retire') return client.retire();
+      if (operation === 'rollback') return client.rollback({ reason });
+      if (operation === 'retire') return client.retire({ reason });
       return client.initiate();
     },
     onSuccess: (status, variables) => {
+      if (variables.operation === 'rollback' || variables.operation === 'retire') {
+        setDestructiveConfirmation(undefined);
+        setDestructiveReason('');
+      }
       queryClient.setQueryData([...queryRoot, variables.profile.code], status);
       void queryClient.invalidateQueries({ queryKey: queryRoot });
     },
@@ -248,6 +271,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
       Boolean(item.query.data?.allowedActions.length)
     );
   });
+  const destructiveReasonIsValid = destructiveReason.trim().length >= 12;
   const statusGroups = [
     {
       key: 'projects',
@@ -630,13 +654,16 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                               <Button
                                 color="warning"
                                 disabled={pending}
-                                onClick={() =>
-                                  mutation.mutate({
+                                onClick={() => {
+                                  setDestructiveReason(
+                                    `${profile.title} rollback requested after Online evidence review.`,
+                                  );
+                                  setDestructiveConfirmation({
                                     operation: 'rollback',
                                     profile,
                                     status,
-                                  })
-                                }
+                                  });
+                                }}
                                 variant="outlined"
                               >
                                 {operationLabel('rollback')}
@@ -646,13 +673,16 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                               <Button
                                 color="warning"
                                 disabled={pending}
-                                onClick={() =>
-                                  mutation.mutate({
+                                onClick={() => {
+                                  setDestructiveReason(
+                                    `${profile.title} retirement requested after Online evidence review.`,
+                                  );
+                                  setDestructiveConfirmation({
                                     operation: 'retire',
                                     profile,
                                     status,
-                                  })
-                                }
+                                  });
+                                }}
                                 variant="outlined"
                               >
                                 {operationLabel('retire')}
@@ -702,6 +732,102 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
           </Stack>
         )}
       </Stack>
+      <Dialog
+        fullWidth
+        maxWidth="sm"
+        onClose={() => {
+          if (!mutation.isPending) {
+            setDestructiveConfirmation(undefined);
+            setDestructiveReason('');
+          }
+        }}
+        open={Boolean(destructiveConfirmation)}
+      >
+        <DialogTitle>
+          Confirm{' '}
+          {destructiveConfirmation
+            ? operationLabel(destructiveConfirmation.operation).toLowerCase()
+            : 'operation'}
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Alert severity="warning">
+              This can change the Online accelerator state. Confirm only after
+              checking the current Online version, rollback candidate, audit
+              evidence, and expected browser verification path.
+            </Alert>
+            {destructiveConfirmation ? (
+              <Box>
+                <Typography variant="subtitle2">
+                  {destructiveConfirmation.profile.title}
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  {destructiveConfirmation.status.publication?.code ??
+                    destructiveConfirmation.profile.baselineCode}{' '}
+                  · {destructiveConfirmation.status.readiness}
+                </Typography>
+              </Box>
+            ) : null}
+            <Stack spacing={0.75}>
+              {[
+                'Current Online state has been reviewed.',
+                'Publication history and audit evidence identify the target.',
+                'Business reason and browser verification path are recorded.',
+              ].map((item) => (
+                <Chip color="warning" key={item} label={item} variant="outlined" />
+              ))}
+            </Stack>
+            <TextField
+              autoFocus
+              disabled={mutation.isPending}
+              fullWidth
+              helperText="Required. This reason is sent to the backend publication authority and should explain the evidence and business intent."
+              label="Operator reason"
+              minRows={3}
+              multiline
+              onChange={(event) => setDestructiveReason(event.target.value)}
+              value={destructiveReason}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            disabled={mutation.isPending}
+            onClick={() => {
+              setDestructiveConfirmation(undefined);
+              setDestructiveReason('');
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            color="warning"
+            disabled={
+              !destructiveConfirmation ||
+              !destructiveReasonIsValid ||
+              mutation.isPending
+            }
+            onClick={() => {
+              if (!destructiveConfirmation) return;
+              mutation.mutate({
+                operation: destructiveConfirmation.operation,
+                profile: destructiveConfirmation.profile,
+                reason: destructiveReason.trim(),
+                status: destructiveConfirmation.status,
+              });
+            }}
+            variant="contained"
+          >
+            {mutation.isPending
+              ? 'Submitting...'
+              : `Confirm ${
+                  destructiveConfirmation
+                    ? operationLabel(destructiveConfirmation.operation).toLowerCase()
+                    : 'operation'
+                }`}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </WorkspaceContainer>
   );
 }

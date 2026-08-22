@@ -760,6 +760,10 @@ export function FunctionalModuleRegistryRoutePage(
       : availableModules.error instanceof Error
         ? availableModules.error
         : undefined;
+  const lifecycleError =
+    lifecycle.error instanceof Error ? lifecycle.error : undefined;
+  const sampleDataError =
+    sampleData.error instanceof Error ? sampleData.error : undefined;
 
   return (
     <WorkspaceContainer>
@@ -823,15 +827,19 @@ export function FunctionalModuleRegistryRoutePage(
         {lifecycle.isError ? (
           <Alert severity="error">
             {lifecycle.variables
-              ? `${lifecycle.variables.module.displayName}: ${lifecycle.error.message}`
-              : lifecycle.error.message}
+              ? `${lifecycle.variables.module.displayName}: ${
+                  lifecycleError?.message ?? 'Module lifecycle request failed'
+                }`
+              : lifecycleError?.message ?? 'Module lifecycle request failed'}
           </Alert>
         ) : null}
         {sampleData.isError ? (
           <Alert severity="error">
             {sampleData.variables
-              ? `${sampleData.variables.displayName}: ${sampleData.error.message}`
-              : sampleData.error.message}
+              ? `${sampleData.variables.displayName}: ${
+                  sampleDataError?.message ?? 'Sample data request failed'
+                }`
+              : sampleDataError?.message ?? 'Sample data request failed'}
           </Alert>
         ) : null}
         {sampleData.isSuccess ? (

@@ -69,6 +69,10 @@ interface ApplicationInitializationClientOptions {
   readonly profileCode: string;
 }
 
+interface ApplicationInitializationOperationInput {
+  readonly reason?: string | undefined;
+}
+
 function record(value: unknown, name: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error(`${name} must be an object`);
@@ -244,6 +248,7 @@ async function invoke(
   method: 'GET' | 'POST',
   operation: 'initiate' | 'rollback' | 'retire' | undefined,
   fetchImplementation: typeof fetch,
+  input: ApplicationInitializationOperationInput = {},
 ): Promise<ApplicationInitializationStatus> {
   if (!/^[a-z][a-z0-9_-]{0,63}$/.test(options.profileCode)) {
     throw new Error('Application profile is invalid');
@@ -267,10 +272,14 @@ async function invoke(
       credentials: 'omit',
       redirect: 'error',
       signal: controller.signal,
-      ...(operation === 'initiate'
+      ...(operation
         ? {
             body: JSON.stringify({
-              reason: 'Axis Setup & Accelerators initialization requested',
+              reason:
+                input.reason ??
+                (operation === 'initiate'
+                  ? 'Axis Setup & Accelerators initialization requested'
+                  : `Axis Setup & Accelerators ${operation} requested`),
             }),
           }
         : {}),
@@ -297,8 +306,11 @@ export function createApplicationInitializationClient(
 ) {
   return Object.freeze({
     getStatus: () => invoke(options, 'GET', undefined, fetchImplementation),
-    initiate: () => invoke(options, 'POST', 'initiate', fetchImplementation),
-    rollback: () => invoke(options, 'POST', 'rollback', fetchImplementation),
-    retire: () => invoke(options, 'POST', 'retire', fetchImplementation),
+    initiate: (input?: ApplicationInitializationOperationInput) =>
+      invoke(options, 'POST', 'initiate', fetchImplementation, input),
+    rollback: (input?: ApplicationInitializationOperationInput) =>
+      invoke(options, 'POST', 'rollback', fetchImplementation, input),
+    retire: (input?: ApplicationInitializationOperationInput) =>
+      invoke(options, 'POST', 'retire', fetchImplementation, input),
   });
 }
