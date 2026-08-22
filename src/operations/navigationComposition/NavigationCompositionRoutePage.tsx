@@ -1,11 +1,15 @@
+import { useMemo, useState } from 'react';
+
 import {
   Alert,
   Box,
+  Button,
   Card,
   CardContent,
   Chip,
   Grid,
   Stack,
+  TextField,
   Typography,
 } from '@mui/material';
 
@@ -42,15 +46,57 @@ export function NavigationCompositionRoutePage(
 ) {
   const composition = props.bootstrap.effectiveNavigationComposition;
   const navigation = props.bootstrap.navigation;
-  const groups = new Map<string, { label: string; count: number }>();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
+  const filteredNavigation = useMemo(
+    () =>
+      normalizedSearchTerm
+        ? navigation.filter((item) => {
+            const searchable = [
+              item.label,
+              item.route,
+              item.moduleName,
+              item.group?.label,
+              item.featureState,
+              item.availability,
+              item.routeOwner?.ownerType,
+              item.routeOwner?.ownerModule,
+              item.sourceTrace?.sourceType,
+              item.sourceTrace?.lifecycleState,
+            ]
+              .filter(Boolean)
+              .join(' ')
+              .toLowerCase();
+            return searchable.includes(normalizedSearchTerm);
+          })
+        : navigation,
+    [navigation, normalizedSearchTerm],
+  );
+  const groups = new Map<string, { label: string; count: number; total: number }>();
   navigation.forEach((item) => {
     const groupId = item.group?.id ?? 'ungrouped';
     const current = groups.get(groupId);
     groups.set(groupId, {
       label: item.group?.label ?? 'Ungrouped',
-      count: (current?.count ?? 0) + 1,
+      count: current?.count ?? 0,
+      total: (current?.total ?? 0) + 1,
     });
   });
+  filteredNavigation.forEach((item) => {
+    const groupId = item.group?.id ?? 'ungrouped';
+    const current = groups.get(groupId);
+    groups.set(groupId, {
+      label: item.group?.label ?? current?.label ?? 'Ungrouped',
+      count: (current?.count ?? 0) + 1,
+      total: current?.total ?? 0,
+    });
+  });
+  const visibleGroups = [...groups.entries()].filter(
+    ([, group]) => !normalizedSearchTerm || group.count > 0,
+  );
   const warnings = composition?.warnings ?? [];
   const actionableWarnings = warnings.filter(
     (warning) => String(warning.severity ?? 'WARNING') !== 'INFO',
@@ -59,6 +105,17 @@ export function NavigationCompositionRoutePage(
     (warning) => String(warning.severity ?? 'WARNING') === 'INFO',
   );
   const authoring = composition?.authoring;
+  const allVisibleGroupsCollapsed = visibleGroups.every(([groupId]) =>
+    collapsedGroups.has(groupId),
+  );
+  const toggleGroup = (groupId: string) => {
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
 
   return (
     <WorkspaceContainer>
@@ -98,7 +155,11 @@ export function NavigationCompositionRoutePage(
                 <Typography color="text.secondary" variant="caption">
                   Navigation items
                 </Typography>
-                <Typography variant="h5">{String(navigation.length)}</Typography>
+                <Typography variant="h5">
+                  {normalizedSearchTerm
+                    ? `${String(filteredNavigation.length)} / ${String(navigation.length)}`
+                    : String(navigation.length)}
+                </Typography>
               </CardContent>
             </Card>
           </Grid>
@@ -252,6 +313,60 @@ export function NavigationCompositionRoutePage(
           </Stack>
         ) : null}
 
+        <Card
+          variant="outlined"
+          sx={{
+            position: 'sticky',
+            top: 16,
+            zIndex: 1,
+            backdropFilter: 'blur(16px)',
+            bgcolor: 'background.paper',
+          }}
+        >
+          <CardContent>
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={2}
+              sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between' }}
+            >
+              <Box>
+                <Typography component="h2" variant="h5">
+                  Explore effective hierarchy
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  Filter by label, route, module, owner, source, feature state, or availability.
+                </Typography>
+              </Box>
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={1}
+                sx={{ minWidth: { md: 520 } }}
+              >
+                <TextField
+                  fullWidth
+                  label="Search navigation"
+                  placeholder="Try publishing, registry, CMS, PREVIEW, or /schema-workbench"
+                  size="small"
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                />
+                <Button
+                  variant="outlined"
+                  onClick={() =>
+                    setCollapsedGroups(
+                      allVisibleGroupsCollapsed
+                        ? new Set()
+                        : new Set(visibleGroups.map(([groupId]) => groupId)),
+                    )
+                  }
+                >
+                  {allVisibleGroupsCollapsed ? 'Expand all' : 'Collapse all'}
+                </Button>
+              </Stack>
+            </Stack>
+          </CardContent>
+        </Card>
+
         <Card variant="outlined">
           <CardContent>
             <Stack spacing={2}>
@@ -261,10 +376,16 @@ export function NavigationCompositionRoutePage(
                 </Typography>
                 <Typography color="text.secondary" variant="body2">
                   Read-only view of group, item, route owner, module owner, source,
-                  feature state, and availability.
+                  feature state, and availability. Showing {String(filteredNavigation.length)}
+                  of {String(navigation.length)} items.
                 </Typography>
               </Box>
-              {[...groups.entries()].map(([groupId, group]) => (
+              {visibleGroups.length === 0 ? (
+                <Alert severity="info">
+                  No navigation entries match the current filter.
+                </Alert>
+              ) : null}
+              {visibleGroups.map(([groupId, group]) => (
                 <Box key={groupId}>
                   <Stack
                     direction={{ xs: 'column', sm: 'row' }}
@@ -274,10 +395,21 @@ export function NavigationCompositionRoutePage(
                     <Typography component="h3" variant="h6">
                       {group.label}
                     </Typography>
-                    <Chip label={`${String(group.count)} item(s)`} size="small" />
+                    <Chip
+                      label={
+                        normalizedSearchTerm
+                          ? `${String(group.count)} of ${String(group.total)} item(s)`
+                          : `${String(group.total)} item(s)`
+                      }
+                      size="small"
+                    />
+                    <Button size="small" onClick={() => toggleGroup(groupId)}>
+                      {collapsedGroups.has(groupId) ? 'Expand group' : 'Collapse group'}
+                    </Button>
                   </Stack>
+                  {collapsedGroups.has(groupId) ? null : (
                   <Stack spacing={1}>
-                    {navigation
+                    {filteredNavigation
                       .filter((item) => (item.group?.id ?? 'ungrouped') === groupId)
                       .map((item) => (
                         <Card key={`${item.moduleName}:${item.id}`} variant="outlined">
@@ -330,6 +462,7 @@ export function NavigationCompositionRoutePage(
                         </Card>
                       ))}
                   </Stack>
+                  )}
                 </Box>
               ))}
             </Stack>
