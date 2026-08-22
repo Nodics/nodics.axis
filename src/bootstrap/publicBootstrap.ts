@@ -146,6 +146,20 @@ export interface AxisNavigationHelp {
   readonly documentationFragment?: string | undefined;
 }
 
+export interface AxisNavigationSourceTrace {
+  readonly sourceType: string;
+  readonly ownerModule: string;
+  readonly stableIdentity: string;
+  readonly overrideApplied: boolean;
+  readonly editable: boolean;
+  readonly lifecycleState: string;
+}
+
+export interface AxisNavigationRouteOwner {
+  readonly ownerType: string;
+  readonly ownerModule: string;
+}
+
 export interface AxisNavigationItem {
   readonly id: string;
   readonly label: string;
@@ -168,6 +182,22 @@ export interface AxisNavigationItem {
   readonly detailPanels?: readonly AxisNavigationDetailPanel[] | undefined;
   readonly lifecycleActions?: readonly AxisNavigationLifecycleAction[] | undefined;
   readonly help?: AxisNavigationHelp | undefined;
+  readonly sourceTrace?: AxisNavigationSourceTrace | undefined;
+  readonly routeOwner?: AxisNavigationRouteOwner | undefined;
+}
+
+export interface AxisEffectiveNavigationComposition {
+  readonly contractVersion: number;
+  readonly version: number;
+  readonly checksum: string;
+  readonly lifecycleState: string;
+  readonly source: string;
+  readonly fallbackActive: boolean;
+  readonly fallbackReason?: string | undefined;
+  readonly authoring?: Readonly<Record<string, unknown>> | undefined;
+  readonly navigation: readonly AxisNavigationItem[];
+  readonly warnings: readonly Readonly<Record<string, unknown>>[];
+  readonly generatedAt: string;
 }
 
 export interface AxisModuleCatalogEntry {
@@ -211,6 +241,7 @@ export interface AxisDocumentationDashboardMetadata {
 export interface AxisAuthenticatedBootstrap {
   readonly axisPolicy: AxisEmployeePolicy;
   readonly navigation: readonly AxisNavigationItem[];
+  readonly effectiveNavigationComposition?: AxisEffectiveNavigationComposition | undefined;
   readonly moduleCatalog: Readonly<Record<string, AxisModuleCatalogEntry>>;
   readonly environments: readonly string[];
   readonly moduleConnections: Readonly<Record<string, readonly AxisModuleConnection[]>>;
@@ -1067,6 +1098,149 @@ function parseNavigation(
   );
 }
 
+function parseNavigationSourceTrace(
+  value: unknown,
+  moduleName: string,
+): AxisNavigationSourceTrace | undefined {
+  if (value === undefined) return undefined;
+  const trace = record(value, `${moduleName} navigation source trace`);
+  return Object.freeze({
+    sourceType: text(trace.sourceType, `${moduleName} navigation source type`),
+    ownerModule: safeModuleName(
+      trace.ownerModule,
+      `${moduleName} navigation source owner module`,
+    ),
+    stableIdentity: text(
+      trace.stableIdentity,
+      `${moduleName} navigation source stable identity`,
+    ),
+    overrideApplied: trace.overrideApplied === true,
+    editable: trace.editable === true,
+    lifecycleState: text(
+      trace.lifecycleState,
+      `${moduleName} navigation source lifecycle state`,
+    ),
+  });
+}
+
+function parseNavigationRouteOwner(
+  value: unknown,
+  moduleName: string,
+): AxisNavigationRouteOwner | undefined {
+  if (value === undefined) return undefined;
+  const owner = record(value, `${moduleName} navigation route owner`);
+  return Object.freeze({
+    ownerType: text(owner.ownerType, `${moduleName} navigation route owner type`),
+    ownerModule: safeModuleName(
+      owner.ownerModule,
+      `${moduleName} navigation route owner module`,
+    ),
+  });
+}
+
+function parseEffectiveNavigationComposition(
+  value: unknown,
+): AxisEffectiveNavigationComposition | undefined {
+  if (value === undefined) return undefined;
+  const composition = record(value, 'BackOffice effective navigation composition');
+  const navigationValue = composition.navigation;
+  if (!Array.isArray(navigationValue)) {
+    throw new Error('BackOffice effective navigation composition must contain navigation');
+  }
+  const navigation = navigationValue.map((rawItem, index) => {
+    const item = record(rawItem, 'BackOffice effective navigation item');
+    const moduleName = safeModuleName(
+      item.moduleName,
+      'BackOffice effective navigation module name',
+    );
+    return Object.freeze({
+      id: text(item.id, `${moduleName} effective navigation id`),
+      label: navigationDisplayLabel(
+        text(item.label, `${moduleName} effective navigation label`),
+      ),
+      route: relativeRoute(item.route, `${moduleName} effective navigation route`),
+      order: Number.isInteger(item.order) ? Number(item.order) : index,
+      moduleName,
+      category:
+        typeof item.category === 'string' && item.category !== ''
+          ? item.category
+          : 'other',
+      icon:
+        typeof item.icon === 'string' && item.icon !== '' ? item.icon : 'module',
+      availability: availabilityState(item.availability),
+      labelKey: optionalText(item.labelKey, `${moduleName} effective navigation label key`),
+      parentId: optionalText(item.parentId, `${moduleName} effective navigation parent id`),
+      parentModuleName:
+        item.parentModuleName === undefined
+          ? undefined
+          : safeModuleName(
+              item.parentModuleName,
+              `${moduleName} effective navigation parent module name`,
+            ),
+      group: parseNavigationGroup(item.group, moduleName),
+      perspectives:
+        item.perspectives === undefined
+          ? Object.freeze(['operations'])
+          : stringList(item.perspectives, `${moduleName} effective navigation perspectives`),
+      contexts:
+        item.contexts === undefined
+          ? Object.freeze([])
+          : stringList(item.contexts, `${moduleName} effective navigation contexts`),
+      featureState: navigationFeatureState(item.featureState),
+      badgeProvider: parseBadgeProvider(item.badgeProvider, moduleName),
+      workbenchTarget: parseWorkbenchTarget(item.workbenchTarget, moduleName),
+      workbenchPresentation: parseWorkbenchPresentation(
+        item.workbenchPresentation,
+        moduleName,
+      ),
+      detailPanels: parseNavigationDetailPanels(item.detailPanels, moduleName),
+      lifecycleActions: parseNavigationLifecycleActions(
+        item.lifecycleActions,
+        moduleName,
+      ),
+      help: parseNavigationHelp(item.help, moduleName),
+      sourceTrace: parseNavigationSourceTrace(item.sourceTrace, moduleName),
+      routeOwner: parseNavigationRouteOwner(item.routeOwner, moduleName),
+    } satisfies AxisNavigationItem);
+  });
+  const warnings = Array.isArray(composition.warnings)
+    ? composition.warnings
+        .filter((warning): warning is Record<string, unknown> =>
+          typeof warning === 'object' && warning !== null && !Array.isArray(warning),
+        )
+        .map((warning) => Object.freeze({ ...warning }))
+    : [];
+  return Object.freeze({
+    contractVersion: Number.isInteger(composition.contractVersion)
+      ? Number(composition.contractVersion)
+      : 0,
+    version: Number.isInteger(composition.version) ? Number(composition.version) : 0,
+    checksum: text(composition.checksum, 'BackOffice effective navigation checksum'),
+    lifecycleState: text(
+      composition.lifecycleState,
+      'BackOffice effective navigation lifecycle state',
+    ),
+    source: text(composition.source, 'BackOffice effective navigation source'),
+    fallbackActive: composition.fallbackActive === true,
+    fallbackReason: optionalText(
+      composition.fallbackReason,
+      'BackOffice effective navigation fallback reason',
+    ),
+    authoring:
+      typeof composition.authoring === 'object' &&
+      composition.authoring !== null &&
+      !Array.isArray(composition.authoring)
+        ? Object.freeze({ ...(composition.authoring as Record<string, unknown>) })
+        : undefined,
+    navigation: Object.freeze(navigation),
+    warnings: Object.freeze(warnings),
+    generatedAt: text(
+      composition.generatedAt,
+      'BackOffice effective navigation generated time',
+    ),
+  });
+}
+
 function parseModuleContext(modulesValue: unknown): {
   readonly environments: readonly string[];
   readonly connections: Readonly<Record<string, readonly AxisModuleConnection[]>>;
@@ -1501,9 +1675,15 @@ export async function loadAuthenticatedBootstrap(
     );
     const data = record(envelope.data, 'BackOffice employee bootstrap data');
     const moduleContext = parseModuleContext(data.modules);
+    const effectiveNavigationComposition = parseEffectiveNavigationComposition(
+      data.effectiveNavigationComposition,
+    );
     return Object.freeze({
       axisPolicy: parseEmployeePolicy(data.axisPolicy),
-      navigation: parseNavigation(data.catalogue, data.availability),
+      navigation:
+        effectiveNavigationComposition?.navigation ??
+        parseNavigation(data.catalogue, data.availability),
+      effectiveNavigationComposition,
       moduleCatalog: moduleContext.catalog,
       environments: moduleContext.environments,
       moduleConnections: moduleContext.connections,

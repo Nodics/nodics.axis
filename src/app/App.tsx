@@ -21,6 +21,7 @@ import { WorkbenchRoutePage } from '../workbench/WorkbenchRoutePage';
 import { DocumentationRoutePage } from '../documentation/DocumentationRoutePage';
 import { ModuleHealthRoutePage } from '../operations/moduleHealth/ModuleHealthRoutePage';
 import { FunctionalModuleRegistryRoutePage } from '../operations/moduleRegistry/FunctionalModuleRegistryRoutePage';
+import { NavigationCompositionRoutePage } from '../operations/navigationComposition/NavigationCompositionRoutePage';
 import { SystemIntegrationsDashboardRoutePage } from '../operations/systemIntegrations/SystemIntegrationsDashboardRoutePage';
 import { CronDashboardRoutePage } from '../operations/cron/CronDashboardRoutePage';
 import { ContentDashboardRoutePage } from '../operations/contentExperience/ContentDashboardRoutePage';
@@ -398,6 +399,10 @@ export function App() {
   );
   const moduleRegistryNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'registry' && item.moduleName === 'backoffice',
+  );
+  const navigationCompositionNavigation = authenticatedBootstrap?.navigation.find(
+    (item) =>
+      item.id === 'navigation-composition' && item.moduleName === 'backoffice',
   );
   const setupAcceleratorsNavigation = authenticatedBootstrap?.navigation.find(
     (item) =>
@@ -1217,6 +1222,35 @@ export function App() {
           }
         />
         <Route
+          path="/administration/navigation-composition"
+          element={
+            session &&
+            !locked &&
+            authenticatedBootstrap &&
+            navigationCompositionNavigation ? (
+              authenticatedShell(
+                <NavigationCompositionRoutePage
+                  bootstrap={authenticatedBootstrap}
+                  routeNavigation={navigationCompositionNavigation}
+                />,
+              )
+            ) : (
+              <Navigate
+                replace
+                to={
+                  session && !locked
+                    ? composition.defaultAuthenticatedPage
+                    : session
+                      ? '/lock-screen'
+                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
+                          currentRoutePath,
+                        )}`
+                }
+              />
+            )
+          }
+        />
+        <Route
           path="/setup-accelerators"
           element={
             session && !locked && authenticatedBootstrap && setupAcceleratorsNavigation ? (
@@ -1454,6 +1488,7 @@ export function App() {
                   ![
                     '/assistant',
                     '/registry',
+                    '/administration/navigation-composition',
                     '/schema-workbench',
                     '/system-integrations',
                     '/setup-accelerators',
