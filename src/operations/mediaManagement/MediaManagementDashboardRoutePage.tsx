@@ -226,6 +226,34 @@ const mediaReferenceLifecycleActions = Object.freeze([
   },
 ]);
 
+const mediaPublicationReadinessPolicies = Object.freeze([
+  {
+    title: 'Publication hook ownership',
+    detail:
+      'CMS, catalog, and accelerator publishing may reference media, but the media module owns promotion eligibility, rights state, checksum, and active reference status.',
+  },
+  {
+    title: 'Promotion readiness',
+    detail:
+      'Before Online approval, required media references must be uploaded, rights-approved, target-approved, format-compatible, and bound to the correct content or product revision.',
+  },
+  {
+    title: 'Rollback behavior',
+    detail:
+      'Rollback should restore the previous active reference or deactivate the new reference without deleting audit history, source evidence, or rejected replacement files.',
+  },
+  {
+    title: 'Missing-asset fallback',
+    detail:
+      'When a required asset is missing or not approved, storefront and CMS preview should show a controlled placeholder or blocked-publication message instead of broken imagery.',
+  },
+  {
+    title: 'External provider gate',
+    detail:
+      'CDN, DAM, storage, or transformation providers remain externally qualified gates; local acceptance records the policy but cannot certify production provider behavior.',
+  },
+]);
+
 async function loadMediaDashboardData(
   connections: ReturnType<typeof activeConnections>,
   bootstrap: AxisAuthenticatedBootstrap,
@@ -427,6 +455,30 @@ export function MediaManagementDashboardRoutePage({
               Sample or reference-site media remains inactive until a Nodics-owned asset
               is uploaded, checksum evidence is recorded, reviewer approval is captured,
               and the media reference is activated.
+            </Alert>
+            <WorkspaceHeading
+              description="Publishing needs media hooks that are safe for CMS, products, accelerators, rollback, and missing-asset recovery."
+              eyebrow="Publication readiness"
+              headingVariant="h5"
+              title="Media publication safety"
+            />
+            <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
+              {mediaPublicationReadinessPolicies.map((policy) => (
+                <Paper
+                  component="article"
+                  key={policy.title}
+                  sx={{ minWidth: 260, p: 1.5 }}
+                  variant="outlined"
+                >
+                  <strong>{policy.title}</strong>
+                  <p>{policy.detail}</p>
+                </Paper>
+              ))}
+            </Stack>
+            <Alert severity="info">
+              Media provider qualification remains a release gate outside this local
+              Axis check. Local validation can prove the operator journey and policy
+              visibility, not CDN/DAM production readiness.
             </Alert>
           </Stack>
         </Paper>

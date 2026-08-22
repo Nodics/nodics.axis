@@ -208,6 +208,45 @@ const publishingReadinessGates = Object.freeze([
   }),
 ]);
 
+const publicationSideEffectHooks = Object.freeze([
+  Object.freeze({
+    title: 'Search index publication hook',
+    body: 'Approved Online movement must enqueue the affected site, locale, catalog, page, product, or accelerator target for search projection refresh.',
+    route: '/publishing/dependencies',
+    action: 'Review dependency manifest',
+  }),
+  Object.freeze({
+    title: 'Search reindex after publish',
+    body: 'Operators need evidence that Online search was rebuilt or selectively refreshed after publication, with status visible before closure.',
+    route: '/publishing/status',
+    action: 'Check Online status',
+  }),
+  Object.freeze({
+    title: 'Rollback reindex',
+    body: 'Rollback or restore must trigger the same search invalidation path so storefront results return to the selected Online revision.',
+    route: '/publishing/withdrawals',
+    action: 'Review rollback path',
+  }),
+  Object.freeze({
+    title: 'Publish failure recovery',
+    body: 'Failures must show whether Online changed, whether search/media side effects ran, and which retry or compensation action is safe.',
+    route: '/publishing/failures',
+    action: 'Open recovery',
+  }),
+  Object.freeze({
+    title: 'Search health evidence',
+    body: 'Closure requires health evidence for index freshness, projection count, failed documents, and target channel verification.',
+    route: '/publishing/audit',
+    action: 'Inspect audit trail',
+  }),
+  Object.freeze({
+    title: 'Media promotion readiness',
+    body: 'Media assets referenced by CMS, products, categories, or campaigns must be promotable, rights-approved, and recoverable before Online approval.',
+    route: '/media',
+    action: 'Open Media',
+  }),
+]);
+
 const canonicalPublicationStates = Object.freeze([
   'DRAFT',
   'VALIDATING',
@@ -440,6 +479,59 @@ export function PublishingDashboardRoutePage({
               Staged imports prepare evidence; approval authorizes Online movement.
               Axis should never describe an import as live until Online status and
               browser delivery are verified.
+            </Alert>
+          </Stack>
+        </Paper>
+
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+        >
+          <Stack spacing={dashboardContentGap}>
+            <Box>
+              <Typography variant="h5">Search and media publication hooks</Typography>
+              <Typography color="text.secondary">
+                Publishing is not complete when the database pointer changes. Search
+                projections, media promotion readiness, rollback reindex, and failure
+                recovery must be traceable before an operator closes the request.
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 2,
+                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+              }}
+            >
+              {publicationSideEffectHooks.map((hook) => (
+                <Paper
+                  component="article"
+                  elevation={0}
+                  key={hook.title}
+                  sx={{ border: 1, borderColor: 'divider', p: 2 }}
+                >
+                  <Stack spacing={1.25}>
+                    <Typography variant="h6">{hook.title}</Typography>
+                    <Typography color="text.secondary" variant="body2">
+                      {hook.body}
+                    </Typography>
+                    <Button
+                      component={RouterLink}
+                      size="small"
+                      to={hook.route}
+                      variant="outlined"
+                    >
+                      {hook.action}
+                    </Button>
+                  </Stack>
+                </Paper>
+              ))}
+            </Box>
+            <Alert severity="warning">
+              Search and media hooks stay backend-owned. Axis should expose readiness,
+              health, audit, and browser evidence, but must not silently mark Online
+              publication complete when side effects are still pending.
             </Alert>
           </Stack>
         </Paper>
