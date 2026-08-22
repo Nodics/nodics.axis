@@ -60,6 +60,33 @@ function sourceForPath(
   );
 }
 
+const documentationLifecycleSteps = Object.freeze([
+  Object.freeze({
+    title: '1. Import to Staged',
+    body: 'Install or update backend-owned content templates and documentation data from the content pack.',
+  }),
+  Object.freeze({
+    title: '2. Submit for approval',
+    body: 'Create the governed publication request. Online documentation must not change before approval.',
+  }),
+  Object.freeze({
+    title: '3. Approve and publish',
+    body: 'Use Process approval and nPublish to move the approved documentation release Online.',
+  }),
+  Object.freeze({
+    title: '4. Verify Online',
+    body: 'Open the documentation route in the browser, then inspect Publishing status, history, and audit.',
+  }),
+]);
+
+function documentationReadinessLabel(readiness: string | undefined): string {
+  if (!readiness) return 'Unknown';
+  if (readiness === 'NOT_IMPORTED') return 'Not initialized';
+  if (readiness === 'PUBLICATION_PENDING') return 'Waiting for approval';
+  if (readiness === 'READY') return 'Online and ready';
+  return readiness.replaceAll('_', ' ').toLowerCase();
+}
+
 interface CmsDocumentationRoutePageProps extends DocumentationRoutePageProps {
   readonly administrationConnection: AxisModuleConnection;
   readonly source: Extract<AxisDocumentationSource, { readonly type: 'CMS' }>;
@@ -194,6 +221,79 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
             </Alert>
           ) : null}
         </Paper>
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: 2 }}
+        >
+          <Stack spacing={2}>
+            <Box>
+              <Typography variant="h6">Online verification checklist</Typography>
+              <Typography color="text.secondary" variant="body2">
+                This documentation release is Online. Verification should still capture
+                the browser page, publication receipt, rollback candidate, and audit
+                trail before the task is closed.
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 1,
+                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+              }}
+            >
+              {documentationLifecycleSteps.map((step) => (
+                <Alert key={step.title} severity="info">
+                  <Typography component="div" variant="subtitle2">
+                    {step.title}
+                  </Typography>
+                  <Typography component="div" variant="body2">
+                    {step.body}
+                  </Typography>
+                </Alert>
+              ))}
+            </Box>
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+              <Chip label={`Site: ${publication.data.siteCode}`} size="small" />
+              <Chip
+                label={`Content pack: ${source.packCode}`}
+                size="small"
+                variant="outlined"
+              />
+              <Chip
+                label={`Release: ${publication.data.releaseCode} ${publication.data.releaseVersion}`}
+                size="small"
+                variant="outlined"
+              />
+              <Chip
+                label={`Profile: ${initializationProfile}`}
+                size="small"
+                variant="outlined"
+              />
+              {publication.data.publication ? (
+                <Chip
+                  label={`Revision: ${String(publication.data.publication.revision)}`}
+                  size="small"
+                  variant="outlined"
+                />
+              ) : null}
+            </Stack>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              <Button onClick={() => void reconcile()} variant="outlined">
+                Refresh evidence
+              </Button>
+              <Button onClick={() => window.open('/publishing/status', '_blank')} variant="outlined">
+                Check Online status
+              </Button>
+              <Button onClick={() => window.open('/publishing/history', '_blank')} variant="outlined">
+                View history
+              </Button>
+              <Button onClick={() => window.open('/publishing/audit', '_blank')} variant="outlined">
+                Inspect audit
+              </Button>
+            </Stack>
+          </Stack>
+        </Paper>
         <CmsRoutePage
           channel={props.channel}
           cmsBaseUrl={props.cmsBaseUrl}
@@ -302,6 +402,70 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
             ) : null}
 
             {error ? <Alert severity="error">{error}</Alert> : null}
+
+            <Paper
+              component="section"
+              elevation={0}
+              sx={{ border: 1, borderColor: 'divider', p: 2 }}
+            >
+              <Stack spacing={2}>
+                <Box>
+                  <Typography variant="h6">
+                    Documentation initialization journey
+                  </Typography>
+                  <Typography color="text.secondary" variant="body2">
+                    Install content templates and docs data to Staged first. Then
+                    request approval-backed publication and verify the Online
+                    documentation route in the browser.
+                  </Typography>
+                </Box>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gap: 1,
+                    gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+                  }}
+                >
+                  {documentationLifecycleSteps.map((step) => (
+                    <Alert key={step.title} severity="info">
+                      <Typography component="div" variant="subtitle2">
+                        {step.title}
+                      </Typography>
+                      <Typography component="div" variant="body2">
+                        {step.body}
+                      </Typography>
+                    </Alert>
+                  ))}
+                </Box>
+                <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                  <Chip
+                    label={`Content pack: ${source.packCode}`}
+                    size="small"
+                    variant="outlined"
+                  />
+                  <Chip
+                    label={`Profile: ${initializationProfile}`}
+                    size="small"
+                    variant="outlined"
+                  />
+                  <Chip
+                    label={`Staged: ${pack.data?.state ?? 'checking'}`}
+                    size="small"
+                    variant="outlined"
+                  />
+                  <Chip
+                    label={`Online: ${documentationReadinessLabel(publication.data?.readiness)}`}
+                    size="small"
+                    variant="outlined"
+                  />
+                </Stack>
+                <Alert severity="warning">
+                  Documentation version `0` is valid while Nodics is pre-release.
+                  Content changes still require regenerated backend-owned releases and
+                  must not bypass approval before Online publication.
+                </Alert>
+              </Stack>
+            </Paper>
 
             {publication.data &&
             ['FAILED', 'REJECTED'].includes(publication.data.readiness) ? (
