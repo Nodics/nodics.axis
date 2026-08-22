@@ -26,6 +26,7 @@ import { CronDashboardRoutePage } from '../operations/cron/CronDashboardRoutePag
 import { ContentDashboardRoutePage } from '../operations/contentExperience/ContentDashboardRoutePage';
 import { ContentDesignerRoutePage } from '../operations/contentExperience/ContentDesignerRoutePage';
 import { PublishingDashboardRoutePage } from '../operations/contentExperience/PublishingDashboardRoutePage';
+import { PublishingRouteGuidancePage } from '../operations/contentExperience/PublishingRouteGuidancePage';
 import { ImportExportRoutePage } from '../operations/importExport/ImportExportRoutePage';
 import { ComplianceManagementRoutePage } from '../operations/compliance/ComplianceManagementRoutePage';
 import { NotificationManagementRoutePage } from '../operations/notifications/NotificationManagementRoutePage';
@@ -700,6 +701,19 @@ export function App() {
               bootstrap={authenticatedBootstrap}
               routeNavigation={publishingDashboardNavigation}
               runtime={runtime}
+            />
+          ) : (
+            <ModuleWorkspacePlaceholder item={publishingDashboardNavigation} />
+          ),
+        )
+      : sessionFallback;
+  const publishingRouteGuidanceElement =
+    session && !locked && authenticatedBootstrap && publishingDashboardNavigation
+      ? authenticatedShell(
+          ['UP', 'DEGRADED'].includes(publishingDashboardNavigation.availability) ? (
+            <PublishingRouteGuidancePage
+              path={location.pathname}
+              routeNavigation={publishingDashboardNavigation}
             />
           ) : (
             <ModuleWorkspacePlaceholder item={publishingDashboardNavigation} />
@@ -1407,7 +1421,7 @@ export function App() {
         <Route path="/content/designer" element={contentDesignerElement} />
         <Route path="/content/*" element={cmsWorkbenchElement} />
         <Route path="/publishing" element={publishingDashboardElement} />
-        <Route path="/publishing/*" element={cmsWorkbenchElement} />
+        <Route path="/publishing/*" element={publishingRouteGuidanceElement} />
         <Route path="/compliance-management/*" element={complianceElement} />
         <Route path="/notifications/*" element={notificationElement} />
         <Route path="/commerce/catalog/readiness" element={productSellabilityElement} />
