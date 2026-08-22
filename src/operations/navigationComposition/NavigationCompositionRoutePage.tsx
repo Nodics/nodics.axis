@@ -376,8 +376,8 @@ export function NavigationCompositionRoutePage(
                 </Typography>
                 <Typography color="text.secondary" variant="body2">
                   Read-only view of group, item, route owner, module owner, source,
-                  feature state, and availability. Showing {String(filteredNavigation.length)}
-                  of {String(navigation.length)} items.
+                  feature state, and availability. Showing{' '}
+                  {String(filteredNavigation.length)} of {String(navigation.length)} items.
                 </Typography>
               </Box>
               {visibleGroups.length === 0 ? (
