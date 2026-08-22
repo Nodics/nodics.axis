@@ -160,6 +160,7 @@ export function formatRunType(dataType: string | undefined): string {
   if (normalized === 'core') return 'Core data';
   if (normalized === 'sample') return 'Sample data';
   if (normalized === 'local') return 'Content pack import';
+  if (normalized === 'export') return 'Data export';
   return 'Data import';
 }
 

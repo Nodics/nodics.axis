@@ -40,6 +40,38 @@ interface NavigationRailProps {
   readonly onToggleFavourite: (key: string) => void;
 }
 
+function navigationPrimaryTextSx(depth: number) {
+  if (depth <= 0) {
+    return {
+      fontSize: '0.71875rem',
+      fontWeight: 720,
+      letterSpacing: '0.01em',
+      lineHeight: 1.35,
+    } as const;
+  }
+  if (depth === 1) {
+    return {
+      fontSize: '0.6875rem',
+      fontWeight: 660,
+      letterSpacing: '0.005em',
+      lineHeight: 1.35,
+    } as const;
+  }
+  return {
+    fontSize: '0.65625rem',
+    fontWeight: 620,
+    lineHeight: 1.35,
+  } as const;
+}
+
+function navigationSecondaryTextSx() {
+  return {
+    fontSize: '0.6875rem',
+    fontWeight: 500,
+    lineHeight: 1.25,
+  } as const;
+}
+
 export function NavigationRail({
   activePath,
   compact,
@@ -223,7 +255,17 @@ export function NavigationRail({
                     });
                   }}
                 >
-                  <Typography variant="overline">{group.label}</Typography>
+                  <Typography
+                    sx={{
+                      fontSize: '0.71875rem',
+                      fontWeight: 800,
+                      letterSpacing: '0.2em',
+                      lineHeight: 1.35,
+                    }}
+                    variant="overline"
+                  >
+                    {group.label}
+                  </Typography>
                   <Box
                     aria-hidden
                     data-navigation-expander="group"
@@ -335,7 +377,13 @@ export function NavigationRail({
                           />
                         </ListItemIcon>
                         <ListItemText
-                          sx={{ display: compact ? 'none' : 'block' }}
+                          sx={{
+                            display: compact ? 'none' : 'block',
+                            '& .MuiListItemText-primary': navigationPrimaryTextSx(
+                              item.depth,
+                            ),
+                            '& .MuiListItemText-secondary': navigationSecondaryTextSx(),
+                          }}
                           primary={item.label}
                           secondary={
                             item.availability === 'UP'
@@ -345,8 +393,12 @@ export function NavigationRail({
                               : availabilityLabel(item.availability)
                           }
                           slotProps={{
-                            primary: { noWrap: true },
-                            secondary: { noWrap: true },
+                            primary: {
+                              noWrap: true,
+                            },
+                            secondary: {
+                              noWrap: true,
+                            },
                           }}
                         />
                         {!item.local && item.availability !== 'UP' ? (

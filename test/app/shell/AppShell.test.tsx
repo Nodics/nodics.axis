@@ -391,10 +391,9 @@ describe('Axis application shell navigation', () => {
     expect(screen.getByRole('button', { name: 'Websites' })).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: 'Collapse Content submenu' }));
-    expect(screen.getByRole('button', { name: 'Expand Content submenu' })).toHaveAttribute(
-      'aria-expanded',
-      'false',
-    );
+    expect(
+      screen.getByRole('button', { name: 'Expand Content submenu' }),
+    ).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('button', { name: 'Websites' })).not.toBeInTheDocument();
 
     await user.click(collapse);

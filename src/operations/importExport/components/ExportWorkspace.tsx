@@ -73,6 +73,15 @@ function schemaLabel(schema: WorkbenchSchema): string {
 }
 
 function recordKey(record: WorkbenchRecord, index: number): string {
+  const parts = [record.code, record.id, record._id, record.versionId, record.revision]
+    .filter(
+      (candidate) =>
+        typeof candidate === 'string' ||
+        typeof candidate === 'number' ||
+        typeof candidate === 'boolean',
+    )
+    .map(String);
+  if (parts.length > 1) return parts.join(':');
   for (const candidate of [record.code, record.id, record._id]) {
     if (
       typeof candidate === 'string' ||
@@ -126,7 +135,9 @@ function runtimeCanGenerateExport(
 ): boolean {
   if (schemaConnection.runtimeRole?.publication === 'ONLINE') return false;
   return (
-    Boolean(selectServiceConnectionForSchemaRuntime(schemaConnection, exportConnections)) &&
+    Boolean(
+      selectServiceConnectionForSchemaRuntime(schemaConnection, exportConnections),
+    ) &&
     Boolean(selectServiceConnectionForSchemaRuntime(schemaConnection, mediaConnections))
   );
 }
@@ -143,14 +154,21 @@ function findSchemaConnection(
   schema: WorkbenchSchema,
   connections: readonly AxisModuleConnection[],
 ): AxisModuleConnection | undefined {
+  const moduleName = schemaConnectionModuleName(schema);
   return (
     connections.find(
       (connection) =>
-        connection.moduleName === schemaConnectionModuleName(schema) &&
+        connection.moduleName === moduleName &&
+        schema.connectionInstanceId !== undefined &&
         connection.instanceId === schema.connectionInstanceId,
     ) ??
     connections.find(
-      (connection) => connection.instanceId === schema.connectionInstanceId,
+      (connection) =>
+        schema.connectionInstanceId !== undefined &&
+        connection.instanceId === schema.connectionInstanceId,
+    ) ??
+    connections.find(
+      (connection) => connection.moduleName === moduleName && connection.state === 'UP',
     )
   );
 }
@@ -284,11 +302,23 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
       ) {
         byKey.set(
           schemaKey(schema),
-          preferredExportSchema(byKey.get(schemaKey(schema)), schema, props.schemaConnections),
+          preferredExportSchema(
+            byKey.get(schemaKey(schema)),
+            schema,
+            props.schemaConnections,
+          ),
         );
       }
     }
-    return Object.freeze([...byKey.values()]);
+    return Object.freeze(
+      [...byKey.values()].sort((left, right) => {
+        const moduleCompare = titleCase(left.moduleName).localeCompare(
+          titleCase(right.moduleName),
+        );
+        if (moduleCompare !== 0) return moduleCompare;
+        return schemaLabel(left).localeCompare(schemaLabel(right));
+      }),
+    );
   }, [
     props.exportConnections,
     props.mediaConnections,
@@ -300,31 +330,28 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
     [schemaOptions, schemaSelection],
   );
   const selectedSort = sort ?? selectedSchema?.queryCapabilities.defaultSort;
-  const selectedConnection = useMemo(
-    () => {
-      if (!selectedSchema) return undefined;
-      const selectedInstance = findSchemaConnection(
-        selectedSchema,
-        props.schemaConnections,
-      );
-      if (
-        selectedInstance &&
-        isExportSchemaSource(selectedInstance) &&
-        selectedInstance.runtimeRole?.publication !== 'ONLINE'
-      ) {
-        return selectedInstance;
-      }
-      return (
-        props.schemaConnections.find(
-          (connection) =>
-            connection.moduleName === selectedSchema.moduleName &&
-            connection.state === 'UP' &&
-            connection.runtimeRole?.publication !== 'ONLINE',
-        ) ?? selectedInstance
-      );
-    },
-    [props.schemaConnections, selectedSchema],
-  );
+  const selectedConnection = useMemo(() => {
+    if (!selectedSchema) return undefined;
+    const selectedInstance = findSchemaConnection(
+      selectedSchema,
+      props.schemaConnections,
+    );
+    if (
+      selectedInstance &&
+      isExportSchemaSource(selectedInstance) &&
+      selectedInstance.runtimeRole?.publication !== 'ONLINE'
+    ) {
+      return selectedInstance;
+    }
+    return (
+      props.schemaConnections.find(
+        (connection) =>
+          connection.moduleName === selectedSchema.moduleName &&
+          connection.state === 'UP' &&
+          connection.runtimeRole?.publication !== 'ONLINE',
+      ) ?? selectedInstance
+    );
+  }, [props.schemaConnections, selectedSchema]);
   const selectedExportConnection = useMemo(() => {
     return selectServiceConnectionForSchemaRuntime(
       selectedConnection,
@@ -513,8 +540,8 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
                 </Typography>
                 <Typography color="text.secondary">
                   Select the backend schema that owns the records. The dropdown is
-                  grouped by owning module and only includes runtimes that can
-                  generate governed export media.
+                  grouped by owning module and only includes runtimes that can generate
+                  governed export media.
                 </Typography>
               </Stack>
               {!hasEnterprise ? (

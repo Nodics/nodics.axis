@@ -19,6 +19,7 @@ import {
   loadWorkbenchRecords,
   loadWorkbenchSchemas,
 } from '../../workbench/api/workbenchClient';
+import type { WorkbenchSchema } from '../../workbench/api/workbenchContracts';
 
 interface ProductLocalizationPreviewProps {
   readonly accessToken: string;
@@ -31,12 +32,45 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+function previewPageSize(schema: WorkbenchSchema): number {
+  const allowed = schema.queryCapabilities.allowedPageSizes.filter(
+    (size) => size <= schema.queryCapabilities.maximumPageSize,
+  );
+  return (
+    allowed.find((size) => size >= schema.queryCapabilities.defaultPageSize) ??
+    allowed[0] ??
+    schema.queryCapabilities.defaultPageSize
+  );
+}
+
+function previewSort(schema: WorkbenchSchema): WorkbenchSchema['queryCapabilities']['defaultSort'] {
+  const defaultSort = schema.queryCapabilities.defaultSort;
+  if (schema.queryCapabilities.sortableFields.includes('locale')) {
+    return { field: 'locale', direction: 'ASC' };
+  }
+  return defaultSort;
+}
+
+function productLocalizationSchema(
+  schemas: readonly WorkbenchSchema[],
+): WorkbenchSchema | undefined {
+  const candidates = schemas.filter(
+    (candidate) =>
+      candidate.moduleName === 'product' &&
+      candidate.schemaName === 'productLocalization',
+  );
+  return (
+    candidates.find((candidate) => candidate.connectionServer === 'commerceStagedServer') ??
+    candidates.find((candidate) => candidate.connectionEnvironment === 'kickoffLocal') ??
+    candidates[0]
+  );
+}
+
 /**
  * Renders a read-only side-by-side preview from backend-owned Product
  * localization records. Publication decisions remain exclusively backend-owned.
  */
 export function ProductLocalizationPreview(props: ProductLocalizationPreviewProps) {
-  const connection = selectModuleConnection(props.bootstrap, 'product');
   const configuration = useMemo(
     () => ({
       accessToken: props.accessToken,
@@ -45,23 +79,30 @@ export function ProductLocalizationPreview(props: ProductLocalizationPreviewProp
     }),
     [props.accessToken, props.runtime.enterpriseCode, props.runtime.requestTimeoutMs],
   );
+  const productConnections = props.bootstrap.moduleConnections.product ?? [];
   const preview = useQuery({
-    enabled: Boolean(connection && props.productCode.trim()),
+    enabled: Boolean(productConnections.length && props.productCode.trim()),
     queryKey: [
       'product-localization-preview',
       props.runtime.enterpriseCode,
-      connection?.instanceId,
+      productConnections.map((connection) => connection.instanceId).join('|'),
       props.productCode.trim(),
     ],
     queryFn: async ({ signal }) => {
-      if (!connection) throw new Error('Product module is unavailable');
-      const schemas = await loadWorkbenchSchemas([connection], configuration);
-      const schema = schemas.find(
-        (candidate) =>
-          candidate.moduleName === 'product' &&
-          candidate.schemaName === 'productLocalization',
-      );
+      if (productConnections.length === 0) {
+        throw new Error('Product module is unavailable');
+      }
+      const schemas = await loadWorkbenchSchemas(productConnections, configuration);
+      const schema = productLocalizationSchema(schemas);
       if (!schema) throw new Error('Product localization schema is unavailable');
+      const connection =
+        selectModuleConnection(props.bootstrap, 'product', {
+          ...(schema.connectionServer ? { server: schema.connectionServer } : {}),
+          ...(schema.connectionEnvironment
+            ? { environment: schema.connectionEnvironment }
+            : {}),
+        }) ?? selectModuleConnection(props.bootstrap, 'product');
+      if (!connection) throw new Error('Product module is unavailable');
       return loadWorkbenchRecords(
         connection,
         schema,
@@ -78,9 +119,9 @@ export function ProductLocalizationPreview(props: ProductLocalizationPreviewProp
             ],
           },
           pageNumber: 1,
-          pageSize: 100,
+          pageSize: previewPageSize(schema),
           search: '',
-          sort: { field: 'locale', direction: 'ASC' },
+          sort: previewSort(schema),
         },
         fetch,
         signal,
@@ -93,7 +134,7 @@ export function ProductLocalizationPreview(props: ProductLocalizationPreviewProp
       <Alert severity="warning">Select a Product code before opening preview.</Alert>
     );
   }
-  if (!connection) {
+  if ((props.bootstrap.moduleConnections.product ?? []).length === 0) {
     return (
       <Alert severity="error">The Product module is not currently available.</Alert>
     );

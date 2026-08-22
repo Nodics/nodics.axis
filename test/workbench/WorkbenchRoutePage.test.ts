@@ -181,6 +181,35 @@ describe('resolveWorkbenchRouteTarget', () => {
     });
   });
 
+  it('prefers the Staged runtime when the route owner preference does not match a duplicate schema', () => {
+    const stagedRequest = {
+      ...schema('publish', 'publicationRequest', ['search', 'read']),
+      connectionServer: 'wcmsStagedServer',
+      connectionEnvironment: 'kickoffLocal',
+    };
+    const engagementRequest = {
+      ...schema('publish', 'publicationRequest', ['search', 'read']),
+      connectionServer: 'engagementServer',
+      connectionEnvironment: 'kickoffLocal',
+    };
+
+    expect(
+      summarize(
+        resolveWorkbenchRouteTarget(
+          { moduleName: 'publish', schemaName: 'publicationRequest' },
+          [engagementRequest, stagedRequest],
+          { environment: 'kickoffLocal', server: 'platformServer' },
+        ),
+      ),
+    ).toEqual({
+      key: 'publish:publicationRequest:browse:route:default',
+      mode: undefined,
+      moduleName: 'publish',
+      schemaName: 'publicationRequest',
+      connectionServer: 'wcmsStagedServer',
+    });
+  });
+
   it('does not open create mode unless the backend schema advertises create', () => {
     expect(
       summarize(

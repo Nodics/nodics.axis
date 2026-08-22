@@ -592,6 +592,30 @@ export async function loadImportHistory(
   );
 }
 
+export async function loadExportHistory(
+  connection: AxisModuleConnection,
+  configuration: DataReleaseClientConfiguration,
+  fetchImplementation: typeof fetch = fetch,
+): Promise<readonly ImportRunSummary[]> {
+  const value = await request(
+    connection,
+    '/history?limit=50&skip=0',
+    configuration,
+    {},
+    fetchImplementation,
+    exportServiceErrorContext,
+  );
+  if (!Array.isArray(value)) throw new Error('Export history is invalid');
+  return Object.freeze(
+    value.map((item) => {
+      const exportRun = parseImportRun(item);
+      if (!exportRun || exportRun.runId === 'unknown')
+        throw new Error('Export run identifier is invalid');
+      return exportRun;
+    }),
+  );
+}
+
 export async function loadImportHistoryForMediaCode(
   connection: AxisModuleConnection,
   configuration: DataReleaseClientConfiguration,

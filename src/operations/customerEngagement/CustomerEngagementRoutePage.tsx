@@ -71,7 +71,7 @@ export function CustomerEngagementRoutePage({
           >
             <Box sx={{ maxWidth: 880 }}>
               <Typography color="text.secondary" variant="overline">
-                Customer Experience
+                Customers and Organisation
               </Typography>
               <Typography variant="h4">{navigation.label}</Typography>
               <Typography color="text.secondary" sx={{ mt: 0.5 }}>

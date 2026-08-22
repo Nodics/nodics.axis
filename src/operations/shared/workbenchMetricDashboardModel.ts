@@ -89,8 +89,12 @@ function findMetricSchema(
       schema.schemaName === definition.schemaName,
   );
   return (
-    candidates.find((schema) => schema.connectionServer?.includes('Staged')) ??
-    candidates.find((schema) => schema.connectionModuleName === definition.moduleName) ??
+    candidates.find((schema) =>
+      schema.connectionServer?.toLowerCase().includes('staged'),
+    ) ??
+    candidates.find(
+      (schema) => schema.connectionModuleName === definition.moduleName,
+    ) ??
     candidates[0]
   );
 }

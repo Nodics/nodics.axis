@@ -98,6 +98,7 @@ function selectPreferredRouteSchema(
         connectionPreference.server !== undefined &&
         schema.connectionServer === connectionPreference.server,
     ) ??
+    schemas.find((schema) => schema.connectionServer?.includes('Staged')) ??
     schemas.find(
       (schema) =>
         connectionPreference.environment !== undefined &&

@@ -112,6 +112,34 @@ function selectWorkbenchSchemaConnection(
   );
 }
 
+function routePreferredServer(
+  navigation: WorkbenchRoutePageProps['routeNavigation'],
+  routeOwnerConnection: AxisModuleConnection | undefined,
+): string | undefined {
+  const groupId = navigation?.group?.id;
+  const route = navigation?.route ?? '';
+  if (
+    groupId === 'content' ||
+    groupId === 'publishing' ||
+    route.startsWith('/content') ||
+    route.startsWith('/publishing')
+  ) {
+    return 'wcmsStagedServer';
+  }
+  if (
+    groupId === 'products-merchandising' ||
+    groupId === 'search-discovery' ||
+    groupId === 'inventory-operations' ||
+    groupId === 'promotions-discounts' ||
+    route.startsWith('/commerce/catalog') ||
+    route.startsWith('/commerce/search') ||
+    route.startsWith('/commerce/inventory')
+  ) {
+    return 'commerceStagedServer';
+  }
+  return routeOwnerConnection?.server;
+}
+
 interface OpenedReferenceRecord {
   readonly record: WorkbenchRecord;
   readonly reference: string;
@@ -508,9 +536,11 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
         props.routeNavigation,
         normalizedSelectedSchema,
       );
-      const actionConnection = action.ownerModule
-        ? selectModuleConnection(props.bootstrap, action.ownerModule)
-        : recordConnection;
+      const actionConnection =
+        action.ownerModule &&
+        action.ownerModule !== workbenchConnectionModuleName(normalizedSelectedSchema)
+          ? selectModuleConnection(props.bootstrap, action.ownerModule)
+          : recordConnection;
       if (!actionConnection) {
         throw new Error('Lifecycle action owner module is unavailable');
       }
@@ -613,7 +643,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
         schemas.data ?? [],
         {
           environment: routeOwnerConnection?.environment,
-          server: routeOwnerConnection?.server,
+          server: routePreferredServer(props.routeNavigation, routeOwnerConnection),
         },
         routeScopeKey,
       )
@@ -622,8 +652,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
     location.search,
     props.routeNavigation,
     props.routeSchema,
-    routeOwnerConnection?.environment,
-    routeOwnerConnection?.server,
+    routeOwnerConnection,
     schemas.data,
   ]);
   useEffect(() => {

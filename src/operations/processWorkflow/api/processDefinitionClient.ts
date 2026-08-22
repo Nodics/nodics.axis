@@ -193,6 +193,17 @@ function listPayload(value: unknown): readonly unknown[] {
   return Object.freeze([]);
 }
 
+function mergeHumanTaskPayloads(...payloads: readonly unknown[]): readonly ProcessHumanTask[] {
+  const merged = new Map<string, ProcessHumanTask>();
+  for (const payload of payloads) {
+    for (const item of listPayload(payload)) {
+      const task = parseHumanTask(item);
+      if (!merged.has(task.code)) merged.set(task.code, task);
+    }
+  }
+  return Object.freeze([...merged.values()]);
+}
+
 function parseValidation(value: unknown): ProcessValidationResult | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value))
     return undefined;
@@ -829,8 +840,20 @@ export async function loadProcessOperationsSummary(
   connection: AxisModuleConnection,
   configuration: ProcessDefinitionClientConfiguration,
 ): Promise<ProcessOperationsSummary> {
-  const [instances, tasks, auditEvents, triggers, incidents] = await Promise.all([
+  const [
+    instances,
+    openTasks,
+    claimedTasks,
+    escalatedTasks,
+    recentTasks,
+    auditEvents,
+    triggers,
+    incidents,
+  ] = await Promise.all([
     request(connection, '/instances?limit=25', configuration),
+    request(connection, '/tasks?status=OPEN&limit=25', configuration),
+    request(connection, '/tasks?status=CLAIMED&limit=25', configuration),
+    request(connection, '/tasks?status=ESCALATED&limit=25', configuration),
     request(connection, '/tasks?limit=25', configuration),
     request(connection, '/audit-events?limit=25', configuration),
     request(connection, '/triggers?limit=25', configuration),
@@ -838,7 +861,7 @@ export async function loadProcessOperationsSummary(
   ]);
   return Object.freeze({
     instances: Object.freeze(listPayload(instances).map(parseRuntimeInstance)),
-    tasks: Object.freeze(listPayload(tasks).map(parseHumanTask)),
+    tasks: mergeHumanTaskPayloads(openTasks, claimedTasks, escalatedTasks, recentTasks),
     auditEvents: Object.freeze(listPayload(auditEvents).map(parseAuditEvent)),
     triggers: Object.freeze(listPayload(triggers).map(parseTrigger)),
     incidents: Object.freeze(listPayload(incidents).map(parseIncident)),

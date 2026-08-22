@@ -211,15 +211,17 @@ export function PublishingDashboardRoutePage({
               <Box>
                 <Typography variant="h5">Approval tasks</Typography>
                 <Typography color="text.secondary">
-                  Publication approvals are governed Process tasks. Review them here
-                  or open the full task inbox to claim, approve, reject, or inspect
+                  Publication approvals are governed Process tasks. Review them here or
+                  open the full task inbox to claim, approve, reject, or inspect
                   workflow evidence.
                 </Typography>
               </Box>
               <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
                 <Chip
                   color={processConnection ? 'success' : 'warning'}
-                  label={processConnection ? processConnection.state : 'Process unavailable'}
+                  label={
+                    processConnection ? processConnection.state : 'Process unavailable'
+                  }
                   variant={processConnection ? 'filled' : 'outlined'}
                 />
                 <Chip
@@ -233,8 +235,7 @@ export function PublishingDashboardRoutePage({
             {!processConnection ? (
               <Alert severity="warning">
                 The Process runtime is not available, so Axis cannot show publication
-                approval tasks. Start Process and return to Publishing → Approval
-                Tasks.
+                approval tasks. Start Process and return to Publishing → Approval Tasks.
               </Alert>
             ) : processSummary.isError ? (
               <Alert severity="warning">
@@ -281,7 +282,11 @@ export function PublishingDashboardRoutePage({
               <Button component={RouterLink} to="/process/tasks" variant="contained">
                 Review approval tasks
               </Button>
-              <Button component={RouterLink} to="/publishing/requests" variant="outlined">
+              <Button
+                component={RouterLink}
+                to="/publishing/requests"
+                variant="outlined"
+              >
                 View publishing requests
               </Button>
               <Button component={RouterLink} to="/publishing/status" variant="outlined">

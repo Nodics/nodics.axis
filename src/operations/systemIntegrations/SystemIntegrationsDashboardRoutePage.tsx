@@ -530,9 +530,9 @@ export function SystemIntegrationsDashboardRoutePage({
                 <Stack spacing={0.25}>
                   <Typography variant="subtitle1">Runtime topology</Typography>
                   <Typography color="text.secondary" variant="body2">
-                    Load Balancer → Nodes. Single-server runtimes are displayed as
-                    Node 0 so operators have the same mental model locally and in
-                    multi-node environments.
+                    Load Balancer → Nodes. Single-server runtimes are displayed as Node
+                    0 so operators have the same mental model locally and in multi-node
+                    environments.
                   </Typography>
                 </Stack>
                 <Button

@@ -30,7 +30,7 @@ describe('Axis shell navigation composition', () => {
     expect(groups.map((group) => group.label)).toEqual([
       'System and Integrations',
       'Content and Experience',
-      'Catalogs and Products',
+      'Products and Merchandising',
     ]);
     expect(groups[0]?.items[0]).toEqual(
       expect.objectContaining({ label: 'Runtime Dashboard', local: true }),
@@ -120,8 +120,8 @@ describe('Axis shell navigation composition', () => {
     ]);
 
     const system = groups.find((entry) => entry.id === 'system-integrations');
-    const content = groups.find((entry) => entry.id === 'content-experience');
-    const process = groups.find((entry) => entry.id === 'process-automations');
+    const content = groups.find((entry) => entry.id === 'content');
+    const process = groups.find((entry) => entry.id === 'process-and-automations');
 
     expect(system?.items.map((item) => item.id)).toEqual(['dashboard']);
     expect(content?.items.map((item) => [item.id, item.depth])).toEqual([
@@ -160,7 +160,7 @@ describe('Axis shell navigation composition', () => {
       },
     ]);
 
-    const commerce = groups.find((entry) => entry.id === 'catalogs-products');
+    const commerce = groups.find((entry) => entry.id === 'products-merchandising');
     expect(
       commerce?.items.map((item) => [item.moduleName, item.id, item.depth]),
     ).toEqual([
@@ -272,9 +272,78 @@ describe('Axis shell navigation composition', () => {
         .filter((group) => group.items.some((item) => item.id !== 'dashboard'))
         .map((group) => [group.id, group.label]),
     ).toEqual([
-      ['customers-organisation', 'Customers and Organisation'],
-      ['search-navigations', 'Search and Navigations'],
+      ['organization', 'Customers and Organisation'],
+      ['search-discovery', 'Search and Discovery'],
       ['publishing', 'Publishing'],
     ]);
+  });
+
+  it('keeps child entries under their backend-owned parent group before keyword fallback', () => {
+    const groups = composeShellNavigation([
+      {
+        id: 'customer-engagement',
+        label: 'Customer Engagement',
+        route: '/engagement',
+        order: 10,
+        moduleName: 'engagementCore',
+        category: 'experience',
+        icon: 'message',
+        availability: 'UP',
+        group: {
+          id: 'customer-experience',
+          label: 'Customer Experience',
+          order: 320,
+        },
+      },
+      {
+        id: 'testimonial-editorial',
+        parentId: 'customer-engagement',
+        parentModuleName: 'engagementCore',
+        label: 'Editorial Versions',
+        route: '/engagement/testimonial-editorial',
+        order: 20,
+        moduleName: 'testimonial',
+        category: 'experience',
+        icon: 'message',
+        availability: 'UP',
+      },
+      {
+        id: 'review-publications',
+        parentId: 'customer-engagement',
+        parentModuleName: 'engagementCore',
+        label: 'Published Reviews',
+        route: '/engagement/review-publications',
+        order: 30,
+        moduleName: 'customerReview',
+        category: 'experience',
+        icon: 'message',
+        availability: 'UP',
+      },
+      {
+        id: 'engagement-delivery-attempts',
+        parentId: 'customer-engagement',
+        parentModuleName: 'engagementCore',
+        label: 'Provider Deliveries',
+        route: '/engagement/provider-deliveries',
+        order: 40,
+        moduleName: 'engagementCore',
+        category: 'experience',
+        icon: 'message',
+        availability: 'UP',
+      },
+    ]);
+
+    const customerGroup = groups.find((group) => group.id === 'organization');
+    expect(customerGroup?.items.map((item) => [item.id, item.depth])).toEqual([
+      ['customer-engagement', 0],
+      ['testimonial-editorial', 1],
+      ['review-publications', 1],
+      ['engagement-delivery-attempts', 1],
+    ]);
+    expect(groups.find((group) => group.id === 'editorial-space')).toBeUndefined();
+    expect(groups.find((group) => group.id === 'publishing')).toBeUndefined();
+    expect(
+      groups.find((group) => group.id === 'fulfillment-operations'),
+    ).toBeUndefined();
   });
 });

@@ -65,6 +65,7 @@ export interface ContentDesignerComponentKind {
 }
 
 export interface ContentDesignerDraftDefaults {
+  readonly accessMode?: string | undefined;
   readonly catalogCode?: string | undefined;
   readonly pageRenderer?: string | undefined;
   readonly pageTypeCode?: string | undefined;
@@ -354,6 +355,10 @@ function parseAuthoringModel(value: unknown): ContentDesignerAuthoringModel {
           : [],
       ),
       draftDefaults: Object.freeze({
+        accessMode:
+          typeof draftDefaults.accessMode === 'string'
+            ? draftDefaults.accessMode
+            : undefined,
         catalogCode:
           typeof draftDefaults.catalogCode === 'string'
             ? draftDefaults.catalogCode
@@ -495,6 +500,23 @@ export async function saveContentDesignerDraft(
       configuration,
       '/designer/composition/draft',
       { method: 'PUT', body: JSON.stringify(draft) },
+      fetchImplementation,
+    ),
+  );
+}
+
+export async function submitContentDesignerDraftForPublication(
+  connection: AxisModuleConnection,
+  configuration: ContentDesignerClientConfiguration,
+  draft: ContentDesignerDraft,
+  fetchImplementation: typeof fetch = fetch,
+): Promise<ContentDesignerOperationResult> {
+  return parseOperationResult(
+    await designerRequest(
+      connection,
+      configuration,
+      '/designer/composition/publication-request',
+      { method: 'POST', body: JSON.stringify(draft) },
       fetchImplementation,
     ),
   );

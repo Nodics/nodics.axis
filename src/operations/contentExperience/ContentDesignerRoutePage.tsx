@@ -42,6 +42,7 @@ import {
 import {
   loadContentDesignerAuthoringModel,
   saveContentDesignerDraft,
+  submitContentDesignerDraftForPublication,
   validateContentDesignerDraft,
   type ContentDesignerAuthoringModel,
   type ContentDesignerComponentKind,
@@ -210,16 +211,32 @@ const designerSteps: readonly DesignerStep[] = Object.freeze([
 ]);
 
 const fallbackDraftDefaults: ContentDesignerDraftDefaults = Object.freeze({
-  catalogCode: 'documentationContentCatalog',
-  pageRenderer: 'axis.documentationPage',
-  pageTypeCode: 'documentationPageType',
-  routePath: '/docs/home',
-  siteCode: 'axisDocumentationSite',
-  slots: Object.freeze(['navigation', 'article', 'relatedResources']),
-  templateCode: 'articleTemplate',
+  accessMode: 'PUBLIC',
+  catalogCode: 'nexusContentCatalog',
+  pageRenderer: 'nexus.page.standard',
+  pageTypeCode: 'nexusCorporateStandardPageType',
+  routePath: '/axis-e2e/content-designer-draft',
+  siteCode: 'nexusCorporateSite',
+  slots: Object.freeze(['main']),
+  templateCode: 'nexusCorporatePageTemplate',
 });
 
 const fallbackComponentKinds: readonly ContentDesignerComponentKind[] = Object.freeze([
+  Object.freeze({
+    label: 'Nexus hero',
+    typeCode: 'nexusPageHeroType',
+    renderer: 'nexus.hero',
+  }),
+  Object.freeze({
+    label: 'Nexus content section',
+    typeCode: 'nexusContentSectionType',
+    renderer: 'nexus.contentSection',
+  }),
+  Object.freeze({
+    label: 'Nexus card grid',
+    typeCode: 'nexusCardGridType',
+    renderer: 'nexus.cardGrid',
+  }),
   Object.freeze({
     label: 'Hero banner',
     typeCode: 'heroBannerComponentType',
@@ -367,6 +384,7 @@ function componentHint(
 }
 
 function buildDraft({
+  accessModeIntent,
   catalogIntent,
   componentIntent,
   componentKinds,
@@ -377,8 +395,8 @@ function buildDraft({
   siteIntent,
   slotIntent,
   templateIntent,
-  supportedLocales,
 }: {
+  readonly accessModeIntent: string;
   readonly catalogIntent: string;
   readonly componentIntent: string;
   readonly componentKinds: readonly ContentDesignerComponentKind[];
@@ -389,7 +407,6 @@ function buildDraft({
   readonly siteIntent: string;
   readonly slotIntent: string;
   readonly templateIntent: string;
-  readonly supportedLocales: readonly string[];
 }): ContentDesignerDraft {
   const pageCode = safeCode(pageIntent, 'newPage');
   const kind = selectedComponentKind(componentIntent, componentKinds);
@@ -398,6 +415,10 @@ function buildDraft({
       ? draftDefaults.slots.join('\n')
       : 'body';
   const slots = parseSlots(slotIntent || defaultSlots);
+  const accessMode = safeCode(
+    accessModeIntent,
+    draftDefaults.accessMode ?? 'AUTHENTICATED',
+  ).toUpperCase();
   return Object.freeze({
     catalogCode: safeCode(catalogIntent, draftDefaults.catalogCode ?? 'contentCatalog'),
     siteCode: safeCode(siteIntent, draftDefaults.siteCode ?? 'contentSite'),
@@ -426,35 +447,23 @@ function buildDraft({
               code: `${pageCode}${slot.charAt(0).toUpperCase()}${slot.slice(1)}Component`,
               renderer: kind.renderer,
               typeCode: kind.typeCode,
-              accessMode: 'AUTHENTICATED',
+              accessMode,
               properties: Object.freeze({
                 trackingId: `${pageCode}-${slot}`,
+                title: `${pageCode} ${slot}`,
+                body: `Draft ${kind.label.toLowerCase()} content for ${slot}.`,
               }),
-              localizations: Object.freeze(
-                supportedLocales.map((locale) =>
-                  Object.freeze({
-                    locale,
-                    status: 'DRAFT',
-                    properties: Object.freeze({
-                      title: `${pageCode} ${slot} (${locale})`,
-                      body: `Draft ${kind.label.toLowerCase()} content for ${slot} in ${locale}.`,
-                    }),
-                  }),
-                ),
-              ),
+              localizations: Object.freeze([]),
             }),
           ]),
         }),
       ),
     ),
     route: Object.freeze({
+      accessMode,
       channel: 'web',
       locale: selectedLocale,
       path: safeRoute(routeIntent, `/docs/${pageCode}`),
-    }),
-    navigation: Object.freeze({
-      label: pageCode,
-      parentCode: 'nodicsDocumentation',
     }),
   });
 }
@@ -503,6 +512,12 @@ function localizedPreviewTitle(
   const value = component?.localizations?.find(
     (localization) => localization.locale === locale,
   )?.properties.title;
+  if (value === undefined) {
+    const sharedTitle = component?.properties?.title;
+    return typeof sharedTitle === 'string' || typeof sharedTitle === 'number'
+      ? String(sharedTitle)
+      : 'missing translation';
+  }
   return typeof value === 'string' || typeof value === 'number'
     ? String(value)
     : 'missing translation';
@@ -727,11 +742,13 @@ export function ContentDesignerRoutePage({
   const [pageIntent, setPageIntent] = useState('home');
   const [slotIntent, setSlotIntent] = useState('');
   const [routeIntent, setRouteIntent] = useState('');
+  const [accessModeIntent, setAccessModeIntent] = useState('');
   const [componentIntent, setComponentIntent] = useState(
-    selectedComponentKind('Hero banner', fallbackComponentKinds).label,
+    selectedComponentKind('Nexus hero', fallbackComponentKinds).label,
   );
   const [selectedLocale, setSelectedLocale] = useState('en');
   const [validatedDraftSignature, setValidatedDraftSignature] = useState('');
+  const [savedDraftSignature, setSavedDraftSignature] = useState('');
   const connections = useMemo(() => activeConnections(bootstrap), [bootstrap]);
   const designerConnection = useMemo(
     () => firstHealthyCmsConnection(bootstrap),
@@ -765,6 +782,11 @@ export function ContentDesignerRoutePage({
   const componentKinds = authoringModel.data?.defaults.componentKinds.length
     ? authoringModel.data.defaults.componentKinds
     : fallbackComponentKinds;
+  const effectiveComponentIntent = componentKinds.some(
+    (kind) => kind.label === componentIntent,
+  )
+    ? componentIntent
+    : componentKinds[0]?.label || fallbackComponentKinds[0]?.label || '';
   const draftDefaults =
     authoringModel.data?.defaults.draftDefaults ?? fallbackDraftDefaults;
   const effectiveCatalogIntent =
@@ -806,7 +828,13 @@ export function ContentDesignerRoutePage({
   const slotOptionNames = slotOptions.map((slot) => slot.name || slot.code);
   const effectiveSlotIntent =
     slotIntent || slotsFromReferences(slotOptions, draftDefaults);
-  const effectiveRouteIntent = routeIntent || draftDefaults.routePath || '/docs/home';
+  const effectiveRouteIntent =
+    routeIntent || draftDefaults.routePath || '/axis-e2e/content-designer-draft';
+  const effectiveAccessModeIntent = (
+    accessModeIntent ||
+    draftDefaults.accessMode ||
+    'AUTHENTICATED'
+  ).toUpperCase();
   const componentTypeOptions = metadata?.componentTypes ?? [];
   const mediaFolderOptions = metadata?.mediaFolders ?? [];
   const mediaTypeOptions = metadata?.mediaTypes ?? [];
@@ -816,8 +844,9 @@ export function ContentDesignerRoutePage({
   const draft = useMemo(
     () =>
       buildDraft({
+        accessModeIntent: effectiveAccessModeIntent,
         catalogIntent: effectiveCatalogIntent,
-        componentIntent,
+        componentIntent: effectiveComponentIntent,
         componentKinds,
         draftDefaults,
         pageIntent,
@@ -826,12 +855,12 @@ export function ContentDesignerRoutePage({
         siteIntent: effectiveSiteIntent,
         slotIntent: effectiveSlotIntent,
         templateIntent: effectiveTemplateIntent,
-        supportedLocales,
       }),
     [
-      componentIntent,
       componentKinds,
       draftDefaults,
+      effectiveAccessModeIntent,
+      effectiveComponentIntent,
       effectiveCatalogIntent,
       effectiveRouteIntent,
       effectiveSiteIntent,
@@ -839,7 +868,6 @@ export function ContentDesignerRoutePage({
       effectiveTemplateIntent,
       pageIntent,
       selectedLocale,
-      supportedLocales,
     ],
   );
   const draftSignature = useMemo(() => JSON.stringify(draft), [draft]);
@@ -858,17 +886,31 @@ export function ContentDesignerRoutePage({
       if (!designerConnection) throw new Error('CMS connection is not available');
       return saveContentDesignerDraft(designerConnection, configuration, draft);
     },
+    onSuccess: () => setSavedDraftSignature(draftSignature),
+  });
+  const submitPublicationMutation = useMutation({
+    mutationFn: () => {
+      if (!designerConnection) throw new Error('CMS connection is not available');
+      return submitContentDesignerDraftForPublication(
+        designerConnection,
+        configuration,
+        draft,
+      );
+    },
   });
   const draftIsValidated =
     validatedDraftSignature === draftSignature &&
     validationSucceeded(validateMutation.data);
+  const draftIsSaved = savedDraftSignature === draftSignature && Boolean(saveMutation.data);
   const metrics = metricsById(data.data, designerMetrics);
   const operationError =
     validateMutation.error instanceof Error
       ? validateMutation.error
       : saveMutation.error instanceof Error
         ? saveMutation.error
-        : undefined;
+        : submitPublicationMutation.error instanceof Error
+          ? submitPublicationMutation.error
+          : undefined;
 
   return (
     <WorkspaceContainer>
@@ -1066,15 +1108,28 @@ export function ContentDesignerRoutePage({
                 value={effectiveRouteIntent}
               />
               <TextField
+                helperText="Controls whether this route is publicly delivered or requires an authenticated CMS request."
+                label="Delivery access"
+                onChange={(event) => setAccessModeIntent(event.target.value)}
+                select
+                value={effectiveAccessModeIntent}
+              >
+                {['PUBLIC', 'AUTHENTICATED', 'CUSTOMER'].map((mode) => (
+                  <MenuItem key={mode} value={mode}>
+                    {mode}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
                 helperText={componentHint(
-                  componentIntent,
+                  effectiveComponentIntent,
                   componentKinds,
                   componentTypeOptions,
                 )}
                 label="Primary component type"
                 onChange={(event) => setComponentIntent(event.target.value)}
                 select
-                value={componentIntent}
+                value={effectiveComponentIntent}
               >
                 {componentKinds.map((kind) => (
                   <MenuItem key={kind.label} value={kind.label}>
@@ -1098,7 +1153,8 @@ export function ContentDesignerRoutePage({
                   ))}
                 </Stack>
                 <Typography color="text.secondary" variant="body2">
-                  One component identity; locale variants are saved separately. Preview
+                  One component identity; locale-specific variants are saved only when
+                  the selected component type declares localized properties. Preview
                   direction follows the selected language.
                 </Typography>
               </Stack>
@@ -1126,6 +1182,15 @@ export function ContentDesignerRoutePage({
                   Save result: {operationMessage(saveMutation.data, 'CMS draft saved')}
                 </Alert>
               ) : null}
+              {submitPublicationMutation.data ? (
+                <Alert severity="success">
+                  Publishing result:{' '}
+                  {operationMessage(
+                    submitPublicationMutation.data,
+                    'CMS publication request submitted',
+                  )}
+                </Alert>
+              ) : null}
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
                 <Button
                   disabled={!designerConnection || validateMutation.isPending}
@@ -1136,12 +1201,27 @@ export function ContentDesignerRoutePage({
                 </Button>
                 <Button
                   disabled={
-                    !designerConnection || !draftIsValidated || saveMutation.isPending
+                    !designerConnection ||
+                    !draftIsValidated ||
+                    saveMutation.isPending ||
+                    submitPublicationMutation.isPending
                   }
                   onClick={() => saveMutation.mutate()}
                   variant="outlined"
                 >
                   Save draft
+                </Button>
+                <Button
+                  disabled={
+                    !designerConnection ||
+                    !draftIsValidated ||
+                    !draftIsSaved ||
+                    submitPublicationMutation.isPending
+                  }
+                  onClick={() => submitPublicationMutation.mutate()}
+                  variant="outlined"
+                >
+                  Submit to Publishing
                 </Button>
                 <Button
                   disabled={!authoringModel.data}

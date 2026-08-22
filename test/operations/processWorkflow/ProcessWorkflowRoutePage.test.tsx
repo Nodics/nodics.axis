@@ -182,6 +182,17 @@ describe('ProcessWorkflowRoutePage', () => {
             }),
           );
         }
+        if (method === 'POST' && url.includes('/tasks/cms-task-1/complete')) {
+          return Promise.resolve(
+            jsonResponse({
+              task: { code: 'cms-task-1', status: 'COMPLETED' },
+              instance: {
+                code: 'cmsPublicationApproval-publication-1',
+                status: 'COMPLETED',
+              },
+            }),
+          );
+        }
         if (method === 'POST' && url.endsWith('/v0/triggers')) {
           return Promise.resolve(
             jsonResponse({
@@ -279,6 +290,13 @@ describe('ProcessWorkflowRoutePage', () => {
                 instanceCode: 'instance-1',
                 nodeCode: 'businessReview',
                 assignee: 'content-admin',
+                status: 'OPEN',
+              },
+              {
+                code: 'cms-task-1',
+                instanceCode: 'cmsPublicationApproval-publication-1',
+                nodeCode: 'publicationReview',
+                assignee: 'admin',
                 status: 'OPEN',
               },
             ]),
@@ -483,7 +501,9 @@ describe('ProcessWorkflowRoutePage', () => {
       ).toBeInTheDocument(),
     );
 
-    await user.click(screen.getByRole('button', { name: 'Claim' }));
+    const claimButton = screen.getAllByRole('button', { name: 'Claim' })[0];
+    if (!claimButton) throw new Error('Expected a generic task claim button');
+    await user.click(claimButton);
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some(
@@ -499,7 +519,9 @@ describe('ProcessWorkflowRoutePage', () => {
       screen.getByLabelText('Assign selected task to'),
       'business-reviewers',
     );
-    await user.click(screen.getByRole('button', { name: 'Assign' }));
+    const assignButton = screen.getAllByRole('button', { name: 'Assign' })[0];
+    if (!assignButton) throw new Error('Expected a generic task assign button');
+    await user.click(assignButton);
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some(([input, init]) => {
@@ -522,6 +544,22 @@ describe('ProcessWorkflowRoutePage', () => {
             requestUrl(input).includes('/tasks/task-1/complete') &&
             init?.method === 'POST',
         ),
+      ).toBe(true),
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Approve publication' }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([input, init]) => {
+          const body = init?.body;
+          return (
+            requestUrl(input).includes('/tasks/cms-task-1/complete') &&
+            init?.method === 'POST' &&
+            typeof body === 'string' &&
+            body.includes('"approved":true') &&
+            body.includes('"outcome":"approved-from-axis"')
+          );
+        }),
       ).toBe(true),
     );
 

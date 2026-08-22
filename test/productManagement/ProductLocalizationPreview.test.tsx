@@ -19,6 +19,13 @@ describe('Product localization preview', () => {
       {
         moduleName: 'product',
         schemaName: 'productLocalization',
+        queryCapabilities: {
+          allowedPageSizes: [10, 25, 50],
+          defaultPageSize: 25,
+          maximumPageSize: 50,
+          defaultSort: { field: 'code', direction: 'ASC' },
+          sortableFields: ['code', 'locale'],
+        },
       } as never,
     ]);
     vi.mocked(loadWorkbenchRecords).mockResolvedValue({
@@ -41,7 +48,7 @@ describe('Product localization preview', () => {
         },
       ],
       pageNumber: 1,
-      pageSize: 100,
+      pageSize: 25,
       totalCount: 2,
       sort: { field: 'locale', direction: 'ASC' },
     });
@@ -81,5 +88,20 @@ describe('Product localization preview', () => {
     expect(
       screen.getByText('حذاء نوديكس للجري').closest('[lang="ar"]'),
     ).toHaveAttribute('dir', 'rtl');
+    expect(loadWorkbenchRecords).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        moduleName: 'product',
+        schemaName: 'productLocalization',
+      }),
+      expect.anything(),
+      expect.objectContaining({
+        pageNumber: 1,
+        pageSize: 25,
+        sort: { field: 'locale', direction: 'ASC' },
+      }),
+      expect.anything(),
+      expect.anything(),
+    );
   });
 });

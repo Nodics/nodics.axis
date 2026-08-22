@@ -939,7 +939,7 @@ describe('employee login journey', () => {
           new Response(JSON.stringify({ result: true }), { status: 200 }),
         );
       }
-      if (url.includes('/schema/workbench/cmsPage/records')) {
+      if (url.includes('/cmsPage/safe-search')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({
@@ -955,7 +955,7 @@ describe('employee login journey', () => {
           ),
         );
       }
-      if (url.includes('/schema/workbench/productItem/records')) {
+      if (url.includes('/productItem/safe-search')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({
@@ -971,7 +971,7 @@ describe('employee login journey', () => {
           ),
         );
       }
-      if (url.includes('/schema/workbench/paymentMethod/records')) {
+      if (url.includes('/paymentMethod/safe-search')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({
@@ -993,7 +993,7 @@ describe('employee login journey', () => {
           ),
         );
       }
-      if (url.includes('/schema/workbench/paymentProvider/records')) {
+      if (url.includes('/paymentProvider/safe-search')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({

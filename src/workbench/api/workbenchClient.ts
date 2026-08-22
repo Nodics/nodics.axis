@@ -4,6 +4,7 @@ import {
   parseWorkbenchRecords,
   parseWorkbenchRecordPage,
   parseWorkbenchDeleteImpact,
+  parseWorkbenchSchema,
   type WorkbenchDeleteImpact,
   parseWorkbenchSchemaList,
   type WorkbenchRecord,
@@ -72,6 +73,43 @@ function safeSegment(value: string, name: string): string {
     throw new Error(`${name} is invalid`);
   }
   return encodeURIComponent(value);
+}
+
+function shouldFallbackToGenericWorkbench(error: unknown): boolean {
+  return (
+    error instanceof WorkbenchRequestError &&
+    (error.status === 404 || error.status === 405)
+  );
+}
+
+function normalizeDateValue(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return new Date(`${trimmed}T00:00:00.000Z`).toISOString();
+  }
+  const parsed = Date.parse(trimmed);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : value;
+}
+
+function normalizeGeneratedCrudModel(
+  schema: Pick<WorkbenchSchema, 'fields'>,
+  model: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  const dateFields = new Set(
+    schema.fields
+      .filter((field) => field.type.toLowerCase() === 'date')
+      .map((field) => field.name),
+  );
+  if (dateFields.size === 0) return model;
+  const normalized = Object.fromEntries(
+    Object.entries(model).map(([key, value]) => [
+      key,
+      dateFields.has(key) ? normalizeDateValue(value) : value,
+    ]),
+  );
+  return Object.freeze(normalized);
 }
 
 async function request(
@@ -164,13 +202,66 @@ export async function loadWorkbenchSchemas(
   if (schemas.length === 0 && results.some((result) => result.status === 'rejected')) {
     throw new Error('Authorized schema discovery is currently unavailable');
   }
+  const uniqueSchemas = new Map<string, WorkbenchSchema>();
+  schemas.forEach((schema) => {
+    const key = `${schema.moduleName}:${schema.schemaName}`;
+    const existing = uniqueSchemas.get(key);
+    const schemaIsOwnerConnection = schema.connectionModuleName === schema.moduleName;
+    const existingIsOwnerConnection =
+      existing?.connectionModuleName === existing?.moduleName;
+    if (
+      !existing ||
+      (schemaIsOwnerConnection && !existingIsOwnerConnection) ||
+      (schema.connectionServer?.includes('Staged') === true &&
+        existing.connectionServer?.includes('Staged') !== true &&
+        schemaIsOwnerConnection === existingIsOwnerConnection)
+    ) {
+      uniqueSchemas.set(key, schema);
+    }
+  });
   return Object.freeze(
-    schemas.sort(
+    [...uniqueSchemas.values()].sort(
       (left, right) =>
         left.label.localeCompare(right.label) ||
         left.moduleName.localeCompare(right.moduleName),
     ),
   );
+}
+
+export async function loadGeneratedSchemaCapabilities(
+  connection: AxisModuleConnection,
+  schema: Pick<WorkbenchSchema, 'schemaName'>,
+  configuration: WorkbenchClientConfiguration,
+  fetchImplementation: typeof fetch = fetch,
+): Promise<WorkbenchSchema> {
+  const schemaName = safeSegment(schema.schemaName, 'Workbench schema name');
+  let capabilitiesResult: unknown;
+  try {
+    capabilitiesResult = await request(
+      connection,
+      `/${schemaName}/capabilities`,
+      configuration,
+      {},
+      fetchImplementation,
+    );
+  } catch (error: unknown) {
+    if (!shouldFallbackToGenericWorkbench(error)) throw error;
+    capabilitiesResult = await request(
+      connection,
+      `/schema/workbench/${schemaName}`,
+      configuration,
+      {},
+      fetchImplementation,
+    );
+  }
+  const capabilities = parseWorkbenchSchema(capabilitiesResult);
+  return Object.freeze({
+    ...capabilities,
+    connectionModuleName: connection.moduleName,
+    connectionInstanceId: connection.instanceId,
+    connectionServer: connection.server,
+    connectionEnvironment: connection.environment,
+  });
 }
 
 export async function loadWorkbenchRecords(
@@ -181,19 +272,37 @@ export async function loadWorkbenchRecords(
   fetchImplementation: typeof fetch = fetch,
   signal?: AbortSignal,
 ): Promise<WorkbenchRecordPage> {
-  return parseWorkbenchRecordPage(
-    await request(
-      connection,
-      `/schema/workbench/${safeSegment(schema.schemaName, 'Workbench schema name')}/records`,
-      configuration,
-      {
-        method: 'POST',
-        body: JSON.stringify({ query }),
-        ...(signal ? { signal } : {}),
-      },
-      fetchImplementation,
-    ),
-  );
+  const schemaName = safeSegment(schema.schemaName, 'Workbench schema name');
+  try {
+    return parseWorkbenchRecordPage(
+      await request(
+        connection,
+        `/${schemaName}/safe-search`,
+        configuration,
+        {
+          method: 'POST',
+          body: JSON.stringify({ query }),
+          ...(signal ? { signal } : {}),
+        },
+        fetchImplementation,
+      ),
+    );
+  } catch (error: unknown) {
+    if (!shouldFallbackToGenericWorkbench(error)) throw error;
+    return parseWorkbenchRecordPage(
+      await request(
+        connection,
+        `/schema/workbench/${schemaName}/records`,
+        configuration,
+        {
+          method: 'POST',
+          body: JSON.stringify({ query }),
+          ...(signal ? { signal } : {}),
+        },
+        fetchImplementation,
+      ),
+    );
+  }
 }
 
 export async function createWorkbenchRecord(
@@ -213,7 +322,7 @@ export async function createWorkbenchRecord(
     connection,
     `/${safeSegment(schema.schemaName, 'Workbench schema name')}`,
     configuration,
-    { method: 'PUT', body: JSON.stringify(model) },
+    { method: 'PUT', body: JSON.stringify(normalizeGeneratedCrudModel(schema, model)) },
     fetchImplementation,
   );
   if (Array.isArray(result)) {
@@ -251,7 +360,7 @@ export async function updateWorkbenchRecord(
     {
       method: 'PATCH',
       body: JSON.stringify({
-        model,
+        model: normalizeGeneratedCrudModel(schema, model),
         options: { recursive: false, returnModified: true },
         query: identity,
       }),
@@ -336,18 +445,36 @@ export async function previewWorkbenchDeleteImpact(
   configuration: WorkbenchClientConfiguration,
   fetchImplementation: typeof fetch = fetch,
 ): Promise<WorkbenchDeleteImpact> {
-  return parseWorkbenchDeleteImpact(
-    await request(
-      connection,
-      `/schema/workbench/${safeSegment(schema.schemaName, 'Workbench schema name')}/delete-impact`,
-      configuration,
-      {
-        method: 'POST',
-        body: JSON.stringify({ identity: recordIdentity(schema, original) }),
-      },
-      fetchImplementation,
-    ),
-  );
+  const schemaName = safeSegment(schema.schemaName, 'Workbench schema name');
+  const body = JSON.stringify({ identity: recordIdentity(schema, original) });
+  try {
+    return parseWorkbenchDeleteImpact(
+      await request(
+        connection,
+        `/${schemaName}/delete-impact`,
+        configuration,
+        {
+          method: 'POST',
+          body,
+        },
+        fetchImplementation,
+      ),
+    );
+  } catch (error: unknown) {
+    if (!shouldFallbackToGenericWorkbench(error)) throw error;
+    return parseWorkbenchDeleteImpact(
+      await request(
+        connection,
+        `/schema/workbench/${schemaName}/delete-impact`,
+        configuration,
+        {
+          method: 'POST',
+          body,
+        },
+        fetchImplementation,
+      ),
+    );
+  }
 }
 
 export async function bulkDeleteWorkbenchRecords(

@@ -71,6 +71,29 @@ const queryKey = 'process-definitions';
 const operationsQueryKey = 'process-operations-summary';
 const versionsQueryKey = 'process-definition-versions';
 const instanceDetailQueryKey = 'process-instance-detail';
+type ProcessTaskDecision = Readonly<Record<string, unknown>>;
+
+function isCmsPublicationApprovalTask(task: ProcessHumanTask): boolean {
+  return (
+    task.nodeCode === 'publicationReview' &&
+    (task.instanceCode?.startsWith('cmsPublicationApproval-') ?? false)
+  );
+}
+
+function createCmsPublicationApprovalDecision(): ProcessTaskDecision {
+  return Object.freeze({
+    approved: true,
+    outcome: 'approved-from-axis',
+  });
+}
+
+function createCmsPublicationRejectionDecision(): ProcessTaskDecision {
+  return Object.freeze({
+    approved: false,
+    outcome: 'rejected-from-axis',
+  });
+}
+
 const emptyOperationsSummary: ProcessOperationsSummary = Object.freeze({
   auditEvents: Object.freeze([]),
   instances: Object.freeze([]),
@@ -634,7 +657,7 @@ function TaskInbox({
   readonly onAssign: (taskCode: string) => void;
   readonly onCancel: (taskCode: string) => void;
   readonly onClaim: (taskCode: string) => void;
-  readonly onComplete: (taskCode: string) => void;
+  readonly onComplete: (taskCode: string, decision?: ProcessTaskDecision) => void;
   readonly tasks: readonly ProcessHumanTask[];
 }) {
   return (
@@ -665,6 +688,7 @@ function TaskInbox({
             />
             {tasks.map((task) => {
               const actionable = ['OPEN', 'CLAIMED', 'ESCALATED'].includes(task.status);
+              const cmsPublicationApprovalTask = isCmsPublicationApprovalTask(task);
               return (
                 <Paper
                   component="article"
@@ -706,13 +730,37 @@ function TaskInbox({
                       >
                         Claim
                       </Button>
-                      <Button
-                        disabled={disabled || !actionable}
-                        onClick={() => onComplete(task.code)}
-                        variant="contained"
-                      >
-                        Complete
-                      </Button>
+                      {cmsPublicationApprovalTask ? (
+                        <>
+                          <Button
+                            disabled={disabled || !actionable}
+                            onClick={() =>
+                              onComplete(task.code, createCmsPublicationApprovalDecision())
+                            }
+                            variant="contained"
+                          >
+                            Approve publication
+                          </Button>
+                          <Button
+                            color="warning"
+                            disabled={disabled || !actionable}
+                            onClick={() =>
+                              onComplete(task.code, createCmsPublicationRejectionDecision())
+                            }
+                            variant="outlined"
+                          >
+                            Reject publication
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          disabled={disabled || !actionable}
+                          onClick={() => onComplete(task.code)}
+                          variant="contained"
+                        >
+                          Complete
+                        </Button>
+                      )}
                       <Button
                         color="error"
                         disabled={disabled || !actionable}
@@ -1541,9 +1589,15 @@ export function ProcessWorkflowRoutePage({
   });
 
   const completeTask = useMutation({
-    mutationFn: async (taskCode: string) => {
+    mutationFn: async ({
+      decision,
+      taskCode,
+    }: {
+      readonly decision?: ProcessTaskDecision;
+      readonly taskCode: string;
+    }) => {
       if (!processConnection) throw new Error('Process API is unavailable');
-      return completeProcessTask(processConnection, configuration, taskCode);
+      return completeProcessTask(processConnection, configuration, taskCode, decision);
     },
     onSuccess: invalidate,
   });
@@ -1948,7 +2002,9 @@ export function ProcessWorkflowRoutePage({
             onAssign={(taskCode) => assignTask.mutate(taskCode)}
             onCancel={(taskCode) => cancelTask.mutate(taskCode)}
             onClaim={(taskCode) => claimTask.mutate(taskCode)}
-            onComplete={(taskCode) => completeTask.mutate(taskCode)}
+            onComplete={(taskCode, decision) =>
+              completeTask.mutate(decision ? { decision, taskCode } : { taskCode })
+            }
             tasks={operations.data?.tasks ?? []}
           />
         </Box>

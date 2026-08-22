@@ -34,9 +34,9 @@ const navigation: AxisNavigationItem = {
   availability: 'UP',
   featureState: 'ACTIVE',
   group: {
-    id: 'content',
-    label: 'Content and Experience',
-    order: 200,
+    id: 'publishing',
+    label: 'Publishing',
+    order: 1_700,
   },
   help: {
     summary:
@@ -126,11 +126,13 @@ describe('PublishingDashboardRoutePage', () => {
       new URL('http://localhost:4330/nodics/process/v0/tasks?limit=25'),
       expect.any(Object),
     );
-    expect(
-      screen.getByRole('link', { name: 'Review approval tasks' }),
-    ).toHaveAttribute('href', '/process/tasks');
-    expect(
-      screen.getByRole('link', { name: 'Check Online status' }),
-    ).toHaveAttribute('href', '/publishing/status');
+    expect(screen.getByRole('link', { name: 'Review approval tasks' })).toHaveAttribute(
+      'href',
+      '/process/tasks',
+    );
+    expect(screen.getByRole('link', { name: 'Check Online status' })).toHaveAttribute(
+      'href',
+      '/publishing/status',
+    );
   });
 });

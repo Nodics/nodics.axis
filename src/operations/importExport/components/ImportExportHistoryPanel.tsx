@@ -179,19 +179,16 @@ export function ImportExportHistoryPanel(props: ImportExportHistoryPanelProps) {
         <CircularProgress aria-label="Loading import history" />
       ) : null}
       {props.isError ? <Alert severity="error">{props.errorMessage}</Alert> : null}
-      {props.filter === 'exports' ? (
+      {props.isSuccess && props.runs.length === 0 ? (
         <Alert severity="info">
-          Export history will appear here after governed export execution is enabled.
+          No import or export runs are available for this tenant.
         </Alert>
       ) : null}
-      {props.isSuccess && props.filter !== 'exports' && props.runs.length === 0 ? (
-        <Alert severity="info">No import runs are available for this tenant.</Alert>
-      ) : null}
-      {props.isSuccess &&
-      props.filter !== 'exports' &&
-      props.runs.length > 0 &&
-      props.filteredRuns.length === 0 ? (
-        <Alert severity="info">No import history matches the current search.</Alert>
+      {props.isSuccess && props.runs.length > 0 && props.filteredRuns.length === 0 ? (
+        <Alert severity="info">
+          No {props.filter === 'all' ? 'import or export' : props.filter} history
+          matches the current search.
+        </Alert>
       ) : null}
       {props.filteredRuns.length > 0 ? (
         <Paper

@@ -184,7 +184,7 @@ describe('Customer Engagement presentation', () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByText('Customer Experience')).toBeInTheDocument();
+    expect(screen.getByText('Customer Engagement')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Open Contact' })).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Open Testimonials' }),

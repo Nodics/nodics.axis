@@ -158,8 +158,8 @@ const publishingMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
   Object.freeze({
     id: 'publishing-status',
     label: 'Publishing status',
-    moduleName: 'publish',
-    schemaName: 'publicationStatus',
+    moduleName: 'cms',
+    schemaName: 'cmsOnlinePublicationPointer',
     description: 'Operational status for staged-to-online publication flow.',
     route: '/publishing/status',
     icon: 'status',

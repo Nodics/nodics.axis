@@ -25,18 +25,19 @@ interface BusinessNavigationGroups {
   readonly systemIntegrations: ShellNavigationGroupDefinition;
   readonly contentExperience: ShellNavigationGroupDefinition;
   readonly customersOrganisation: ShellNavigationGroupDefinition;
-  readonly catalogsProducts: ShellNavigationGroupDefinition;
-  readonly searchNavigations: ShellNavigationGroupDefinition;
+  readonly productsMerchandising: ShellNavigationGroupDefinition;
+  readonly searchDiscovery: ShellNavigationGroupDefinition;
   readonly inventoryOperations: ShellNavigationGroupDefinition;
   readonly ordersCheckouts: ShellNavigationGroupDefinition;
+  readonly shippingOperations: ShellNavigationGroupDefinition;
   readonly fulfillmentOperations: ShellNavigationGroupDefinition;
-  readonly orderLifeCycle: ShellNavigationGroupDefinition;
+  readonly orderLifecycleOperations: ShellNavigationGroupDefinition;
   readonly paymentOperations: ShellNavigationGroupDefinition;
-  readonly promotionsDiscount: ShellNavigationGroupDefinition;
+  readonly promotionsDiscounts: ShellNavigationGroupDefinition;
   readonly mediaManagement: ShellNavigationGroupDefinition;
   readonly editorialSpace: ShellNavigationGroupDefinition;
   readonly processAutomations: ShellNavigationGroupDefinition;
-  readonly documentations: ShellNavigationGroupDefinition;
+  readonly documentation: ShellNavigationGroupDefinition;
   readonly publishing: ShellNavigationGroupDefinition;
   readonly otherBacklogs: ShellNavigationGroupDefinition;
 }
@@ -48,97 +49,134 @@ const BUSINESS_GROUPS: BusinessNavigationGroups = Object.freeze({
     order: 100,
   },
   contentExperience: {
-    id: 'content-experience',
+    id: 'content',
     label: 'Content and Experience',
     order: 200,
-  },
-  customersOrganisation: {
-    id: 'customers-organisation',
-    label: 'Customers and Organisation',
-    order: 300,
-  },
-  catalogsProducts: {
-    id: 'catalogs-products',
-    label: 'Catalogs and Products',
-    order: 400,
-  },
-  searchNavigations: {
-    id: 'search-navigations',
-    label: 'Search and Navigations',
-    order: 450,
-  },
-  inventoryOperations: {
-    id: 'inventory-operations',
-    label: 'Inventory Operations',
-    order: 500,
-  },
-  ordersCheckouts: {
-    id: 'orders-checkouts',
-    label: 'Orders and Checkouts',
-    order: 600,
-  },
-  fulfillmentOperations: {
-    id: 'fulfillment-operations',
-    label: 'Fulfillment Operations',
-    order: 650,
-  },
-  orderLifeCycle: {
-    id: 'order-life-cycle',
-    label: 'Order Life Cycle',
-    order: 700,
-  },
-  paymentOperations: {
-    id: 'payment-operations',
-    label: 'Payment Operations',
-    order: 750,
-  },
-  promotionsDiscount: {
-    id: 'promotions-discount',
-    label: 'Promotions and Discount',
-    order: 800,
   },
   mediaManagement: {
     id: 'media-management',
     label: 'Media Management',
-    order: 850,
+    order: 300,
+  },
+  customersOrganisation: {
+    id: 'organization',
+    label: 'Customers and Organisation',
+    order: 400,
+  },
+  productsMerchandising: {
+    id: 'products-merchandising',
+    label: 'Products and Merchandising',
+    order: 500,
+  },
+  searchDiscovery: {
+    id: 'search-discovery',
+    label: 'Search and Discovery',
+    order: 600,
+  },
+  inventoryOperations: {
+    id: 'inventory-operations',
+    label: 'Inventory Operations',
+    order: 700,
+  },
+  ordersCheckouts: {
+    id: 'orders-checkouts',
+    label: 'Orders and Checkouts',
+    order: 800,
+  },
+  orderLifecycleOperations: {
+    id: 'order-lifecycle-operations',
+    label: 'Order Lifecycle Operations',
+    order: 900,
+  },
+  fulfillmentOperations: {
+    id: 'fulfillment-operations',
+    label: 'Fulfillment Operations',
+    order: 1_000,
+  },
+  shippingOperations: {
+    id: 'shipping-operations',
+    label: 'Shipping Operations',
+    order: 1_100,
+  },
+  paymentOperations: {
+    id: 'payment-operations',
+    label: 'Payment Operations',
+    order: 1_200,
+  },
+  promotionsDiscounts: {
+    id: 'promotions-discounts',
+    label: 'Promotions and Discounts',
+    order: 1_300,
   },
   editorialSpace: {
     id: 'editorial-space',
     label: 'Editorial Space',
-    order: 900,
+    order: 1_400,
   },
   processAutomations: {
-    id: 'process-automations',
+    id: 'process-and-automations',
     label: 'Process and Automations',
-    order: 950,
+    order: 1_500,
   },
-  documentations: {
-    id: 'documentations',
-    label: 'Documentations',
-    order: 1_000,
+  documentation: {
+    id: 'documentation',
+    label: 'Documentation',
+    order: 1_600,
   },
   publishing: {
     id: 'publishing',
     label: 'Publishing',
-    order: 1_050,
+    order: 1_700,
   },
   otherBacklogs: {
     id: 'other-backlogs',
     label: 'Other Backlogs',
-    order: 1_200,
+    order: 9_000,
   },
 });
 
-const CATEGORY_GROUPS: Readonly<
-  Record<string, ShellNavigationGroupDefinition>
-> = Object.freeze({
-  content: BUSINESS_GROUPS.contentExperience,
-  experience: BUSINESS_GROUPS.contentExperience,
-  commerce: BUSINESS_GROUPS.catalogsProducts,
-  core: BUSINESS_GROUPS.customersOrganisation,
-  operations: BUSINESS_GROUPS.processAutomations,
-  platform: BUSINESS_GROUPS.systemIntegrations,
-});
+const CATEGORY_GROUPS: Readonly<Record<string, ShellNavigationGroupDefinition>> =
+  Object.freeze({
+    content: BUSINESS_GROUPS.contentExperience,
+    experience: BUSINESS_GROUPS.contentExperience,
+    commerce: BUSINESS_GROUPS.productsMerchandising,
+    core: BUSINESS_GROUPS.customersOrganisation,
+    organization: BUSINESS_GROUPS.customersOrganisation,
+    operations: BUSINESS_GROUPS.processAutomations,
+    platform: BUSINESS_GROUPS.systemIntegrations,
+  });
+
+const GROUP_ID_ALIASES: Readonly<Record<string, ShellNavigationGroupDefinition>> =
+  Object.freeze({
+    'system-integrations': BUSINESS_GROUPS.systemIntegrations,
+    content: BUSINESS_GROUPS.contentExperience,
+    'content-experience': BUSINESS_GROUPS.contentExperience,
+    'media-management': BUSINESS_GROUPS.mediaManagement,
+    'products-merchandising': BUSINESS_GROUPS.productsMerchandising,
+    'catalogs-products': BUSINESS_GROUPS.productsMerchandising,
+    'search-discovery': BUSINESS_GROUPS.searchDiscovery,
+    'search-navigations': BUSINESS_GROUPS.searchDiscovery,
+    'inventory-operations': BUSINESS_GROUPS.inventoryOperations,
+    'orders-checkouts': BUSINESS_GROUPS.ordersCheckouts,
+    'order-lifecycle-operations': BUSINESS_GROUPS.orderLifecycleOperations,
+    'order-life-cycle': BUSINESS_GROUPS.orderLifecycleOperations,
+    'shipping-operations': BUSINESS_GROUPS.shippingOperations,
+    'payment-operations': BUSINESS_GROUPS.paymentOperations,
+    'fulfillment-operations': BUSINESS_GROUPS.fulfillmentOperations,
+    'promotions-discounts': BUSINESS_GROUPS.promotionsDiscounts,
+    'promotions-discount': BUSINESS_GROUPS.promotionsDiscounts,
+    organization: BUSINESS_GROUPS.customersOrganisation,
+    'customers-organisation': BUSINESS_GROUPS.customersOrganisation,
+    'customer-experience': BUSINESS_GROUPS.customersOrganisation,
+    'editorial-space': BUSINESS_GROUPS.editorialSpace,
+    'process-and-automations': BUSINESS_GROUPS.processAutomations,
+    'process-automations': BUSINESS_GROUPS.processAutomations,
+    'business-process-automation': BUSINESS_GROUPS.processAutomations,
+    publishing: BUSINESS_GROUPS.publishing,
+    documentation: BUSINESS_GROUPS.documentation,
+    documentations: BUSINESS_GROUPS.documentation,
+    'other-backlogs': BUSINESS_GROUPS.otherBacklogs,
+  });
 
 const dashboard: ShellNavigationItem = Object.freeze({
   id: 'dashboard',
@@ -160,15 +198,17 @@ const dashboard: ShellNavigationItem = Object.freeze({
 export function composeShellNavigation(
   navigation: readonly AxisNavigationItem[],
 ): readonly ShellNavigationGroup[] {
+  const hasBackendDashboard = navigation.some(
+    (item) => item.route === dashboard.route || item.id === 'system-integrations',
+  );
   const groups = new Map<string, ShellNavigationGroup>();
   groups.set(BUSINESS_GROUPS.systemIntegrations.id, {
     ...BUSINESS_GROUPS.systemIntegrations,
-    items: [dashboard],
+    items: hasBackendDashboard ? [] : [dashboard],
   });
   const shellItems = navigation
     .filter(
       (item) =>
-        item.route !== dashboard.route &&
         item.id !== dashboard.id &&
         item.label.trim().toLowerCase() !== 'dashboard',
     )
@@ -242,10 +282,16 @@ function businessNavigationGroup(
   item: ShellNavigationItem,
   byIdentity: ReadonlyMap<string, ShellNavigationItem>,
 ): ShellNavigationGroupDefinition {
+  const declaredDefinition = declaredBusinessNavigationGroup(item);
+  if (declaredDefinition) return declaredDefinition;
+  const rootItem = rootNavigationItem(item, byIdentity);
+  if (rootItem !== item) {
+    const rootDeclaredDefinition = declaredBusinessNavigationGroup(rootItem);
+    if (rootDeclaredDefinition) return rootDeclaredDefinition;
+  }
   const text = itemSearchText(item);
   const directDefinition = directBusinessNavigationGroup(item, text);
   if (directDefinition) return directDefinition;
-  const rootItem = rootNavigationItem(item, byIdentity);
   if (rootItem !== item) {
     return (
       directBusinessNavigationGroup(rootItem, itemSearchText(rootItem)) ??
@@ -254,6 +300,13 @@ function businessNavigationGroup(
     );
   }
   return CATEGORY_GROUPS[item.category] ?? BUSINESS_GROUPS.otherBacklogs;
+}
+
+function declaredBusinessNavigationGroup(
+  item: AxisNavigationItem,
+): ShellNavigationGroupDefinition | undefined {
+  if (!item.group?.id) return undefined;
+  return GROUP_ID_ALIASES[item.group.id];
 }
 
 function directBusinessNavigationGroup(
@@ -294,17 +347,32 @@ function directBusinessNavigationGroup(
     return BUSINESS_GROUPS.editorialSpace;
   }
   if (text.includes('discovery') || text.includes('search')) {
-    return BUSINESS_GROUPS.searchNavigations;
+    return BUSINESS_GROUPS.searchDiscovery;
   }
-  if (text.includes('inventory') || text.includes('stock') || text.includes('warehouse')) {
+  if (
+    text.includes('inventory') ||
+    text.includes('stock') ||
+    text.includes('warehouse')
+  ) {
     return BUSINESS_GROUPS.inventoryOperations;
   }
-  if (text.includes('fulfillment') || text.includes('shipment') || text.includes('delivery')) {
+  if (
+    text.includes('shipment') ||
+    text.includes('shipping') ||
+    text.includes('carrier')
+  ) {
+    return BUSINESS_GROUPS.shippingOperations;
+  }
+  if (text.includes('fulfillment') || text.includes('delivery')) {
     return BUSINESS_GROUPS.fulfillmentOperations;
   }
   if (text.includes('payment')) return BUSINESS_GROUPS.paymentOperations;
-  if (text.includes('promotion') || text.includes('coupon') || text.includes('discount')) {
-    return BUSINESS_GROUPS.promotionsDiscount;
+  if (
+    text.includes('promotion') ||
+    text.includes('coupon') ||
+    text.includes('discount')
+  ) {
+    return BUSINESS_GROUPS.promotionsDiscounts;
   }
   if (
     text.includes('cancel') ||
@@ -314,7 +382,7 @@ function directBusinessNavigationGroup(
     text.includes('life cycle') ||
     text.includes('lifecycle')
   ) {
-    return BUSINESS_GROUPS.orderLifeCycle;
+    return BUSINESS_GROUPS.orderLifecycleOperations;
   }
   if (text.includes('order') || text.includes('checkout') || text.includes('cart')) {
     return BUSINESS_GROUPS.ordersCheckouts;
@@ -328,7 +396,7 @@ function directBusinessNavigationGroup(
     text.includes('price') ||
     text.includes('tax')
   ) {
-    return BUSINESS_GROUPS.catalogsProducts;
+    return BUSINESS_GROUPS.productsMerchandising;
   }
   if (
     text.includes('customer') ||
@@ -343,7 +411,11 @@ function directBusinessNavigationGroup(
   ) {
     return BUSINESS_GROUPS.customersOrganisation;
   }
-  if (text.includes('workflow') || text.includes('process') || text.includes('automation')) {
+  if (
+    text.includes('workflow') ||
+    text.includes('process') ||
+    text.includes('automation')
+  ) {
     return BUSINESS_GROUPS.processAutomations;
   }
   if (
@@ -356,7 +428,7 @@ function directBusinessNavigationGroup(
     return BUSINESS_GROUPS.processAutomations;
   }
   if (text.includes('documentation') || text.includes('documentations')) {
-    return BUSINESS_GROUPS.documentations;
+    return BUSINESS_GROUPS.documentation;
   }
   if (
     text.includes('schema') ||
@@ -383,9 +455,8 @@ function flattenHierarchy(
     const requestedParent = item.parentId
       ? navigationParentKey(item.parentModuleName ?? item.moduleName, item.parentId)
       : undefined;
-    const parent = requestedParent && itemKeys.has(requestedParent)
-      ? requestedParent
-      : undefined;
+    const parent =
+      requestedParent && itemKeys.has(requestedParent) ? requestedParent : undefined;
     byParent.set(parent, [...(byParent.get(parent) ?? []), item]);
   });
   byParent.forEach((children) => {

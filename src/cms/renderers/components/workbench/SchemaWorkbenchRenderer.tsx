@@ -30,7 +30,10 @@ import { ShellIcon } from '../../../../app/shell/ShellIcon';
 import { type AxisDataListingColumn } from '../../../../app/table/AxisDataListing';
 import { AxisSchemaDataListing } from '../../../../app/table/AxisSchemaDataListing';
 import { EditorialArticleWorkbenchDetail } from '../../../../operations/editorial/EditorialArticleWorkbenchDetail';
-import type { WorkbenchRecord } from '../../../../workbench/api/workbenchContracts';
+import type {
+  WorkbenchRecord,
+  WorkbenchSchema,
+} from '../../../../workbench/api/workbenchContracts';
 import { WorkbenchRecordDetail } from '../../../../workbench/detail/WorkbenchRecordDetail';
 import { WorkbenchDeleteDialog } from '../../../../workbench/delete/WorkbenchDeleteDialog';
 import { WorkbenchRecordForm } from '../../../../workbench/form/WorkbenchRecordForm';
@@ -70,6 +73,18 @@ const schemaHeaderChipSx = {
     textOverflow: 'ellipsis',
   },
 };
+
+function schemaInstanceKey(schema: WorkbenchSchema): string {
+  return [
+    schema.connectionModuleName ?? schema.moduleName,
+    schema.connectionInstanceId ??
+      schema.connectionServer ??
+      schema.connectionEnvironment ??
+      'default',
+    schema.moduleName,
+    schema.schemaName,
+  ].join(':');
+}
 
 function isEditorialArticleAuthoringDetail(
   navigationId: string | undefined,
@@ -1098,17 +1113,19 @@ export function SchemaWorkbenchRenderer({
                   >
                     {displayedSchemas.map((schema) => {
                       const key = `${schema.moduleName}:${schema.schemaName}`;
+                      const instanceKey = schemaInstanceKey(schema);
                       const favorite = controller.favoriteSchemas.includes(key);
                       return (
                         <Stack
-                          key={key}
+                          key={instanceKey}
                           direction="row"
                           sx={{ alignItems: 'center', mb: 0.5 }}
                         >
                           <ListItemButton
                             selected={
                               selected?.moduleName === schema.moduleName &&
-                              selected.schemaName === schema.schemaName
+                              selected.schemaName === schema.schemaName &&
+                              schemaInstanceKey(selected) === instanceKey
                             }
                             sx={{ borderRadius: 1.5 }}
                             onClick={() => controller.selectSchema(schema)}

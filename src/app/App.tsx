@@ -34,6 +34,7 @@ import { MediaManagementDashboardRoutePage } from '../operations/mediaManagement
 import { MediaManagementRoutePage } from '../operations/mediaManagement/MediaManagementRoutePage';
 import { ProcessWorkflowRoutePage } from '../operations/processWorkflow/ProcessWorkflowRoutePage';
 import { ProductManagementRoutePage } from '../operations/productManagement/ProductManagementRoutePage';
+import { ProductSellabilityWorkspace } from '../operations/productManagement/ProductSellabilityWorkspace';
 import { DiscoveryManagementRoutePage } from '../operations/discovery/DiscoveryManagementRoutePage';
 import { PromotionsBuilderRoutePage } from '../operations/promotions/PromotionsBuilderRoutePage';
 import { LocalizationOperationsRoutePage } from '../operations/localization/LocalizationOperationsRoutePage';
@@ -106,6 +107,20 @@ function resolveCurrentWorkbenchNavigation(
         normalizeRoutePath(right.route).length -
           normalizeRoutePath(left.route).length || right.order - left.order,
     )[0];
+}
+
+function isOrderLifecycleNavigation(item: AxisNavigationItem | undefined): boolean {
+  if (!item) return false;
+  if (item.group?.id === 'order-lifecycle-operations') return true;
+  if (item.id.startsWith('order-lifecycle-')) return true;
+  return [
+    'order-cancellations',
+    'order-returns',
+    'order-refunds',
+    'order-exchanges',
+    'order-replacements',
+    'order-appeals',
+  ].includes(item.id);
 }
 
 export function App() {
@@ -347,6 +362,11 @@ export function App() {
   );
   const documentationNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'documentation' && item.moduleName === 'backoffice',
+  ) ?? authenticatedBootstrap?.navigation.find(
+    (item) =>
+      item.group?.label === 'Documentation' &&
+      item.route.startsWith('/docs/') &&
+      ['UP', 'DEGRADED'].includes(item.availability),
   );
   const moduleHealthNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'module-health' && item.moduleName === 'backoffice',
@@ -397,7 +417,7 @@ export function App() {
     ) ?? cmsWorkbenchNavigation;
   const publishingDashboardNavigation =
     authenticatedBootstrap?.navigation.find(
-      (item) => item.route === '/publishing' && item.group?.id === 'content',
+      (item) => item.route === '/publishing' && item.group?.id === 'publishing',
     ) ?? cmsWorkbenchNavigation;
   const currentNavigation = resolveCurrentNavigation(
     authenticatedBootstrap?.navigation,
@@ -750,13 +770,9 @@ export function App() {
           ),
         )
       : sessionFallback;
-  const orderLifecycleNavigation =
-    currentNavigation?.route.startsWith('/commerce') &&
-    !currentNavigation.route.startsWith('/commerce/promotions') &&
-    !currentNavigation.route.startsWith('/commerce/catalog/products') &&
-    !currentNavigation.route.startsWith('/commerce/search')
-      ? currentNavigation
-      : undefined;
+  const orderLifecycleNavigation = isOrderLifecycleNavigation(currentNavigation)
+    ? currentNavigation
+    : undefined;
   const discoveryNavigation =
     currentNavigation?.route.startsWith('/discovery') ||
     currentNavigation?.route.startsWith('/commerce/search')
@@ -804,11 +820,21 @@ export function App() {
           ),
         )
       : sessionFallback;
+  const commerceRouteElement = orderLifecycleNavigation
+    ? orderLifecycleElement
+    : navigationRouteElement(currentNavigation);
   const productManagementNavigation = currentNavigation?.route.startsWith(
     '/commerce/catalog/products',
   )
     ? currentNavigation
     : authenticatedBootstrap?.navigation.find((item) => item.id === 'products');
+  const productSellabilityNavigation = currentNavigation?.route.startsWith(
+    '/commerce/catalog/readiness',
+  )
+    ? currentNavigation
+    : authenticatedBootstrap?.navigation.find(
+        (item) => item.id === 'make-product-sellable',
+      );
   const productManagementElement =
     session && !locked && authenticatedBootstrap && productManagementNavigation
       ? authenticatedShell(
@@ -826,6 +852,21 @@ export function App() {
             />
           ) : (
             <ModuleWorkspacePlaceholder item={productManagementNavigation} />
+          ),
+        )
+      : sessionFallback;
+  const productSellabilityElement =
+    session && !locked && authenticatedBootstrap && productSellabilityNavigation
+      ? authenticatedShell(
+          ['UP', 'DEGRADED'].includes(productSellabilityNavigation.availability) ? (
+            <ProductSellabilityWorkspace
+              accessToken={session.accessToken}
+              bootstrap={authenticatedBootstrap}
+              navigation={productSellabilityNavigation}
+              runtime={runtime}
+            />
+          ) : (
+            <ModuleWorkspacePlaceholder item={productSellabilityNavigation} />
           ),
         )
       : sessionFallback;
@@ -1290,12 +1331,13 @@ export function App() {
         <Route path="/publishing/*" element={cmsWorkbenchElement} />
         <Route path="/compliance-management/*" element={complianceElement} />
         <Route path="/notifications/*" element={notificationElement} />
+        <Route path="/commerce/catalog/readiness" element={productSellabilityElement} />
         <Route path="/commerce/catalog/products/*" element={productManagementElement} />
         <Route path="/commerce/search/*" element={discoveryManagementElement} />
         <Route path="/commerce/promotions/*" element={promotionBuilderElement} />
         <Route path="/discovery/*" element={discoveryManagementElement} />
         <Route path="/localization/*" element={localizationOperationsElement} />
-        <Route path="/commerce/*" element={orderLifecycleElement} />
+        <Route path="/commerce/*" element={commerceRouteElement} />
         <Route path="/process/*" element={processWorkflowElement} />
         <Route path="/engagement/*" element={customerEngagementElement} />
         {session && !locked && authenticatedBootstrap

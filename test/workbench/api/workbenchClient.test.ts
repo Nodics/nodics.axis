@@ -5,6 +5,7 @@ import {
   createWorkbenchRecord,
   deleteWorkbenchRecord,
   executeWorkbenchLifecycleAction,
+  loadGeneratedSchemaCapabilities,
   loadWorkbenchRecords,
   loadWorkbenchSchemas,
   previewWorkbenchDeleteImpact,
@@ -110,6 +111,56 @@ describe('Schema Workbench API client', () => {
     expect((url as URL).href).not.toContain('memory-only-token');
   });
 
+  it('deduplicates repeated schema discovery for the same business schema', async () => {
+    const duplicateConnection: AxisModuleConnection = {
+      ...connection,
+      instanceId: 'profile-duplicate',
+      server: 'profileMirrorServer',
+      endpoint: 'https://profile-mirror.example.com/nodics/profile',
+    };
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(json({ moduleName: 'profile', schemas: [address] }));
+
+    await expect(
+      loadWorkbenchSchemas([connection, duplicateConnection], configuration, request),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        label: 'Address',
+        moduleName: 'profile',
+        schemaName: 'address',
+        connectionServer: 'platformServer',
+        connectionEnvironment: 'local',
+      }),
+    ]);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps schema discovery unique while preferring governed Staged duplicates', async () => {
+    const stagedConnection: AxisModuleConnection = {
+      ...connection,
+      instanceId: 'profile-staged',
+      server: 'commerceStagedServer',
+      endpoint: 'https://commerce-staged.example.com/nodics/profile',
+    };
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json({ moduleName: 'profile', schemas: [address] }))
+      .mockResolvedValueOnce(json({ moduleName: 'profile', schemas: [address] }));
+
+    await expect(
+      loadWorkbenchSchemas([connection, stagedConnection], configuration, request),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        moduleName: 'profile',
+        schemaName: 'address',
+        connectionServer: 'commerceStagedServer',
+        connectionEnvironment: 'local',
+      }),
+    ]);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   it('loads a bounded record page through existing generated CRUD', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(
       json({
@@ -155,7 +206,7 @@ describe('Schema Workbench API client', () => {
 
     const [url, options] = request.mock.calls[0] ?? [];
     expect((url as URL).pathname).toBe(
-      '/nodics/profile/v0/schema/workbench/address/records',
+      '/nodics/profile/v0/address/safe-search',
     );
     expect(options?.method).toBe('POST');
     const body = options?.body;
@@ -172,6 +223,34 @@ describe('Schema Workbench API client', () => {
         sort: { field: 'code', direction: 'ASC' },
       },
     });
+  });
+
+  it('loads schema capabilities through the generated schema utility route', async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(json(address));
+
+    await expect(
+      loadGeneratedSchemaCapabilities(
+        connection,
+        { schemaName: 'address' },
+        configuration,
+        request,
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        schemaName: 'address',
+        moduleName: 'profile',
+        connectionModuleName: 'profile',
+        connectionInstanceId: 'profile-1',
+        queryCapabilities: expect.objectContaining({
+          searchableFields: ['code'],
+        }),
+      }),
+    );
+
+    const [url, options] = request.mock.calls[0] ?? [];
+    expect((url as URL).pathname).toBe('/nodics/profile/v0/address/capabilities');
+    expect(options?.method).toBeUndefined();
+    expect((url as URL).pathname).not.toContain('/schema/workbench');
   });
 
   it('creates through generated CRUD without changing module ownership', async () => {
@@ -202,6 +281,60 @@ describe('Schema Workbench API client', () => {
     expect(new Headers(options?.headers).get('Authorization')).toBe(
       'Bearer memory-only-token',
     );
+  });
+
+  it('normalizes descriptor-declared date fields before generated create/update', async () => {
+    const datedSchema: WorkbenchSchema = {
+      ...address,
+      fields: [
+        ...address.fields,
+        {
+          name: 'validFrom',
+          label: 'Valid from',
+          type: 'date',
+          required: false,
+          readOnly: false,
+          primary: false,
+          description: '',
+          searchable: false,
+        },
+      ],
+    };
+    const createRequest = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(json({ code: 'PROMO', validFrom: '2026-08-21T00:00:00.000Z' }));
+    await createWorkbenchRecord(
+      connection,
+      datedSchema,
+      { code: 'PROMO', validFrom: '2026-08-21' },
+      configuration,
+      createRequest,
+    );
+    const createBody = createRequest.mock.calls[0]?.[1]?.body;
+    if (typeof createBody !== 'string') throw new Error('Expected create body');
+    expect(JSON.parse(createBody)).toEqual({
+      code: 'PROMO',
+      validFrom: '2026-08-21T00:00:00.000Z',
+    });
+
+    const updateRequest = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(json({ models: [{ code: 'PROMO', validFrom: '2026-08-22T00:00:00.000Z' }] }));
+    await updateWorkbenchRecord(
+      connection,
+      datedSchema,
+      { code: 'PROMO' },
+      { validFrom: '2026-08-22' },
+      configuration,
+      updateRequest,
+    );
+    const updateBody = updateRequest.mock.calls[0]?.[1]?.body;
+    if (typeof updateBody !== 'string') throw new Error('Expected update body');
+    expect(JSON.parse(updateBody)).toEqual({
+      model: { validFrom: '2026-08-22T00:00:00.000Z' },
+      options: { recursive: false, returnModified: true },
+      query: { code: 'PROMO' },
+    });
   });
 
   it('updates through the owning generated CRUD route', async () => {
@@ -441,7 +574,7 @@ describe('Schema Workbench API client', () => {
       ),
     ).resolves.toMatchObject({ blocked: true, targetCount: 1 });
     expect((request.mock.calls[0]?.[0] as URL).pathname).toContain(
-      '/schema/workbench/address/delete-impact',
+      '/address/delete-impact',
     );
   });
 

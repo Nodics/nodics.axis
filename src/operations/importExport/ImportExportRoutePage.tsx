@@ -13,6 +13,7 @@ import {
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
   installDataReleases,
+  loadExportHistory,
   loadInitializationProfiles,
   loadDataReleases,
   loadImportHistory,
@@ -347,10 +348,19 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
     enabled: Boolean(connection),
   });
   const history = useQuery({
-    queryKey: ['import-history', props.runtime.enterpriseCode],
-    queryFn: () => {
+    queryKey: ['import-export-history', props.runtime.enterpriseCode],
+    queryFn: async () => {
       if (!connection) throw new Error('Import service is unavailable');
-      return loadImportHistory(connection, configuration);
+      const importRuns = await loadImportHistory(connection, configuration);
+      const exportRunResults = await Promise.allSettled(
+        exportConnections.map((exportConnection) =>
+          loadExportHistory(exportConnection, configuration),
+        ),
+      );
+      const exportRuns = exportRunResults.flatMap((result) =>
+        result.status === 'fulfilled' ? [...result.value] : [],
+      );
+      return Object.freeze([...importRuns, ...exportRuns]);
     },
     enabled: Boolean(connection) && area === 'history',
   });
@@ -385,9 +395,12 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
     [executableChosen.length, visible],
   );
   const filteredHistory = useMemo(() => {
-    if (historyFilter === 'exports') return [];
     const normalizedSearch = historySearch.trim().toLowerCase();
-    const runs = history.data ?? [];
+    const runs = (history.data ?? []).filter((run) => {
+      if (historyFilter === 'imports') return run.dataType !== 'export';
+      if (historyFilter === 'exports') return run.dataType === 'export';
+      return true;
+    });
     if (!normalizedSearch) return runs;
     return runs.filter((run) => historySearchText(run).includes(normalizedSearch));
   }, [history.data, historyFilter, historySearch]);

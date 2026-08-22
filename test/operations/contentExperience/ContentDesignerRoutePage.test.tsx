@@ -24,6 +24,12 @@ const runtime: AxisRuntimeConfig = {
   assistantIdleTimeoutMs: 1_000,
 };
 
+function requestUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.toString();
+  return input.url;
+}
+
 const navigation: AxisNavigationItem = {
   id: 'content-designer',
   label: 'Page Designer',
@@ -142,6 +148,7 @@ describe('ContentDesignerRoutePage', () => {
                     },
                   ],
                   draftDefaults: {
+                    accessMode: 'PUBLIC',
                     catalogCode: 'documentationContentCatalog',
                     pageRenderer: 'axis.page',
                     pageTypeCode: 'documentationPageType',
@@ -298,6 +305,22 @@ describe('ContentDesignerRoutePage', () => {
           ),
         );
       }
+      if (url.includes('/designer/composition/publication-request')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              result: {
+                status: 'PENDING_APPROVAL',
+                publication: { code: 'cms-axisCmsSite-summerCampaign-route-1' },
+              },
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+        );
+      }
       return Promise.resolve(
         new Response(JSON.stringify({ data: [] }), {
           status: 200,
@@ -318,6 +341,7 @@ describe('ContentDesignerRoutePage', () => {
     expect(screen.getByText(/Start with the fields below/i)).toBeVisible();
     expect(screen.getByText(/Validate first\. Save will unlock/i)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Save draft' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Submit to Publishing' })).toBeDisabled();
     expect(screen.getByRole('link', { name: 'Open media' })).toHaveAttribute(
       'href',
       '/media/items?folderCode=cmsAssets',
@@ -346,7 +370,7 @@ describe('ContentDesignerRoutePage', () => {
       'aria-pressed',
       'true',
     );
-    expect(screen.getByText(/Locale ar: summerCampaign hero \(ar\)/i)).toBeVisible();
+    expect(screen.getByText(/Locale ar: summerCampaign hero/i)).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: 'Validate draft' }));
     await waitFor(() => {
@@ -361,11 +385,35 @@ describe('ContentDesignerRoutePage', () => {
     await waitFor(() => {
       expect(screen.getByText(/Save result: DRAFT_SAVED/i)).toBeVisible();
     });
+    expect(screen.getByRole('button', { name: 'Submit to Publishing' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Submit to Publishing' }));
+    await waitFor(() => {
+      expect(screen.getByText(/Publishing result: PENDING_APPROVAL/i)).toBeVisible();
+    });
     expect(fetchMock).toHaveBeenCalledWith(
       expect.objectContaining({
         href: 'http://localhost:4312/nodics/cms/v0/designer/composition/validate',
       }),
       expect.objectContaining({ method: 'POST' }),
     );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        href: 'http://localhost:4312/nodics/cms/v0/designer/composition/publication-request',
+      }),
+      expect.objectContaining({ method: 'POST' }),
+    );
+    const submitCall = fetchMock.mock.calls.find(([input]) =>
+      requestUrl(input).includes('/designer/composition/publication-request'),
+    );
+    const submitBody = submitCall?.[1]?.body;
+    if (typeof submitBody !== 'string') {
+      throw new Error('Expected publication submission body');
+    }
+    const submittedDraft = JSON.parse(submitBody) as {
+      route?: { accessMode?: string };
+      sections?: Array<{ components?: Array<{ accessMode?: string }> }>;
+    };
+    expect(submittedDraft.route?.accessMode).toBe('PUBLIC');
+    expect(submittedDraft.sections?.[0]?.components?.[0]?.accessMode).toBe('PUBLIC');
   });
 });
