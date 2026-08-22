@@ -398,32 +398,11 @@ export function App() {
   const moduleRegistryNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'registry' && item.moduleName === 'backoffice',
   );
-  const setupAcceleratorsNavigation =
-    authenticatedBootstrap?.navigation.find(
-      (item) => item.route === '/setup-accelerators',
-    ) ??
-    ({
-      id: 'setup-accelerators',
-      label: 'Setup & Accelerators',
-      route: '/setup-accelerators',
-      order: 40,
-      moduleName: 'backoffice',
-      category: 'platform',
-      icon: 'settings',
-      availability: 'UP',
-      group: {
-        id: 'publishing',
-        label: 'Publishing',
-        order: 1_700,
-      },
-      perspectives: ['operations'],
-      contexts: ['setup', 'publishing'],
-      featureState: 'ACTIVE',
-      help: {
-        summary:
-          'Initialize governed documentation and project accelerators before publishing them Online.',
-      },
-    } satisfies AxisNavigationItem);
+  const setupAcceleratorsNavigation = authenticatedBootstrap?.navigation.find(
+    (item) =>
+      item.route === '/setup-accelerators' ||
+      (item.id === 'setup-accelerators' && item.moduleName === 'backoffice'),
+  );
   const importExportNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'imports-exports' && item.moduleName === 'backoffice',
   );
@@ -1223,7 +1202,7 @@ export function App() {
         <Route
           path="/setup-accelerators"
           element={
-            session && !locked && authenticatedBootstrap ? (
+            session && !locked && authenticatedBootstrap && setupAcceleratorsNavigation ? (
               authenticatedShell(
                 <SetupAcceleratorsRoutePage
                   accessToken={session.accessToken}

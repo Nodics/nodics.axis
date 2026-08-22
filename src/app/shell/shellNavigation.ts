@@ -195,27 +195,6 @@ const dashboard: ShellNavigationItem = Object.freeze({
   local: true,
 });
 
-const setupAccelerators: ShellNavigationItem = Object.freeze({
-  id: 'setup-accelerators',
-  label: 'Setup & Accelerators',
-  route: '/setup-accelerators',
-  order: 40,
-  moduleName: 'backoffice',
-  category: 'platform',
-  icon: 'settings',
-  availability: 'UP',
-  group: BUSINESS_GROUPS.publishing,
-  perspectives: ['operations'],
-  contexts: ['setup', 'publishing'],
-  featureState: 'ACTIVE',
-  help: {
-    summary:
-      'Initialize governed documentation and project accelerators before publishing them Online.',
-  },
-  depth: 0,
-  hasChildren: false,
-  local: true,
-});
 
 export function composeShellNavigation(
   navigation: readonly AxisNavigationItem[],
@@ -227,10 +206,6 @@ export function composeShellNavigation(
   groups.set(BUSINESS_GROUPS.systemIntegrations.id, {
     ...BUSINESS_GROUPS.systemIntegrations,
     items: hasBackendDashboard ? [] : [dashboard],
-  });
-  groups.set(BUSINESS_GROUPS.publishing.id, {
-    ...BUSINESS_GROUPS.publishing,
-    items: [setupAccelerators],
   });
   const shellItems = navigation
     .filter(

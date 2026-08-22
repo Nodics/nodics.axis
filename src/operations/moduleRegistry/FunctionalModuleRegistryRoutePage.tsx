@@ -211,7 +211,13 @@ function receiptSeverity(
   status: string,
 ): 'success' | 'warning' | 'error' | 'info' {
   if (['FAILED', 'DATA_FAILED'].includes(status)) return 'error';
-  if (['RUNNING', 'QUEUED', 'PENDING_IMPORT'].includes(status)) return 'warning';
+  if (
+    ['RUNNING', 'QUEUED', 'PENDING_IMPORT', 'WAITING_APPROVAL', 'RETRYABLE'].includes(
+      status,
+    )
+  ) {
+    return 'warning';
+  }
   if (['PLANNED', 'SKIPPED_USER_TRIGGERED', 'DATA_LEFT_INTACT'].includes(status)) {
     return 'info';
   }
@@ -221,7 +227,11 @@ function receiptSeverity(
 function receiptStatusLabel(status: string): string {
   if (status === 'NOT_APPLICABLE') return 'No action required';
   if (status === 'PENDING_IMPORT') return 'Import pending';
+  if (status === 'QUEUED') return 'Queued';
   if (status === 'RUNNING') return 'Import running';
+  if (status === 'WAITING_APPROVAL') return 'Waiting for approval';
+  if (status === 'RETRYABLE') return 'Retry available';
+  if (status === 'COMPLETED') return 'Completed';
   if (status === 'IMPORTED') return 'Imported';
   if (status === 'FAILED' || status === 'DATA_FAILED') return 'Failed';
   if (status === 'SKIPPED_USER_TRIGGERED') return 'Available on request';
@@ -568,7 +578,9 @@ export function FunctionalModuleRegistryRoutePage(
     refetchInterval: (query) =>
       (query.state.data ?? []).some((module) =>
         module.activationData?.receipts.some((receipt) =>
-          ['RUNNING', 'QUEUED', 'PENDING_IMPORT'].includes(receipt.status),
+          ['RUNNING', 'QUEUED', 'PENDING_IMPORT', 'WAITING_APPROVAL'].includes(
+            receipt.status,
+          ),
         ),
       )
         ? 5000

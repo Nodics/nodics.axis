@@ -46,154 +46,6 @@ interface SetupAcceleratorsRoutePageProps {
 
 type AcceleratorOperation = 'initiate' | 'rollback' | 'retire' | 'approve';
 
-const FALLBACK_ACCELERATOR_PROFILES: readonly ApplicationInitializationProfile[] = Object.freeze([
-  {
-    code: 'nexus',
-    title: 'Nexus Corporate',
-    kind: 'PROJECT',
-    category: 'accelerator',
-    summary: 'Corporate site accelerator published from WCMS Staged to Online.',
-    order: 100,
-    type: 'WEBSITE_BUNDLE',
-    owner: 'nexusWebData',
-    applicationCode: 'nexus',
-    siteCode: 'nexusCorporateSite',
-    baselineCode: 'nexus',
-    requiredServers: ['Platform', 'WCMS Staged', 'WCMS Online', 'Process'],
-    dataPackages: [
-      {
-        code: 'nexusWebData:init',
-        kind: 'INITIAL_DATA',
-        required: true,
-        trigger: 'ACTIVATION',
-      },
-    ],
-    activationPolicy: {
-      approvalRequiredForOnline: true,
-      requiredDataTrigger: 'ACTIVATION',
-      sampleDataTrigger: 'USER',
-    },
-  },
-  {
-    code: 'agora',
-    title: 'Agora Storefront',
-    kind: 'PROJECT',
-    category: 'accelerator',
-    summary:
-      'Commerce storefront accelerator. Domain-specific bundles will replace the current common profile in a later slice.',
-    order: 200,
-    type: 'STOREFRONT_BUNDLE',
-    owner: 'agoraCommonData',
-    applicationCode: 'agora',
-    siteCode: 'agoraStorefrontSite',
-    baselineCode: 'agora',
-    requiredServers: [
-      'Platform',
-      'WCMS Staged',
-      'WCMS Online',
-      'Process',
-      'Commerce',
-      'Discovery',
-    ],
-    dataPackages: [
-      {
-        code: 'agoraCommonData:init',
-        kind: 'INITIAL_DATA',
-        required: true,
-        trigger: 'ACTIVATION',
-      },
-    ],
-    activationPolicy: {
-      approvalRequiredForOnline: true,
-      requiredDataTrigger: 'ACTIVATION',
-      sampleDataTrigger: 'USER',
-    },
-  },
-  {
-    code: 'frameworkdocs',
-    title: 'Framework Documentation',
-    kind: 'DOCUMENTATION',
-    category: 'documentation',
-    summary: 'Framework documentation content pack and Online delivery profile.',
-    order: 300,
-    type: 'DOCUMENTATION_BUNDLE',
-    owner: 'nodics.docs',
-    applicationCode: 'axis',
-    siteCode: 'nodicsDocumentationSite',
-    baselineCode: 'frameworkdocs',
-    contentPackCode: 'nodicsDocumentation',
-    requiredServers: ['Platform', 'WCMS Staged', 'WCMS Online', 'Process'],
-    dataPackages: [
-      {
-        code: 'nodicsDocumentation',
-        kind: 'CONTENT_PACK',
-        required: true,
-        trigger: 'USER',
-      },
-    ],
-    activationPolicy: {
-      approvalRequiredForOnline: true,
-      requiredDataTrigger: 'USER',
-      sampleDataTrigger: 'USER',
-    },
-  },
-  {
-    code: 'axisdocs',
-    title: 'Nodics Axis Documentation',
-    kind: 'DOCUMENTATION',
-    category: 'documentation',
-    summary: 'Axis product documentation content pack and Online delivery profile.',
-    order: 400,
-    type: 'DOCUMENTATION_BUNDLE',
-    owner: 'axis',
-    applicationCode: 'axis',
-    siteCode: 'axisDocumentationSite',
-    baselineCode: 'axisdocs',
-    contentPackCode: 'axisDocumentation',
-    requiredServers: ['Platform', 'WCMS Staged', 'WCMS Online', 'Process'],
-    dataPackages: [
-      {
-        code: 'axisDocumentation',
-        kind: 'CONTENT_PACK',
-        required: true,
-        trigger: 'USER',
-      },
-    ],
-    activationPolicy: {
-      approvalRequiredForOnline: true,
-      requiredDataTrigger: 'USER',
-      sampleDataTrigger: 'USER',
-    },
-  },
-  {
-    code: 'kickoffdocs',
-    title: 'Nodics Kickoff Documentation',
-    kind: 'DOCUMENTATION',
-    category: 'documentation',
-    summary: 'Reference-project documentation content pack and Online delivery profile.',
-    order: 500,
-    type: 'DOCUMENTATION_BUNDLE',
-    owner: 'nodics.kickoff',
-    applicationCode: 'axis',
-    siteCode: 'kickoffDocumentationSite',
-    baselineCode: 'kickoffdocs',
-    contentPackCode: 'kickoffDocumentation',
-    requiredServers: ['Platform', 'WCMS Staged', 'WCMS Online', 'Process'],
-    dataPackages: [
-      {
-        code: 'kickoffDocumentation',
-        kind: 'CONTENT_PACK',
-        required: true,
-        trigger: 'USER',
-      },
-    ],
-    activationPolicy: {
-      approvalRequiredForOnline: true,
-      requiredDataTrigger: 'USER',
-      sampleDataTrigger: 'USER',
-    },
-  },
-]);
 
 const queryRoot = ['setup-accelerators'] as const;
 
@@ -247,10 +99,9 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
     selectModuleConnection(props.bootstrap, 'workflow', { server: 'processServer' });
   const profiles = useMemo(
     () =>
-      ((props.bootstrap.applicationInitializationProfiles ?? []).length > 0
-        ? (props.bootstrap.applicationInitializationProfiles ?? [])
-        : FALLBACK_ACCELERATOR_PROFILES
-      ).slice().sort((left, right) => left.order - right.order),
+      (props.bootstrap.applicationInitializationProfiles ?? [])
+        .slice()
+        .sort((left, right) => left.order - right.order),
     [props.bootstrap.applicationInitializationProfiles],
   );
   const clients = useMemo(() => {
@@ -400,10 +251,12 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
           Import and activation inside Platform or Staged are audited operations.
           Anything that changes Online visibility remains approval-gated.
         </Alert>
-        {(props.bootstrap.applicationInitializationProfiles ?? []).length === 0 ? (
+        {profiles.length === 0 ? (
           <Alert severity="warning">
-            Authenticated bootstrap did not include accelerator profiles, so Axis
-            is showing the built-in seed profiles.
+            Authenticated bootstrap did not include any application-initialization
+            profiles. Setup & Accelerators is backend-published, so project or
+            environment configuration must contribute profiles before Axis can
+            initialize Nexus, Agora, documentation, or future accelerators.
           </Alert>
         ) : null}
         {mutation.error instanceof Error ? (
