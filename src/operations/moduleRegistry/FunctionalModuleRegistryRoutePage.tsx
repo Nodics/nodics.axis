@@ -7,6 +7,10 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   Grid,
   Stack,
@@ -85,6 +89,12 @@ type ModuleAction = FunctionalModuleLifecycleAction | 'preview';
 type SampleDataAction = 'sampleData';
 type ModuleReadiness = 'Blocked' | 'Ready to activate' | 'Active' | 'Active with warnings';
 
+interface ModuleVisibilitySummary {
+  readonly activeRoutes: number;
+  readonly hiddenRoutes: number;
+  readonly unavailableRoutes: number;
+}
+
 function moduleReadiness(module: FunctionalModuleRegistration): ModuleReadiness {
   if (module.registrationState !== 'REGISTERED') return 'Ready to activate';
   if (!module.enabled && module.runtimeState !== 'ACTIVE') return 'Blocked';
@@ -110,6 +120,46 @@ function activationMode(module: FunctionalModuleRegistration): string {
     return 'Activate capabilities; no required data import is declared';
   }
   return 'Activate capabilities; required data imports through nImport first';
+}
+
+function moduleOwnsNavigationItem(
+  module: FunctionalModuleRegistration,
+  item: AxisNavigationItem,
+): boolean {
+  const owners = new Set([
+    module.functionalModule,
+    ...module.technicalModules,
+    module.functionalModule.replace(/^nodics\./u, ''),
+  ]);
+  return (
+    owners.has(item.moduleName) ||
+    (item.routeOwner?.ownerModule ? owners.has(item.routeOwner.ownerModule) : false) ||
+    (item.workbenchTarget?.moduleName
+      ? owners.has(item.workbenchTarget.moduleName)
+      : false)
+  );
+}
+
+function moduleVisibilitySummary(
+  module: FunctionalModuleRegistration,
+  navigation: readonly AxisNavigationItem[],
+): ModuleVisibilitySummary {
+  return navigation
+    .filter((item) => moduleOwnsNavigationItem(module, item))
+    .reduce<ModuleVisibilitySummary>(
+      (summary, item) => {
+        const featureHidden =
+          item.featureState === 'HIDDEN' || item.featureState === 'DISABLED';
+        const unavailable = item.availability === 'UNAVAILABLE';
+        return {
+          activeRoutes:
+            summary.activeRoutes + (!featureHidden && !unavailable ? 1 : 0),
+          hiddenRoutes: summary.hiddenRoutes + (featureHidden ? 1 : 0),
+          unavailableRoutes: summary.unavailableRoutes + (unavailable ? 1 : 0),
+        };
+      },
+      { activeRoutes: 0, hiddenRoutes: 0, unavailableRoutes: 0 },
+    );
 }
 
 function activeConnections(
@@ -205,6 +255,7 @@ interface ModuleCardProps {
   readonly pendingAction?: ModuleAction | undefined;
   readonly pendingSampleData?: boolean | undefined;
   readonly sampleDataDisabled?: boolean | undefined;
+  readonly visibility: ModuleVisibilitySummary;
 }
 
 function receiptSeverity(
@@ -405,6 +456,7 @@ function ModuleCard({
   pendingAction,
   pendingSampleData,
   sampleDataDisabled,
+  visibility,
 }: ModuleCardProps) {
   const [technicalExpanded, setTechnicalExpanded] = useState(false);
   const isRegistered = module.registrationState === 'REGISTERED';
@@ -585,6 +637,51 @@ function ModuleCard({
                 >
                   <Box>
                     <Typography component="h4" variant="subtitle1">
+                      Axis capability visibility
+                    </Typography>
+                    <Typography color="text.secondary" variant="body2">
+                      Visibility is resolved from the refreshed BackOffice bootstrap,
+                      not from hardcoded frontend routes. Activation and deactivation
+                      must refresh this contract before operators trust the menu.
+                    </Typography>
+                  </Box>
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                    <Chip
+                      color={visibility.activeRoutes > 0 ? 'success' : 'default'}
+                      label={`${String(visibility.activeRoutes)} visible`}
+                      size="small"
+                    />
+                    <Chip
+                      color={visibility.hiddenRoutes > 0 ? 'warning' : 'default'}
+                      label={`${String(visibility.hiddenRoutes)} hidden/disabled`}
+                      size="small"
+                      variant="outlined"
+                    />
+                    <Chip
+                      color={visibility.unavailableRoutes > 0 ? 'error' : 'default'}
+                      label={`${String(visibility.unavailableRoutes)} unavailable`}
+                      size="small"
+                      variant="outlined"
+                    />
+                  </Stack>
+                </Stack>
+              </Stack>
+            </CardContent>
+          </Card>
+
+          <Card
+            variant="outlined"
+            sx={{ bgcolor: 'background.default', borderStyle: 'dashed' }}
+          >
+            <CardContent>
+              <Stack spacing={1.5}>
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  spacing={1}
+                  sx={{ justifyContent: 'space-between' }}
+                >
+                  <Box>
+                    <Typography component="h4" variant="subtitle1">
                       Activation dependency preview
                     </Typography>
                     <Typography color="text.secondary" variant="body2">
@@ -741,6 +838,13 @@ export function FunctionalModuleRegistryRoutePage(
     | {
         readonly severity: 'success' | 'warning';
         readonly message: string;
+      }
+  >();
+  const [safetyConfirmation, setSafetyConfirmation] = useState<
+    | undefined
+    | {
+        readonly module: FunctionalModuleRegistration;
+        readonly action: Extract<ModuleAction, 'deactivate' | 'deregister'>;
       }
   >();
   const connection = selectModuleConnection(props.bootstrap, 'backoffice');
@@ -926,6 +1030,27 @@ export function FunctionalModuleRegistryRoutePage(
   const requiredRegistered = required.length;
   const optionalRegistered = optional.length;
   const enabledRegistered = registered.filter((module) => module.enabled).length;
+  const moduleVisibility = useMemo(
+    () =>
+      new Map(
+        [...registered, ...available].map((module) => [
+          module.functionalModule,
+          moduleVisibilitySummary(module, props.bootstrap.navigation),
+        ]),
+      ),
+    [available, props.bootstrap.navigation, registered],
+  );
+  const requestModuleAction = (
+    module: FunctionalModuleRegistration,
+    action: ModuleAction,
+  ) => {
+    sampleData.reset();
+    if (action === 'deactivate' || action === 'deregister') {
+      setSafetyConfirmation({ action, module });
+      return;
+    }
+    lifecycle.mutate({ action, module });
+  };
 
   if (!connection) {
     return (
@@ -1003,6 +1128,41 @@ export function FunctionalModuleRegistryRoutePage(
                   Continue to Setup & Accelerators
                 </Button>
               </Box>
+            </Stack>
+          </CardContent>
+        </Card>
+        <Card variant="outlined">
+          <CardContent>
+            <Stack spacing={2}>
+              <Box>
+                <Typography component="h2" variant="h5">
+                  Safety and visibility contract
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  Module activation changes operator reachability only after
+                  BackOffice accepts the lifecycle action and Axis refreshes the
+                  authenticated bootstrap. Deactivation and deregistration are
+                  protected by an explicit confirmation because they can remove menu
+                  groups, workbench cards, and project-specific capability entry
+                  points.
+                </Typography>
+              </Box>
+              <Grid container spacing={1}>
+                {[
+                  'Required modules stay protected',
+                  'Required/core data imports during activation',
+                  'Sample data stays user-triggered',
+                  'Navigation refresh proves visibility',
+                  'Unavailable runtime blocks activation',
+                  'Deactivation hides capability entry points',
+                ].map((rule) => (
+                  <Grid key={rule} size={{ xs: 12, md: 6, lg: 4 }}>
+                    <Alert severity="info" sx={{ height: '100%' }}>
+                      {rule}
+                    </Alert>
+                  </Grid>
+                ))}
+              </Grid>
             </Stack>
           </CardContent>
         </Card>
@@ -1141,10 +1301,14 @@ export function FunctionalModuleRegistryRoutePage(
                       sampleDataDisabled={
                         !selectSampleDataConnection(props.bootstrap, module)
                       }
-                      onAction={(nextModule, action) => {
-                        sampleData.reset();
-                        lifecycle.mutate({ action, module: nextModule });
-                      }}
+                      visibility={
+                        moduleVisibility.get(module.functionalModule) ?? {
+                          activeRoutes: 0,
+                          hiddenRoutes: 0,
+                          unavailableRoutes: 0,
+                        }
+                      }
+                      onAction={requestModuleAction}
                       onSampleData={(nextModule) => {
                         lifecycle.reset();
                         sampleData.mutate(nextModule);
@@ -1200,10 +1364,14 @@ export function FunctionalModuleRegistryRoutePage(
                       sampleDataDisabled={
                         !selectSampleDataConnection(props.bootstrap, module)
                       }
-                      onAction={(nextModule, action) => {
-                        sampleData.reset();
-                        lifecycle.mutate({ action, module: nextModule });
-                      }}
+                      visibility={
+                        moduleVisibility.get(module.functionalModule) ?? {
+                          activeRoutes: 0,
+                          hiddenRoutes: 0,
+                          unavailableRoutes: 0,
+                        }
+                      }
+                      onAction={requestModuleAction}
                       onSampleData={(nextModule) => {
                         lifecycle.reset();
                         sampleData.mutate(nextModule);
@@ -1256,10 +1424,14 @@ export function FunctionalModuleRegistryRoutePage(
                       sampleDataDisabled={
                         !selectSampleDataConnection(props.bootstrap, module)
                       }
-                      onAction={(nextModule, action) => {
-                        sampleData.reset();
-                        lifecycle.mutate({ action, module: nextModule });
-                      }}
+                      visibility={
+                        moduleVisibility.get(module.functionalModule) ?? {
+                          activeRoutes: 0,
+                          hiddenRoutes: 0,
+                          unavailableRoutes: 0,
+                        }
+                      }
+                      onAction={requestModuleAction}
                       onSampleData={(nextModule) => {
                         lifecycle.reset();
                         sampleData.mutate(nextModule);
@@ -1272,6 +1444,53 @@ export function FunctionalModuleRegistryRoutePage(
           </Stack>
         )}
       </Stack>
+      <Dialog
+        fullWidth
+        maxWidth="sm"
+        open={Boolean(safetyConfirmation)}
+        onClose={() => setSafetyConfirmation(undefined)}
+      >
+        <DialogTitle>
+          Confirm module {safetyConfirmation?.action ?? 'lifecycle'} safety
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Alert severity="warning">
+              {safetyConfirmation?.module.displayName ?? 'This module'} may lose Axis
+              navigation entries, feature cards, and capability routes after this
+              lifecycle action. Backend registry and bootstrap remain authoritative.
+            </Alert>
+            {[
+              'Check there are no active operators depending on this capability.',
+              'Confirm required framework modules are not being changed.',
+              'Review Online/publication impact separately when module data is live.',
+              'After completion, verify the refreshed Axis navigation and module list.',
+            ].map((rule) => (
+              <Typography color="text.secondary" key={rule} variant="body2">
+                {rule}
+              </Typography>
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSafetyConfirmation(undefined)}>Cancel</Button>
+          <Button
+            color={safetyConfirmation?.action === 'deregister' ? 'error' : 'warning'}
+            disabled={lifecycle.isPending || !safetyConfirmation}
+            variant="contained"
+            onClick={() => {
+              if (!safetyConfirmation) return;
+              lifecycle.mutate({
+                action: safetyConfirmation.action,
+                module: safetyConfirmation.module,
+              });
+              setSafetyConfirmation(undefined);
+            }}
+          >
+            Confirm {safetyConfirmation?.action ?? 'action'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </WorkspaceContainer>
   );
 }
