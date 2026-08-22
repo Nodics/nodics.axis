@@ -712,8 +712,11 @@ export function App() {
       ? authenticatedShell(
           ['UP', 'DEGRADED'].includes(publishingDashboardNavigation.availability) ? (
             <PublishingRouteGuidancePage
+              accessToken={session.accessToken}
+              bootstrap={authenticatedBootstrap}
               path={location.pathname}
               routeNavigation={publishingDashboardNavigation}
+              runtime={runtime}
             />
           ) : (
             <ModuleWorkspacePlaceholder item={publishingDashboardNavigation} />

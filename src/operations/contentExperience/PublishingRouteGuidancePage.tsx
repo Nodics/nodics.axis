@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import {
   Alert,
   Box,
@@ -7,15 +8,34 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
+import { useMemo } from 'react';
 import { Link as RouterLink } from 'react-router';
 
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
 import { WorkspaceContainer } from '../../app/shell/ShellPrimitives';
-import type { AxisNavigationItem } from '../../bootstrap/publicBootstrap';
+import {
+  activeConnections,
+  connectionKey,
+  dashboardCardPadding,
+  dashboardComponentGap,
+  dashboardContentGap,
+  loadWorkbenchMetrics,
+  metricsById,
+  type WorkbenchMetricDefinition,
+} from '../shared/workbenchMetricDashboardModel';
+import { DashboardSection } from '../shared/WorkbenchMetricDashboard';
+import type {
+  AxisAuthenticatedBootstrap,
+  AxisNavigationItem,
+} from '../../bootstrap/publicBootstrap';
+import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 
 interface PublishingRouteGuidancePageProps {
+  readonly accessToken: string;
+  readonly bootstrap: AxisAuthenticatedBootstrap;
   readonly path: string;
   readonly routeNavigation?: AxisNavigationItem | undefined;
+  readonly runtime: AxisRuntimeConfig;
 }
 
 const publishingRouteGuidance = Object.freeze({
@@ -153,6 +173,206 @@ const publishingRouteGuidance = Object.freeze({
   }),
 });
 
+const metricDefinitionsByRoute = Object.freeze({
+  '/publishing/requests': Object.freeze([
+    Object.freeze({
+      id: 'publishing-requests',
+      label: 'Publishing requests',
+      moduleName: 'publish',
+      schemaName: 'publicationRequest',
+      description: 'Governed requests moving staged content toward delivery.',
+      route: '/publishing/requests',
+      icon: 'workflow',
+    }),
+    Object.freeze({
+      id: 'publishing-manifests',
+      label: 'Publication manifests',
+      moduleName: 'cms',
+      schemaName: 'cmsPublicationManifest',
+      description: 'Generated evidence describing prepared publishing payloads.',
+      route: '/publishing/manifests',
+      icon: 'file',
+    }),
+  ]),
+  '/publishing/status': Object.freeze([
+    Object.freeze({
+      id: 'publishing-status',
+      label: 'Publishing status',
+      moduleName: 'cms',
+      schemaName: 'cmsOnlinePublicationPointer',
+      description: 'Operational status for staged-to-online publication flow.',
+      route: '/publishing/status',
+      icon: 'status',
+    }),
+    Object.freeze({
+      id: 'publishing-history',
+      label: 'Publishing history',
+      moduleName: 'cms',
+      schemaName: 'cmsPublicationDeploymentReceipt',
+      description: 'Historical publishing receipts and deployment evidence.',
+      route: '/publishing/history',
+      icon: 'history',
+    }),
+  ]),
+  '/publishing/manifests': Object.freeze([
+    Object.freeze({
+      id: 'publishing-manifests',
+      label: 'Publication manifests',
+      moduleName: 'cms',
+      schemaName: 'cmsPublicationManifest',
+      description: 'Generated evidence describing prepared publishing payloads.',
+      route: '/publishing/manifests',
+      icon: 'file',
+    }),
+  ]),
+  '/publishing/history': Object.freeze([
+    Object.freeze({
+      id: 'publishing-history',
+      label: 'Publishing history',
+      moduleName: 'cms',
+      schemaName: 'cmsPublicationDeploymentReceipt',
+      description: 'Historical publishing receipts and deployment evidence.',
+      route: '/publishing/history',
+      icon: 'history',
+    }),
+    Object.freeze({
+      id: 'publishing-audit',
+      label: 'Publishing audit',
+      moduleName: 'publish',
+      schemaName: 'publicationAudit',
+      description: 'Traceability records for publishing operations.',
+      route: '/publishing/audit',
+      icon: 'audit',
+    }),
+  ]),
+  '/publishing/audit': Object.freeze([
+    Object.freeze({
+      id: 'publishing-audit',
+      label: 'Publishing audit',
+      moduleName: 'publish',
+      schemaName: 'publicationAudit',
+      description: 'Traceability records for publishing operations.',
+      route: '/publishing/audit',
+      icon: 'audit',
+    }),
+  ]),
+  '/publishing/scheduled': Object.freeze([
+    Object.freeze({
+      id: 'scheduled-publication-requests',
+      label: 'Scheduled publication requests',
+      moduleName: 'publish',
+      schemaName: 'publicationRequest',
+      description: 'Future-dated or queued publication requests awaiting governance.',
+      route: '/publishing/scheduled',
+      icon: 'workflow',
+    }),
+  ]),
+  '/publishing/online': Object.freeze([
+    Object.freeze({
+      id: 'online-publication-pointers',
+      label: 'Online publication pointers',
+      moduleName: 'cms',
+      schemaName: 'cmsOnlinePublicationPointer',
+      description: 'Current Online targets served by customer-facing channels.',
+      route: '/publishing/online',
+      icon: 'status',
+    }),
+    Object.freeze({
+      id: 'online-publication-history',
+      label: 'Publishing history',
+      moduleName: 'cms',
+      schemaName: 'cmsPublicationDeploymentReceipt',
+      description: 'Receipts proving how the current Online state was reached.',
+      route: '/publishing/history',
+      icon: 'history',
+    }),
+  ]),
+  '/publishing/dependencies': Object.freeze([
+    Object.freeze({
+      id: 'dependency-manifests',
+      label: 'Publication manifests',
+      moduleName: 'cms',
+      schemaName: 'cmsPublicationManifest',
+      description: 'Prepared payload and dependency evidence.',
+      route: '/publishing/manifests',
+      icon: 'file',
+    }),
+  ]),
+  '/publishing/failures': Object.freeze([
+    Object.freeze({
+      id: 'failure-audit',
+      label: 'Publishing audit',
+      moduleName: 'publish',
+      schemaName: 'publicationAudit',
+      description: 'Audit evidence for failed, retried, or recovered operations.',
+      route: '/publishing/audit',
+      icon: 'audit',
+    }),
+  ]),
+  '/publishing/withdrawals': Object.freeze([
+    Object.freeze({
+      id: 'rollback-history',
+      label: 'Publishing history',
+      moduleName: 'cms',
+      schemaName: 'cmsPublicationDeploymentReceipt',
+      description: 'Receipts used to choose rollback or withdrawal targets.',
+      route: '/publishing/history',
+      icon: 'history',
+    }),
+    Object.freeze({
+      id: 'rollback-audit',
+      label: 'Publishing audit',
+      moduleName: 'publish',
+      schemaName: 'publicationAudit',
+      description: 'Traceability for withdrawal, rollback, retire, and re-publish decisions.',
+      route: '/publishing/audit',
+      icon: 'audit',
+    }),
+  ]),
+  '/publishing/configuration': Object.freeze([
+    Object.freeze({
+      id: 'configuration-requests',
+      label: 'Publishing requests',
+      moduleName: 'publish',
+      schemaName: 'publicationRequest',
+      description: 'Operational publishing requests affected by policy and target mapping.',
+      route: '/publishing/requests',
+      icon: 'workflow',
+    }),
+  ]),
+} satisfies Record<string, readonly WorkbenchMetricDefinition[]>);
+
+const roleGuidance = Object.freeze([
+  Object.freeze({
+    role: 'Creator',
+    responsibility: 'Prepare content, data packs, media, or accelerator initialization.',
+    boundary: 'Cannot make Online visible without approval.',
+  }),
+  Object.freeze({
+    role: 'Approver',
+    responsibility: 'Approve or reject Process tasks after checking target and impact.',
+    boundary: 'Must record a reason and verify Online after decision.',
+  }),
+  Object.freeze({
+    role: 'Enterprise admin',
+    responsibility: 'Own target profiles, policy, module activation, and recovery oversight.',
+    boundary: 'Should not bypass workflow evidence for convenience.',
+  }),
+  Object.freeze({
+    role: 'Viewer',
+    responsibility: 'Inspect status, history, audit, and live evidence.',
+    boundary: 'Read-only access; no publishing state changes.',
+  }),
+]);
+
+const rollbackValidationSteps = Object.freeze([
+  'Identify current Online pointer and last approved receipt.',
+  'Choose rollback, withdrawal, retire, or re-publish target from history.',
+  'Confirm business reason, requester, approver, and affected channel.',
+  'Execute only through governed operation, then check audit.',
+  'Browser-verify Nexus, Agora, or target customer-facing page.',
+]);
+
 function normalizePublishingPath(path: string): keyof typeof publishingRouteGuidance {
   const normalized = path.replace(/\/$/u, '') || '/publishing';
   if (normalized in publishingRouteGuidance) {
@@ -171,19 +391,42 @@ function normalizePublishingPath(path: string): keyof typeof publishingRouteGuid
 }
 
 export function PublishingRouteGuidancePage({
+  accessToken,
+  bootstrap,
   path,
   routeNavigation,
+  runtime,
 }: PublishingRouteGuidancePageProps) {
-  const guidance = publishingRouteGuidance[normalizePublishingPath(path)];
+  const normalizedPath = normalizePublishingPath(path);
+  const guidance = publishingRouteGuidance[normalizedPath];
+  const routeMetrics = metricDefinitionsByRoute[normalizedPath];
+  const connections = useMemo(() => activeConnections(bootstrap), [bootstrap]);
+  const configuration = useMemo(
+    () => ({
+      accessToken,
+      enterpriseCode: runtime.enterpriseCode,
+      timeoutMs: runtime.requestTimeoutMs,
+    }),
+    [accessToken, runtime.enterpriseCode, runtime.requestTimeoutMs],
+  );
+  const metrics = useQuery({
+    queryKey: [
+      'publishing-route-guidance',
+      normalizedPath,
+      runtime.enterpriseCode,
+      connectionKey(connections),
+    ],
+    queryFn: () => loadWorkbenchMetrics(connections, bootstrap, configuration, routeMetrics),
+  });
   return (
     <WorkspaceContainer>
-      <Stack spacing={3}>
+      <Stack spacing={dashboardComponentGap}>
         <Paper
           component="section"
           elevation={0}
-          sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
+          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
         >
-          <Stack spacing={2}>
+          <Stack spacing={dashboardContentGap}>
             <WorkspaceHeading
               description={guidance.summary}
               eyebrow={guidance.eyebrow}
@@ -231,12 +474,27 @@ export function PublishingRouteGuidancePage({
           </Stack>
         </Paper>
 
+        <DashboardSection
+          description="Live backend counts for the schemas that support this publishing route."
+          loading={metrics.isPending}
+          metrics={metricsById(metrics.data, routeMetrics)}
+          title="Live workbench evidence"
+        />
+
+        {metrics.isError ? (
+          <Alert severity="warning">
+            {metrics.error instanceof Error
+              ? metrics.error.message
+              : 'Publishing route metrics are currently unavailable.'}
+          </Alert>
+        ) : null}
+
         <Paper
           component="section"
           elevation={0}
-          sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
+          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
         >
-          <Stack spacing={2}>
+          <Stack spacing={dashboardContentGap}>
             <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
               <Chip label="1. Prepare" />
               <Chip label="2. Inspect" />
@@ -265,6 +523,86 @@ export function PublishingRouteGuidancePage({
             </Stack>
           </Stack>
         </Paper>
+
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+        >
+          <Stack spacing={dashboardContentGap}>
+            <Box>
+              <Typography variant="h5">Role and access guidance</Typography>
+              <Typography color="text.secondary">
+                These are the target publishing responsibilities. Backend permissions
+                remain authoritative; Axis should explain them before roles are fully
+                separated.
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 2,
+                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+              }}
+            >
+              {roleGuidance.map((item) => (
+                <Paper
+                  component="article"
+                  elevation={0}
+                  key={item.role}
+                  sx={{ border: 1, borderColor: 'divider', p: 2 }}
+                >
+                  <Stack spacing={1}>
+                    <Chip color="warning" label={item.role} size="small" />
+                    <Typography variant="body2">{item.responsibility}</Typography>
+                    <Typography color="text.secondary" variant="caption">
+                      Boundary: {item.boundary}
+                    </Typography>
+                  </Stack>
+                </Paper>
+              ))}
+            </Box>
+          </Stack>
+        </Paper>
+
+        {normalizedPath === '/publishing/failures' ||
+        normalizedPath === '/publishing/withdrawals' ||
+        normalizedPath === '/publishing/history' ? (
+          <Paper
+            component="section"
+            elevation={0}
+            sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+          >
+            <Stack spacing={dashboardContentGap}>
+              <Box>
+                <Typography variant="h5">Recovery validation checklist</Typography>
+                <Typography color="text.secondary">
+                  Use this checklist before executing rollback, withdrawal, retire, or
+                  re-publish operations.
+                </Typography>
+              </Box>
+              <Stack spacing={1}>
+                {rollbackValidationSteps.map((step, index) => (
+                  <Paper
+                    component="article"
+                    elevation={0}
+                    key={step}
+                    sx={{ border: 1, borderColor: 'divider', p: 1.5 }}
+                  >
+                    <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+                      <Chip label={String(index + 1)} size="small" />
+                      <Typography>{step}</Typography>
+                    </Stack>
+                  </Paper>
+                ))}
+              </Stack>
+              <Alert severity="warning">
+                Do not execute recovery blindly. A valid recovery ends with Process or
+                audit evidence plus browser verification of the target public channel.
+              </Alert>
+            </Stack>
+          </Paper>
+        ) : null}
       </Stack>
     </WorkspaceContainer>
   );
