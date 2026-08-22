@@ -42,7 +42,7 @@ function buildDeliveryUrl(input: ResolveCmsPageInput): URL {
   url.searchParams.set('path', input.path);
   url.searchParams.set('locale', input.locale);
   url.searchParams.set('channel', input.channel);
-  url.searchParams.set('contractVersion', '1');
+  url.searchParams.set('contractVersion', '0');
   return url;
 }
 

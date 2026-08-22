@@ -1249,7 +1249,7 @@ function parseDocumentationCoverage(
 export function parseEmployeePolicy(value: unknown): AxisEmployeePolicy {
   const policy = record(value, 'BackOffice Axis employee policy');
   if (
-    policy.contractVersion !== 1 ||
+    policy.contractVersion !== 0 ||
     typeof policy.screenLockEnabled !== 'boolean' ||
     !Number.isInteger(policy.idleTimeoutSeconds) ||
     Number(policy.idleTimeoutSeconds) < 60 ||

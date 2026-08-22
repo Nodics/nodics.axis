@@ -8,7 +8,7 @@ function parseBundle(value: unknown): AxisLocalizationBundle {
   }
   const bundle = value as Record<string, unknown>;
   if (
-    bundle.contractVersion !== 1 ||
+    bundle.contractVersion !== 0 ||
     typeof bundle.locale !== 'string' ||
     typeof bundle.scopeCode !== 'string' ||
     typeof bundle.channel !== 'string' ||

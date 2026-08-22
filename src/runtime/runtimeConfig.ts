@@ -49,6 +49,13 @@ function parsePositiveInteger(value: unknown, fieldName: string): number {
   return Number(value);
 }
 
+function parseNonNegativeInteger(value: unknown, fieldName: string): number {
+  if (!Number.isInteger(value) || Number(value) < 0) {
+    throw new Error(`${fieldName} must be a non-negative integer`);
+  }
+  return Number(value);
+}
+
 function parseBoundedInteger(
   value: unknown,
   fieldName: string,
@@ -108,7 +115,7 @@ export function parseRuntimeConfig(value: unknown): AxisRuntimeConfig {
     backofficeBaseUrl: parseBaseUrl(value.backofficeBaseUrl, 'backofficeBaseUrl'),
     enterpriseCode: parseIdentifier(value.enterpriseCode, 'enterpriseCode'),
     projectCode: parseIdentifier(value.projectCode, 'projectCode'),
-    clientContractVersion: parsePositiveInteger(
+    clientContractVersion: parseNonNegativeInteger(
       value.clientContractVersion,
       'clientContractVersion',
     ),

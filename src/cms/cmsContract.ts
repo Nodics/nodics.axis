@@ -97,7 +97,7 @@ function parseTemplate(value: unknown): CmsTemplateContract {
   return Object.freeze({
     code: requiredString(value.code, 'templateContract.code'),
     renderer: requiredString(value.renderer, 'templateContract.renderer'),
-    contractVersion: positiveInteger(
+    contractVersion: nonNegativeInteger(
       value.contractVersion,
       'templateContract.contractVersion',
     ),
@@ -138,7 +138,7 @@ function parseComponents(
         code: requiredString(item.code, `components.${String(index)}.code`),
         typeCode: requiredString(item.typeCode, `components.${String(index)}.typeCode`),
         renderer: requiredString(item.renderer, `components.${String(index)}.renderer`),
-        rendererContractVersion: positiveInteger(
+        rendererContractVersion: nonNegativeInteger(
           item.rendererContractVersion,
           `components.${String(index)}.rendererContractVersion`,
         ),
