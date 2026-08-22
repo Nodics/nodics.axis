@@ -478,6 +478,20 @@ function operationMessage(
   return fallback;
 }
 
+function savedVersionMessage(
+  result: ContentDesignerOperationResult | undefined,
+): string {
+  const saved = result?.saved;
+  if (!saved || typeof saved !== 'object') {
+    return 'CMS draft saved as governed Staged records.';
+  }
+  const text = JSON.stringify(saved);
+  const match = text.match(/"versionId"\s*:\s*(\d+)/u);
+  return match
+    ? `CMS draft saved as immutable Staged version ${match[1]}.`
+    : 'CMS draft saved as governed Staged records.';
+}
+
 function draftRoutePath(draft: ContentDesignerDraft): string {
   const path = draft.route?.path;
   return typeof path === 'string' ? path : 'not assigned';
@@ -1026,6 +1040,12 @@ export function ContentDesignerRoutePage({
                 defaults it can find; you only need to change what is different for this
                 page.
               </Alert>
+              <Alert severity="info" variant="outlined">
+                Save Draft uses the existing CMS generated APIs to create immutable
+                Staged versions. Submit to Publishing then validates the exact saved
+                route version, sends it through nPublish approval, and relies on
+                backend revision checks to prevent stale approvals.
+              </Alert>
               <TextField
                 helperText={
                   catalogOptions.length
@@ -1179,7 +1199,7 @@ export function ContentDesignerRoutePage({
               ) : null}
               {saveMutation.data ? (
                 <Alert severity="success">
-                  Save result: {operationMessage(saveMutation.data, 'CMS draft saved')}
+                  Save result: {savedVersionMessage(saveMutation.data)}
                 </Alert>
               ) : null}
               {submitPublicationMutation.data ? (
@@ -1209,7 +1229,7 @@ export function ContentDesignerRoutePage({
                   onClick={() => saveMutation.mutate()}
                   variant="outlined"
                 >
-                  Save draft
+                  Save immutable draft
                 </Button>
                 <Button
                   disabled={
@@ -1221,7 +1241,7 @@ export function ContentDesignerRoutePage({
                   onClick={() => submitPublicationMutation.mutate()}
                   variant="outlined"
                 >
-                  Submit to Publishing
+                  Submit to governed Publishing
                 </Button>
                 <Button
                   disabled={!authoringModel.data}
