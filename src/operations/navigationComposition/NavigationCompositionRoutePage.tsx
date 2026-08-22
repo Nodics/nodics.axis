@@ -52,6 +52,7 @@ export function NavigationCompositionRoutePage(
     });
   });
   const warnings = composition?.warnings ?? [];
+  const authoring = composition?.authoring;
 
   return (
     <WorkspaceContainer>
@@ -135,10 +136,30 @@ export function NavigationCompositionRoutePage(
                   variant="outlined"
                 />
                 <Chip
+                  label={`Preview: ${
+                    authoring?.previewSupported === true ? 'Available' : 'Not active'
+                  }`}
+                  variant="outlined"
+                />
+                <Chip
+                  label={`Export: ${
+                    authoring?.exportSupported === true ? 'Available' : 'Not active'
+                  }`}
+                  variant="outlined"
+                />
+                <Chip
+                  label={`Import validation: ${
+                    authoring?.importValidationSupported === true
+                      ? 'Validate only'
+                      : 'Not active'
+                  }`}
+                  variant="outlined"
+                />
+                <Chip
                   label={`Publishing: ${
-                    composition?.authoring?.publishSupported === true
+                    authoring?.publishSupported === true
                       ? 'Supported'
-                      : 'Approval foundation only'
+                      : 'Approval protected'
                   }`}
                   variant="outlined"
                 />
@@ -148,6 +169,9 @@ export function NavigationCompositionRoutePage(
                 BackOffice remains responsible for source trace, validation, approval,
                 rollback, module activation filtering, and tenant/enterprise scope.
               </Typography>
+              {authoring?.reason ? (
+                <Alert severity="info">{String(authoring.reason)}</Alert>
+              ) : null}
               {composition?.checksum ? (
                 <Typography color="text.secondary" variant="caption">
                   Checksum: {composition.checksum}
@@ -156,6 +180,53 @@ export function NavigationCompositionRoutePage(
             </Stack>
           </CardContent>
         </Card>
+
+        <Grid container spacing={2}>
+          {[
+            {
+              title: 'Preview validation',
+              state: authoring?.previewSupported === true ? 'Ready' : 'Not active',
+              detail:
+                'BackOffice can dry-run a proposed navigation payload and report route, parent, duplicate, and label issues without publishing.',
+            },
+            {
+              title: 'Approval lifecycle',
+              state: authoring?.publishSupported === true ? 'Ready' : 'Protected',
+              detail:
+                'Draft submit, checker approval, publish, and rollback stay disabled until durable scoped persistence and audit query are wired.',
+            },
+            {
+              title: 'RBAC boundary',
+              state: String(authoring?.rbacBoundary ?? 'Permission gated'),
+              detail:
+                'Authoring must be scoped by super-admin, enterprise-admin, creator, checker, and read-only permissions before edits are enabled.',
+            },
+            {
+              title: 'Localization',
+              state: String(authoring?.localizationSupported ?? 'Label-key foundation'),
+              detail:
+                'Module labels already carry label keys where available; business translation workflow remains a governed BackOffice data task.',
+            },
+          ].map((item) => (
+            <Grid key={item.title} size={{ xs: 12, md: 3 }}>
+              <Card variant="outlined">
+                <CardContent>
+                  <Stack spacing={1}>
+                    <Typography color="text.secondary" variant="caption">
+                      {item.title}
+                    </Typography>
+                    <Typography component="h3" variant="h6">
+                      {item.state}
+                    </Typography>
+                    <Typography color="text.secondary" variant="body2">
+                      {item.detail}
+                    </Typography>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
 
         {warnings.length > 0 ? (
           <Stack spacing={1}>
