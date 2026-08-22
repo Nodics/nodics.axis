@@ -41,6 +41,25 @@ function sourceLabel(item: AxisNavigationItem): string {
     : 'catalogue.navigation · fallback';
 }
 
+interface ModuleContributionSummary {
+  readonly moduleName: string;
+  readonly total: number;
+  readonly active: number;
+  readonly preview: number;
+  readonly hidden: number;
+  readonly unavailable: number;
+  readonly groups: ReadonlySet<string>;
+}
+
+function contributionOwner(item: AxisNavigationItem): string {
+  return (
+    item.sourceTrace?.ownerModule ||
+    item.routeOwner?.ownerModule ||
+    item.workbenchTarget?.moduleName ||
+    item.moduleName
+  );
+}
+
 export function NavigationCompositionRoutePage(
   props: NavigationCompositionRoutePageProps,
 ) {
@@ -97,6 +116,44 @@ export function NavigationCompositionRoutePage(
   const visibleGroups = [...groups.entries()].filter(
     ([, group]) => !normalizedSearchTerm || group.count > 0,
   );
+  const moduleContributions = useMemo(() => {
+    const summaries = new Map<string, ModuleContributionSummary>();
+    navigation.forEach((item) => {
+      const moduleName = contributionOwner(item);
+      const current =
+        summaries.get(moduleName) ??
+        ({
+          moduleName,
+          total: 0,
+          active: 0,
+          preview: 0,
+          hidden: 0,
+          unavailable: 0,
+          groups: new Set<string>(),
+        } satisfies ModuleContributionSummary);
+      const featureState = item.featureState ?? 'ACTIVE';
+      const nextGroups = new Set(current.groups);
+      nextGroups.add(item.group?.label ?? 'Ungrouped');
+      summaries.set(moduleName, {
+        moduleName,
+        total: current.total + 1,
+        active:
+          current.active +
+          (featureState === 'ACTIVE' && item.availability !== 'UNAVAILABLE' ? 1 : 0),
+        preview: current.preview + (featureState === 'PREVIEW' ? 1 : 0),
+        hidden:
+          current.hidden +
+          (featureState === 'HIDDEN' || featureState === 'DISABLED' ? 1 : 0),
+        unavailable:
+          current.unavailable + (item.availability === 'UNAVAILABLE' ? 1 : 0),
+        groups: nextGroups,
+      });
+    });
+    return [...summaries.values()].sort((left, right) => {
+      if (right.total !== left.total) return right.total - left.total;
+      return left.moduleName.localeCompare(right.moduleName);
+    });
+  }, [navigation]);
   const warnings = composition?.warnings ?? [];
   const actionableWarnings = warnings.filter(
     (warning) => String(warning.severity ?? 'WARNING') !== 'INFO',
@@ -312,6 +369,112 @@ export function NavigationCompositionRoutePage(
             ) : null}
           </Stack>
         ) : null}
+
+        <Card variant="outlined">
+          <CardContent>
+            <Stack spacing={2}>
+              <Box>
+                <Typography component="h2" variant="h5">
+                  Module contribution merge
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  BackOffice merges module-default, CMS, workbench, and future
+                  project-owned navigation contributions into this effective
+                  composition. Axis only displays the resolved result; it does not
+                  classify ownership with frontend regexes or hardcoded route lists.
+                </Typography>
+              </Box>
+              <Grid container spacing={2}>
+                {moduleContributions.slice(0, 8).map((summary) => (
+                  <Grid key={summary.moduleName} size={{ xs: 12, md: 6, xl: 3 }}>
+                    <Card variant="outlined" sx={{ height: '100%' }}>
+                      <CardContent>
+                        <Stack spacing={1}>
+                          <Typography component="h3" variant="subtitle1">
+                            {summary.moduleName}
+                          </Typography>
+                          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                            <Chip label={`${String(summary.total)} total`} size="small" />
+                            <Chip
+                              color={summary.active > 0 ? 'success' : 'default'}
+                              label={`${String(summary.active)} active`}
+                              size="small"
+                            />
+                            <Chip
+                              label={`${String(summary.preview)} preview`}
+                              size="small"
+                              variant="outlined"
+                            />
+                            <Chip
+                              color={summary.hidden > 0 ? 'warning' : 'default'}
+                              label={`${String(summary.hidden)} hidden`}
+                              size="small"
+                              variant="outlined"
+                            />
+                            <Chip
+                              color={summary.unavailable > 0 ? 'error' : 'default'}
+                              label={`${String(summary.unavailable)} unavailable`}
+                              size="small"
+                              variant="outlined"
+                            />
+                          </Stack>
+                          <Typography color="text.secondary" variant="caption">
+                            Groups: {[...summary.groups].slice(0, 4).join(', ')}
+                            {summary.groups.size > 4
+                              ? ` +${String(summary.groups.size - 4)} more`
+                              : ''}
+                          </Typography>
+                        </Stack>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+              <Alert severity="info">
+                Module activation/deactivation is proven here only after the refreshed
+                authenticated bootstrap changes these contribution counts and the left
+                navigation matches the effective composition.
+              </Alert>
+            </Stack>
+          </CardContent>
+        </Card>
+
+        <Card variant="outlined">
+          <CardContent>
+            <Stack spacing={2}>
+              <Box>
+                <Typography component="h2" variant="h5">
+                  Navigation browser validation matrix
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  Use this matrix whenever navigation, module activation, project
+                  packs, or future CMS navigation authoring changes the Axis menu.
+                </Typography>
+              </Box>
+              <Grid container spacing={1}>
+                {[
+                  'Open Axis after login and confirm active left navigation groups.',
+                  'Search this workbench by module, route, owner, source, and feature state.',
+                  'Confirm hidden/disabled/unavailable entries are not treated as active routes.',
+                  'Verify module activation/deactivation by refreshing BackOffice bootstrap.',
+                  'Capture browser screenshot and console health for evidence.',
+                  'Record request, approval, rollback, or restore evidence when Online visibility changes.',
+                ].map((step, index) => (
+                  <Grid key={step} size={{ xs: 12, md: 6 }}>
+                    <Alert severity="info" sx={{ height: '100%' }}>
+                      <Typography component="div" variant="subtitle2">
+                        {String(index + 1)}. Validation step
+                      </Typography>
+                      <Typography component="div" variant="body2">
+                        {step}
+                      </Typography>
+                    </Alert>
+                  </Grid>
+                ))}
+              </Grid>
+            </Stack>
+          </CardContent>
+        </Card>
 
         <Card
           variant="outlined"
