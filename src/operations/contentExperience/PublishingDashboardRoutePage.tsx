@@ -247,6 +247,63 @@ const publicationSideEffectHooks = Object.freeze([
   }),
 ]);
 
+const publishingOperationalMetricCards = Object.freeze([
+  Object.freeze({
+    title: 'Latency',
+    signal: 'Request created to Online verified',
+    detail:
+      'Track preparation, approval wait, activation, side-effect completion, and browser verification time separately.',
+  }),
+  Object.freeze({
+    title: 'Failure rate',
+    signal: 'Failed publications by target and reason',
+    detail:
+      'Separate validation failures, approval rejection, activation failure, search/media hook failure, and browser verification failure.',
+  }),
+  Object.freeze({
+    title: 'Queue age',
+    signal: 'Oldest waiting approval or activation',
+    detail:
+      'Show stale requests before operators assume publishing is blocked by the backend or already live.',
+  }),
+  Object.freeze({
+    title: 'Retry pressure',
+    signal: 'Retries and compensations by correlation id',
+    detail:
+      'High retry volume should point to recovery guidance, audit, and dependency health instead of repeated manual attempts.',
+  }),
+  Object.freeze({
+    title: 'Audit volume',
+    signal: 'Events per request and per Online movement',
+    detail:
+      'Healthy publishing should leave enough audit detail to reconstruct requester, approver, decision, reason, and result.',
+  }),
+  Object.freeze({
+    title: 'Dependency health',
+    signal: 'Blocking and warning dependencies',
+    detail:
+      'Surface unresolved CMS, media, localization, catalog, search, module, and accelerator dependencies before approval.',
+  }),
+  Object.freeze({
+    title: 'Module health correlation',
+    signal: 'Publishing status against module availability',
+    detail:
+      'A request should show whether the owning module is UP, DEGRADED, unavailable, inactive, or missing from navigation.',
+  }),
+  Object.freeze({
+    title: 'Accelerator health correlation',
+    signal: 'Setup package, approval, and Online target',
+    detail:
+      'Nexus, Agora, docs, and future accelerators should correlate setup status, publication status, and live verification.',
+  }),
+  Object.freeze({
+    title: 'Operator activity',
+    signal: 'Creator, approver, retry, recovery, and viewer actions',
+    detail:
+      'Activity metrics help enterprise administrators see workload and access patterns without weakening role separation.',
+  }),
+]);
+
 const canonicalPublicationStates = Object.freeze([
   'DRAFT',
   'VALIDATING',
@@ -423,6 +480,56 @@ export function PublishingDashboardRoutePage({
           metrics={metricsById(metrics, publishingMetrics)}
           title="Publishing operations"
         />
+
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+        >
+          <Stack spacing={dashboardContentGap}>
+            <Box>
+              <Typography variant="h5">Publishing metrics cockpit</Typography>
+              <Typography color="text.secondary">
+                Enterprise operators need more than record counts. These are the
+                publishing-health signals Axis should expose from requests, workflow,
+                audit, manifests, Online receipts, dependency manifests, and browser
+                evidence.
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 2,
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  md: 'repeat(2, minmax(0, 1fr))',
+                  xl: 'repeat(3, minmax(0, 1fr))',
+                },
+              }}
+            >
+              {publishingOperationalMetricCards.map((metric) => (
+                <Paper
+                  component="article"
+                  elevation={0}
+                  key={metric.title}
+                  sx={{ border: 1, borderColor: 'divider', p: 2 }}
+                >
+                  <Stack spacing={1}>
+                    <Typography variant="h6">{metric.title}</Typography>
+                    <Chip label={metric.signal} size="small" variant="outlined" />
+                    <Typography color="text.secondary" variant="body2">
+                      {metric.detail}
+                    </Typography>
+                  </Stack>
+                </Paper>
+              ))}
+            </Box>
+            <Alert severity="info">
+              Metric cards describe the required operational view. Values should stay
+              backend-derived so Axis does not invent health from frontend-only state.
+            </Alert>
+          </Stack>
+        </Paper>
 
         <Paper
           component="section"
