@@ -142,6 +142,45 @@ const operatorPath = Object.freeze([
   }),
 ]);
 
+const publishingEvidenceRooms = Object.freeze([
+  Object.freeze({
+    title: 'Publication Requests',
+    body: 'Start here when an accelerator, CMS pack, or content change has been prepared in Staged.',
+    route: '/publishing/requests',
+    action: 'Open requests',
+  }),
+  Object.freeze({
+    title: 'Approval Queue',
+    body: 'Use Process tasks to approve or reject anything that changes Online visibility.',
+    route: '/process/tasks',
+    action: 'Review approvals',
+  }),
+  Object.freeze({
+    title: 'Staged-to-Online Operations',
+    body: 'Inspect Online pointer movement and publication state before declaring the change live.',
+    route: '/publishing/status',
+    action: 'Check status',
+  }),
+  Object.freeze({
+    title: 'Publication Manifests',
+    body: 'Review generated payload evidence: source version, target site, dependencies, and prepared records.',
+    route: '/publishing/manifests',
+    action: 'Open manifests',
+  }),
+  Object.freeze({
+    title: 'Publishing History',
+    body: 'Confirm deployment receipts and previous Online movement when investigating what changed.',
+    route: '/publishing/history',
+    action: 'View history',
+  }),
+  Object.freeze({
+    title: 'Publishing Audit',
+    body: 'Use audit evidence when proving who requested, approved, rejected, retried, or recovered a change.',
+    route: '/publishing/audit',
+    action: 'Inspect audit',
+  }),
+]);
+
 function taskIsActionable(task: ProcessHumanTask): boolean {
   return (
     approvalTaskStates.includes(task.status) &&
@@ -310,6 +349,58 @@ export function PublishingDashboardRoutePage({
         >
           <Stack spacing={dashboardContentGap}>
             <Box>
+              <Typography variant="h5">Publishing evidence map</Typography>
+              <Typography color="text.secondary">
+                These pages are not separate tasks. They are the evidence rooms for one
+                publishing journey: request, approval, Online movement, manifest,
+                receipt, and audit.
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 2,
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  md: 'repeat(2, minmax(0, 1fr))',
+                  xl: 'repeat(3, minmax(0, 1fr))',
+                },
+              }}
+            >
+              {publishingEvidenceRooms.map((room) => (
+                <Paper
+                  component="article"
+                  elevation={0}
+                  key={room.title}
+                  sx={{ border: 1, borderColor: 'divider', p: 2 }}
+                >
+                  <Stack spacing={1.25}>
+                    <Typography variant="h6">{room.title}</Typography>
+                    <Typography color="text.secondary" variant="body2">
+                      {room.body}
+                    </Typography>
+                    <Button
+                      component={RouterLink}
+                      size="small"
+                      to={room.route}
+                      variant="outlined"
+                    >
+                      {room.action}
+                    </Button>
+                  </Stack>
+                </Paper>
+              ))}
+            </Box>
+          </Stack>
+        </Paper>
+
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+        >
+          <Stack spacing={dashboardContentGap}>
+            <Box>
               <Typography variant="h5">Guided operator journey</Typography>
               <Typography color="text.secondary">
                 Follow the same sequence every time: prepare the change, inspect the
@@ -386,6 +477,72 @@ export function PublishingDashboardRoutePage({
               Process decision and the user-facing browser page shows the intended
               Online result.
             </Alert>
+          </Stack>
+        </Paper>
+
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+        >
+          <Stack spacing={dashboardContentGap}>
+            <Box>
+              <Typography variant="h5">Rollback, withdrawal, and re-publish guardrails</Typography>
+              <Typography color="text.secondary">
+                Recovery work should be handled with the same evidence discipline as a
+                normal publication. Do not treat rollback as a shortcut around approval,
+                audit, or browser verification.
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 2,
+                gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
+              }}
+            >
+              <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', p: 2 }}>
+                <Stack spacing={1}>
+                  <Chip color="warning" label="Rollback" size="small" />
+                  <Typography variant="h6">Return to a previous approved state</Typography>
+                  <Typography color="text.secondary" variant="body2">
+                    Use history and audit first, then confirm which prior Online pointer
+                    or receipt should become authoritative again.
+                  </Typography>
+                </Stack>
+              </Paper>
+              <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', p: 2 }}>
+                <Stack spacing={1}>
+                  <Chip color="warning" label="Withdraw" size="small" />
+                  <Typography variant="h6">Stop a pending or scheduled publication</Typography>
+                  <Typography color="text.secondary" variant="body2">
+                    Withdrawal should explain what remains in Staged and why Online must
+                    stay unchanged.
+                  </Typography>
+                </Stack>
+              </Paper>
+              <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', p: 2 }}>
+                <Stack spacing={1}>
+                  <Chip color="warning" label="Retire / re-publish" size="small" />
+                  <Typography variant="h6">Retire obsolete live content safely</Typography>
+                  <Typography color="text.secondary" variant="body2">
+                    Re-publish only from approved evidence, then verify the live page or
+                    storefront from the browser.
+                  </Typography>
+                </Stack>
+              </Paper>
+            </Box>
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+              <Button component={RouterLink} to="/publishing/history" variant="outlined">
+                Start from history
+              </Button>
+              <Button component={RouterLink} to="/publishing/audit" variant="outlined">
+                Inspect audit trail
+              </Button>
+              <Button component={RouterLink} to="/publishing/status" variant="outlined">
+                Confirm Online state
+              </Button>
+            </Stack>
           </Stack>
         </Paper>
 

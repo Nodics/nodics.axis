@@ -84,6 +84,7 @@ function createCmsPublicationApprovalDecision(): ProcessTaskDecision {
   return Object.freeze({
     approved: true,
     outcome: 'approved-from-axis',
+    reason: 'Publication approved from Axis after operator review',
   });
 }
 
@@ -91,6 +92,7 @@ function createCmsPublicationRejectionDecision(): ProcessTaskDecision {
   return Object.freeze({
     approved: false,
     outcome: 'rejected-from-axis',
+    reason: 'Publication rejected from Axis; Online must remain unchanged',
   });
 }
 
@@ -679,6 +681,11 @@ function TaskInbox({
           </Alert>
         ) : (
           <Stack spacing={1.5}>
+            <Alert severity="info" variant="outlined">
+              For CMS publication tasks, approve only when the target site, source
+              version, and expected Online impact are understood. Rejecting a publication
+              keeps Online unchanged and leaves the decision in the workflow timeline.
+            </Alert>
             <TextField
               disabled={disabled}
               label="Assign selected task to"
@@ -715,6 +722,14 @@ function TaskInbox({
                         label={task.status}
                       />
                     </Stack>
+                    {cmsPublicationApprovalTask ? (
+                      <Alert severity="warning" variant="outlined">
+                        Publication approval task. Approve moves the prepared CMS
+                        baseline toward Online visibility; reject preserves the current
+                        Online state. After either decision, verify Publishing Status,
+                        History, Audit, and the browser page.
+                      </Alert>
+                    ) : null}
                     <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
                       <Button
                         disabled={disabled || !actionable || !assignee.trim()}

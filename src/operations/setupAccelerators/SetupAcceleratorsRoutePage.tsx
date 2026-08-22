@@ -290,6 +290,12 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
           approval. Online is the public runtime consumed by Nexus, Agora, and other
           customer-facing channels after approval.
         </Alert>
+        <Alert severity="info" variant="outlined">
+          Recommended path: initialize the package, inspect the generated Publishing
+          Request, approve or reject the Process task, then verify Online status and the
+          browser page. Setup starts the journey; Publishing and Process provide the
+          evidence.
+        </Alert>
         {profiles.length === 0 ? (
           <Alert severity="warning">
             Authenticated bootstrap did not include any application-initialization
@@ -333,7 +339,58 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                 >
                   Open Module Registry
                 </Button>
+                <Button
+                  onClick={() => navigate('/publishing')}
+                  size="small"
+                  variant="outlined"
+                >
+                  Open Publishing
+                </Button>
               </Stack>
+            </Stack>
+          </CardContent>
+        </Card>
+        <Card variant="outlined">
+          <CardContent>
+            <Stack spacing={2}>
+              <Box>
+                <Typography component="h2" variant="h6">
+                  What happens after initialization?
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  Axis keeps the flow explicit so an operator can see what data enters
+                  Staged, who approved Online movement, and where to verify the public
+                  result.
+                </Typography>
+              </Box>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 2,
+                  gridTemplateColumns: {
+                    xs: '1fr',
+                    md: 'repeat(4, minmax(0, 1fr))',
+                  },
+                }}
+              >
+                {[
+                  ['1. Import', 'Required package data is imported into Staged.'],
+                  ['2. Request', 'A governed Publishing Request records target and evidence.'],
+                  ['3. Approve', 'Process approval decides whether Online can change.'],
+                  ['4. Verify', 'Online state, receipts, audit, and browser page are checked.'],
+                ].map(([title, body]) => (
+                  <Card key={title} variant="outlined">
+                    <CardContent>
+                      <Stack spacing={1}>
+                        <Typography variant="subtitle1">{title}</Typography>
+                        <Typography color="text.secondary" variant="body2">
+                          {body}
+                        </Typography>
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                ))}
+              </Box>
             </Stack>
           </CardContent>
         </Card>
@@ -518,6 +575,21 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                               ) : null}
                             </Box>
                           ) : null}
+                          <Alert
+                            severity={
+                              status.readiness === 'READY'
+                                ? 'success'
+                                : status.readiness === 'PUBLICATION_PENDING'
+                                  ? 'warning'
+                                  : 'info'
+                            }
+                          >
+                            {status.readiness === 'READY'
+                              ? 'Next: verify the Online page or storefront, then review history and audit if evidence is needed.'
+                              : status.readiness === 'PUBLICATION_PENDING'
+                                ? 'Next: review the Process approval task. Approving can change Online; rejecting keeps Online unchanged.'
+                                : 'Next: initialize when the target runtime is available. Axis will create the publishing evidence after import.'}
+                          </Alert>
                           <Divider />
                           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
                             {status.allowedActions.includes('INITIALIZE') ? (
@@ -592,6 +664,27 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                               variant="text"
                             >
                               Refresh
+                            </Button>
+                            <Button
+                              disabled={pending}
+                              onClick={() => navigate('/publishing/requests')}
+                              variant="text"
+                            >
+                              Requests
+                            </Button>
+                            <Button
+                              disabled={pending}
+                              onClick={() => navigate('/process/tasks')}
+                              variant="text"
+                            >
+                              Approvals
+                            </Button>
+                            <Button
+                              disabled={pending}
+                              onClick={() => navigate('/publishing/status')}
+                              variant="text"
+                            >
+                              Online status
                             </Button>
                           </Stack>
                         </>
