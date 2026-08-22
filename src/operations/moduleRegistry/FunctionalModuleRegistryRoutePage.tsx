@@ -12,13 +12,15 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router';
 
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
 import { WorkspaceContainer } from '../../app/shell/ShellPrimitives';
 import {
   selectModuleConnection,
   type AxisAuthenticatedBootstrap,
+  type AxisModuleConnection,
   type AxisNavigationItem,
 } from '../../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
@@ -104,7 +106,73 @@ function activationMode(module: FunctionalModuleRegistration): string {
   if (module.required) return 'Protected framework module';
   if (module.registrationState === 'AVAILABLE') return 'Register before activation';
   if (module.enabled) return 'Activated for Axis presentation';
+  if (module.activationData?.packages.length === 0) {
+    return 'Activate capabilities; no required data import is declared';
+  }
   return 'Activate capabilities; required data imports through nImport first';
+}
+
+function activeConnections(
+  connections: readonly AxisModuleConnection[] | undefined,
+): readonly AxisModuleConnection[] {
+  return Object.freeze(
+    (connections ?? []).filter(
+      (connection) => connection.state === 'UP' || connection.state === 'DEGRADED',
+    ),
+  );
+}
+
+function sampleReceipt(module: FunctionalModuleRegistration) {
+  return module.activationData?.receipts.find(
+    (receipt) => receipt.dataType === 'sample' && receipt.trigger === 'USER',
+  );
+}
+
+function canRequestSampleData(module: FunctionalModuleRegistration): boolean {
+  const receipt = sampleReceipt(module);
+  return Boolean(
+    receipt &&
+      ['SKIPPED_USER_TRIGGERED', 'FAILED', 'DATA_FAILED'].includes(receipt.status),
+  );
+}
+
+function targetRuntimeRole(targetServer: string): string | undefined {
+  if (targetServer === 'platformServer') return 'PLATFORM';
+  if (targetServer === 'wcmsStaged') return 'WCMS_STAGED';
+  if (targetServer === 'wcmsOnline') return 'WCMS_ONLINE';
+  if (targetServer === 'commerceServer') return 'COMMERCE';
+  if (targetServer === 'commerceStagedServer') return 'COMMERCE_STAGED';
+  if (targetServer === 'engagementServer') return 'ENGAGEMENT';
+  return undefined;
+}
+
+function selectSampleDataConnection(
+  bootstrap: AxisAuthenticatedBootstrap,
+  module: FunctionalModuleRegistration,
+): AxisModuleConnection | undefined {
+  const receipt = sampleReceipt(module);
+  if (!receipt) return undefined;
+  const importConnections = activeConnections(bootstrap.moduleConnections.import);
+  if (receipt.targetServer) {
+    const serverConnection = importConnections.find(
+      (connection) => connection.server === receipt.targetServer,
+    );
+    if (serverConnection) return serverConnection;
+  }
+  const role = targetRuntimeRole(receipt.targetServer);
+  if (role) {
+    const roleConnection = importConnections.find(
+      (connection) => connection.runtimeRole?.code === role,
+    );
+    if (roleConnection) return roleConnection;
+  }
+  if (receipt.targetModule) {
+    const moduleConnection = importConnections.find(
+      (connection) => connection.moduleName === receipt.targetModule,
+    );
+    if (moduleConnection) return moduleConnection;
+  }
+  return importConnections.length === 1 ? importConnections[0] : undefined;
 }
 
 function removeModule(
@@ -150,6 +218,22 @@ function receiptSeverity(
   return 'success';
 }
 
+function receiptStatusLabel(status: string): string {
+  if (status === 'NOT_APPLICABLE') return 'No action required';
+  if (status === 'PENDING_IMPORT') return 'Import pending';
+  if (status === 'RUNNING') return 'Import running';
+  if (status === 'IMPORTED') return 'Imported';
+  if (status === 'FAILED' || status === 'DATA_FAILED') return 'Failed';
+  if (status === 'SKIPPED_USER_TRIGGERED') return 'Available on request';
+  if (status === 'DATA_LEFT_INTACT') return 'Data left intact';
+  if (status === 'PLANNED') return 'Planned';
+  return status
+    .toLowerCase()
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 function ActivationDataPanel({
   activationData,
 }: {
@@ -182,7 +266,7 @@ function ActivationDataPanel({
             >
               <strong>{receipt.code}</strong> · {receipt.classification} ·{' '}
               {receipt.dataType || 'data'} ·{' '}
-              {receipt.status}
+              {receiptStatusLabel(receipt.status)}
               {receipt.releaseStatus ? ` · release ${receipt.releaseStatus}` : ''}
               {receipt.importRunId ? ` · run ${receipt.importRunId}` : ''}
               <br />
@@ -192,7 +276,7 @@ function ActivationDataPanel({
         </Stack>
       ) : (
         <Alert severity="info">
-          No activation data packages are declared for this module.
+          No activation data is required for this module.
         </Alert>
       )}
       {activationData.nextActions.length > 0 ? (
@@ -213,6 +297,7 @@ function ModuleCard({
   pendingSampleData,
   sampleDataDisabled,
 }: ModuleCardProps) {
+  const [technicalExpanded, setTechnicalExpanded] = useState(false);
   const isRegistered = module.registrationState === 'REGISTERED';
   const canRegister = module.registrationState === 'AVAILABLE';
   const canActivate =
@@ -223,10 +308,12 @@ function ModuleCard({
   const readiness = moduleReadiness(module);
   const impactCount = module.technicalModules.length + module.observedServers.length;
   const activationData = module.activationData;
-  const hasSampleData =
-    activationData?.receipts.some(
-      (receipt) => receipt.dataType === 'sample' && receipt.trigger === 'USER',
-    ) ?? false;
+  const visibleTechnicalModules = technicalExpanded
+    ? module.technicalModules
+    : module.technicalModules.slice(0, 8);
+  const remainingTechnicalModules =
+    module.technicalModules.length - visibleTechnicalModules.length;
+  const hasSampleData = canRequestSampleData(module);
 
   return (
     <Card variant="outlined">
@@ -305,7 +392,7 @@ function ModuleCard({
               Technical modules
             </Typography>
             <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-              {module.technicalModules.map((technicalModule) => (
+              {visibleTechnicalModules.map((technicalModule) => (
                 <Chip
                   key={technicalModule}
                   label={technicalModule}
@@ -313,6 +400,17 @@ function ModuleCard({
                   variant="outlined"
                 />
               ))}
+              {module.technicalModules.length > 8 ? (
+                <Button
+                  onClick={() => setTechnicalExpanded((expanded) => !expanded)}
+                  size="small"
+                  variant="text"
+                >
+                  {technicalExpanded
+                    ? 'Hide technical modules'
+                    : `Show ${String(remainingTechnicalModules)} more`}
+                </Button>
+              ) : null}
             </Stack>
           </Box>
 
@@ -347,7 +445,9 @@ function ModuleCard({
 
           <Alert severity={canActivate ? 'warning' : module.enabled ? 'success' : 'info'}>
             {canActivate
-              ? 'Preview shows declared required/core/sample packages before activation. Activation imports required data through the existing nImport data-release executor before enabling Axis capabilities.'
+              ? activationData?.packages.length === 0
+                ? 'Activation enables Axis presentation for this module. No required data package is declared, so nImport does not need to run first.'
+                : 'Preview shows declared required/core/sample packages before activation. Activation imports required data through the existing nImport data-release executor before enabling Axis capabilities.'
               : module.enabled
                 ? 'Navigation and workspaces become visible only through the refreshed backend bootstrap after activation.'
                 : 'Preflight uses current registry data: runtime state, observed servers, protected-module rules, and catalogue revision.'}
@@ -441,8 +541,8 @@ export function FunctionalModuleRegistryRoutePage(
   props: FunctionalModuleRegistryRoutePageProps,
 ) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const connection = selectModuleConnection(props.bootstrap, 'backoffice');
-  const importConnection = selectModuleConnection(props.bootstrap, 'import');
   const configuration = useMemo(
     () => ({
       accessToken: props.accessToken,
@@ -557,6 +657,7 @@ export function FunctionalModuleRegistryRoutePage(
   });
   const sampleData = useMutation({
     mutationFn: async (module: FunctionalModuleRegistration) => {
+      const importConnection = selectSampleDataConnection(props.bootstrap, module);
       if (!importConnection) throw new Error('Import service is unavailable');
       return installFunctionalModuleSampleData(
         importConnection,
@@ -662,14 +763,31 @@ export function FunctionalModuleRegistryRoutePage(
                   </Grid>
                 ))}
               </Grid>
+              <Box>
+                <Button
+                  onClick={() => navigate('/setup-accelerators')}
+                  size="small"
+                  variant="outlined"
+                >
+                  Continue to Setup & Accelerators
+                </Button>
+              </Box>
             </Stack>
           </CardContent>
         </Card>
         {lifecycle.isError ? (
-          <Alert severity="error">{lifecycle.error.message}</Alert>
+          <Alert severity="error">
+            {lifecycle.variables
+              ? `${lifecycle.variables.module.displayName}: ${lifecycle.error.message}`
+              : lifecycle.error.message}
+          </Alert>
         ) : null}
         {sampleData.isError ? (
-          <Alert severity="error">{sampleData.error.message}</Alert>
+          <Alert severity="error">
+            {sampleData.variables
+              ? `${sampleData.variables.displayName}: ${sampleData.error.message}`
+              : sampleData.error.message}
+          </Alert>
         ) : null}
         {sampleData.isSuccess ? (
           <Alert severity="success">
@@ -702,8 +820,8 @@ export function FunctionalModuleRegistryRoutePage(
                       Register makes an observed optional module part of the project
                       catalogue. Activate currently enables Axis capabilities through
                       the existing registry API. Required data import, sample-data
-                      opt-in, and receipt history remain the next backend contract
-                      extension.
+                      opt-in, and receipt history are now backed by nImport
+                      receipts.
                       Deregister returns an optional module to the available list.
                     </Typography>
                   </Box>
@@ -781,11 +899,17 @@ export function FunctionalModuleRegistryRoutePage(
                         sampleData.isPending &&
                         sampleData.variables.functionalModule === module.functionalModule
                       }
-                      sampleDataDisabled={!importConnection}
-                      onAction={(nextModule, action) =>
-                        lifecycle.mutate({ action, module: nextModule })
+                      sampleDataDisabled={
+                        !selectSampleDataConnection(props.bootstrap, module)
                       }
-                      onSampleData={(nextModule) => sampleData.mutate(nextModule)}
+                      onAction={(nextModule, action) => {
+                        sampleData.reset();
+                        lifecycle.mutate({ action, module: nextModule });
+                      }}
+                      onSampleData={(nextModule) => {
+                        lifecycle.reset();
+                        sampleData.mutate(nextModule);
+                      }}
                     />
                   ))
                 )}
@@ -834,11 +958,17 @@ export function FunctionalModuleRegistryRoutePage(
                         sampleData.isPending &&
                         sampleData.variables.functionalModule === module.functionalModule
                       }
-                      sampleDataDisabled={!importConnection}
-                      onAction={(nextModule, action) =>
-                        lifecycle.mutate({ action, module: nextModule })
+                      sampleDataDisabled={
+                        !selectSampleDataConnection(props.bootstrap, module)
                       }
-                      onSampleData={(nextModule) => sampleData.mutate(nextModule)}
+                      onAction={(nextModule, action) => {
+                        sampleData.reset();
+                        lifecycle.mutate({ action, module: nextModule });
+                      }}
+                      onSampleData={(nextModule) => {
+                        lifecycle.reset();
+                        sampleData.mutate(nextModule);
+                      }}
                     />
                   ))
                 )}
@@ -884,11 +1014,17 @@ export function FunctionalModuleRegistryRoutePage(
                         sampleData.isPending &&
                         sampleData.variables.functionalModule === module.functionalModule
                       }
-                      sampleDataDisabled={!importConnection}
-                      onAction={(nextModule, action) =>
-                        lifecycle.mutate({ action, module: nextModule })
+                      sampleDataDisabled={
+                        !selectSampleDataConnection(props.bootstrap, module)
                       }
-                      onSampleData={(nextModule) => sampleData.mutate(nextModule)}
+                      onAction={(nextModule, action) => {
+                        sampleData.reset();
+                        lifecycle.mutate({ action, module: nextModule });
+                      }}
+                      onSampleData={(nextModule) => {
+                        lifecycle.reset();
+                        sampleData.mutate(nextModule);
+                      }}
                     />
                   ))
                 )}

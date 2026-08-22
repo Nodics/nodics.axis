@@ -73,6 +73,14 @@ function normalizeRoutePath(path: string): string {
   return path.replace(/\/$/, '') || '/';
 }
 
+function safeReturnPath(value: string | null | undefined): string | undefined {
+  if (!value || !value.startsWith('/') || value.startsWith('//')) return undefined;
+  if (['/login', '/forgot-password', '/lock-screen'].includes(value)) {
+    return undefined;
+  }
+  return value;
+}
+
 function resolveCurrentNavigation(
   navigation: readonly AxisNavigationItem[] | undefined,
   pathname: string,
@@ -144,6 +152,7 @@ export function App() {
   const [initializationBusy, setInitializationBusy] = useState(false);
   const [restoringSession, setRestoringSession] = useState(true);
   const localization = useAxisLocalizationController(bootstrap, runtime);
+  const currentRoutePath = `${location.pathname}${location.search}${location.hash}`;
 
   useEffect(() => {
     let active = true;
@@ -192,6 +201,10 @@ export function App() {
           setLockedReturnPath(persistedLock.returnPath);
           setLocked(true);
           void navigate('/lock-screen', { replace: true });
+        } else if (
+          !['/', '/login', '/forgot-password'].includes(location.pathname)
+        ) {
+          void navigate(currentRoutePath, { replace: true });
         }
       })
       .catch(() => {
@@ -207,7 +220,14 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [bootstrap, navigate, restoringSession, runtime]);
+  }, [
+    bootstrap,
+    currentRoutePath,
+    location.pathname,
+    navigate,
+    restoringSession,
+    runtime,
+  ]);
 
   const lockScreen = useCallback(() => {
     if (!session || locked) return;
@@ -500,7 +520,12 @@ export function App() {
       setEmployeePolicy(employeeBootstrap.axisPolicy);
       clearScreenLock();
       setLocked(false);
-      void navigate(composition.defaultAuthenticatedPage, { replace: true });
+      const returnPath = safeReturnPath(
+        new URLSearchParams(location.search).get('returnTo'),
+      );
+      void navigate(returnPath ?? composition.defaultAuthenticatedPage, {
+        replace: true,
+      });
     } catch (error: unknown) {
       setSession(undefined);
       setAuthenticationError(
@@ -612,7 +637,9 @@ export function App() {
           ? composition.defaultAuthenticatedPage
           : session
             ? '/lock-screen'
-            : composition.defaultPublicPage
+            : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
+                currentRoutePath,
+              )}`
       }
     />
   );
@@ -1074,7 +1101,9 @@ export function App() {
                     ? composition.defaultAuthenticatedPage
                     : session
                       ? '/lock-screen'
-                      : composition.defaultPublicPage
+                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
+                          currentRoutePath,
+                        )}`
                 }
               />
             )
@@ -1109,7 +1138,9 @@ export function App() {
                     ? composition.defaultAuthenticatedPage
                     : session
                       ? '/lock-screen'
-                      : composition.defaultPublicPage
+                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
+                          currentRoutePath,
+                        )}`
                 }
               />
             )
@@ -1144,7 +1175,9 @@ export function App() {
                     ? composition.defaultAuthenticatedPage
                     : session
                       ? '/lock-screen'
-                      : composition.defaultPublicPage
+                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
+                          currentRoutePath,
+                        )}`
                 }
               />
             )
@@ -1179,7 +1212,9 @@ export function App() {
                     ? composition.defaultAuthenticatedPage
                     : session
                       ? '/lock-screen'
-                      : composition.defaultPublicPage
+                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
+                          currentRoutePath,
+                        )}`
                 }
               />
             )
@@ -1205,7 +1240,9 @@ export function App() {
                     ? composition.defaultAuthenticatedPage
                     : session
                       ? '/lock-screen'
-                      : composition.defaultPublicPage
+                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
+                          currentRoutePath,
+                        )}`
                 }
               />
             )
@@ -1236,7 +1273,9 @@ export function App() {
                     ? composition.defaultAuthenticatedPage
                     : session
                       ? '/lock-screen'
-                      : composition.defaultPublicPage
+                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
+                          currentRoutePath,
+                        )}`
                 }
               />
             )
@@ -1270,7 +1309,9 @@ export function App() {
                     ? composition.defaultAuthenticatedPage
                     : session
                       ? '/lock-screen'
-                      : composition.defaultPublicPage
+                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
+                          currentRoutePath,
+                        )}`
                 }
               />
             )
@@ -1305,7 +1346,9 @@ export function App() {
                     ? composition.defaultAuthenticatedPage
                     : session
                       ? '/lock-screen'
-                      : composition.defaultPublicPage
+                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
+                          currentRoutePath,
+                        )}`
                 }
               />
             )
@@ -1338,7 +1381,9 @@ export function App() {
                     ? composition.defaultAuthenticatedPage
                     : session
                       ? '/lock-screen'
-                      : composition.defaultPublicPage
+                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
+                          currentRoutePath,
+                        )}`
                 }
               />
             )
@@ -1371,7 +1416,9 @@ export function App() {
                     ? composition.defaultAuthenticatedPage
                     : session
                       ? '/lock-screen'
-                      : composition.defaultPublicPage
+                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
+                          currentRoutePath,
+                        )}`
                 }
               />
             )

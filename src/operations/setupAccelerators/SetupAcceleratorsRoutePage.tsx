@@ -17,6 +17,7 @@ import {
   Typography,
 } from '@mui/material';
 import { useMemo } from 'react';
+import { useNavigate } from 'react-router';
 
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
 import { WorkspaceContainer } from '../../app/shell/ShellPrimitives';
@@ -227,8 +228,19 @@ function triggerLabel(trigger: string): string {
   return trigger.toLowerCase();
 }
 
+function profileErrorMessage(
+  profile: ApplicationInitializationProfile,
+  message: string,
+): string {
+  if (/Application initialization target is unavailable/i.test(message)) {
+    return `${profile.title} cannot read baseline ${profile.baselineCode}. Check WCMS Staged baseline configuration, release qualification, and required runtime availability.`;
+  }
+  return message;
+}
+
 export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProps) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const backofficeConnection = selectModuleConnection(props.bootstrap, 'backoffice');
   const processConnection =
     selectModuleConnection(props.bootstrap, 'flowApi', { server: 'processServer' }) ??
@@ -421,6 +433,13 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                   label={`${String(pendingCount)} pending approval`}
                 />
                 <Chip label={`${String(profiles.length)} profiles`} />
+                <Button
+                  onClick={() => navigate('/registry')}
+                  size="small"
+                  variant="outlined"
+                >
+                  Open Module Registry
+                </Button>
               </Stack>
             </Stack>
           </CardContent>
@@ -480,7 +499,9 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                         />
                       </Stack>
                       {query.error instanceof Error ? (
-                        <Alert severity="error">{query.error.message}</Alert>
+                        <Alert severity="error">
+                          {profileErrorMessage(profile, query.error.message)}
+                        </Alert>
                       ) : status ? (
                         <>
                           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>

@@ -91,6 +91,24 @@ function booleanValue(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
+async function safeError(response: Response): Promise<string> {
+  try {
+    const value: unknown = await response.json();
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      const message = (value as Record<string, unknown>).message;
+      if (typeof message === 'string' && message.trim() && message.length <= 500) {
+        return message;
+      }
+    }
+  } catch {
+    // Keep the bounded status fallback when the server response is not JSON.
+  }
+  if (response.status === 403) {
+    return 'You are not authorized to initialize this accelerator.';
+  }
+  return `Application initialization returned HTTP ${String(response.status)}`;
+}
+
 function parseProfile(value: unknown): ApplicationInitializationProfile {
   const data = record(value, 'Application initialization profile');
   const dataPackages = Array.isArray(data.dataPackages)
@@ -258,11 +276,7 @@ async function invoke(
         : {}),
     });
     if (!response.ok) {
-      throw new Error(
-        response.status === 403
-          ? 'You are not authorized to initialize this accelerator.'
-          : `Application initialization returned HTTP ${String(response.status)}`,
-      );
+      throw new Error(await safeError(response));
     }
     return parse(await response.json());
   } catch (error: unknown) {
