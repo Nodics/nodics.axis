@@ -77,6 +77,31 @@ function sortedModules(
 }
 
 const registryQueryRoot = ['functional-module-registry'] as const;
+type ModuleReadiness = 'Blocked' | 'Ready to activate' | 'Active' | 'Active with warnings';
+
+function moduleReadiness(module: FunctionalModuleRegistration): ModuleReadiness {
+  if (module.registrationState !== 'REGISTERED') return 'Ready to activate';
+  if (!module.enabled && module.runtimeState !== 'ACTIVE') return 'Blocked';
+  if (module.enabled && module.runtimeState === 'DEGRADED') return 'Active with warnings';
+  if (module.enabled) return 'Active';
+  return 'Ready to activate';
+}
+
+function readinessColor(
+  readiness: ModuleReadiness,
+): 'success' | 'warning' | 'error' | 'info' {
+  if (readiness === 'Active') return 'success';
+  if (readiness === 'Active with warnings') return 'warning';
+  if (readiness === 'Blocked') return 'error';
+  return 'info';
+}
+
+function activationMode(module: FunctionalModuleRegistration): string {
+  if (module.required) return 'Protected framework module';
+  if (module.registrationState === 'AVAILABLE') return 'Register before activation';
+  if (module.enabled) return 'Activated for Axis presentation';
+  return 'Activate capabilities; required-data import contract pending';
+}
 
 function removeModule(
   modules: readonly FunctionalModuleRegistration[] | undefined,
@@ -115,6 +140,8 @@ function ModuleCard({ disabled, module, onAction, pendingAction }: ModuleCardPro
   const canDeactivate = isRegistered && module.enabled && !module.required;
   const canDeregister = isRegistered && !module.required;
   const pending = Boolean(pendingAction);
+  const readiness = moduleReadiness(module);
+  const impactCount = module.technicalModules.length + module.observedServers.length;
 
   return (
     <Card variant="outlined">
@@ -150,6 +177,12 @@ function ModuleCard({ disabled, module, onAction, pendingAction }: ModuleCardPro
                 color={module.enabled ? 'success' : stateColor('DISABLED')}
                 label={module.enabled ? 'Enabled' : 'Disabled'}
                 size="small"
+              />
+              <Chip
+                color={readinessColor(readiness)}
+                label={readiness}
+                size="small"
+                variant="outlined"
               />
               {module.required ? (
                 <Chip color="default" label="Required" size="small" />
@@ -198,6 +231,37 @@ function ModuleCard({ disabled, module, onAction, pendingAction }: ModuleCardPro
             </Stack>
           </Box>
 
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <Typography color="text.secondary" variant="caption">
+                Activation mode
+              </Typography>
+              <Typography>{activationMode(module)}</Typography>
+            </Grid>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <Typography color="text.secondary" variant="caption">
+                Impact preview
+              </Typography>
+              <Typography>
+                {String(impactCount)} runtime and technical signals available
+              </Typography>
+            </Grid>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <Typography color="text.secondary" variant="caption">
+                Data receipts
+              </Typography>
+              <Typography>Required/core/sample receipt API pending</Typography>
+            </Grid>
+          </Grid>
+
+          <Alert severity={canActivate ? 'warning' : module.enabled ? 'success' : 'info'}>
+            {canActivate
+              ? 'Current activation enables module capabilities in Axis. Required init/core data import and sample-data opt-in must be added through the activation-data receipt contract before this journey is functionally complete.'
+              : module.enabled
+                ? 'Navigation and workspaces become visible only through the refreshed backend bootstrap after activation.'
+                : 'Preflight uses current registry data: runtime state, observed servers, protected-module rules, and catalogue revision.'}
+          </Alert>
+
           <Divider />
 
           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
@@ -216,7 +280,9 @@ function ModuleCard({ disabled, module, onAction, pendingAction }: ModuleCardPro
                 onClick={() => onAction(module, 'activate')}
                 variant="contained"
               >
-                {pendingAction === 'activate' ? 'Activating…' : 'Activate'}
+                {pendingAction === 'activate'
+                  ? 'Activating...'
+                  : 'Activate capabilities'}
               </Button>
             ) : null}
             {canDeactivate ? (
@@ -412,6 +478,41 @@ export function FunctionalModuleRegistryRoutePage(
           availability comes from live module registration; registration state is
           persisted by BackOffice.
         </Alert>
+        <Card variant="outlined">
+          <CardContent>
+            <Stack spacing={2}>
+              <Box>
+                <Typography component="h2" variant="h5">
+                  Activation journey
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  Use this page as the operator control point for module
+                  registration, capability activation, bootstrap refresh, and the
+                  upcoming required-data receipt workflow.
+                </Typography>
+              </Box>
+              <Grid container spacing={1}>
+                {[
+                  'Check runtime availability',
+                  'Register optional module',
+                  'Preview capabilities and technical modules',
+                  'Activate Axis presentation',
+                  'Refresh navigation from backend bootstrap',
+                  'Import required data and receipts: pending contract',
+                  'Optional sample data: user-triggered only',
+                ].map((step, index) => (
+                  <Grid key={step} size={{ xs: 12, md: 6, lg: 4 }}>
+                    <Chip
+                      label={`${String(index + 1)}. ${step}`}
+                      sx={{ justifyContent: 'flex-start', width: '100%' }}
+                      variant="outlined"
+                    />
+                  </Grid>
+                ))}
+              </Grid>
+            </Stack>
+          </CardContent>
+        </Card>
         {lifecycle.isError ? (
           <Alert severity="error">{lifecycle.error.message}</Alert>
         ) : null}
@@ -439,8 +540,10 @@ export function FunctionalModuleRegistryRoutePage(
                     </Typography>
                     <Typography color="text.secondary" variant="body2">
                       Register makes an observed optional module part of the project
-                      catalogue. Activate enables its Axis capabilities. Deactivate
-                      hides optional capabilities without removing runtime code.
+                      catalogue. Activate currently enables Axis capabilities through
+                      the existing registry API. Required data import, sample-data
+                      opt-in, and receipt history remain the next backend contract
+                      extension.
                       Deregister returns an optional module to the available list.
                     </Typography>
                   </Box>
