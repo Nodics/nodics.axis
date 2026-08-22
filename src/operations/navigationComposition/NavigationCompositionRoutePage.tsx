@@ -52,6 +52,12 @@ export function NavigationCompositionRoutePage(
     });
   });
   const warnings = composition?.warnings ?? [];
+  const actionableWarnings = warnings.filter(
+    (warning) => String(warning.severity ?? 'WARNING') !== 'INFO',
+  );
+  const informationalWarnings = warnings.filter(
+    (warning) => String(warning.severity ?? 'WARNING') === 'INFO',
+  );
   const authoring = composition?.authoring;
 
   return (
@@ -112,7 +118,7 @@ export function NavigationCompositionRoutePage(
                 <Typography color="text.secondary" variant="caption">
                   Warnings
                 </Typography>
-                <Typography variant="h5">{String(warnings.length)}</Typography>
+                <Typography variant="h5">{String(actionableWarnings.length)}</Typography>
               </CardContent>
             </Card>
           </Grid>
@@ -228,13 +234,21 @@ export function NavigationCompositionRoutePage(
           ))}
         </Grid>
 
-        {warnings.length > 0 ? (
+        {actionableWarnings.length > 0 || informationalWarnings.length > 0 ? (
           <Stack spacing={1}>
-            {warnings.map((warning, index) => (
-              <Alert key={String(index)} severity="warning">
+            {actionableWarnings.map((warning, index) => (
+              <Alert key={`warning-${String(index)}`} severity="warning">
                 {String(warning.message ?? warning.code ?? 'Navigation warning')}
               </Alert>
             ))}
+            {informationalWarnings.length > 0 ? (
+              <Alert severity="info">
+                {String(informationalWarnings.length)} informational navigation alias
+                {informationalWarnings.length === 1 ? '' : 'es'} detected. These are
+                same-module grouping shortcuts and do not block the effective
+                navigation journey.
+              </Alert>
+            ) : null}
           </Stack>
         ) : null}
 
