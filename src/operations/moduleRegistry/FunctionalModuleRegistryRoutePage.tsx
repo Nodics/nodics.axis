@@ -244,6 +244,28 @@ function receiptStatusLabel(status: string): string {
     .join(' ');
 }
 
+function friendlyCodeLabel(code: string): string {
+  return code
+    .replace(/([a-z0-9])([A-Z])/gu, '$1 $2')
+    .replace(/[:._-]+/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .replace(/\b\w/gu, (value) => value.toUpperCase());
+}
+
+function dataTypeLabel(dataType: string | undefined): string {
+  if (dataType === 'init') return 'Init data';
+  if (dataType === 'core') return 'Core data';
+  if (dataType === 'sample') return 'Sample data';
+  return 'Data';
+}
+
+function classificationLabel(classification: string): string {
+  if (classification === 'REQUIRED') return 'Required';
+  if (classification === 'OPTIONAL') return 'Optional';
+  return receiptStatusLabel(classification);
+}
+
 function ActivationDataPanel({
   activationData,
 }: {
@@ -274,11 +296,16 @@ function ActivationDataPanel({
               key={receipt.receiptKey}
               severity={receiptSeverity(receipt.status)}
             >
-              <strong>{receipt.code}</strong> · {receipt.classification} ·{' '}
-              {receipt.dataType || 'data'} ·{' '}
+              <strong>{friendlyCodeLabel(receipt.code)}</strong> ·{' '}
+              {classificationLabel(receipt.classification)} ·{' '}
+              {dataTypeLabel(receipt.dataType)} ·{' '}
               {receiptStatusLabel(receipt.status)}
               {receipt.releaseStatus ? ` · release ${receipt.releaseStatus}` : ''}
               {receipt.importRunId ? ` · run ${receipt.importRunId}` : ''}
+              <br />
+              <Typography color="text.secondary" component="span" variant="caption">
+                Code: {receipt.code}
+              </Typography>
               <br />
               {receipt.message}
             </Alert>
@@ -530,6 +557,12 @@ function ModuleCard({
                 {pendingSampleData ? 'Importing sample data...' : 'Import sample data'}
               </Button>
             ) : null}
+            {hasSampleData && sampleDataDisabled ? (
+              <Alert severity="info" sx={{ flex: 1, py: 0 }}>
+                Sample data is declared, but no active data-import runtime is available
+                for this module target.
+              </Alert>
+            ) : null}
             {module.required ? (
               <Alert severity="info" sx={{ flex: 1, py: 0 }}>
                 Required framework modules cannot be deactivated or deregistered.
@@ -761,9 +794,9 @@ export function FunctionalModuleRegistryRoutePage(
                   'Check runtime availability',
                   'Register optional module',
                   'Preview capabilities and technical modules',
+                  'Import required data through nImport receipts',
                   'Activate Axis presentation',
                   'Refresh navigation from backend bootstrap',
-                  'Import required data through nImport receipts',
                   'Optional sample data: user-triggered only',
                 ].map((step, index) => (
                   <Grid key={step} size={{ xs: 12, md: 6, lg: 4 }}>
@@ -830,10 +863,9 @@ export function FunctionalModuleRegistryRoutePage(
                     </Typography>
                     <Typography color="text.secondary" variant="body2">
                       Register makes an observed optional module part of the project
-                      catalogue. Activate currently enables Axis capabilities through
-                      the existing registry API. Required data import, sample-data
-                      opt-in, and receipt history are now backed by nImport
-                      receipts.
+                      catalogue. Activation imports required data through existing
+                      nImport receipts before Axis presents the module capability.
+                      Optional sample-data opt-in remains separate and user-triggered.
                       Deregister returns an optional module to the available list.
                     </Typography>
                   </Box>
