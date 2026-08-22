@@ -211,10 +211,20 @@ export function composeShellNavigation(
     .filter(
       (item) =>
         item.id !== dashboard.id &&
-        item.label.trim().toLowerCase() !== 'dashboard',
+        item.label.trim().toLowerCase() !== 'dashboard' &&
+        item.featureState !== 'HIDDEN' &&
+        item.featureState !== 'DISABLED',
     )
     .map<ShellNavigationItem>((item) => ({
       ...item,
+      label: navigationDisplayLabel(item.label),
+      group:
+        item.group === undefined
+          ? undefined
+          : {
+              ...item.group,
+              label: navigationDisplayLabel(item.group.label),
+            },
       depth: 0,
       hasChildren: false,
       local: false,
@@ -307,7 +317,23 @@ function declaredBusinessNavigationGroup(
   item: AxisNavigationItem,
 ): ShellNavigationGroupDefinition | undefined {
   if (!item.group?.id) return undefined;
-  return GROUP_ID_ALIASES[item.group.id];
+  const alias = GROUP_ID_ALIASES[item.group.id];
+  return {
+    id: alias?.id ?? item.group.id,
+    label: navigationDisplayLabel(item.group.label || alias?.label || item.group.id),
+    order: Number.isInteger(item.group.order)
+      ? item.group.order
+      : (alias?.order ?? BUSINESS_GROUPS.otherBacklogs.order),
+  };
+}
+
+function navigationDisplayLabel(label: string): string {
+  return label
+    .replace(/\bAnd\b/g, '&')
+    .replace(/\band\b/g, '&')
+    .replace(/\s*&\s*/g, ' & ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function directBusinessNavigationGroup(
