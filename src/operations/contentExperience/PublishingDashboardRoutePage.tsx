@@ -86,8 +86,39 @@ const publishingMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
 
 const approvalTaskStates = Object.freeze(['OPEN', 'CLAIMED', 'ESCALATED']);
 
+const operatorPath = Object.freeze([
+  Object.freeze({
+    title: '1. Prepare setup',
+    body: 'Initialize documentation or accelerator packages in Staged before public delivery.',
+    route: '/setup-accelerators',
+    action: 'Open Setup',
+  }),
+  Object.freeze({
+    title: '2. Inspect request',
+    body: 'Review the exact publication request, source version, target site, and dependency evidence.',
+    route: '/publishing/requests',
+    action: 'View Requests',
+  }),
+  Object.freeze({
+    title: '3. Approve change',
+    body: 'Use Process approval tasks for every operation that changes Online visibility.',
+    route: '/process/tasks',
+    action: 'Review Approvals',
+  }),
+  Object.freeze({
+    title: '4. Verify Online',
+    body: 'Confirm Online pointers, manifests, receipts, and browser delivery after activation.',
+    route: '/publishing/status',
+    action: 'Check Online',
+  }),
+]);
+
 function taskIsActionable(task: ProcessHumanTask): boolean {
-  return approvalTaskStates.includes(task.status);
+  return (
+    approvalTaskStates.includes(task.status) &&
+    task.nodeCode === 'publicationReview' &&
+    (task.instanceCode?.startsWith('cmsPublicationApproval-') ?? false)
+  );
 }
 
 function workflowConnection(
@@ -196,6 +227,57 @@ export function PublishingDashboardRoutePage({
           metrics={metricsById(metrics, publishingMetrics)}
           title="Publishing operations"
         />
+
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+        >
+          <Stack spacing={dashboardContentGap}>
+            <Box>
+              <Typography variant="h5">Recommended operator path</Typography>
+              <Typography color="text.secondary">
+                Follow this path when taking a package, accelerator, or CMS content
+                change from Staged preparation to Online evidence.
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 2,
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  md: 'repeat(2, minmax(0, 1fr))',
+                  xl: 'repeat(4, minmax(0, 1fr))',
+                },
+              }}
+            >
+              {operatorPath.map((step) => (
+                <Paper
+                  component="article"
+                  elevation={0}
+                  key={step.title}
+                  sx={{ border: 1, borderColor: 'divider', p: 2 }}
+                >
+                  <Stack spacing={1.25}>
+                    <Typography variant="h6">{step.title}</Typography>
+                    <Typography color="text.secondary" variant="body2">
+                      {step.body}
+                    </Typography>
+                    <Button
+                      component={RouterLink}
+                      size="small"
+                      to={step.route}
+                      variant="outlined"
+                    >
+                      {step.action}
+                    </Button>
+                  </Stack>
+                </Paper>
+              ))}
+            </Box>
+          </Stack>
+        </Paper>
 
         <Paper
           component="section"
