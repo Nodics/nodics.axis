@@ -2,6 +2,7 @@ import type { AxisModuleConnection } from '../../../bootstrap/publicBootstrap';
 import {
   parseFunctionalModuleCatalogue,
   parseFunctionalModuleRegistration,
+  type FunctionalModuleActivationReceipt,
   type FunctionalModuleRegistration,
 } from './functionalModuleRegistryContracts';
 
@@ -10,6 +11,11 @@ export interface FunctionalModuleRegistryClientConfiguration {
   readonly enterpriseCode: string;
   readonly projectCode: string;
   readonly timeoutMs: number;
+}
+
+export interface FunctionalModuleSampleDataResult {
+  readonly dataType: 'sample';
+  readonly releaseCount: number;
 }
 
 export type FunctionalModuleLifecycleAction =
@@ -40,6 +46,13 @@ function envelopeData(value: unknown): unknown {
   if ('result' in value) return (value as { readonly result: unknown }).result;
   if ('data' in value) return (value as { readonly data: unknown }).data;
   throw new Error('Functional-module registry response does not contain data');
+}
+
+function record(value: unknown, name: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${name} must be an object`);
+  }
+  return value as Record<string, unknown>;
 }
 
 async function errorMessage(response: Response): Promise<string> {
@@ -179,4 +192,41 @@ export async function applyFunctionalModuleLifecycleAction(
       effectiveFetch,
     ),
   );
+}
+
+
+export async function installFunctionalModuleSampleData(
+  connection: AxisModuleConnection,
+  module: FunctionalModuleRegistration,
+  configuration: FunctionalModuleRegistryClientConfiguration,
+  fetchImplementation: typeof fetch = fetch,
+): Promise<FunctionalModuleSampleDataResult> {
+  const releaseCodes = (module.activationData?.receipts ?? [])
+    .filter(
+      (receipt: FunctionalModuleActivationReceipt) =>
+        receipt.dataType === 'sample' && receipt.trigger === 'USER',
+    )
+    .map((receipt) => receipt.code);
+  if (releaseCodes.length === 0) {
+    throw new Error('No user-triggered sample data package is declared for this module');
+  }
+  const value = await request(
+    connection,
+    '/sample/install',
+    configuration,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        dataType: 'sample',
+        releaseCodes: [...new Set(releaseCodes)],
+      }),
+    },
+    fetchImplementation,
+  );
+  const result = record(value, 'Sample data operation');
+  const releases = Array.isArray(result.releases) ? result.releases : [];
+  return Object.freeze({
+    dataType: 'sample' as const,
+    releaseCount: releases.length,
+  });
 }

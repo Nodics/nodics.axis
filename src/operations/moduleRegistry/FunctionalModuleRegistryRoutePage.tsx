@@ -24,6 +24,7 @@ import {
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
   applyFunctionalModuleLifecycleAction,
+  installFunctionalModuleSampleData,
   loadAvailableFunctionalModules,
   loadRegisteredFunctionalModules,
   type FunctionalModuleLifecycleAction,
@@ -79,6 +80,7 @@ function sortedModules(
 
 const registryQueryRoot = ['functional-module-registry'] as const;
 type ModuleAction = FunctionalModuleLifecycleAction | 'preview';
+type SampleDataAction = 'sampleData';
 type ModuleReadiness = 'Blocked' | 'Ready to activate' | 'Active' | 'Active with warnings';
 
 function moduleReadiness(module: FunctionalModuleRegistration): ModuleReadiness {
@@ -131,7 +133,10 @@ interface ModuleCardProps {
     module: FunctionalModuleRegistration,
     action: ModuleAction,
   ) => void;
+  readonly onSampleData: (module: FunctionalModuleRegistration) => void;
   readonly pendingAction?: ModuleAction | undefined;
+  readonly pendingSampleData?: boolean | undefined;
+  readonly sampleDataDisabled?: boolean | undefined;
 }
 
 function receiptSeverity(
@@ -199,7 +204,15 @@ function ActivationDataPanel({
   );
 }
 
-function ModuleCard({ disabled, module, onAction, pendingAction }: ModuleCardProps) {
+function ModuleCard({
+  disabled,
+  module,
+  onAction,
+  onSampleData,
+  pendingAction,
+  pendingSampleData,
+  sampleDataDisabled,
+}: ModuleCardProps) {
   const isRegistered = module.registrationState === 'REGISTERED';
   const canRegister = module.registrationState === 'AVAILABLE';
   const canActivate =
@@ -210,6 +223,10 @@ function ModuleCard({ disabled, module, onAction, pendingAction }: ModuleCardPro
   const readiness = moduleReadiness(module);
   const impactCount = module.technicalModules.length + module.observedServers.length;
   const activationData = module.activationData;
+  const hasSampleData =
+    activationData?.receipts.some(
+      (receipt) => receipt.dataType === 'sample' && receipt.trigger === 'USER',
+    ) ?? false;
 
   return (
     <Card variant="outlined">
@@ -388,6 +405,21 @@ function ModuleCard({ disabled, module, onAction, pendingAction }: ModuleCardPro
                 {pendingAction === 'deregister' ? 'Deregistering…' : 'Deregister'}
               </Button>
             ) : null}
+            {hasSampleData ? (
+              <Button
+                disabled={
+                  disabled ||
+                  pending ||
+                  pendingSampleData ||
+                  sampleDataDisabled ||
+                  !module.enabled
+                }
+                onClick={() => onSampleData(module)}
+                variant="outlined"
+              >
+                {pendingSampleData ? 'Importing sample data...' : 'Import sample data'}
+              </Button>
+            ) : null}
             {module.required ? (
               <Alert severity="info" sx={{ flex: 1, py: 0 }}>
                 Required framework modules cannot be deactivated or deregistered.
@@ -410,6 +442,7 @@ export function FunctionalModuleRegistryRoutePage(
 ) {
   const queryClient = useQueryClient();
   const connection = selectModuleConnection(props.bootstrap, 'backoffice');
+  const importConnection = selectModuleConnection(props.bootstrap, 'import');
   const configuration = useMemo(
     () => ({
       accessToken: props.accessToken,
@@ -432,6 +465,14 @@ export function FunctionalModuleRegistryRoutePage(
       return loadRegisteredFunctionalModules(connection, configuration);
     },
     refetchOnWindowFocus: true,
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some((module) =>
+        module.activationData?.receipts.some((receipt) =>
+          ['RUNNING', 'QUEUED', 'PENDING_IMPORT'].includes(receipt.status),
+        ),
+      )
+        ? 5000
+        : false,
   });
   const availableModules = useQuery({
     enabled: Boolean(connection),
@@ -512,6 +553,26 @@ export function FunctionalModuleRegistryRoutePage(
           type: 'active',
         }),
       ]).then(() => props.onBootstrapRefresh?.());
+    },
+  });
+  const sampleData = useMutation({
+    mutationFn: async (module: FunctionalModuleRegistration) => {
+      if (!importConnection) throw new Error('Import service is unavailable');
+      return installFunctionalModuleSampleData(
+        importConnection,
+        module,
+        configuration,
+      );
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: [...registryQueryRoot, 'registered', configuration.projectCode],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['import-catalogue', props.runtime.enterpriseCode],
+        }),
+      ]);
     },
   });
   const registered = useMemo(
@@ -606,6 +667,14 @@ export function FunctionalModuleRegistryRoutePage(
         </Card>
         {lifecycle.isError ? (
           <Alert severity="error">{lifecycle.error.message}</Alert>
+        ) : null}
+        {sampleData.isError ? (
+          <Alert severity="error">{sampleData.error.message}</Alert>
+        ) : null}
+        {sampleData.isSuccess ? (
+          <Alert severity="success">
+            Sample data request completed for {String(sampleData.data.releaseCount)} release(s).
+          </Alert>
         ) : null}
         {loading ? (
           <Stack sx={{ alignItems: 'center', py: 4 }}>
@@ -708,9 +777,15 @@ export function FunctionalModuleRegistryRoutePage(
                           ? pendingAction
                           : undefined
                       }
+                      pendingSampleData={
+                        sampleData.isPending &&
+                        sampleData.variables.functionalModule === module.functionalModule
+                      }
+                      sampleDataDisabled={!importConnection}
                       onAction={(nextModule, action) =>
                         lifecycle.mutate({ action, module: nextModule })
                       }
+                      onSampleData={(nextModule) => sampleData.mutate(nextModule)}
                     />
                   ))
                 )}
@@ -755,9 +830,15 @@ export function FunctionalModuleRegistryRoutePage(
                           ? pendingAction
                           : undefined
                       }
+                      pendingSampleData={
+                        sampleData.isPending &&
+                        sampleData.variables.functionalModule === module.functionalModule
+                      }
+                      sampleDataDisabled={!importConnection}
                       onAction={(nextModule, action) =>
                         lifecycle.mutate({ action, module: nextModule })
                       }
+                      onSampleData={(nextModule) => sampleData.mutate(nextModule)}
                     />
                   ))
                 )}
@@ -799,9 +880,15 @@ export function FunctionalModuleRegistryRoutePage(
                           ? pendingAction
                           : undefined
                       }
+                      pendingSampleData={
+                        sampleData.isPending &&
+                        sampleData.variables.functionalModule === module.functionalModule
+                      }
+                      sampleDataDisabled={!importConnection}
                       onAction={(nextModule, action) =>
                         lifecycle.mutate({ action, module: nextModule })
                       }
+                      onSampleData={(nextModule) => sampleData.mutate(nextModule)}
                     />
                   ))
                 )}
