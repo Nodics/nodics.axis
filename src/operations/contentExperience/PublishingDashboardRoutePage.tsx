@@ -1,5 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Box, Button, Chip, Paper, Stack, Typography } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Button,
+  Chip,
+  Divider,
+  Paper,
+  Stack,
+  Typography,
+} from '@mui/material';
 import { useMemo } from 'react';
 import { Link as RouterLink } from 'react-router';
 
@@ -88,28 +97,48 @@ const approvalTaskStates = Object.freeze(['OPEN', 'CLAIMED', 'ESCALATED']);
 
 const operatorPath = Object.freeze([
   Object.freeze({
+    eyebrow: 'Prepare',
     title: '1. Prepare setup',
     body: 'Initialize documentation or accelerator packages in Staged before public delivery.',
+    evidence:
+      'Expected evidence: selected package, target site, release code, and import status.',
     route: '/setup-accelerators',
     action: 'Open Setup',
+    secondaryRoute: '/publishing/requests',
+    secondaryAction: 'Review Requests',
   }),
   Object.freeze({
+    eyebrow: 'Inspect',
     title: '2. Inspect request',
     body: 'Review the exact publication request, source version, target site, and dependency evidence.',
+    evidence:
+      'Expected evidence: publication request, generated manifest, source version, and target Online profile.',
     route: '/publishing/requests',
     action: 'View Requests',
+    secondaryRoute: '/publishing/manifests',
+    secondaryAction: 'Open Manifests',
   }),
   Object.freeze({
+    eyebrow: 'Govern',
     title: '3. Approve change',
     body: 'Use Process approval tasks for every operation that changes Online visibility.',
+    evidence:
+      'Expected evidence: claimed task, approve or reject decision, reviewer, reason, and workflow timeline.',
     route: '/process/tasks',
     action: 'Review Approvals',
+    secondaryRoute: '/publishing/audit',
+    secondaryAction: 'Inspect Audit',
   }),
   Object.freeze({
+    eyebrow: 'Verify',
     title: '4. Verify Online',
     body: 'Confirm Online pointers, manifests, receipts, and browser delivery after activation.',
+    evidence:
+      'Expected evidence: Online pointer, deployment receipt, browser page, and audit trail.',
     route: '/publishing/status',
     action: 'Check Online',
+    secondaryRoute: '/publishing/history',
+    secondaryAction: 'View History',
   }),
 ]);
 
@@ -218,6 +247,52 @@ export function PublishingDashboardRoutePage({
                   : 'Publishing dashboard metrics are currently unavailable.'
                 : 'Counts are loaded from authorized publishing and WCMS workbench contracts. Publishing remains a governed backend operation; Axis only presents the workspace.'}
             </Alert>
+
+            <Paper
+              elevation={0}
+              sx={{
+                bgcolor: 'warning.50',
+                border: 1,
+                borderColor: 'warning.200',
+                p: 2,
+              }}
+            >
+              <Stack
+                direction={{ xs: 'column', lg: 'row' }}
+                spacing={2}
+                sx={{ alignItems: { lg: 'center' }, justifyContent: 'space-between' }}
+              >
+                <Box>
+                  <Typography color="warning.dark" variant="overline">
+                    Guided publishing lane
+                  </Typography>
+                  <Typography variant="h6">
+                    Setup, approval, publication, and live verification stay in one
+                    governed journey.
+                  </Typography>
+                  <Typography color="text.secondary" variant="body2">
+                    Use this cockpit when a data pack, accelerator, CMS page, or media
+                    update must move from Staged preparation to Online evidence.
+                  </Typography>
+                </Box>
+                <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                  <Button
+                    component={RouterLink}
+                    to="/setup-accelerators"
+                    variant="contained"
+                  >
+                    Start setup
+                  </Button>
+                  <Button
+                    component={RouterLink}
+                    to="/publishing/requests"
+                    variant="outlined"
+                  >
+                    Inspect requests
+                  </Button>
+                </Stack>
+              </Stack>
+            </Paper>
           </Stack>
         </Paper>
 
@@ -235,10 +310,11 @@ export function PublishingDashboardRoutePage({
         >
           <Stack spacing={dashboardContentGap}>
             <Box>
-              <Typography variant="h5">Recommended operator path</Typography>
+              <Typography variant="h5">Guided operator journey</Typography>
               <Typography color="text.secondary">
-                Follow this path when taking a package, accelerator, or CMS content
-                change from Staged preparation to Online evidence.
+                Follow the same sequence every time: prepare the change, inspect the
+                generated request, approve or reject through Process, then verify Online
+                with receipts and browser evidence.
               </Typography>
             </Box>
             <Box
@@ -252,30 +328,64 @@ export function PublishingDashboardRoutePage({
                 },
               }}
             >
-              {operatorPath.map((step) => (
+              {operatorPath.map((step, index) => (
                 <Paper
                   component="article"
                   elevation={0}
                   key={step.title}
-                  sx={{ border: 1, borderColor: 'divider', p: 2 }}
+                  sx={{
+                    border: 1,
+                    borderColor: index === 0 ? 'warning.300' : 'divider',
+                    p: 2,
+                    position: 'relative',
+                  }}
                 >
                   <Stack spacing={1.25}>
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      sx={{ alignItems: 'center', justifyContent: 'space-between' }}
+                    >
+                      <Chip color="warning" label={step.eyebrow} size="small" />
+                      <Typography color="text.secondary" variant="caption">
+                        Step {String(index + 1)} of {String(operatorPath.length)}
+                      </Typography>
+                    </Stack>
                     <Typography variant="h6">{step.title}</Typography>
                     <Typography color="text.secondary" variant="body2">
                       {step.body}
                     </Typography>
-                    <Button
-                      component={RouterLink}
-                      size="small"
-                      to={step.route}
-                      variant="outlined"
-                    >
-                      {step.action}
-                    </Button>
+                    <Divider />
+                    <Typography color="text.secondary" variant="caption">
+                      {step.evidence}
+                    </Typography>
+                    <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                      <Button
+                        component={RouterLink}
+                        size="small"
+                        to={step.route}
+                        variant={index === 0 ? 'contained' : 'outlined'}
+                      >
+                        {step.action}
+                      </Button>
+                      <Button
+                        component={RouterLink}
+                        size="small"
+                        to={step.secondaryRoute}
+                        variant="text"
+                      >
+                        {step.secondaryAction}
+                      </Button>
+                    </Stack>
                   </Stack>
                 </Paper>
               ))}
             </Box>
+            <Alert severity="success">
+              Completion means both sides are proven: the backend approval path has a
+              Process decision and the user-facing browser page shows the intended
+              Online result.
+            </Alert>
           </Stack>
         </Paper>
 
