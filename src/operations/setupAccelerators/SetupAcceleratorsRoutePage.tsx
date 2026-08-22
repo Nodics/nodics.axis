@@ -1,4 +1,10 @@
-import { useMutation, useQueries, useQueryClient, type Query } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+  type Query,
+} from '@tanstack/react-query';
 import {
   Alert,
   Box,
@@ -27,6 +33,8 @@ import {
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
   createApplicationInitializationClient,
+  createApplicationInitializationCatalogueClient,
+  type ApplicationInitializationProfile,
   type ApplicationInitializationStatus,
 } from './api/applicationInitializationClient';
 
@@ -37,46 +45,154 @@ interface SetupAcceleratorsRoutePageProps {
   readonly runtime: AxisRuntimeConfig;
 }
 
-interface AcceleratorProfile {
-  readonly code: string;
-  readonly title: string;
-  readonly kind: 'PROJECT' | 'DOCUMENTATION';
-  readonly summary: string;
-}
-
 type AcceleratorOperation = 'initiate' | 'rollback' | 'retire' | 'approve';
 
-const ACCELERATOR_PROFILES: readonly AcceleratorProfile[] = Object.freeze([
+const FALLBACK_ACCELERATOR_PROFILES: readonly ApplicationInitializationProfile[] = Object.freeze([
   {
     code: 'nexus',
     title: 'Nexus Corporate',
     kind: 'PROJECT',
+    category: 'accelerator',
     summary: 'Corporate site accelerator published from WCMS Staged to Online.',
+    order: 100,
+    type: 'WEBSITE_BUNDLE',
+    owner: 'nexusWebData',
+    applicationCode: 'nexus',
+    siteCode: 'nexusCorporateSite',
+    baselineCode: 'nexus',
+    requiredServers: ['Platform', 'WCMS Staged', 'WCMS Online', 'Process'],
+    dataPackages: [
+      {
+        code: 'nexusWebData:init',
+        kind: 'INITIAL_DATA',
+        required: true,
+        trigger: 'ACTIVATION',
+      },
+    ],
+    activationPolicy: {
+      approvalRequiredForOnline: true,
+      requiredDataTrigger: 'ACTIVATION',
+      sampleDataTrigger: 'USER',
+    },
   },
   {
     code: 'agora',
     title: 'Agora Storefront',
     kind: 'PROJECT',
+    category: 'accelerator',
     summary:
       'Commerce storefront accelerator. Domain-specific bundles will replace the current common profile in a later slice.',
+    order: 200,
+    type: 'STOREFRONT_BUNDLE',
+    owner: 'agoraCommonData',
+    applicationCode: 'agora',
+    siteCode: 'agoraStorefrontSite',
+    baselineCode: 'agora',
+    requiredServers: [
+      'Platform',
+      'WCMS Staged',
+      'WCMS Online',
+      'Process',
+      'Commerce',
+      'Discovery',
+    ],
+    dataPackages: [
+      {
+        code: 'agoraCommonData:init',
+        kind: 'INITIAL_DATA',
+        required: true,
+        trigger: 'ACTIVATION',
+      },
+    ],
+    activationPolicy: {
+      approvalRequiredForOnline: true,
+      requiredDataTrigger: 'ACTIVATION',
+      sampleDataTrigger: 'USER',
+    },
   },
   {
     code: 'frameworkdocs',
     title: 'Framework Documentation',
     kind: 'DOCUMENTATION',
+    category: 'documentation',
     summary: 'Framework documentation content pack and Online delivery profile.',
+    order: 300,
+    type: 'DOCUMENTATION_BUNDLE',
+    owner: 'nodics.docs',
+    applicationCode: 'axis',
+    siteCode: 'nodicsDocumentationSite',
+    baselineCode: 'frameworkdocs',
+    contentPackCode: 'nodicsDocumentation',
+    requiredServers: ['Platform', 'WCMS Staged', 'WCMS Online', 'Process'],
+    dataPackages: [
+      {
+        code: 'nodicsDocumentation',
+        kind: 'CONTENT_PACK',
+        required: true,
+        trigger: 'USER',
+      },
+    ],
+    activationPolicy: {
+      approvalRequiredForOnline: true,
+      requiredDataTrigger: 'USER',
+      sampleDataTrigger: 'USER',
+    },
   },
   {
     code: 'axisdocs',
     title: 'Nodics Axis Documentation',
     kind: 'DOCUMENTATION',
+    category: 'documentation',
     summary: 'Axis product documentation content pack and Online delivery profile.',
+    order: 400,
+    type: 'DOCUMENTATION_BUNDLE',
+    owner: 'axis',
+    applicationCode: 'axis',
+    siteCode: 'axisDocumentationSite',
+    baselineCode: 'axisdocs',
+    contentPackCode: 'axisDocumentation',
+    requiredServers: ['Platform', 'WCMS Staged', 'WCMS Online', 'Process'],
+    dataPackages: [
+      {
+        code: 'axisDocumentation',
+        kind: 'CONTENT_PACK',
+        required: true,
+        trigger: 'USER',
+      },
+    ],
+    activationPolicy: {
+      approvalRequiredForOnline: true,
+      requiredDataTrigger: 'USER',
+      sampleDataTrigger: 'USER',
+    },
   },
   {
     code: 'kickoffdocs',
     title: 'Nodics Kickoff Documentation',
     kind: 'DOCUMENTATION',
+    category: 'documentation',
     summary: 'Reference-project documentation content pack and Online delivery profile.',
+    order: 500,
+    type: 'DOCUMENTATION_BUNDLE',
+    owner: 'nodics.kickoff',
+    applicationCode: 'axis',
+    siteCode: 'kickoffDocumentationSite',
+    baselineCode: 'kickoffdocs',
+    contentPackCode: 'kickoffDocumentation',
+    requiredServers: ['Platform', 'WCMS Staged', 'WCMS Online', 'Process'],
+    dataPackages: [
+      {
+        code: 'kickoffDocumentation',
+        kind: 'CONTENT_PACK',
+        required: true,
+        trigger: 'USER',
+      },
+    ],
+    activationPolicy: {
+      approvalRequiredForOnline: true,
+      requiredDataTrigger: 'USER',
+      sampleDataTrigger: 'USER',
+    },
   },
 ]);
 
@@ -107,16 +223,55 @@ function canApprove(status: ApplicationInitializationStatus | undefined): boolea
   );
 }
 
+function triggerLabel(trigger: string): string {
+  if (trigger === 'ACTIVATION') return 'activation';
+  if (trigger === 'USER') return 'user triggered';
+  return trigger.toLowerCase();
+}
+
 export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProps) {
   const queryClient = useQueryClient();
   const backofficeConnection = selectModuleConnection(props.bootstrap, 'backoffice');
   const processConnection =
     selectModuleConnection(props.bootstrap, 'flowApi', { server: 'processServer' }) ??
     selectModuleConnection(props.bootstrap, 'workflow', { server: 'processServer' });
+  const catalogueClient = useMemo(() => {
+    if (!backofficeConnection) return undefined;
+    return createApplicationInitializationCatalogueClient({
+      connection: backofficeConnection,
+      enterpriseCode: props.runtime.enterpriseCode,
+      accessToken: props.accessToken,
+      timeoutMs: props.runtime.requestTimeoutMs,
+    });
+  }, [
+    props.accessToken,
+    props.runtime.enterpriseCode,
+    props.runtime.requestTimeoutMs,
+    backofficeConnection,
+  ]);
+  const profilesQuery = useQuery({
+    enabled: Boolean(catalogueClient),
+    queryKey: [...queryRoot, 'profiles'],
+    queryFn: () => {
+      if (!catalogueClient) {
+        throw new Error('BackOffice application initialization catalogue is unavailable');
+      }
+      return catalogueClient.listProfiles();
+    },
+    staleTime: 30_000,
+  });
+  const profiles = useMemo(
+    () =>
+      (profilesQuery.data && profilesQuery.data.length > 0
+        ? profilesQuery.data
+        : FALLBACK_ACCELERATOR_PROFILES
+      ).slice().sort((left, right) => left.order - right.order),
+    [profilesQuery.data],
+  );
   const clients = useMemo(() => {
     if (!backofficeConnection) return new Map<string, ReturnType<typeof createApplicationInitializationClient>>();
     return new Map(
-      ACCELERATOR_PROFILES.map((profile) => [
+      profiles.map((profile) => [
         profile.code,
         createApplicationInitializationClient({
           connection: backofficeConnection,
@@ -132,9 +287,10 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
     props.runtime.enterpriseCode,
     props.runtime.requestTimeoutMs,
     backofficeConnection,
+    profiles,
   ]);
   const queries = useQueries({
-    queries: ACCELERATOR_PROFILES.map((profile) => ({
+    queries: profiles.map((profile) => ({
       enabled: Boolean(backofficeConnection),
       queryKey: [...queryRoot, profile.code],
       queryFn: () => {
@@ -159,7 +315,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
       status,
       operation,
     }: {
-      readonly profile: AcceleratorProfile;
+      readonly profile: ApplicationInitializationProfile;
       readonly status?: ApplicationInitializationStatus | undefined;
       readonly operation: AcceleratorOperation;
     }) => {
@@ -207,12 +363,12 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
     },
   });
   type AcceleratorStatusQuery = (typeof queries)[number];
-  const statuses = ACCELERATOR_PROFILES.map((profile, index) => {
+  const statuses = profiles.map((profile, index) => {
     const query = queries[index];
     if (!query) return undefined;
     return { profile, query };
   }).filter(
-    (item): item is { readonly profile: AcceleratorProfile; readonly query: AcceleratorStatusQuery } =>
+    (item): item is { readonly profile: ApplicationInitializationProfile; readonly query: AcceleratorStatusQuery } =>
       Boolean(item),
   );
   const readyCount = statuses.filter(
@@ -221,7 +377,23 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
   const pendingCount = statuses.filter(
     (item) => item.query.data?.readiness === 'PUBLICATION_PENDING',
   ).length;
-  const loading = queries.some((query) => query.isPending);
+  const loading = profilesQuery.isPending || queries.some((query) => query.isPending);
+  const statusGroups = [
+    {
+      key: 'projects',
+      title: 'Project accelerators',
+      description:
+        'Business applications such as Nexus, Agora, partner storefronts, and future accelerators.',
+      items: statuses.filter((item) => item.profile.kind === 'PROJECT'),
+    },
+    {
+      key: 'documentation',
+      title: 'Documentation packs',
+      description:
+        'Framework, product, and project documentation that can be installed and published Online.',
+      items: statuses.filter((item) => item.profile.kind !== 'PROJECT'),
+    },
+  ].filter((group) => group.items.length > 0);
 
   if (!backofficeConnection) {
     return (
@@ -243,6 +415,12 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
           Import and activation inside Platform or Staged are audited operations.
           Anything that changes Online visibility remains approval-gated.
         </Alert>
+        {profilesQuery.error instanceof Error ? (
+          <Alert severity="warning">
+            Backend accelerator catalogue is unavailable, so Axis is showing the
+            built-in seed profiles. {profilesQuery.error.message}
+          </Alert>
+        ) : null}
         {mutation.error instanceof Error ? (
           <Alert severity="error">{mutation.error.message}</Alert>
         ) : null}
@@ -258,9 +436,9 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                   Publishing onboarding
                 </Typography>
                 <Typography color="text.secondary" variant="body2">
-                  Profiles are currently read from the known Kickoff Local
-                  application-initialization set. A backend profile catalogue should
-                  replace this static list in a later slice.
+                  Profiles are governed by the BackOffice application-initialization
+                  catalogue. Project modules can add accelerators through
+                  configuration without hardcoding new cards into Axis.
                 </Typography>
               </Box>
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
@@ -269,7 +447,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                   color="warning"
                   label={`${String(pendingCount)} pending approval`}
                 />
-                <Chip label={`${String(ACCELERATOR_PROFILES.length)} profiles`} />
+                <Chip label={`${String(profiles.length)} profiles`} />
               </Stack>
             </Stack>
           </CardContent>
@@ -279,14 +457,28 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
             <CircularProgress aria-label="Loading setup accelerators" />
           </Stack>
         ) : (
-          <Box
-            sx={{
-              display: 'grid',
-              gap: 2,
-              gridTemplateColumns: { xs: '1fr', lg: 'repeat(2, minmax(0, 1fr))' },
-            }}
-          >
-            {statuses.map(({ profile, query }) => {
+          <Stack spacing={3}>
+            {statusGroups.map((group) => (
+              <Stack key={group.key} spacing={1.5}>
+                <Box>
+                  <Typography component="h3" variant="h6">
+                    {group.title}
+                  </Typography>
+                  <Typography color="text.secondary" variant="body2">
+                    {group.description}
+                  </Typography>
+                </Box>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gap: 2,
+                    gridTemplateColumns: {
+                      xs: '1fr',
+                      lg: 'repeat(2, minmax(0, 1fr))',
+                    },
+                  }}
+                >
+                  {group.items.map(({ profile, query }) => {
               const status = query.data;
               const pending =
                 mutation.isPending &&
@@ -310,7 +502,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                         </Box>
                         <Chip
                           color={profile.kind === 'PROJECT' ? 'primary' : 'default'}
-                          label={profile.kind === 'PROJECT' ? 'Project' : 'Docs'}
+                          label={profile.kind === 'PROJECT' ? 'Project accelerator' : 'Documentation'}
                           size="small"
                         />
                       </Stack>
@@ -343,6 +535,51 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                               {status.applicationCode} · {status.siteCode}
                             </Typography>
                           </Box>
+                          <Stack spacing={1}>
+                            <Box>
+                              <Typography color="text.secondary" variant="caption">
+                                Required runtime
+                              </Typography>
+                              <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
+                                {profile.requiredServers.map((server) => (
+                                  <Chip
+                                    key={server}
+                                    label={server}
+                                    size="small"
+                                    variant="outlined"
+                                  />
+                                ))}
+                              </Stack>
+                            </Box>
+                            {profile.dataPackages.length > 0 ? (
+                              <Box>
+                                <Typography color="text.secondary" variant="caption">
+                                  Data packages
+                                </Typography>
+                                <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
+                                  {profile.dataPackages.map((pack) => (
+                                    <Chip
+                                      color={pack.required ? 'warning' : 'default'}
+                                      key={`${pack.code}:${pack.kind}`}
+                                      label={`${pack.code} · ${triggerLabel(pack.trigger)}`}
+                                      size="small"
+                                      variant={pack.required ? 'filled' : 'outlined'}
+                                    />
+                                  ))}
+                                </Stack>
+                              </Box>
+                            ) : null}
+                            <Typography color="text.secondary" variant="caption">
+                              Online approval{' '}
+                              {profile.activationPolicy.approvalRequiredForOnline
+                                ? 'required'
+                                : 'not required'}{' '}
+                              · required data via{' '}
+                              {triggerLabel(profile.activationPolicy.requiredDataTrigger)}
+                              {' '}· sample data via{' '}
+                              {triggerLabel(profile.activationPolicy.sampleDataTrigger)}
+                            </Typography>
+                          </Stack>
                           {status.publication ? (
                             <Box>
                               <Typography color="text.secondary" variant="caption">
@@ -446,8 +683,11 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                   </CardContent>
                 </Card>
               );
-            })}
-          </Box>
+                  })}
+                </Box>
+              </Stack>
+            ))}
+          </Stack>
         )}
       </Stack>
     </WorkspaceContainer>

@@ -12,6 +12,33 @@ export type ApplicationInitializationReadiness =
 
 export type ApplicationInitializationAction = 'INITIALIZE' | 'ROLLBACK' | 'RETIRE';
 
+export interface ApplicationInitializationProfile {
+  readonly code: string;
+  readonly title: string;
+  readonly kind: 'PROJECT' | 'DOCUMENTATION' | string;
+  readonly category: string;
+  readonly summary: string;
+  readonly order: number;
+  readonly type: string;
+  readonly owner: string;
+  readonly applicationCode: string;
+  readonly siteCode: string;
+  readonly baselineCode: string;
+  readonly contentPackCode?: string | undefined;
+  readonly requiredServers: readonly string[];
+  readonly dataPackages: readonly Readonly<{
+    readonly code: string;
+    readonly kind: string;
+    readonly required: boolean;
+    readonly trigger: string;
+  }>[];
+  readonly activationPolicy: Readonly<{
+    readonly approvalRequiredForOnline: boolean;
+    readonly requiredDataTrigger: string;
+    readonly sampleDataTrigger: string;
+  }>;
+}
+
 export interface ApplicationInitializationStatus {
   readonly profileCode: string;
   readonly type: string;
@@ -22,6 +49,7 @@ export interface ApplicationInitializationStatus {
   readonly releaseCode: string;
   readonly releaseVersion: string;
   readonly releaseStatus?: string | undefined;
+  readonly profile?: ApplicationInitializationProfile | undefined;
   readonly allowedActions: readonly ApplicationInitializationAction[];
   readonly publication?: Readonly<{
     readonly code: string;
@@ -41,6 +69,13 @@ interface ApplicationInitializationClientOptions {
   readonly profileCode: string;
 }
 
+interface ApplicationInitializationCatalogueClientOptions {
+  readonly connection: AxisModuleConnection;
+  readonly enterpriseCode: string;
+  readonly accessToken: string;
+  readonly timeoutMs: number;
+}
+
 function record(value: unknown, name: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error(`${name} must be an object`);
@@ -57,6 +92,76 @@ function text(value: unknown, name: string): string {
 
 function optionalText(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function booleanValue(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+function parseProfile(value: unknown): ApplicationInitializationProfile {
+  const data = record(value, 'Application initialization profile');
+  const dataPackages = Array.isArray(data.dataPackages)
+    ? data.dataPackages.map((item) => {
+        const pack = record(item, 'Application initialization data package');
+        return Object.freeze({
+          code: text(pack.code, 'Application data package'),
+          kind: text(pack.kind, 'Application data package kind'),
+          required: booleanValue(pack.required, true),
+          trigger: text(pack.trigger, 'Application data package trigger'),
+        });
+      })
+    : [];
+  const activationPolicy = record(
+    data.activationPolicy ?? {},
+    'Application activation policy',
+  );
+  return Object.freeze({
+    code: text(data.code, 'Application profile'),
+    title: text(data.title, 'Application profile title'),
+    kind: text(data.kind, 'Application profile kind'),
+    category: text(data.category, 'Application profile category'),
+    summary: typeof data.summary === 'string' ? data.summary : '',
+    order: Number(data.order ?? 1000),
+    type: text(data.type, 'Application profile type'),
+    owner: text(data.owner, 'Application owner'),
+    applicationCode: text(data.applicationCode, 'Application code'),
+    siteCode: text(data.siteCode, 'Application site'),
+    baselineCode: text(data.baselineCode, 'Application baseline'),
+    ...(optionalText(data.contentPackCode)
+      ? { contentPackCode: optionalText(data.contentPackCode) }
+      : {}),
+    requiredServers: Object.freeze(
+      Array.isArray(data.requiredServers)
+        ? data.requiredServers.map((item) =>
+            text(item, 'Application required server'),
+          )
+        : [],
+    ),
+    dataPackages: Object.freeze(dataPackages),
+    activationPolicy: Object.freeze({
+      approvalRequiredForOnline: booleanValue(
+        activationPolicy.approvalRequiredForOnline,
+        true,
+      ),
+      requiredDataTrigger:
+        typeof activationPolicy.requiredDataTrigger === 'string'
+          ? activationPolicy.requiredDataTrigger
+          : 'ACTIVATION',
+      sampleDataTrigger:
+        typeof activationPolicy.sampleDataTrigger === 'string'
+          ? activationPolicy.sampleDataTrigger
+          : 'USER',
+    }),
+  });
+}
+
+function parseProfiles(value: unknown): readonly ApplicationInitializationProfile[] {
+  const envelope = record(value, 'Application initialization profiles response');
+  const data = envelope.data ?? envelope.result;
+  if (!Array.isArray(data)) {
+    throw new Error('Application initialization profiles are incompatible');
+  }
+  return Object.freeze(data.map(parseProfile));
 }
 
 function parse(value: unknown): ApplicationInitializationStatus {
@@ -104,6 +209,7 @@ function parse(value: unknown): ApplicationInitializationStatus {
     readiness: readiness as ApplicationInitializationReadiness,
     releaseCode: text(data.releaseCode, 'Application release'),
     releaseVersion: text(data.releaseVersion, 'Application release version'),
+    ...(data.profile ? { profile: parseProfile(data.profile) } : {}),
     allowedActions: Object.freeze(
       allowedActions as ApplicationInitializationAction[],
     ),
@@ -129,6 +235,47 @@ function parse(value: unknown): ApplicationInitializationStatus {
         }
       : {}),
   });
+}
+
+async function invokeCatalogue(
+  options: ApplicationInitializationCatalogueClientOptions,
+  fetchImplementation: typeof fetch,
+): Promise<readonly ApplicationInitializationProfile[]> {
+  const endpoint = options.connection.endpoint.replace(/\/$/, '');
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), options.timeoutMs);
+  try {
+    const response = await fetchImplementation(
+      new URL(`${endpoint}/v0/applications/initialization/profiles`),
+      {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${options.accessToken}`,
+          'x-enterprise-code': options.enterpriseCode,
+        },
+        cache: 'no-store',
+        credentials: 'omit',
+        redirect: 'error',
+        signal: controller.signal,
+      },
+    );
+    if (!response.ok) {
+      throw new Error(
+        `Application initialization profiles returned HTTP ${String(response.status)}`,
+      );
+    }
+    return parseProfiles(await response.json());
+  } catch (error: unknown) {
+    if (controller.signal.aborted) {
+      throw new Error('Application initialization profiles request timed out');
+    }
+    throw error instanceof Error
+      ? error
+      : new Error('Application initialization profiles request failed');
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
 }
 
 async function invoke(
@@ -196,5 +343,14 @@ export function createApplicationInitializationClient(
     initiate: () => invoke(options, 'POST', 'initiate', fetchImplementation),
     rollback: () => invoke(options, 'POST', 'rollback', fetchImplementation),
     retire: () => invoke(options, 'POST', 'retire', fetchImplementation),
+  });
+}
+
+export function createApplicationInitializationCatalogueClient(
+  options: ApplicationInitializationCatalogueClientOptions,
+  fetchImplementation: typeof fetch = fetch,
+) {
+  return Object.freeze({
+    listProfiles: () => invokeCatalogue(options, fetchImplementation),
   });
 }
