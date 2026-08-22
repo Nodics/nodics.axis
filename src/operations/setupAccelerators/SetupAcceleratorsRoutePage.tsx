@@ -1,7 +1,6 @@
 import {
   useMutation,
   useQueries,
-  useQuery,
   useQueryClient,
   type Query,
 } from '@tanstack/react-query';
@@ -33,7 +32,6 @@ import {
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
   createApplicationInitializationClient,
-  createApplicationInitializationCatalogueClient,
   type ApplicationInitializationProfile,
   type ApplicationInitializationStatus,
 } from './api/applicationInitializationClient';
@@ -235,38 +233,13 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
   const processConnection =
     selectModuleConnection(props.bootstrap, 'flowApi', { server: 'processServer' }) ??
     selectModuleConnection(props.bootstrap, 'workflow', { server: 'processServer' });
-  const catalogueClient = useMemo(() => {
-    if (!backofficeConnection) return undefined;
-    return createApplicationInitializationCatalogueClient({
-      connection: backofficeConnection,
-      enterpriseCode: props.runtime.enterpriseCode,
-      accessToken: props.accessToken,
-      timeoutMs: props.runtime.requestTimeoutMs,
-    });
-  }, [
-    props.accessToken,
-    props.runtime.enterpriseCode,
-    props.runtime.requestTimeoutMs,
-    backofficeConnection,
-  ]);
-  const profilesQuery = useQuery({
-    enabled: Boolean(catalogueClient),
-    queryKey: [...queryRoot, 'profiles'],
-    queryFn: () => {
-      if (!catalogueClient) {
-        throw new Error('BackOffice application initialization catalogue is unavailable');
-      }
-      return catalogueClient.listProfiles();
-    },
-    staleTime: 30_000,
-  });
   const profiles = useMemo(
     () =>
-      (profilesQuery.data && profilesQuery.data.length > 0
-        ? profilesQuery.data
+      ((props.bootstrap.applicationInitializationProfiles ?? []).length > 0
+        ? (props.bootstrap.applicationInitializationProfiles ?? [])
         : FALLBACK_ACCELERATOR_PROFILES
       ).slice().sort((left, right) => left.order - right.order),
-    [profilesQuery.data],
+    [props.bootstrap.applicationInitializationProfiles],
   );
   const clients = useMemo(() => {
     if (!backofficeConnection) return new Map<string, ReturnType<typeof createApplicationInitializationClient>>();
@@ -377,7 +350,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
   const pendingCount = statuses.filter(
     (item) => item.query.data?.readiness === 'PUBLICATION_PENDING',
   ).length;
-  const loading = profilesQuery.isPending || queries.some((query) => query.isPending);
+  const loading = queries.some((query) => query.isPending);
   const statusGroups = [
     {
       key: 'projects',
@@ -415,10 +388,10 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
           Import and activation inside Platform or Staged are audited operations.
           Anything that changes Online visibility remains approval-gated.
         </Alert>
-        {profilesQuery.error instanceof Error ? (
+        {(props.bootstrap.applicationInitializationProfiles ?? []).length === 0 ? (
           <Alert severity="warning">
-            Backend accelerator catalogue is unavailable, so Axis is showing the
-            built-in seed profiles. {profilesQuery.error.message}
+            Authenticated bootstrap did not include accelerator profiles, so Axis
+            is showing the built-in seed profiles.
           </Alert>
         ) : null}
         {mutation.error instanceof Error ? (

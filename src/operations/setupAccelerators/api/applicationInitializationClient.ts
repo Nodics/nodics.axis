@@ -69,13 +69,6 @@ interface ApplicationInitializationClientOptions {
   readonly profileCode: string;
 }
 
-interface ApplicationInitializationCatalogueClientOptions {
-  readonly connection: AxisModuleConnection;
-  readonly enterpriseCode: string;
-  readonly accessToken: string;
-  readonly timeoutMs: number;
-}
-
 function record(value: unknown, name: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error(`${name} must be an object`);
@@ -155,15 +148,6 @@ function parseProfile(value: unknown): ApplicationInitializationProfile {
   });
 }
 
-function parseProfiles(value: unknown): readonly ApplicationInitializationProfile[] {
-  const envelope = record(value, 'Application initialization profiles response');
-  const data = envelope.data ?? envelope.result;
-  if (!Array.isArray(data)) {
-    throw new Error('Application initialization profiles are incompatible');
-  }
-  return Object.freeze(data.map(parseProfile));
-}
-
 function parse(value: unknown): ApplicationInitializationStatus {
   const envelope = record(value, 'Application initialization response');
   const data = record(
@@ -237,47 +221,6 @@ function parse(value: unknown): ApplicationInitializationStatus {
   });
 }
 
-async function invokeCatalogue(
-  options: ApplicationInitializationCatalogueClientOptions,
-  fetchImplementation: typeof fetch,
-): Promise<readonly ApplicationInitializationProfile[]> {
-  const endpoint = options.connection.endpoint.replace(/\/$/, '');
-  const controller = new AbortController();
-  const timeout = globalThis.setTimeout(() => controller.abort(), options.timeoutMs);
-  try {
-    const response = await fetchImplementation(
-      new URL(`${endpoint}/v0/applications/initialization/profiles`),
-      {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${options.accessToken}`,
-          'x-enterprise-code': options.enterpriseCode,
-        },
-        cache: 'no-store',
-        credentials: 'omit',
-        redirect: 'error',
-        signal: controller.signal,
-      },
-    );
-    if (!response.ok) {
-      throw new Error(
-        `Application initialization profiles returned HTTP ${String(response.status)}`,
-      );
-    }
-    return parseProfiles(await response.json());
-  } catch (error: unknown) {
-    if (controller.signal.aborted) {
-      throw new Error('Application initialization profiles request timed out');
-    }
-    throw error instanceof Error
-      ? error
-      : new Error('Application initialization profiles request failed');
-  } finally {
-    globalThis.clearTimeout(timeout);
-  }
-}
-
 async function invoke(
   options: ApplicationInitializationClientOptions,
   method: 'GET' | 'POST',
@@ -343,14 +286,5 @@ export function createApplicationInitializationClient(
     initiate: () => invoke(options, 'POST', 'initiate', fetchImplementation),
     rollback: () => invoke(options, 'POST', 'rollback', fetchImplementation),
     retire: () => invoke(options, 'POST', 'retire', fetchImplementation),
-  });
-}
-
-export function createApplicationInitializationCatalogueClient(
-  options: ApplicationInitializationCatalogueClientOptions,
-  fetchImplementation: typeof fetch = fetch,
-) {
-  return Object.freeze({
-    listProfiles: () => invokeCatalogue(options, fetchImplementation),
   });
 }

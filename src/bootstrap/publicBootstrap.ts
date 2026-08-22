@@ -214,8 +214,36 @@ export interface AxisAuthenticatedBootstrap {
   readonly moduleCatalog: Readonly<Record<string, AxisModuleCatalogEntry>>;
   readonly environments: readonly string[];
   readonly moduleConnections: Readonly<Record<string, readonly AxisModuleConnection[]>>;
+  readonly applicationInitializationProfiles?: readonly AxisApplicationInitializationProfile[] | undefined;
   readonly documentationSources: readonly AxisDocumentationSource[];
   readonly tenantCode: string;
+}
+
+export interface AxisApplicationInitializationProfile {
+  readonly code: string;
+  readonly title: string;
+  readonly kind: string;
+  readonly category: string;
+  readonly summary: string;
+  readonly order: number;
+  readonly type: string;
+  readonly owner: string;
+  readonly applicationCode: string;
+  readonly siteCode: string;
+  readonly baselineCode: string;
+  readonly contentPackCode?: string | undefined;
+  readonly requiredServers: readonly string[];
+  readonly dataPackages: readonly Readonly<{
+    readonly code: string;
+    readonly kind: string;
+    readonly required: boolean;
+    readonly trigger: string;
+  }>[];
+  readonly activationPolicy: Readonly<{
+    readonly approvalRequiredForOnline: boolean;
+    readonly requiredDataTrigger: string;
+    readonly sampleDataTrigger: string;
+  }>;
 }
 
 export type AxisDocumentationSource =
@@ -1332,6 +1360,96 @@ export async function loadPublicBootstrap(
   }
 }
 
+function parseApplicationInitializationProfiles(
+  value: unknown,
+): readonly AxisApplicationInitializationProfile[] {
+  if (value === undefined) return Object.freeze([]);
+  if (!Array.isArray(value)) {
+    throw new Error('BackOffice application initialization profiles must be a list');
+  }
+  return Object.freeze(
+    value.map((candidate) => {
+      const profile = record(candidate, 'BackOffice application initialization profile');
+      const activationPolicy = record(
+        profile.activationPolicy ?? {},
+        'BackOffice application initialization activation policy',
+      );
+      const dataPackages = Array.isArray(profile.dataPackages)
+        ? profile.dataPackages.map((candidatePackage) => {
+            const dataPackage = record(
+              candidatePackage,
+              'BackOffice application initialization data package',
+            );
+            return Object.freeze({
+              code: text(dataPackage.code, 'application initialization data package code'),
+              kind: text(dataPackage.kind, 'application initialization data package kind'),
+              required:
+                typeof dataPackage.required === 'boolean'
+                  ? dataPackage.required
+                  : true,
+              trigger: text(
+                dataPackage.trigger,
+                'application initialization data package trigger',
+              ),
+            });
+          })
+        : [];
+      return Object.freeze({
+        code: text(profile.code, 'application initialization profile code'),
+        title: text(profile.title, 'application initialization profile title'),
+        kind: text(profile.kind, 'application initialization profile kind'),
+        category: text(profile.category, 'application initialization profile category'),
+        summary: typeof profile.summary === 'string' ? profile.summary : '',
+        order: nonNegativeInteger(
+          profile.order ?? 1000,
+          'application initialization profile order',
+        ),
+        type: text(profile.type, 'application initialization profile type'),
+        owner: text(profile.owner, 'application initialization profile owner'),
+        applicationCode: text(
+          profile.applicationCode,
+          'application initialization application code',
+        ),
+        siteCode: text(profile.siteCode, 'application initialization site code'),
+        baselineCode: text(
+          profile.baselineCode,
+          'application initialization baseline code',
+        ),
+        ...(profile.contentPackCode === undefined
+          ? {}
+          : {
+              contentPackCode: text(
+                profile.contentPackCode,
+                'application initialization content pack code',
+              ),
+            }),
+        requiredServers: Object.freeze(
+          Array.isArray(profile.requiredServers)
+            ? profile.requiredServers.map((server) =>
+                text(server, 'application initialization required server'),
+              )
+            : [],
+        ),
+        dataPackages: Object.freeze(dataPackages),
+        activationPolicy: Object.freeze({
+          approvalRequiredForOnline:
+            typeof activationPolicy.approvalRequiredForOnline === 'boolean'
+              ? activationPolicy.approvalRequiredForOnline
+              : true,
+          requiredDataTrigger:
+            typeof activationPolicy.requiredDataTrigger === 'string'
+              ? activationPolicy.requiredDataTrigger
+              : 'ACTIVATION',
+          sampleDataTrigger:
+            typeof activationPolicy.sampleDataTrigger === 'string'
+              ? activationPolicy.sampleDataTrigger
+              : 'USER',
+        }),
+      });
+    }),
+  );
+}
+
 export async function loadAuthenticatedBootstrap(
   backofficeBaseUrl: string,
   clientContractVersion: number,
@@ -1376,6 +1494,9 @@ export async function loadAuthenticatedBootstrap(
       moduleCatalog: moduleContext.catalog,
       environments: moduleContext.environments,
       moduleConnections: moduleContext.connections,
+      applicationInitializationProfiles: parseApplicationInitializationProfiles(
+        data.applicationInitializationProfiles,
+      ),
       documentationSources: parseDocumentationSources(data.documentationSources),
       tenantCode: text(data.tenantCode, 'BackOffice employee tenant code'),
     });
