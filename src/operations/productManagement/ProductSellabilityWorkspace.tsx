@@ -137,6 +137,10 @@ function isReady(record: WorkbenchRecord | undefined): boolean {
   return status === 'ACTIVE' || status === 'READY' || status === 'CURRENT';
 }
 
+function hasAnyText(record: WorkbenchRecord | undefined, fields: readonly string[]): boolean {
+  return fields.some((field) => Boolean(text(record, field).trim()));
+}
+
 /**
  * Product sellability cockpit composed from backend-owned schema evidence.
  * It does not mutate products, prices, stock, search, or publication state.
@@ -208,6 +212,24 @@ export function ProductSellabilityWorkspace(props: ProductSellabilityWorkspacePr
       action: '/commerce/catalog/products',
     },
     {
+      label: 'Category dependency',
+      ready: hasAnyText(product, ['categoryCode', 'primaryCategoryCode', 'defaultCategoryCode']),
+      detail:
+        'Publication should block when the assigned product category is missing, inactive, or not available in the target catalog version.',
+      action: '/commerce/catalog/products',
+    },
+    {
+      label: 'Classification dependency',
+      ready: hasAnyText(product, [
+        'classificationCode',
+        'classificationClassCode',
+        'attributeSetCode',
+      ]),
+      detail:
+        'Classification and mandatory attribute readiness must be visible before approval so storefront filters and PDP facts are stable.',
+      action: '/commerce/catalog/products',
+    },
+    {
       label: 'Variants and SKU identity',
       ready: variants.some(isReady),
       detail: `${String(variants.length)} variant record(s) found for this product.`,
@@ -238,8 +260,70 @@ export function ProductSellabilityWorkspace(props: ProductSellabilityWorkspacePr
         'Stock is governed by Inventory Operations by SKU; this workspace links the product variants to that authority and does not mutate stock.',
       action: '/commerce/inventory/balances',
     },
+    {
+      label: 'Media assets',
+      ready:
+        hasAnyText(product, ['mediaCode', 'imageCode', 'primaryImageCode']) ||
+        variants.some((record) =>
+          hasAnyText(record, ['mediaCode', 'imageCode', 'primaryImageCode']),
+        ),
+      detail:
+        'Media readiness must prove required product and variant assets are promotable before Online publication is approved.',
+      action: '/commerce/catalog/products',
+    },
+    {
+      label: 'Approval impact summary',
+      ready: Boolean(product && variants.length && locales.length),
+      detail:
+        'Approvers need a compact impact summary covering product identity, variants, locales, price visibility, stock authority, media, and search projection.',
+      action: '/publishing/requests',
+    },
+    {
+      label: 'Online verification',
+      ready: search.some(isReady) && prices.length > 0,
+      detail:
+        'After approval, operators must verify Online product, price, stock display, media, and search projection from the publication status and audit trail.',
+      action: '/publishing/online',
+    },
   ];
   const completed = checks.filter((check) => check.ready).length;
+  const policyCards = [
+    {
+      title: 'Staged vs Online diff',
+      body:
+        'Catalog publication must expose what changed in Staged before approval and what was promoted Online after completion.',
+      action: '/publishing/dependencies',
+      cta: 'Review dependencies',
+    },
+    {
+      title: 'Partial and full publish policy',
+      body:
+        'Partial publish can move a product or selected dependencies when blockers are clean. Full publish belongs to controlled catalog-version promotion and must show broader impact.',
+      action: '/publishing/requests',
+      cta: 'Open requests',
+    },
+    {
+      title: 'Blocking and warning policy',
+      body:
+        'Missing category, classification, required locale, price, variant, media, or search evidence should block or warn based on backend-owned policy, not frontend guesswork.',
+      action: '/publishing/dependencies',
+      cta: 'See policy signals',
+    },
+    {
+      title: 'Rollback, restore, retire, and schedule',
+      body:
+        'Catalog changes need compatibility with rollback, restore, retire, withdrawal, and scheduled publication so operators are not trapped after approval.',
+      action: '/publishing/scheduled',
+      cta: 'Open schedule flow',
+    },
+    {
+      title: 'Audit mapping',
+      body:
+        'Every product publication should map request, approver, dependency manifest, Online verification, failure, and retry events into the audit trail.',
+      action: '/publishing/audit',
+      cta: 'Open audit',
+    },
+  ];
 
   return (
     <Stack spacing={2}>
@@ -274,6 +358,8 @@ export function ProductSellabilityWorkspace(props: ProductSellabilityWorkspacePr
           color={completed === checks.length ? 'success' : 'warning'}
           label={`${String(completed)} of ${String(checks.length)} readiness checks passing`}
         />
+        <Chip color="info" label="Approval required before Online" />
+        <Chip color="info" label="Backend policy remains authoritative" />
         {product ? <Chip label={`Catalog: ${text(product, 'catalogVersion')}`} /> : null}
         {variants
           .map((record) => text(record, 'sku'))
@@ -311,6 +397,45 @@ export function ProductSellabilityWorkspace(props: ProductSellabilityWorkspacePr
           </Card>
         ))}
       </Stack>
+      <Card>
+        <CardContent>
+          <Stack spacing={2}>
+            <Stack spacing={0.5}>
+              <Typography variant="h5">Catalog publication policy</Typography>
+              <Typography color="text.secondary">
+                Product publication is a catalog lifecycle action. Axis should make
+                dependency risk, approval impact, Online verification, rollback, and
+                auditability obvious before an operator submits anything.
+              </Typography>
+            </Stack>
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={2}
+              sx={{ flexWrap: 'wrap' }}
+            >
+              {policyCards.map((policy) => (
+                <Card key={policy.title} variant="outlined" sx={{ flex: '1 1 260px' }}>
+                  <CardContent>
+                    <Stack spacing={1}>
+                      <Typography variant="h6">{policy.title}</Typography>
+                      <Typography color="text.secondary">{policy.body}</Typography>
+                      <Button
+                        onClick={() => {
+                          void navigate(policy.action);
+                        }}
+                        size="small"
+                        variant="text"
+                      >
+                        {policy.cta}
+                      </Button>
+                    </Stack>
+                  </CardContent>
+                </Card>
+              ))}
+            </Stack>
+          </Stack>
+        </CardContent>
+      </Card>
     </Stack>
   );
 }
