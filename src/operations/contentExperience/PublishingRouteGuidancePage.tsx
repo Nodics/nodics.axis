@@ -373,6 +373,75 @@ const rollbackValidationSteps = Object.freeze([
   'Browser-verify Nexus, Agora, or target customer-facing page.',
 ]);
 
+const routeReadinessChecks = Object.freeze({
+  '/publishing/requests': Object.freeze([
+    'Request has target scope: enterprise, tenant, site or profile, module or accelerator, and environment.',
+    'Request is not a duplicate of an open approval or an incompatible target revision.',
+    'Request includes business reason, source package, manifest, and workflow reference.',
+  ]),
+  '/publishing/status': Object.freeze([
+    'Online pointer matches the approved target version and publication revision.',
+    'Staged-to-Online movement did not bypass Process approval.',
+    'Browser verification confirms the intended public or operator-facing result.',
+  ]),
+  '/publishing/manifests': Object.freeze([
+    'Manifest declares package class: init, core, sample, project, docs, or media.',
+    'Manifest references are resolvable and dependency warnings are understood before approval.',
+    'Checksum and source version remain stable between preview, submit, approval, and publish.',
+  ]),
+  '/publishing/history': Object.freeze([
+    'Receipt links request, workflow, actor, target version, Online pointer, and completion time.',
+    'Rollback candidate is explicit before any reverse operation.',
+    'Rejected, withdrawn, retired, restored, and rolled-back outcomes keep reason visibility.',
+  ]),
+  '/publishing/audit': Object.freeze([
+    'Audit trail links request code, workflow reference, actor, action, reason, and correlation id.',
+    'Failure or retry entries explain whether Online changed.',
+    'Audit evidence can be used to reconstruct request-to-Online and Online-to-source traceability.',
+  ]),
+  '/publishing/scheduled': Object.freeze([
+    'Schedule does not activate before approval is complete.',
+    'Cancel or withdraw path is clear before the activation window.',
+    'Target version and scope are still valid at activation time.',
+  ]),
+  '/publishing/online': Object.freeze([
+    'Live pointer, revision, and target route match the approved request.',
+    'Nexus, Agora, or target channel renders the expected Online state in browser.',
+    'History and audit can explain how the current Online state was reached.',
+  ]),
+  '/publishing/dependencies': Object.freeze([
+    'Content, media, layout, localization, catalog, and search dependencies are declared.',
+    'Blocking dependencies are fixed before approval instead of becoming runtime surprises.',
+    'Warning-only dependencies are visible to the approver with business impact.',
+  ]),
+  '/publishing/failures': Object.freeze([
+    'Failure reason, retry count, compensation state, and correlation id are visible.',
+    'Operator can tell whether Online changed before retrying.',
+    'Recovery action points to audit, status, and browser verification.',
+  ]),
+  '/publishing/withdrawals': Object.freeze([
+    'Current Online state and rollback or withdrawal target are visible.',
+    'Reason is mandatory and survives history and audit views.',
+    'Reverse operation ends with Online status and browser verification.',
+  ]),
+  '/publishing/configuration': Object.freeze([
+    'Approval requirement, target mapping, runtime role, and schema ownership are visible.',
+    'Configuration changes cannot weaken Staged-to-Online approval guarantees.',
+    'Version-zero policy remains explicit while Nodics is still pre-release.',
+  ]),
+} satisfies Record<keyof typeof publishingRouteGuidance, readonly string[]>);
+
+const traceabilityChecklist = Object.freeze([
+  'Request code',
+  'Workflow reference',
+  'Target scope',
+  'Manifest or source package',
+  'Actor and decision',
+  'Reason',
+  'Online pointer or receipt',
+  'Browser evidence',
+]);
+
 function normalizePublishingPath(path: string): keyof typeof publishingRouteGuidance {
   const normalized = path.replace(/\/$/u, '') || '/publishing';
   if (normalized in publishingRouteGuidance) {
@@ -400,6 +469,7 @@ export function PublishingRouteGuidancePage({
   const normalizedPath = normalizePublishingPath(path);
   const guidance = publishingRouteGuidance[normalizedPath];
   const routeMetrics = metricDefinitionsByRoute[normalizedPath];
+  const readinessChecks = routeReadinessChecks[normalizedPath];
   const connections = useMemo(() => activeConnections(bootstrap), [bootstrap]);
   const configuration = useMemo(
     () => ({
@@ -488,6 +558,63 @@ export function PublishingRouteGuidancePage({
               : 'Publishing route metrics are currently unavailable.'}
           </Alert>
         ) : null}
+
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+        >
+          <Stack spacing={dashboardContentGap}>
+            <Box>
+              <Typography variant="h5">Readiness, conflict, and trace checks</Typography>
+              <Typography color="text.secondary">
+                Use these checks before treating this route as complete. They keep
+                Online readiness, Staged health, duplicate request prevention, and
+                reason visibility in the same operator path.
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 2,
+                gridTemplateColumns: { xs: '1fr', lg: '1.15fr 0.85fr' },
+              }}
+            >
+              <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', p: 2 }}>
+                <Stack spacing={1.25}>
+                  <Typography variant="h6">Route readiness checks</Typography>
+                  {readinessChecks.map((check, index) => (
+                    <Stack
+                      direction="row"
+                      key={check}
+                      spacing={1.25}
+                      sx={{ alignItems: 'flex-start' }}
+                    >
+                      <Chip label={String(index + 1)} size="small" />
+                      <Typography color="text.secondary" variant="body2">
+                        {check}
+                      </Typography>
+                    </Stack>
+                  ))}
+                </Stack>
+              </Paper>
+              <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', p: 2 }}>
+                <Stack spacing={1.25}>
+                  <Typography variant="h6">Traceability must show</Typography>
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                    {traceabilityChecklist.map((item) => (
+                      <Chip key={item} label={item} size="small" variant="outlined" />
+                    ))}
+                  </Stack>
+                  <Alert severity="info">
+                    If any trace element is missing, the operator should keep the item
+                    in review instead of declaring the publication complete.
+                  </Alert>
+                </Stack>
+              </Paper>
+            </Box>
+          </Stack>
+        </Paper>
 
         <Paper
           component="section"

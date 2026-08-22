@@ -181,6 +181,49 @@ const publishingEvidenceRooms = Object.freeze([
   }),
 ]);
 
+const publishingReadinessGates = Object.freeze([
+  Object.freeze({
+    title: 'Online readiness',
+    body: 'Confirm target scope, active module or accelerator, generated manifest, and dependency health before approving Online movement.',
+    route: '/publishing/status',
+    action: 'Check readiness',
+  }),
+  Object.freeze({
+    title: 'Staged health',
+    body: 'Verify the Staged package can be imported repeatedly without duplicates, stale references, or direct Online writes.',
+    route: '/publishing/manifests',
+    action: 'Inspect manifests',
+  }),
+  Object.freeze({
+    title: 'Conflict protection',
+    body: 'Look for duplicate or concurrent requests, pending approvals, and incompatible target revisions before approval.',
+    route: '/publishing/requests',
+    action: 'Review requests',
+  }),
+  Object.freeze({
+    title: 'Traceability',
+    body: 'Every publish, reject, withdraw, retire, restore, or rollback must keep request, workflow, audit, reason, and browser evidence linked.',
+    route: '/publishing/audit',
+    action: 'Inspect trace',
+  }),
+]);
+
+const canonicalPublicationStates = Object.freeze([
+  'DRAFT',
+  'VALIDATING',
+  'VALIDATED',
+  'PENDING_APPROVAL',
+  'REJECTED',
+  'APPROVED',
+  'ACTIVATING',
+  'ONLINE',
+  'FAILED',
+  'WITHDRAWN',
+  'RETIRED',
+  'RESTORED',
+  'ROLLED_BACK',
+]);
+
 function taskIsActionable(task: ProcessHumanTask): boolean {
   return (
     approvalTaskStates.includes(task.status) &&
@@ -341,6 +384,65 @@ export function PublishingDashboardRoutePage({
           metrics={metricsById(metrics, publishingMetrics)}
           title="Publishing operations"
         />
+
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+        >
+          <Stack spacing={dashboardContentGap}>
+            <Box>
+              <Typography variant="h5">Readiness and lifecycle policy</Typography>
+              <Typography color="text.secondary">
+                Use the same status language and readiness checks across requests,
+                approvals, history, audit, and live verification. This keeps the
+                operator journey understandable even when the backend evidence is spread
+                across multiple schemas.
+              </Typography>
+            </Box>
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+              {canonicalPublicationStates.map((state) => (
+                <Chip key={state} label={state} size="small" variant="outlined" />
+              ))}
+            </Stack>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 2,
+                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+              }}
+            >
+              {publishingReadinessGates.map((gate) => (
+                <Paper
+                  component="article"
+                  elevation={0}
+                  key={gate.title}
+                  sx={{ border: 1, borderColor: 'divider', p: 2 }}
+                >
+                  <Stack spacing={1.25}>
+                    <Typography variant="h6">{gate.title}</Typography>
+                    <Typography color="text.secondary" variant="body2">
+                      {gate.body}
+                    </Typography>
+                    <Button
+                      component={RouterLink}
+                      size="small"
+                      to={gate.route}
+                      variant="outlined"
+                    >
+                      {gate.action}
+                    </Button>
+                  </Stack>
+                </Paper>
+              ))}
+            </Box>
+            <Alert severity="info">
+              Staged imports prepare evidence; approval authorizes Online movement.
+              Axis should never describe an import as live until Online status and
+              browser delivery are verified.
+            </Alert>
+          </Stack>
+        </Paper>
 
         <Paper
           component="section"
