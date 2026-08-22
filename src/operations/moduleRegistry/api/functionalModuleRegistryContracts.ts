@@ -23,6 +23,44 @@ export interface FunctionalModuleRegistration {
   readonly catalogueRevision: number;
   readonly registeredAt?: string | undefined;
   readonly lastObservedAt?: string | undefined;
+  readonly activationData?: FunctionalModuleActivationData | undefined;
+}
+
+export interface FunctionalModuleActivationPackage {
+  readonly code: string;
+  readonly classification: string;
+  readonly owner: string;
+  readonly required: boolean;
+  readonly trigger: string;
+  readonly targetModule: string;
+  readonly targetServer: string;
+  readonly targetDatabase: string;
+  readonly operation: string;
+}
+
+export interface FunctionalModuleActivationReceipt
+  extends FunctionalModuleActivationPackage {
+  readonly receiptKey: string;
+  readonly status: string;
+  readonly idempotent: boolean;
+  readonly message: string;
+}
+
+export interface FunctionalModuleActivationData {
+  readonly action: string;
+  readonly dryRun: boolean;
+  readonly executionMode: string;
+  readonly readiness: string;
+  readonly preflight: Readonly<{
+    readonly runtimeActive: boolean;
+    readonly registered: boolean;
+    readonly protectedModule: boolean;
+    readonly dependencies: readonly string[];
+    readonly blockedReasons: readonly string[];
+  }>;
+  readonly packages: readonly FunctionalModuleActivationPackage[];
+  readonly receipts: readonly FunctionalModuleActivationReceipt[];
+  readonly nextActions: readonly string[];
 }
 
 function record(value: unknown, name: string): Record<string, unknown> {
@@ -60,6 +98,87 @@ function stringList(value: unknown, name: string): readonly string[] {
     throw new Error(`${name} must be a string list`);
   }
   return Object.freeze([...new Set(value as string[])]);
+}
+
+function optionalString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function parseActivationPackage(
+  value: unknown,
+  name: string,
+): FunctionalModuleActivationPackage {
+  const item = record(value, name);
+  return Object.freeze({
+    code: text(item.code, `${name} code`),
+    classification: optionalString(item.classification),
+    owner: optionalString(item.owner),
+    required:
+      typeof item.required === 'boolean'
+        ? item.required
+        : boolean(item.required, `${name} required flag`),
+    trigger: optionalString(item.trigger),
+    targetModule: optionalString(item.targetModule),
+    targetServer: optionalString(item.targetServer),
+    targetDatabase: optionalString(item.targetDatabase),
+    operation: optionalString(item.operation),
+  });
+}
+
+function parseActivationReceipt(
+  value: unknown,
+  name: string,
+): FunctionalModuleActivationReceipt {
+  const item = record(value, name);
+  return Object.freeze({
+    ...parseActivationPackage(value, name),
+    receiptKey: text(item.receiptKey, `${name} receipt key`),
+    status: text(item.status, `${name} status`),
+    idempotent:
+      typeof item.idempotent === 'boolean'
+        ? item.idempotent
+        : boolean(item.idempotent, `${name} idempotent flag`),
+    message: optionalString(item.message),
+  });
+}
+
+function parseActivationData(value: unknown): FunctionalModuleActivationData {
+  const item = record(value, 'Functional-module activation data');
+  const preflight = record(item.preflight, 'Functional-module activation preflight');
+  return Object.freeze({
+    action: text(item.action, 'Activation action'),
+    dryRun: boolean(item.dryRun, 'Activation dry-run flag'),
+    executionMode: text(item.executionMode, 'Activation execution mode'),
+    readiness: text(item.readiness, 'Activation readiness'),
+    preflight: Object.freeze({
+      runtimeActive: boolean(preflight.runtimeActive, 'Activation runtime active'),
+      registered: boolean(preflight.registered, 'Activation registered flag'),
+      protectedModule: boolean(
+        preflight.protectedModule,
+        'Activation protected-module flag',
+      ),
+      dependencies: stringList(preflight.dependencies, 'Activation dependencies'),
+      blockedReasons: stringList(
+        preflight.blockedReasons,
+        'Activation blocked reasons',
+      ),
+    }),
+    packages: Object.freeze(
+      Array.isArray(item.packages)
+        ? item.packages.map((pack, index) =>
+            parseActivationPackage(pack, `Activation package ${String(index)}`),
+          )
+        : [],
+    ),
+    receipts: Object.freeze(
+      Array.isArray(item.receipts)
+        ? item.receipts.map((receipt, index) =>
+            parseActivationReceipt(receipt, `Activation receipt ${String(index)}`),
+          )
+        : [],
+    ),
+    nextActions: stringList(item.nextActions, 'Activation next actions'),
+  });
 }
 
 function registrationState(value: unknown): FunctionalModuleRegistrationState {
@@ -111,6 +230,10 @@ export function parseFunctionalModuleRegistration(
       item.lastObservedAt,
       `${functionalModule} last observed at`,
     ),
+    activationData:
+      item.activationData === undefined
+        ? undefined
+        : parseActivationData(item.activationData),
   });
 }
 

@@ -151,12 +151,21 @@ export async function applyFunctionalModuleLifecycleAction(
   module: FunctionalModuleRegistration,
   action: FunctionalModuleLifecycleAction,
   configuration: FunctionalModuleRegistryClientConfiguration,
+  options:
+    | Readonly<{ dryRun?: boolean | undefined }>
+    | typeof fetch = {},
   fetchImplementation: typeof fetch = fetch,
 ): Promise<FunctionalModuleRegistration> {
+  const lifecycleOptions =
+    typeof options === 'function' ? {} : options;
+  const effectiveFetch =
+    typeof options === 'function' ? options : fetchImplementation;
   const body = JSON.stringify({
     project: configuration.projectCode,
     expectedRevision: module.catalogueRevision,
     reason: ACTION_REASONS[action],
+    dryRun: lifecycleOptions.dryRun === true,
+    includeActivationData: true,
   });
   return parseFunctionalModuleRegistration(
     await request(
@@ -167,7 +176,7 @@ export async function applyFunctionalModuleLifecycleAction(
       )}/${action}`,
       configuration,
       { body, method: 'POST' },
-      fetchImplementation,
+      effectiveFetch,
     ),
   );
 }

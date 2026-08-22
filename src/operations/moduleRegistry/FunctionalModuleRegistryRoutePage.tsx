@@ -29,6 +29,7 @@ import {
   type FunctionalModuleLifecycleAction,
 } from './api/functionalModuleRegistryClient';
 import type {
+  FunctionalModuleActivationData,
   FunctionalModuleRegistration,
   FunctionalModuleRuntimeState,
 } from './api/functionalModuleRegistryContracts';
@@ -77,6 +78,7 @@ function sortedModules(
 }
 
 const registryQueryRoot = ['functional-module-registry'] as const;
+type ModuleAction = FunctionalModuleLifecycleAction | 'preview';
 type ModuleReadiness = 'Blocked' | 'Ready to activate' | 'Active' | 'Active with warnings';
 
 function moduleReadiness(module: FunctionalModuleRegistration): ModuleReadiness {
@@ -127,9 +129,66 @@ interface ModuleCardProps {
   readonly module: FunctionalModuleRegistration;
   readonly onAction: (
     module: FunctionalModuleRegistration,
-    action: FunctionalModuleLifecycleAction,
+    action: ModuleAction,
   ) => void;
-  readonly pendingAction?: FunctionalModuleLifecycleAction | undefined;
+  readonly pendingAction?: ModuleAction | undefined;
+}
+
+function ActivationDataPanel({
+  activationData,
+}: {
+  readonly activationData?: FunctionalModuleActivationData | undefined;
+}) {
+  if (!activationData) return null;
+  return (
+    <Stack spacing={1}>
+      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+        <Chip label={`Execution: ${activationData.executionMode}`} size="small" />
+        <Chip label={`Readiness: ${activationData.readiness}`} size="small" />
+        {activationData.dryRun ? (
+          <Chip color="info" label="Dry run" size="small" />
+        ) : null}
+      </Stack>
+      {activationData.preflight.blockedReasons.length > 0 ? (
+        <Alert severity="warning">
+          Blocked by {activationData.preflight.blockedReasons.join(', ')}
+        </Alert>
+      ) : null}
+      {activationData.receipts.length > 0 ? (
+        <Stack spacing={1}>
+          <Typography color="text.secondary" variant="caption">
+            Activation data receipts
+          </Typography>
+          {activationData.receipts.map((receipt) => (
+            <Alert
+              key={receipt.receiptKey}
+              severity={
+                receipt.status === 'PENDING_IMPORT_CONTRACT'
+                  ? 'warning'
+                  : receipt.status === 'PLANNED'
+                    ? 'info'
+                    : 'success'
+              }
+            >
+              <strong>{receipt.code}</strong> · {receipt.classification} ·{' '}
+              {receipt.status}
+              <br />
+              {receipt.message}
+            </Alert>
+          ))}
+        </Stack>
+      ) : (
+        <Alert severity="info">
+          No activation data packages are declared for this module.
+        </Alert>
+      )}
+      {activationData.nextActions.length > 0 ? (
+        <Typography color="text.secondary" variant="caption">
+          Next actions: {activationData.nextActions.join(', ')}
+        </Typography>
+      ) : null}
+    </Stack>
+  );
 }
 
 function ModuleCard({ disabled, module, onAction, pendingAction }: ModuleCardProps) {
@@ -142,6 +201,7 @@ function ModuleCard({ disabled, module, onAction, pendingAction }: ModuleCardPro
   const pending = Boolean(pendingAction);
   const readiness = moduleReadiness(module);
   const impactCount = module.technicalModules.length + module.observedServers.length;
+  const activationData = module.activationData;
 
   return (
     <Card variant="outlined">
@@ -250,13 +310,19 @@ function ModuleCard({ disabled, module, onAction, pendingAction }: ModuleCardPro
               <Typography color="text.secondary" variant="caption">
                 Data receipts
               </Typography>
-              <Typography>Required/core/sample receipt API pending</Typography>
+              <Typography>
+                {activationData
+                  ? `${String(activationData.receipts.length)} receipts`
+                  : 'Preview available'}
+              </Typography>
             </Grid>
           </Grid>
 
+          <ActivationDataPanel activationData={activationData} />
+
           <Alert severity={canActivate ? 'warning' : module.enabled ? 'success' : 'info'}>
             {canActivate
-              ? 'Current activation enables module capabilities in Axis. Required init/core data import and sample-data opt-in must be added through the activation-data receipt contract before this journey is functionally complete.'
+              ? 'Preview shows declared required/core/sample packages before activation. Current backend returns receipts as a contract-only plan until nImport execution is wired.'
               : module.enabled
                 ? 'Navigation and workspaces become visible only through the refreshed backend bootstrap after activation.'
                 : 'Preflight uses current registry data: runtime state, observed servers, protected-module rules, and catalogue revision.'}
@@ -272,6 +338,15 @@ function ModuleCard({ disabled, module, onAction, pendingAction }: ModuleCardPro
                 variant="contained"
               >
                 {pendingAction === 'register' ? 'Registering…' : 'Register'}
+              </Button>
+            ) : null}
+            {isRegistered && !module.enabled ? (
+              <Button
+                disabled={disabled || pending}
+                onClick={() => onAction(module, 'preview')}
+                variant="outlined"
+              >
+                {pendingAction === 'preview' ? 'Previewing...' : 'Preview activation'}
               </Button>
             ) : null}
             {canActivate ? (
@@ -365,14 +440,15 @@ export function FunctionalModuleRegistryRoutePage(
       action,
     }: {
       readonly module: FunctionalModuleRegistration;
-      readonly action: FunctionalModuleLifecycleAction;
+      readonly action: ModuleAction;
     }) => {
       if (!connection) throw new Error('BackOffice is unavailable');
       return applyFunctionalModuleLifecycleAction(
         connection,
         module,
-        action,
+        action === 'preview' ? 'activate' : action,
         configuration,
+        { dryRun: action === 'preview' },
       );
     },
     onSuccess: (updatedModule, variables) => {
@@ -386,7 +462,13 @@ export function FunctionalModuleRegistryRoutePage(
         'available',
         configuration.projectCode,
       ];
-      if (variables.action === 'deregister') {
+      if (variables.action === 'preview') {
+        queryClient.setQueryData<readonly FunctionalModuleRegistration[]>(
+          registeredQueryKey,
+          (modules) => upsertModule(modules, updatedModule),
+        );
+        return;
+      } else if (variables.action === 'deregister') {
         queryClient.setQueryData<readonly FunctionalModuleRegistration[]>(
           registeredQueryKey,
           (modules) => removeModule(modules, updatedModule.functionalModule),
