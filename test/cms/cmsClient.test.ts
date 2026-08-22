@@ -85,7 +85,7 @@ describe('resolveCmsPage', () => {
     const invalidContract = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
         JSON.stringify({
-          result: { ...validResolvedPage, contractVersion: 0 },
+          result: { ...validResolvedPage, contractVersion: 99 },
         }),
         { status: 200 },
       ),

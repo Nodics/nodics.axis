@@ -15,7 +15,7 @@ describe('parseCmsResolvedPage', () => {
   });
 
   it.each([
-    ['unsupported delivery version', { ...validResolvedPage, contractVersion: 0 }],
+    ['unsupported delivery version', { ...validResolvedPage, contractVersion: 99 }],
     [
       'missing renderer channels',
       {

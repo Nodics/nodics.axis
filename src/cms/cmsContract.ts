@@ -41,7 +41,7 @@ export interface CmsResolvedPageContract {
   readonly page: CmsPageContract;
 }
 
-const DELIVERY_CONTRACT_VERSION = 1;
+const DELIVERY_CONTRACT_VERSION = 0;
 const MAX_COMPONENT_DEPTH = 12;
 const MAX_COMPONENTS = 500;
 
