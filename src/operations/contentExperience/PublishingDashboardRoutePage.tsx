@@ -304,6 +304,57 @@ const publishingOperationalMetricCards = Object.freeze([
   }),
 ]);
 
+const publishingDiagnosticSignals = Object.freeze([
+  Object.freeze({
+    title: 'Structured logs',
+    detail:
+      'Publication logs should include action, target, state transition, actor, request code, workflow reference, module, and outcome.',
+    evidence: 'Log event contract',
+  }),
+  Object.freeze({
+    title: 'Trace correlation IDs',
+    detail:
+      'Every import, validation, approval, activation, search hook, media hook, retry, and rollback should carry a shared trace id.',
+    evidence: 'Trace id',
+  }),
+  Object.freeze({
+    title: 'Request correlation IDs',
+    detail:
+      'Publication request code should connect manifests, Process tasks, Online pointers, history, audit, and browser evidence.',
+    evidence: 'Request code',
+  }),
+  Object.freeze({
+    title: 'Workflow correlation IDs',
+    detail:
+      'Workflow instance and task codes must remain visible across approval, rejection, escalation, retry, and recovery.',
+    evidence: 'Workflow reference',
+  }),
+  Object.freeze({
+    title: 'Import correlation IDs',
+    detail:
+      'Initializer and accelerator imports should link source package, import job, generated manifest, and publication request.',
+    evidence: 'Import job',
+  }),
+  Object.freeze({
+    title: 'Browser evidence registry',
+    detail:
+      'Final acceptance should record route, actor, timestamp, screenshot or run id, and observed result for every user journey.',
+    evidence: 'Browser evidence',
+  }),
+  Object.freeze({
+    title: 'Diagnostic export',
+    detail:
+      'Support should be able to export request, manifest, audit, workflow, dependency, and Online state without manual database digging.',
+    evidence: 'Export package',
+  }),
+  Object.freeze({
+    title: 'Support bundle',
+    detail:
+      'A support bundle should combine diagnostics, safe redaction, topology, module health, accelerator health, and reproduction steps.',
+    evidence: 'Support bundle',
+  }),
+]);
+
 const canonicalPublicationStates = Object.freeze([
   'DRAFT',
   'VALIDATING',
@@ -527,6 +578,59 @@ export function PublishingDashboardRoutePage({
             <Alert severity="info">
               Metric cards describe the required operational view. Values should stay
               backend-derived so Axis does not invent health from frontend-only state.
+            </Alert>
+          </Stack>
+        </Paper>
+
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+        >
+          <Stack spacing={dashboardContentGap}>
+            <Box>
+              <Typography variant="h5">Diagnostics and supportability</Typography>
+              <Typography color="text.secondary">
+                Publishing support needs a single trail across imports, requests,
+                workflow, Online movement, search/media side effects, browser
+                verification, and recovery. These signals define what operators should
+                capture before escalating a publishing incident.
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 2,
+                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+              }}
+            >
+              {publishingDiagnosticSignals.map((signal) => (
+                <Paper
+                  component="article"
+                  elevation={0}
+                  key={signal.title}
+                  sx={{ border: 1, borderColor: 'divider', p: 2 }}
+                >
+                  <Stack spacing={1}>
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      sx={{ alignItems: 'center', justifyContent: 'space-between' }}
+                    >
+                      <Typography variant="h6">{signal.title}</Typography>
+                      <Chip label={signal.evidence} size="small" variant="outlined" />
+                    </Stack>
+                    <Typography color="text.secondary" variant="body2">
+                      {signal.detail}
+                    </Typography>
+                  </Stack>
+                </Paper>
+              ))}
+            </Box>
+            <Alert severity="info">
+              Diagnostic exports and support bundles must be backend-produced and
+              permissioned. Axis defines the operator expectation and links the evidence
+              rooms; it should not scrape sensitive data from the browser.
             </Alert>
           </Stack>
         </Paper>
