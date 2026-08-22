@@ -355,6 +355,95 @@ const publishingDiagnosticSignals = Object.freeze([
   }),
 ]);
 
+const publishingScopeIsolationCards = Object.freeze([
+  Object.freeze({
+    title: 'Tenant scope',
+    detail:
+      'Requests must declare tenant ownership and prevent Online movement from leaking across tenant boundaries.',
+  }),
+  Object.freeze({
+    title: 'Enterprise scope',
+    detail:
+      'Enterprise administrators need visibility across enterprise data while enterprise users remain constrained to their own enterprise.',
+  }),
+  Object.freeze({
+    title: 'Site and profile scope',
+    detail:
+      'Nexus, Agora, documentation, and future accelerators should publish only to the selected site, profile, storefront, or channel.',
+  }),
+  Object.freeze({
+    title: 'Environment scope',
+    detail:
+      'Staged, Online, Local, and future non-local targets must stay explicit so approvals do not accidentally cross runtime environments.',
+  }),
+  Object.freeze({
+    title: 'Rollback and import isolation',
+    detail:
+      'Rollback and import jobs should restore or prepare only the same scope that was approved, audited, and browser-verified.',
+  }),
+]);
+
+const publishingUxAssuranceCards = Object.freeze([
+  Object.freeze({
+    title: 'Responsive desktop journey',
+    detail:
+      'Desktop operators should see the full cockpit, side navigation, evidence rooms, metrics, diagnostics, and action links without hidden prerequisites.',
+  }),
+  Object.freeze({
+    title: 'Responsive tablet journey',
+    detail:
+      'Tablet layouts should keep cards readable, actions reachable, and publishing sequence understandable when columns collapse.',
+  }),
+  Object.freeze({
+    title: 'Responsive mobile journey',
+    detail:
+      'Mobile layouts should preserve the same journey order: prepare, inspect, approve, verify, recover, and record evidence.',
+  }),
+  Object.freeze({
+    title: 'Empty state',
+    detail:
+      'Empty requests, tasks, receipts, or pointers must explain why no data is present and where the operator should go next.',
+  }),
+  Object.freeze({
+    title: 'Loading state',
+    detail:
+      'Loading and partial data states should distinguish backend fetch progress from missing permissions or unavailable modules.',
+  }),
+  Object.freeze({
+    title: 'Error state',
+    detail:
+      'Errors should provide the failed evidence room, safe recovery path, and support bundle expectation without implying Online changed.',
+  }),
+  Object.freeze({
+    title: 'No-permission state',
+    detail:
+      'No-permission messaging should explain the missing capability and preserve read-only evidence when the user is allowed to view it.',
+  }),
+]);
+
+const publishingApiAcceptanceCards = Object.freeze([
+  Object.freeze({
+    title: 'API contract inventory',
+    detail:
+      'Inventory publication request, manifest, status, history, audit, dependency, workflow, import, search, media, and accelerator endpoints before final release.',
+  }),
+  Object.freeze({
+    title: 'Data migration dry-run',
+    detail:
+      'Dry-runs should prove imports, migration transforms, duplicate protection, rollback candidates, and version-zero assumptions before real Online movement.',
+  }),
+  Object.freeze({
+    title: 'Production readiness checklist',
+    detail:
+      'Release readiness must include topology, module activation, approval workflow, observability, browser journeys, rollback, security, and support evidence.',
+  }),
+  Object.freeze({
+    title: 'Final acceptance',
+    detail:
+      'The framework is accepted only when local journeys, backend authorities, product decisions, external gates, and release evidence are all explicitly closed.',
+  }),
+]);
+
 const canonicalPublicationStates = Object.freeze([
   'DRAFT',
   'VALIDATING',
@@ -579,6 +668,119 @@ export function PublishingDashboardRoutePage({
               Metric cards describe the required operational view. Values should stay
               backend-derived so Axis does not invent health from frontend-only state.
             </Alert>
+          </Stack>
+        </Paper>
+
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+        >
+          <Stack spacing={dashboardContentGap}>
+            <Box>
+              <Typography variant="h5">Scope isolation and final acceptance gates</Typography>
+              <Typography color="text.secondary">
+                Publishing must be scoped before it is approved. Axis can make tenant,
+                enterprise, site/profile, environment, import, rollback, API, migration,
+                and final-acceptance expectations visible, while backend policy remains
+                the enforcement authority.
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 2,
+                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+              }}
+            >
+              {publishingScopeIsolationCards.map((scope) => (
+                <Paper
+                  component="article"
+                  elevation={0}
+                  key={scope.title}
+                  sx={{ border: 1, borderColor: 'divider', p: 2 }}
+                >
+                  <Stack spacing={1}>
+                    <Typography variant="h6">{scope.title}</Typography>
+                    <Typography color="text.secondary" variant="body2">
+                      {scope.detail}
+                    </Typography>
+                  </Stack>
+                </Paper>
+              ))}
+            </Box>
+            <Alert severity="warning">
+              Scope isolation is product-authority work. This panel makes the decision
+              visible, but final closure still requires backend enforcement and role
+              policy validation.
+            </Alert>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 2,
+                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+              }}
+            >
+              {publishingApiAcceptanceCards.map((card) => (
+                <Paper
+                  component="article"
+                  elevation={0}
+                  key={card.title}
+                  sx={{ border: 1, borderColor: 'divider', p: 2 }}
+                >
+                  <Stack spacing={1}>
+                    <Typography variant="h6">{card.title}</Typography>
+                    <Typography color="text.secondary" variant="body2">
+                      {card.detail}
+                    </Typography>
+                  </Stack>
+                </Paper>
+              ))}
+            </Box>
+          </Stack>
+        </Paper>
+
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+        >
+          <Stack spacing={dashboardContentGap}>
+            <Box>
+              <Typography variant="h5">Responsive and state UX assurance</Typography>
+              <Typography color="text.secondary">
+                Publishing must stay simple, descriptive, and professional even when
+                data is empty, loading, unavailable, denied, or viewed on a smaller
+                screen.
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 2,
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  md: 'repeat(2, minmax(0, 1fr))',
+                  xl: 'repeat(3, minmax(0, 1fr))',
+                },
+              }}
+            >
+              {publishingUxAssuranceCards.map((card) => (
+                <Paper
+                  component="article"
+                  elevation={0}
+                  key={card.title}
+                  sx={{ border: 1, borderColor: 'divider', p: 2 }}
+                >
+                  <Stack spacing={1}>
+                    <Typography variant="h6">{card.title}</Typography>
+                    <Typography color="text.secondary" variant="body2">
+                      {card.detail}
+                    </Typography>
+                  </Stack>
+                </Paper>
+              ))}
+            </Box>
           </Stack>
         </Paper>
 
