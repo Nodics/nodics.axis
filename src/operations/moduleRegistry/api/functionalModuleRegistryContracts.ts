@@ -36,6 +36,7 @@ export interface FunctionalModuleActivationPackage {
   readonly targetServer: string;
   readonly targetDatabase: string;
   readonly operation: string;
+  readonly dataType: string;
 }
 
 export interface FunctionalModuleActivationReceipt
@@ -44,6 +45,11 @@ export interface FunctionalModuleActivationReceipt
   readonly status: string;
   readonly idempotent: boolean;
   readonly message: string;
+  readonly executionMode?: string | undefined;
+  readonly releaseStatus?: string | undefined;
+  readonly importRunId?: string | undefined;
+  readonly lastAttemptAt?: string | undefined;
+  readonly revision?: number | undefined;
 }
 
 export interface FunctionalModuleActivationData {
@@ -122,6 +128,7 @@ function parseActivationPackage(
     targetServer: optionalString(item.targetServer),
     targetDatabase: optionalString(item.targetDatabase),
     operation: optionalString(item.operation),
+    dataType: optionalString(item.dataType),
   });
 }
 
@@ -139,6 +146,11 @@ function parseActivationReceipt(
         ? item.idempotent
         : boolean(item.idempotent, `${name} idempotent flag`),
     message: optionalString(item.message),
+    executionMode: item.executionMode === undefined ? undefined : optionalString(item.executionMode),
+    releaseStatus: item.releaseStatus === undefined ? undefined : optionalString(item.releaseStatus),
+    importRunId: item.importRunId === undefined ? undefined : optionalString(item.importRunId),
+    lastAttemptAt: item.lastAttemptAt === undefined ? undefined : optionalString(item.lastAttemptAt),
+    revision: item.revision === undefined ? undefined : Number(item.revision),
   });
 }
 

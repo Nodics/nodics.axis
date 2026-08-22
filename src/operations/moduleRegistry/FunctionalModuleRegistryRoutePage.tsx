@@ -102,7 +102,7 @@ function activationMode(module: FunctionalModuleRegistration): string {
   if (module.required) return 'Protected framework module';
   if (module.registrationState === 'AVAILABLE') return 'Register before activation';
   if (module.enabled) return 'Activated for Axis presentation';
-  return 'Activate capabilities; required-data import contract pending';
+  return 'Activate capabilities; required data imports through nImport first';
 }
 
 function removeModule(
@@ -134,6 +134,17 @@ interface ModuleCardProps {
   readonly pendingAction?: ModuleAction | undefined;
 }
 
+function receiptSeverity(
+  status: string,
+): 'success' | 'warning' | 'error' | 'info' {
+  if (['FAILED', 'DATA_FAILED'].includes(status)) return 'error';
+  if (['RUNNING', 'QUEUED', 'PENDING_IMPORT'].includes(status)) return 'warning';
+  if (['PLANNED', 'SKIPPED_USER_TRIGGERED', 'DATA_LEFT_INTACT'].includes(status)) {
+    return 'info';
+  }
+  return 'success';
+}
+
 function ActivationDataPanel({
   activationData,
 }: {
@@ -162,16 +173,13 @@ function ActivationDataPanel({
           {activationData.receipts.map((receipt) => (
             <Alert
               key={receipt.receiptKey}
-              severity={
-                receipt.status === 'PENDING_IMPORT_CONTRACT'
-                  ? 'warning'
-                  : receipt.status === 'PLANNED'
-                    ? 'info'
-                    : 'success'
-              }
+              severity={receiptSeverity(receipt.status)}
             >
               <strong>{receipt.code}</strong> · {receipt.classification} ·{' '}
+              {receipt.dataType || 'data'} ·{' '}
               {receipt.status}
+              {receipt.releaseStatus ? ` · release ${receipt.releaseStatus}` : ''}
+              {receipt.importRunId ? ` · run ${receipt.importRunId}` : ''}
               <br />
               {receipt.message}
             </Alert>
@@ -322,7 +330,7 @@ function ModuleCard({ disabled, module, onAction, pendingAction }: ModuleCardPro
 
           <Alert severity={canActivate ? 'warning' : module.enabled ? 'success' : 'info'}>
             {canActivate
-              ? 'Preview shows declared required/core/sample packages before activation. Current backend returns receipts as a contract-only plan until nImport execution is wired.'
+              ? 'Preview shows declared required/core/sample packages before activation. Activation imports required data through the existing nImport data-release executor before enabling Axis capabilities.'
               : module.enabled
                 ? 'Navigation and workspaces become visible only through the refreshed backend bootstrap after activation.'
                 : 'Preflight uses current registry data: runtime state, observed servers, protected-module rules, and catalogue revision.'}
@@ -570,7 +578,8 @@ export function FunctionalModuleRegistryRoutePage(
                 <Typography color="text.secondary" variant="body2">
                   Use this page as the operator control point for module
                   registration, capability activation, bootstrap refresh, and the
-                  upcoming required-data receipt workflow.
+                  required-data receipt workflow backed by nImport data-release
+                  execution.
                 </Typography>
               </Box>
               <Grid container spacing={1}>
@@ -580,7 +589,7 @@ export function FunctionalModuleRegistryRoutePage(
                   'Preview capabilities and technical modules',
                   'Activate Axis presentation',
                   'Refresh navigation from backend bootstrap',
-                  'Import required data and receipts: pending contract',
+                  'Import required data through nImport receipts',
                   'Optional sample data: user-triggered only',
                 ].map((step, index) => (
                   <Grid key={step} size={{ xs: 12, md: 6, lg: 4 }}>
@@ -720,7 +729,10 @@ export function FunctionalModuleRegistryRoutePage(
                   </Typography>
                   <Typography color="text.secondary" variant="body2">
                     Modules selected for this project. Activation controls whether Axis
-                    presents their business capabilities.
+                      presents their business capabilities.
+                      Required activation data imports through nImport before the
+                      module is enabled. Optional sample-data import remains a
+                      separate user-triggered journey.
                   </Typography>
                 </Box>
                 <Chip label={`${String(optional.length)} optional registered`} />
