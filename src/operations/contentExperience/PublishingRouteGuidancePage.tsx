@@ -442,6 +442,69 @@ const traceabilityChecklist = Object.freeze([
   'Browser evidence',
 ]);
 
+const publicationTraceControls = Object.freeze([
+  Object.freeze({
+    title: 'Online readiness checker',
+    body: 'Confirm target profile, approval state, generated manifest, Online pointer, search/media side effects, and browser evidence before calling a request live.',
+    route: '/publishing/status',
+    action: 'Check status',
+  }),
+  Object.freeze({
+    title: 'Staged data health checker',
+    body: 'Validate import repeatability, missing references, inactive dependencies, checksum stability, and Staged-only writes before approval.',
+    route: '/publishing/manifests',
+    action: 'Open manifests',
+  }),
+  Object.freeze({
+    title: 'Conflict detection',
+    body: 'Look for overlapping target scope, stale source revision, duplicate package, incompatible target version, or blocked dependency before submission.',
+    route: '/publishing/dependencies',
+    action: 'Review dependencies',
+  }),
+  Object.freeze({
+    title: 'Concurrent approval protection',
+    body: 'Concurrent requests against the same tenant, enterprise, site, profile, catalog, or route must be visible before an approver moves Online state.',
+    route: '/publishing/requests',
+    action: 'Review requests',
+  }),
+  Object.freeze({
+    title: 'Duplicate request prevention',
+    body: 'Creators should see existing open requests for the same package, target scope, and source revision instead of creating another approval lane.',
+    route: '/publishing/requests',
+    action: 'Find duplicates',
+  }),
+  Object.freeze({
+    title: 'Decision reason visibility',
+    body: 'Reject, withdraw, retire, restore, rollback, retry, and emergency decisions must show the recorded business reason in history and audit.',
+    route: '/publishing/history',
+    action: 'Open history',
+  }),
+  Object.freeze({
+    title: 'Audit timeline',
+    body: 'Operators need a timeline that joins request, workflow, manifest, Online pointer, deployment receipt, side effects, actor, reason, and browser evidence.',
+    route: '/publishing/audit',
+    action: 'Inspect audit',
+  }),
+  Object.freeze({
+    title: 'History detail',
+    body: 'History should explain what changed, when it changed, who approved it, what Online served, and which rollback or restore candidate remains safe.',
+    route: '/publishing/history',
+    action: 'View receipts',
+  }),
+  Object.freeze({
+    title: 'Request-to-audit traceability',
+    body: 'A request must lead to workflow, manifest, Online movement, history, audit, and browser verification without manual database lookups.',
+    route: '/publishing/audit',
+    action: 'Trace request',
+  }),
+  Object.freeze({
+    title: 'Audit-to-source traceability',
+    body: 'An audit event must point back to source package, schema, source revision, import job, approver, and target scope for support investigations.',
+    route: '/publishing/manifests',
+    action: 'Trace source',
+  }),
+]);
+
 function normalizePublishingPath(path: string): keyof typeof publishingRouteGuidance {
   const normalized = path.replace(/\/$/u, '') || '/publishing';
   if (normalized in publishingRouteGuidance) {
@@ -613,6 +676,61 @@ export function PublishingRouteGuidancePage({
                 </Stack>
               </Paper>
             </Box>
+          </Stack>
+        </Paper>
+
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+        >
+          <Stack spacing={dashboardContentGap}>
+            <Box>
+              <Typography variant="h5">
+                Readiness, reason, and traceability controls
+              </Typography>
+              <Typography color="text.secondary">
+                These controls keep Online readiness, Staged health, duplicate
+                prevention, approval conflicts, reason visibility, timeline evidence,
+                history detail, and source traceability in the same publishing journey.
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 2,
+                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+              }}
+            >
+              {publicationTraceControls.map((control) => (
+                <Paper
+                  component="article"
+                  elevation={0}
+                  key={control.title}
+                  sx={{ border: 1, borderColor: 'divider', p: 2 }}
+                >
+                  <Stack spacing={1.25}>
+                    <Typography variant="h6">{control.title}</Typography>
+                    <Typography color="text.secondary" variant="body2">
+                      {control.body}
+                    </Typography>
+                    <Button
+                      component={RouterLink}
+                      size="small"
+                      to={control.route}
+                      variant="outlined"
+                    >
+                      {control.action}
+                    </Button>
+                  </Stack>
+                </Paper>
+              ))}
+            </Box>
+            <Alert severity="info">
+              These panels use existing Publishing, Process, CMS, and Workbench
+              evidence routes. Backend publication policy remains authoritative for
+              actual blocking, locking, rollback, and audit persistence.
+            </Alert>
           </Stack>
         </Paper>
 
