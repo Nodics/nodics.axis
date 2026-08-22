@@ -402,6 +402,15 @@ function navigationFeatureState(value: unknown): AxisNavigationFeatureState {
   return value as AxisNavigationFeatureState;
 }
 
+function navigationDisplayLabel(label: string): string {
+  return label
+    .replace(/\bAnd\b/g, '&')
+    .replace(/\band\b/g, '&')
+    .replace(/\s*&\s*/g, ' & ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function parseNavigationGroup(
   value: unknown,
   moduleName: string,
@@ -410,7 +419,9 @@ function parseNavigationGroup(
   const group = record(value, `${moduleName} navigation group`);
   return Object.freeze({
     id: text(group.id, `${moduleName} navigation group id`),
-    label: text(group.label, `${moduleName} navigation group label`),
+    label: navigationDisplayLabel(
+      text(group.label, `${moduleName} navigation group label`),
+    ),
     labelKey: optionalText(group.labelKey, `${moduleName} navigation group label key`),
     order: Number.isInteger(group.order) ? Number(group.order) : 0,
   });
@@ -960,7 +971,9 @@ function parseNavigation(
       navigation.push(
         Object.freeze({
           id: text(item.id, `${moduleName} navigation id`),
-          label: text(item.label, `${moduleName} navigation label`),
+          label: navigationDisplayLabel(
+            text(item.label, `${moduleName} navigation label`),
+          ),
           route: relativeRoute(item.route, `${moduleName} navigation route`),
           order: Number.isInteger(item.order) ? Number(item.order) : index,
           moduleName,
