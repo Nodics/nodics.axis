@@ -236,9 +236,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
     (item) => item.query.data?.readiness === 'PUBLICATION_PENDING',
   ).length;
   const actionCount = statuses.filter(
-    (item) =>
-      item.query.data?.readiness !== 'READY' ||
-      item.query.data.allowedActions.length > 0,
+    (item) => item.query.data?.readiness !== 'READY',
   ).length;
   const loading = queries.some((query) => query.isPending);
   const filteredStatuses = statuses.filter((item) => {
