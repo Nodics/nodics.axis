@@ -272,6 +272,12 @@ function ActivationDataPanel({
   readonly activationData?: FunctionalModuleActivationData | undefined;
 }) {
   if (!activationData) return null;
+  const requiredPackages = activationData.packages.filter(
+    (pack) => pack.required || pack.classification === 'REQUIRED',
+  );
+  const optionalPackages = activationData.packages.filter(
+    (pack) => !pack.required && pack.classification !== 'REQUIRED',
+  );
   return (
     <Stack spacing={1}>
       <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
@@ -285,6 +291,72 @@ function ActivationDataPanel({
         <Alert severity="warning">
           Blocked by {activationData.preflight.blockedReasons.join(', ')}
         </Alert>
+      ) : null}
+      {activationData.preflight.dependencies.length > 0 ? (
+        <Box>
+          <Typography color="text.secondary" sx={{ mb: 1 }} variant="caption">
+            Runtime and data dependencies
+          </Typography>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+            {activationData.preflight.dependencies.map((dependency) => (
+              <Chip
+                key={dependency}
+                label={friendlyCodeLabel(dependency)}
+                size="small"
+                variant="outlined"
+              />
+            ))}
+          </Stack>
+        </Box>
+      ) : null}
+      {activationData.packages.length > 0 ? (
+        <Stack spacing={1}>
+          <Typography color="text.secondary" variant="caption">
+            Activation package preview
+          </Typography>
+          <Grid container spacing={1}>
+            {[
+              {
+                label: 'Required/core',
+                packages: requiredPackages,
+                severity: 'warning' as const,
+              },
+              {
+                label: 'Optional/sample',
+                packages: optionalPackages,
+                severity: 'info' as const,
+              },
+            ].map((group) => (
+              <Grid key={group.label} size={{ xs: 12, md: 6 }}>
+                <Alert severity={group.severity}>
+                  <Typography component="div" variant="subtitle2">
+                    {group.label}: {String(group.packages.length)}
+                  </Typography>
+                  {group.packages.length > 0 ? (
+                    <Stack spacing={0.5} sx={{ mt: 1 }}>
+                      {group.packages.slice(0, 4).map((pack) => (
+                        <Typography key={pack.code} variant="caption">
+                          {friendlyCodeLabel(pack.code)} ·{' '}
+                          {dataTypeLabel(pack.dataType)} ·{' '}
+                          {pack.trigger || 'SYSTEM'}
+                        </Typography>
+                      ))}
+                      {group.packages.length > 4 ? (
+                        <Typography color="text.secondary" variant="caption">
+                          +{String(group.packages.length - 4)} more package(s)
+                        </Typography>
+                      ) : null}
+                    </Stack>
+                  ) : (
+                    <Typography color="text.secondary" variant="caption">
+                      No package declared in this class.
+                    </Typography>
+                  )}
+                </Alert>
+              </Grid>
+            ))}
+          </Grid>
+        </Stack>
       ) : null}
       {activationData.receipts.length > 0 ? (
         <Stack spacing={1}>
@@ -345,6 +417,16 @@ function ModuleCard({
   const readiness = moduleReadiness(module);
   const impactCount = module.technicalModules.length + module.observedServers.length;
   const activationData = module.activationData;
+  const dependencyCount = activationData?.preflight.dependencies.length ?? 0;
+  const requiredPackageCount =
+    activationData?.packages.filter(
+      (pack) => pack.required || pack.classification === 'REQUIRED',
+    ).length ?? 0;
+  const userSamplePackageCount =
+    activationData?.packages.filter(
+      (pack) => pack.dataType === 'sample' || pack.trigger === 'USER',
+    ).length ?? 0;
+  const blockedReasonCount = activationData?.preflight.blockedReasons.length ?? 0;
   const visibleTechnicalModules = technicalExpanded
     ? module.technicalModules
     : module.technicalModules.slice(0, 8);
@@ -353,7 +435,19 @@ function ModuleCard({
   const hasSampleData = canRequestSampleData(module);
 
   return (
-    <Card variant="outlined">
+    <Card
+      variant="outlined"
+      sx={{
+        borderColor:
+          readiness === 'Blocked'
+            ? 'error.light'
+            : readiness === 'Active with warnings'
+              ? 'warning.light'
+              : readiness === 'Active'
+                ? 'success.light'
+                : 'divider',
+      }}
+    >
       <CardContent>
         <Stack spacing={2}>
           <Stack
@@ -477,6 +571,63 @@ function ModuleCard({
               </Typography>
             </Grid>
           </Grid>
+
+          <Card
+            variant="outlined"
+            sx={{ bgcolor: 'background.default', borderStyle: 'dashed' }}
+          >
+            <CardContent>
+              <Stack spacing={1.5}>
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  spacing={1}
+                  sx={{ justifyContent: 'space-between' }}
+                >
+                  <Box>
+                    <Typography component="h4" variant="subtitle1">
+                      Activation dependency preview
+                    </Typography>
+                    <Typography color="text.secondary" variant="body2">
+                      Review required data, optional sample data, runtime dependencies,
+                      and blockers before enabling module capabilities.
+                    </Typography>
+                  </Box>
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                    <Chip
+                      color={requiredPackageCount > 0 ? 'warning' : 'default'}
+                      label={`${String(requiredPackageCount)} required/core`}
+                      size="small"
+                    />
+                    <Chip
+                      color={userSamplePackageCount > 0 ? 'info' : 'default'}
+                      label={`${String(userSamplePackageCount)} sample/user`}
+                      size="small"
+                      variant="outlined"
+                    />
+                    <Chip
+                      label={`${String(dependencyCount)} dependencies`}
+                      size="small"
+                      variant="outlined"
+                    />
+                    {blockedReasonCount > 0 ? (
+                      <Chip
+                        color="error"
+                        label={`${String(blockedReasonCount)} blocker(s)`}
+                        size="small"
+                      />
+                    ) : (
+                      <Chip color="success" label="No blockers" size="small" />
+                    )}
+                  </Stack>
+                </Stack>
+                <Alert severity={requiredPackageCount > 0 ? 'warning' : 'info'}>
+                  Required init/core data belongs to activation. Sample data remains a
+                  user-triggered action so demo records do not become hidden production
+                  dependencies.
+                </Alert>
+              </Stack>
+            </CardContent>
+          </Card>
 
           <ActivationDataPanel activationData={activationData} />
 
