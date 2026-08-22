@@ -39,6 +39,7 @@ import { DiscoveryManagementRoutePage } from '../operations/discovery/DiscoveryM
 import { PromotionsBuilderRoutePage } from '../operations/promotions/PromotionsBuilderRoutePage';
 import { LocalizationOperationsRoutePage } from '../operations/localization/LocalizationOperationsRoutePage';
 import { CustomerEngagementRoutePage } from '../operations/customerEngagement/CustomerEngagementRoutePage';
+import { SetupAcceleratorsRoutePage } from '../operations/setupAccelerators/SetupAcceleratorsRoutePage';
 import { useIdleScreenLock } from '../auth/useIdleScreenLock';
 import { AxisInitializationWorkspace } from '../initialization/AxisInitializationWorkspace';
 import { BundledLoginPage } from '../initialization/BundledLoginPage';
@@ -377,6 +378,32 @@ export function App() {
   const moduleRegistryNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'registry' && item.moduleName === 'backoffice',
   );
+  const setupAcceleratorsNavigation =
+    authenticatedBootstrap?.navigation.find(
+      (item) => item.route === '/setup-accelerators',
+    ) ??
+    ({
+      id: 'setup-accelerators',
+      label: 'Setup & Accelerators',
+      route: '/setup-accelerators',
+      order: 40,
+      moduleName: 'backoffice',
+      category: 'platform',
+      icon: 'settings',
+      availability: 'UP',
+      group: {
+        id: 'publishing',
+        label: 'Publishing',
+        order: 1_700,
+      },
+      perspectives: ['operations'],
+      contexts: ['setup', 'publishing'],
+      featureState: 'ACTIVE',
+      help: {
+        summary:
+          'Initialize governed documentation and project accelerators before publishing them Online.',
+      },
+    } satisfies AxisNavigationItem);
   const importExportNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'imports-exports' && item.moduleName === 'backoffice',
   );
@@ -1158,6 +1185,32 @@ export function App() {
             )
           }
         />
+        <Route
+          path="/setup-accelerators"
+          element={
+            session && !locked && authenticatedBootstrap ? (
+              authenticatedShell(
+                <SetupAcceleratorsRoutePage
+                  accessToken={session.accessToken}
+                  bootstrap={authenticatedBootstrap}
+                  routeNavigation={setupAcceleratorsNavigation}
+                  runtime={runtime}
+                />,
+              )
+            ) : (
+              <Navigate
+                replace
+                to={
+                  session && !locked
+                    ? composition.defaultAuthenticatedPage
+                    : session
+                      ? '/lock-screen'
+                      : composition.defaultPublicPage
+                }
+              />
+            )
+          }
+        />
         <Route path="/system/modules" element={<Navigate replace to="/registry" />} />
         <Route
           path="/operations/module-health"
@@ -1360,6 +1413,7 @@ export function App() {
                     '/registry',
                     '/schema-workbench',
                     '/system-integrations',
+                    '/setup-accelerators',
                     '/operations/module-health',
                     '/operations/imports-exports',
                     '/dashboard',

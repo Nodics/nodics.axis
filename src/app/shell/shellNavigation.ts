@@ -45,12 +45,12 @@ interface BusinessNavigationGroups {
 const BUSINESS_GROUPS: BusinessNavigationGroups = Object.freeze({
   systemIntegrations: {
     id: 'system-integrations',
-    label: 'System and Integrations',
+    label: 'System & Integrations',
     order: 100,
   },
   contentExperience: {
     id: 'content',
-    label: 'Content and Experience',
+    label: 'Content & Experience',
     order: 200,
   },
   mediaManagement: {
@@ -60,17 +60,17 @@ const BUSINESS_GROUPS: BusinessNavigationGroups = Object.freeze({
   },
   customersOrganisation: {
     id: 'organization',
-    label: 'Customers and Organisation',
+    label: 'Customers & Organisation',
     order: 400,
   },
   productsMerchandising: {
     id: 'products-merchandising',
-    label: 'Products and Merchandising',
+    label: 'Products & Merchandising',
     order: 500,
   },
   searchDiscovery: {
     id: 'search-discovery',
-    label: 'Search and Discovery',
+    label: 'Search & Discovery',
     order: 600,
   },
   inventoryOperations: {
@@ -80,7 +80,7 @@ const BUSINESS_GROUPS: BusinessNavigationGroups = Object.freeze({
   },
   ordersCheckouts: {
     id: 'orders-checkouts',
-    label: 'Orders and Checkouts',
+    label: 'Orders & Checkouts',
     order: 800,
   },
   orderLifecycleOperations: {
@@ -105,7 +105,7 @@ const BUSINESS_GROUPS: BusinessNavigationGroups = Object.freeze({
   },
   promotionsDiscounts: {
     id: 'promotions-discounts',
-    label: 'Promotions and Discounts',
+    label: 'Promotions & Discounts',
     order: 1_300,
   },
   editorialSpace: {
@@ -115,7 +115,7 @@ const BUSINESS_GROUPS: BusinessNavigationGroups = Object.freeze({
   },
   processAutomations: {
     id: 'process-and-automations',
-    label: 'Process and Automations',
+    label: 'Process & Automations',
     order: 1_500,
   },
   documentation: {
@@ -195,6 +195,28 @@ const dashboard: ShellNavigationItem = Object.freeze({
   local: true,
 });
 
+const setupAccelerators: ShellNavigationItem = Object.freeze({
+  id: 'setup-accelerators',
+  label: 'Setup & Accelerators',
+  route: '/setup-accelerators',
+  order: 40,
+  moduleName: 'backoffice',
+  category: 'platform',
+  icon: 'settings',
+  availability: 'UP',
+  group: BUSINESS_GROUPS.publishing,
+  perspectives: ['operations'],
+  contexts: ['setup', 'publishing'],
+  featureState: 'ACTIVE',
+  help: {
+    summary:
+      'Initialize governed documentation and project accelerators before publishing them Online.',
+  },
+  depth: 0,
+  hasChildren: false,
+  local: true,
+});
+
 export function composeShellNavigation(
   navigation: readonly AxisNavigationItem[],
 ): readonly ShellNavigationGroup[] {
@@ -205,6 +227,10 @@ export function composeShellNavigation(
   groups.set(BUSINESS_GROUPS.systemIntegrations.id, {
     ...BUSINESS_GROUPS.systemIntegrations,
     items: hasBackendDashboard ? [] : [dashboard],
+  });
+  groups.set(BUSINESS_GROUPS.publishing.id, {
+    ...BUSINESS_GROUPS.publishing,
+    items: [setupAccelerators],
   });
   const shellItems = navigation
     .filter(
@@ -468,11 +494,20 @@ function flattenHierarchy(
   const flattened: ShellNavigationItem[] = [];
   const append = (item: ShellNavigationItem, depth: number) => {
     const children = byParent.get(navigationParentKey(item.moduleName, item.id)) ?? [];
-    flattened.push({ ...item, depth, hasChildren: children.length > 0 });
+    flattened.push({
+      ...item,
+      label: depth <= 1 ? compactNavigationLabel(item.label) : item.label,
+      depth,
+      hasChildren: children.length > 0,
+    });
     children.forEach((child) => append(child, depth + 1));
   };
   (byParent.get(undefined) ?? []).forEach((item) => append(item, 0));
   return flattened;
+}
+
+function compactNavigationLabel(label: string): string {
+  return label.replace(/\band\b/gi, '&');
 }
 
 export function navigationParentKey(moduleName: string, id: string): string {
