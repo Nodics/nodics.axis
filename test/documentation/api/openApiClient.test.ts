@@ -22,7 +22,7 @@ describe('openApiClient', () => {
       new Response(
         JSON.stringify({
           openapi: '3.0.3',
-          info: { title: 'Nodics APIs', version: '1.0.0' },
+          info: { title: 'Nodics APIs', version: '0.0.0' },
           paths: {
             '/employees': {
               get: {
@@ -71,7 +71,7 @@ describe('openApiClient', () => {
 
     expect(reference).toEqual({
       title: 'Nodics APIs',
-      version: '1.0.0',
+      version: '0.0.0',
       operations: [
         {
           operationId: 'profile_employee_list_get',

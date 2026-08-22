@@ -153,7 +153,7 @@ const relationshipRuntime = {
 
 const bootstrap: AxisAuthenticatedBootstrap = {
   axisPolicy: {
-    contractVersion: 1,
+    contractVersion: 0,
     idleTimeoutSeconds: 900,
     recentNavigationLimit: 12,
     revision: 1,

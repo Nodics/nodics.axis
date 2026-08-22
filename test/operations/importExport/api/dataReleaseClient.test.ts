@@ -45,7 +45,7 @@ const release = {
   parentModule: 'nodics.platform',
   canonicalIdentity: 'nodics.platform/modules/profile',
   dataType: 'core',
-  version: '1.2.0',
+  version: '0.0.0',
   description: 'Profile baseline records',
   checksum: 'a'.repeat(64),
   status: 'UPDATE_AVAILABLE',

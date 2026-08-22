@@ -17,7 +17,7 @@ const page: CmsPageContract = {
   templateContract: {
     code: 'axisAuthenticationPageTemplate',
     renderer: 'axis.template.authentication',
-    contractVersion: 1,
+    contractVersion: 0,
   },
   components: [
     {

@@ -66,7 +66,7 @@ function navigationItem(
 
 const bootstrap: AxisAuthenticatedBootstrap = {
   axisPolicy: {
-    contractVersion: 1,
+    contractVersion: 0,
     screenLockEnabled: true,
     idleTimeoutSeconds: 900,
     recentNavigationLimit: 12,

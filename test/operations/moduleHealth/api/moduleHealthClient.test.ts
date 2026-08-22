@@ -41,7 +41,7 @@ describe('module health client', () => {
               displayName: 'Employee Profiles',
               parentModule: 'nodics.platform',
               canonicalIdentity: 'nodics.platform/modules/profile',
-              version: '1.0.0',
+              version: '0.0.0',
               moduleKind: 'module',
               environments: ['kickoffLocal'],
               servers: ['profileServer'],
@@ -100,7 +100,7 @@ describe('module health client', () => {
               environment: 'kickoffLocal',
               server: 'profileServer',
               node: 'profileNode1',
-              version: '1.0.0',
+              version: '0.0.0',
               lastSeenAt: '2026-07-27T10:00:00.000Z',
               availability: {
                 state: 'UNAVAILABLE',

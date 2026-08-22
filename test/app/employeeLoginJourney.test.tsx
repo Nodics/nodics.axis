@@ -28,7 +28,7 @@ function fetchInputUrl(input: Parameters<typeof fetch>[0]): string {
 
 const publicBootstrap = {
   data: {
-    contractVersion: 1,
+    contractVersion: 0,
     clientContractVersion: 1,
     endpoints: {
       profile: 'https://profile.example.com',
@@ -51,7 +51,7 @@ const axisInitializationReady = {
   data: {
     baselineCode: 'axis',
     releaseCode: 'axis:axisBaseline',
-    releaseVersion: '1.0.0',
+    releaseVersion: '0.0.0',
     releaseStatus: 'CURRENT',
     readiness: 'READY',
     publication: { code: 'cmsBaseline_axis_1_0_0', state: 'ONLINE', revision: 4 },
@@ -97,7 +97,7 @@ const dashboardPage = {
     templateContract: {
       code: 'axisDashboardPageTemplate',
       renderer: 'axis.template.dashboard',
-      contractVersion: 1,
+      contractVersion: 0,
     },
     components: [
       {
@@ -135,7 +135,7 @@ const schemaWorkbenchPage = {
     templateContract: {
       code: 'axisSchemaWorkbenchPageTemplate',
       renderer: 'axis.template.schema-workbench',
-      contractVersion: 1,
+      contractVersion: 0,
     },
     components: [
       {
@@ -187,7 +187,7 @@ const documentationPage = {
     templateContract: {
       code: 'documentationArticleTemplate',
       renderer: 'documentation.template.article',
-      contractVersion: 1,
+      contractVersion: 0,
     },
     components: [
       {
@@ -441,7 +441,7 @@ const assistantPage = {
     templateContract: {
       code: 'axisAssistantPageTemplate',
       renderer: 'axis.template.assistant',
-      contractVersion: 1,
+      contractVersion: 0,
     },
     components: [
       {
@@ -586,7 +586,7 @@ describe('employee login journey', () => {
                   cms: { state: 'UP' },
                 },
                 axisPolicy: {
-                  contractVersion: 1,
+                  contractVersion: 0,
                   screenLockEnabled: true,
                   idleTimeoutSeconds: 900,
                   recentNavigationLimit: 12,
@@ -625,7 +625,7 @@ describe('employee login journey', () => {
                 siteCode: 'axisCmsSite',
                 readiness: 'READY',
                 releaseCode: 'contentPack:nodicsDocumentation',
-                releaseVersion: '0.3.10',
+                releaseVersion: '0.0.0',
                 allowedActions: [],
                 publication: {
                   code: 'frameworkdocs-0.3.10',
@@ -919,7 +919,7 @@ describe('employee login journey', () => {
                   payment: { state: 'UP' },
                 },
                 axisPolicy: {
-                  contractVersion: 1,
+                  contractVersion: 0,
                   screenLockEnabled: true,
                   idleTimeoutSeconds: 900,
                   recentNavigationLimit: 12,
@@ -1271,7 +1271,7 @@ describe('employee login journey', () => {
                 catalogue: {},
                 availability: {},
                 axisPolicy: {
-                  contractVersion: 1,
+                  contractVersion: 0,
                   screenLockEnabled: true,
                   idleTimeoutSeconds: 900,
                   recentNavigationLimit: 12,

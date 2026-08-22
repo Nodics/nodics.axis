@@ -16,7 +16,7 @@ const page: CmsPageContract = {
   templateContract: {
     code: 'axisAssistantPageTemplate',
     renderer: 'axis.template.assistant',
-    contractVersion: 1,
+    contractVersion: 0,
   },
   components: [
     {

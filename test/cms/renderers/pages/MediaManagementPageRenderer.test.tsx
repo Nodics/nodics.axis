@@ -22,7 +22,7 @@ const page: CmsPageContract = {
   templateContract: {
     code: 'axisMediaManagementPageTemplate',
     renderer: 'axis.template.media-management',
-    contractVersion: 1,
+    contractVersion: 0,
   },
   components: [
     {

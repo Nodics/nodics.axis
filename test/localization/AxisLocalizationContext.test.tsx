@@ -19,7 +19,7 @@ vi.mock('../../src/localization/localizationBundleClient', () => ({
         notModified: false,
         etag: `"${locale}-1"`,
         bundle: {
-          contractVersion: 1,
+          contractVersion: 0,
           locale,
           scopeCode: 'axisCmsSite',
           channel: 'web',
@@ -49,7 +49,7 @@ const runtime: AxisRuntimeConfig = {
 };
 
 const bootstrap: AxisPublicBootstrap = {
-  contractVersion: 1,
+  contractVersion: 0,
   clientContractVersion: 1,
   endpoints: {
     profile: 'https://profile.example.com',
@@ -154,12 +154,12 @@ describe('Axis localization context', () => {
       JSON.stringify({
         etag: '"ar-cached"',
         bundle: {
-          contractVersion: 1,
+          contractVersion: 0,
           locale: 'ar',
           scopeCode: 'axisCmsSite',
           channel: 'web',
           namespaces: ['auth'],
-          releaseVersion: 'ar-cached',
+          releaseVersion: '0',
           entries: {
             'auth.invalidCredentials': "'<img src=x onerror=alert(1)>'",
           },

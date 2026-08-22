@@ -1,5 +1,5 @@
 export const validResolvedPage = {
-  contractVersion: 1,
+  contractVersion: 0,
   site: 'axisCmsSite',
   path: '/login',
   locale: 'en',
@@ -16,7 +16,7 @@ export const validResolvedPage = {
     templateContract: {
       code: 'axisAuthenticationPageTemplate',
       renderer: 'axis.template.authentication',
-      contractVersion: 1,
+      contractVersion: 0,
     },
     components: [
       {

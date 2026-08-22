@@ -25,7 +25,7 @@ describe('bundled Axis initialization experience', () => {
     const base = {
       baselineCode: 'axis',
       releaseCode: 'axis:axisBaseline',
-      releaseVersion: '1.0.0',
+      releaseVersion: '0.0.0',
       releaseStatus: 'CURRENT',
     } as const;
     const view = render(
@@ -145,7 +145,7 @@ describe('bundled Axis initialization experience', () => {
         status={{
           baselineCode: 'axis',
           releaseCode: 'axis:axisBaseline',
-          releaseVersion: '1.0.0',
+          releaseVersion: '0.0.0',
           releaseStatus: 'CURRENT',
           readiness: 'PUBLICATION_PENDING',
           publication: {

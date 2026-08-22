@@ -1,6 +1,6 @@
 {
   "name": "nodics.axis",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "private": true,
   "description": "Reusable Axis frontend for Nodics modular customer projects",
   "type": "module",

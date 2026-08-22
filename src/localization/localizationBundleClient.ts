@@ -32,7 +32,7 @@ function parseBundle(value: unknown): AxisLocalizationBundle {
     throw new Error('Localization bundle entries are invalid');
   }
   return Object.freeze({
-    contractVersion: 1,
+    contractVersion: 0,
     locale: bundle.locale,
     scopeCode: bundle.scopeCode,
     channel: bundle.channel,

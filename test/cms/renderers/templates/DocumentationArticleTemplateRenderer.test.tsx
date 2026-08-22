@@ -18,7 +18,7 @@ const page: CmsPageContract = {
   templateContract: {
     code: 'documentationArticleTemplate',
     renderer: 'documentation.template.article',
-    contractVersion: 1,
+    contractVersion: 0,
   },
   components: [],
 };

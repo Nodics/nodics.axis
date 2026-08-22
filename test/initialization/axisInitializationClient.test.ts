@@ -10,7 +10,7 @@ const status = {
   data: {
     baselineCode: 'axis',
     releaseCode: 'axis:axisBaseline',
-    releaseVersion: '1.0.0',
+    releaseVersion: '0.0.0',
     releaseStatus: 'CURRENT',
     readiness: 'PUBLICATION_PENDING',
     publication: {

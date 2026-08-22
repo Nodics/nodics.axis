@@ -9,7 +9,7 @@ import {
 const document = {
   code: 'SUC_BOF_00014',
   data: {
-    contractVersion: 1,
+    contractVersion: 0,
     clientContractVersion: 1,
     endpoints: {
       profile: 'https://profile.example.com',
@@ -214,7 +214,7 @@ const authenticatedData = {
     },
   ],
   axisPolicy: {
-    contractVersion: 1,
+    contractVersion: 0,
     screenLockEnabled: true,
     idleTimeoutSeconds: 900,
     recentNavigationLimit: 12,
@@ -248,7 +248,7 @@ describe('Axis bootstrap clients', () => {
       new Response(
         JSON.stringify({
           ...document,
-          data: { ...document.data, contractVersion: 2 },
+          data: { ...document.data, contractVersion: 0 },
         }),
         { status: 200 },
       ),
@@ -672,7 +672,7 @@ describe('Axis bootstrap clients', () => {
           data: {
             ...authenticatedData,
             axisPolicy: {
-              contractVersion: 1,
+              contractVersion: 0,
               screenLockEnabled: true,
               idleTimeoutSeconds: 30,
               recentNavigationLimit: 12,

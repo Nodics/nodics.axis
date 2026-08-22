@@ -1262,7 +1262,7 @@ export function parseEmployeePolicy(value: unknown): AxisEmployeePolicy {
     throw new Error('BackOffice Axis employee policy is incompatible');
   }
   return Object.freeze({
-    contractVersion: 1,
+    contractVersion: 0,
     screenLockEnabled: policy.screenLockEnabled,
     idleTimeoutSeconds: Number(policy.idleTimeoutSeconds),
     recentNavigationLimit: Number(policy.recentNavigationLimit),

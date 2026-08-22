@@ -22,7 +22,7 @@ const runtime: AxisRuntimeConfig = {
 
 const bootstrap: AxisAuthenticatedBootstrap = {
   axisPolicy: {
-    contractVersion: 1,
+    contractVersion: 0,
     screenLockEnabled: true,
     idleTimeoutSeconds: 900,
     recentNavigationLimit: 12,
@@ -100,7 +100,7 @@ const currentRelease = {
   parentModule: 'nodics.platform',
   canonicalIdentity: 'nodics.cron/modules/cronjob',
   dataType: 'core',
-  version: '1.0.0',
+  version: '0.0.0',
   description: 'Scheduled Jobs core data',
   checksum: 'a'.repeat(64),
   installedVersion: '1.0.0',
@@ -404,7 +404,7 @@ describe('ImportExportRoutePage', () => {
     const updateRelease = {
       ...currentRelease,
       releaseCode: 'cronjob:core',
-      version: '1.1.0',
+      version: '0.0.0',
       installedVersion: '1.0.0',
       status: 'UPDATE_AVAILABLE',
     };
@@ -442,7 +442,7 @@ describe('ImportExportRoutePage', () => {
     const updateRelease = {
       ...currentRelease,
       releaseCode: 'cronjob:core',
-      version: '1.1.0',
+      version: '0.0.0',
       installedVersion: '1.0.0',
       status: 'UPDATE_AVAILABLE',
     };
@@ -549,7 +549,7 @@ describe('ImportExportRoutePage', () => {
       ...stagedProjection,
       status: 'CURRENT',
       installedVersion: '1.0.3',
-      version: '1.0.3',
+      version: '0.0.0',
     };
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = fetchInputUrl(input);
@@ -597,7 +597,7 @@ describe('ImportExportRoutePage', () => {
       destinationRole: 'PLATFORM',
       status: 'CURRENT',
       installedVersion: '1.0.3',
-      version: '1.0.3',
+      version: '0.0.0',
     };
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = fetchInputUrl(input);
@@ -642,7 +642,7 @@ describe('ImportExportRoutePage', () => {
     const updateRelease = {
       ...currentRelease,
       releaseCode: 'cronjob:core',
-      version: '1.1.0',
+      version: '0.0.0',
       installedVersion: undefined,
       status: 'NOT_INSTALLED',
     };
@@ -858,7 +858,7 @@ describe('ImportExportRoutePage', () => {
       moduleName: 'cms',
       displayName: 'CMS Foundation',
       dataType: 'init',
-      version: '1.0.3',
+      version: '0.0.0',
       destinationRole: 'WCMS_STAGED',
       status: 'CURRENT',
       installedVersion: '1.0.3',
@@ -870,7 +870,7 @@ describe('ImportExportRoutePage', () => {
       moduleName: 'cms',
       displayName: 'CMS Publication Approval Workflow',
       dataType: 'init',
-      version: '1.0.0',
+      version: '0.0.0',
       destinationRole: 'PROCESS',
       status: 'NOT_INSTALLED',
       installedVersion: undefined,

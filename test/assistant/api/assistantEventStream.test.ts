@@ -19,7 +19,7 @@ function event(sequence: number, eventType: string): string {
     `id: turn-1-${sequence}`,
     `event: ${eventType.toLowerCase()}`,
     `data: ${JSON.stringify({
-      contractVersion: 1,
+      contractVersion: 0,
       conversationId: 'conversation-1',
       turnId: 'turn-1',
       eventId: `turn-1-${sequence}`,

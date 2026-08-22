@@ -26,7 +26,7 @@ const connection = {
 };
 const bootstrap = {
   axisPolicy: {
-    contractVersion: 1 as const,
+    contractVersion: 0 as const,
     screenLockEnabled: true,
     idleTimeoutSeconds: 900,
     recentNavigationLimit: 12,
@@ -113,7 +113,7 @@ const response = {
     siteCode: 'nodicsDocumentationSite',
     readiness: 'NOT_IMPORTED',
     releaseCode: 'contentPack:nodicsDocumentation',
-    releaseVersion: '1.0.0',
+    releaseVersion: '0.0.0',
     allowedActions: ['INITIALIZE'],
   },
 };
@@ -269,7 +269,7 @@ describe('DocumentationRoutePage', () => {
           new Response(
             JSON.stringify({
               result: {
-                contractVersion: 1,
+                contractVersion: 0,
                 site: 'axisCmsSite',
                 path: '/docs',
                 locale: 'en',
@@ -283,7 +283,7 @@ describe('DocumentationRoutePage', () => {
                   templateContract: {
                     code: 'documentationArticleTemplate',
                     renderer: 'documentation.template.article',
-                    contractVersion: 1,
+                    contractVersion: 0,
                   },
                   components: [],
                 },
@@ -375,7 +375,7 @@ describe('DocumentationRoutePage', () => {
       new Response(
         JSON.stringify({
           openapi: '3.0.3',
-          info: { title: 'Nodics APIs', version: '1.0.0' },
+          info: { title: 'Nodics APIs', version: '0.0.0' },
           paths: {
             '/nodics/profile/v0/employees': {
               get: {

@@ -18,7 +18,7 @@ function response(readiness = 'READY', allowedActions = ['ROLLBACK', 'RETIRE']) 
       siteCode: 'nodicsDocumentationSite',
       readiness,
       releaseCode: 'contentPack:nodicsDocumentation',
-      releaseVersion: '0.16.0',
+      releaseVersion: '0.0.0',
       releaseStatus: 'CURRENT',
       allowedActions,
       publication: {
