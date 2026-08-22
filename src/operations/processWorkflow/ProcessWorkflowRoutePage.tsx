@@ -134,6 +134,64 @@ const processWorkspaces = Object.freeze([
     route: '/process/designer',
   }),
 ]);
+const publicationApprovalGuardrails = Object.freeze([
+  Object.freeze({
+    title: 'Publication context',
+    detail:
+      'Every approval task should show source package, target site or channel, manifest, Online impact, requester, and current pointer state before a decision.',
+    route: '/publishing/requests',
+    action: 'Open requests',
+  }),
+  Object.freeze({
+    title: 'Reject and resubmit',
+    detail:
+      'A rejection must keep Online unchanged, preserve the reason, and point the creator back to Staged changes before a new approval request is created.',
+    route: '/publishing/history',
+    action: 'Review history',
+  }),
+  Object.freeze({
+    title: 'Audit cross-link',
+    detail:
+      'Task code, workflow instance, publication request, approver, reason, and correlation id should be reconstructable from Publishing Audit.',
+    route: '/publishing/audit',
+    action: 'Inspect audit',
+  }),
+  Object.freeze({
+    title: 'Browser evidence',
+    detail:
+      'Approval closure is not complete until the target Nexus, Agora, Axis, or documentation journey is browser-verified and recorded.',
+    route: '/publishing/status',
+    action: 'Check Online',
+  }),
+  Object.freeze({
+    title: 'Actor separation',
+    detail:
+      'Creator, checker, approver, and emergency operator are separate responsibilities even while local development still uses a super user.',
+    route: '/publishing/configuration',
+    action: 'Review policy',
+  }),
+  Object.freeze({
+    title: 'SLA and escalation',
+    detail:
+      'Escalated or overdue approval tasks should be visible without bypassing approval, audit, or reason capture.',
+    route: '/process/tasks',
+    action: 'Stay in queue',
+  }),
+  Object.freeze({
+    title: 'Multi-approver policy',
+    detail:
+      'High-impact catalog, media, accelerator, and public-site changes should allow future multi-approver policy without changing the operator journey.',
+    route: '/publishing/dependencies',
+    action: 'Review dependencies',
+  }),
+  Object.freeze({
+    title: 'Emergency override',
+    detail:
+      'Emergency paths must be explicit, permissioned, reasoned, and audited; they should never become the normal publishing route.',
+    route: '/publishing/failures',
+    action: 'Open recovery',
+  }),
+]);
 const designerNodeTypes = Object.freeze([
   'TASK',
   'DECISION',
@@ -674,6 +732,32 @@ function TaskInbox({
           <Typography variant="h5">Task inbox</Typography>
           <Chip label={`${String(tasks.length)} tasks`} variant="outlined" />
         </Stack>
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 1.5,
+            gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+          }}
+        >
+          {publicationApprovalGuardrails.map((guardrail) => (
+            <Paper
+              component="article"
+              elevation={0}
+              key={guardrail.title}
+              sx={{ border: 1, borderColor: 'divider', p: 1.5 }}
+            >
+              <Stack spacing={1}>
+                <Typography variant="subtitle1">{guardrail.title}</Typography>
+                <Typography color="text.secondary" variant="body2">
+                  {guardrail.detail}
+                </Typography>
+                <Button href={guardrail.route} size="small" variant="outlined">
+                  {guardrail.action}
+                </Button>
+              </Stack>
+            </Paper>
+          ))}
+        </Box>
         {tasks.length === 0 ? (
           <Alert severity="info">
             No human workflow tasks are waiting. Tasks appear here when a published
