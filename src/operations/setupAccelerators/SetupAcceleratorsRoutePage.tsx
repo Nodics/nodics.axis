@@ -17,6 +17,7 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  Grid,
   MenuItem,
   Stack,
   TextField,
@@ -123,6 +124,32 @@ function profileErrorMessage(
     return `${profile.title} cannot read baseline ${profile.baselineCode}. Check WCMS Staged baseline configuration, release qualification, and required runtime availability.`;
   }
   return message;
+}
+
+function acceleratorFamily(profile: ApplicationInitializationProfile): string {
+  const code = `${profile.code} ${profile.applicationCode} ${profile.siteCode} ${profile.title}`.toLowerCase();
+  if (code.includes('nexus')) return 'Nexus corporate site';
+  if (code.includes('apparel')) return 'Agora Apparel';
+  if (code.includes('electronics')) return 'Agora Electronics';
+  if (code.includes('telco')) return 'Agora Telco';
+  if (profile.kind === 'PROJECT') return 'Project accelerator';
+  return 'Documentation pack';
+}
+
+function profilePublishChannel(profile: ApplicationInitializationProfile): string {
+  if (profile.kind !== 'PROJECT') return 'Axis Documentation';
+  const family = acceleratorFamily(profile);
+  if (family.startsWith('Nexus')) return 'Nexus public channel';
+  if (family.startsWith('Agora')) return 'Agora storefront channel';
+  return 'Customer-facing channel';
+}
+
+function requiredPackageCount(profile: ApplicationInitializationProfile): number {
+  return profile.dataPackages.filter((pack) => pack.required).length;
+}
+
+function optionalPackageCount(profile: ApplicationInitializationProfile): number {
+  return profile.dataPackages.filter((pack) => !pack.required).length;
 }
 
 export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProps) {
@@ -261,6 +288,10 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
   const actionCount = statuses.filter(
     (item) => item.query.data?.readiness !== 'READY',
   ).length;
+  const projectProfiles = profiles.filter((profile) => profile.kind === 'PROJECT');
+  const documentationProfiles = profiles.filter(
+    (profile) => profile.kind !== 'PROJECT',
+  );
   const loading = queries.some((query) => query.isPending);
   const filteredStatuses = statuses.filter((item) => {
     if (filter === 'ALL') return true;
@@ -371,6 +402,74 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                   Open Publishing
                 </Button>
               </Stack>
+            </Stack>
+          </CardContent>
+        </Card>
+        <Card variant="outlined">
+          <CardContent>
+            <Stack spacing={2}>
+              <Box>
+                <Typography component="h2" variant="h6">
+                  Available accelerator catalog
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  Nexus and each Agora domain are selected independently. Axis is the
+                  platform control plane; Nexus and Agora become live only after their
+                  own initialize, approval, publish, and browser-verification journey.
+                </Typography>
+              </Box>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 2,
+                  gridTemplateColumns: {
+                    xs: '1fr',
+                    md: 'repeat(2, minmax(0, 1fr))',
+                    xl: 'repeat(4, minmax(0, 1fr))',
+                  },
+                }}
+              >
+                {profiles.map((profile) => (
+                  <Card key={profile.code} variant="outlined">
+                    <CardContent>
+                      <Stack spacing={1}>
+                        <Chip
+                          color={profile.kind === 'PROJECT' ? 'primary' : 'default'}
+                          label={acceleratorFamily(profile)}
+                          size="small"
+                        />
+                        <Typography variant="subtitle1">{profile.title}</Typography>
+                        <Typography color="text.secondary" variant="body2">
+                          {profilePublishChannel(profile)}
+                        </Typography>
+                        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                          <Chip
+                            label={`${String(profile.requiredServers.length)} runtime(s)`}
+                            size="small"
+                            variant="outlined"
+                          />
+                          <Chip
+                            color={requiredPackageCount(profile) > 0 ? 'warning' : 'default'}
+                            label={`${String(requiredPackageCount(profile))} required`}
+                            size="small"
+                          />
+                          <Chip
+                            label={`${String(optionalPackageCount(profile))} optional`}
+                            size="small"
+                            variant="outlined"
+                          />
+                        </Stack>
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                ))}
+              </Box>
+              <Alert severity="info">
+                Project accelerators: {String(projectProfiles.length)}. Documentation
+                packs: {String(documentationProfiles.length)}. Shared/common data must
+                be declared in the package manifest and must not silently activate all
+                Agora domains together.
+              </Alert>
             </Stack>
           </CardContent>
         </Card>
@@ -536,6 +635,83 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                             </Typography>
                           </Box>
                           <Stack spacing={1}>
+                            <Card
+                              variant="outlined"
+                              sx={{ bgcolor: 'background.default', borderStyle: 'dashed' }}
+                            >
+                              <CardContent>
+                                <Stack spacing={1.25}>
+                                  <Stack
+                                    direction={{ xs: 'column', sm: 'row' }}
+                                    spacing={1}
+                                    sx={{ justifyContent: 'space-between' }}
+                                  >
+                                    <Box>
+                                      <Typography component="h4" variant="subtitle1">
+                                        Dependency graph and publish verification
+                                      </Typography>
+                                      <Typography color="text.secondary" variant="body2">
+                                        {acceleratorFamily(profile)} depends on declared
+                                        runtimes, required data packages, approval, Online
+                                        status, and browser evidence for{' '}
+                                        {profilePublishChannel(profile)}.
+                                      </Typography>
+                                    </Box>
+                                    <Chip
+                                      color={
+                                        status.readiness === 'READY' ? 'success' : 'warning'
+                                      }
+                                      label={readinessLabel(status.readiness)}
+                                      size="small"
+                                    />
+                                  </Stack>
+                                  <Grid container spacing={1}>
+                                    {[
+                                      {
+                                        label: 'Runtime',
+                                        value: `${String(profile.requiredServers.length)} required`,
+                                      },
+                                      {
+                                        label: 'Required data',
+                                        value: `${String(requiredPackageCount(profile))} package(s)`,
+                                      },
+                                      {
+                                        label: 'Optional/sample',
+                                        value: `${String(optionalPackageCount(profile))} package(s)`,
+                                      },
+                                      {
+                                        label: 'Approval',
+                                        value: profile.activationPolicy.approvalRequiredForOnline
+                                          ? 'Required'
+                                          : 'Not required',
+                                      },
+                                    ].map((item) => (
+                                      <Grid key={item.label} size={{ xs: 12, sm: 6 }}>
+                                        <Alert severity="info" sx={{ height: '100%' }}>
+                                          <Typography component="div" variant="caption">
+                                            {item.label}
+                                          </Typography>
+                                          <Typography component="div" variant="body2">
+                                            {item.value}
+                                          </Typography>
+                                        </Alert>
+                                      </Grid>
+                                    ))}
+                                  </Grid>
+                                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                                    {[
+                                      'Publishing Request',
+                                      'Process Approval',
+                                      'Online Status',
+                                      'History & Audit',
+                                      'Browser Verification',
+                                    ].map((item) => (
+                                      <Chip key={item} label={item} size="small" variant="outlined" />
+                                    ))}
+                                  </Stack>
+                                </Stack>
+                              </CardContent>
+                            </Card>
                             <Box>
                               <Typography color="text.secondary" variant="caption">
                                 Required runtime
