@@ -233,16 +233,24 @@ export function NavigationRail({
                   aria-expanded={expanded}
                   aria-label={`${expanded ? 'Collapse' : 'Expand'} ${group.label}`}
                   sx={{
+                    bgcolor: expanded
+                      ? alpha('#ffffff', 0.065)
+                      : alpha('#ffffff', 0.025),
+                    border: '1px solid',
+                    borderColor: expanded
+                      ? alpha('#ffffff', 0.14)
+                      : alpha('#ffffff', 0.08),
                     borderRadius: `${String(axisTokens.radius.small)}px`,
-                    color: alpha('#ffffff', 0.58),
+                    color: expanded ? alpha('#ffffff', 0.86) : alpha('#ffffff', 0.62),
                     justifyContent: 'space-between',
                     mx: 1,
                     pl: 1.5,
                     pr: 5.25,
-                    py: 0.5,
+                    py: 0.65,
                     position: 'relative',
                     '&:hover': {
-                      bgcolor: alpha('#ffffff', 0.07),
+                      bgcolor: alpha('#ffffff', 0.09),
+                      borderColor: alpha('#ffffff', 0.18),
                       color: 'common.white',
                     },
                   }}
@@ -255,17 +263,31 @@ export function NavigationRail({
                     });
                   }}
                 >
-                  <Typography
-                    sx={{
-                      fontSize: '0.71875rem',
-                      fontWeight: 800,
-                      letterSpacing: '0.2em',
-                      lineHeight: 1.35,
-                    }}
-                    variant="overline"
-                  >
-                    {group.label}
-                  </Typography>
+                  <Stack spacing={0.2} sx={{ minWidth: 0 }}>
+                    <Typography
+                      sx={{
+                        fontSize: '0.71875rem',
+                        fontWeight: 820,
+                        letterSpacing: '0.18em',
+                        lineHeight: 1.35,
+                      }}
+                      variant="overline"
+                    >
+                      {group.label}
+                    </Typography>
+                    <Typography
+                      sx={{
+                        color: alpha('#ffffff', 0.46),
+                        fontSize: '0.625rem',
+                        fontWeight: 620,
+                        letterSpacing: '0.06em',
+                        lineHeight: 1.2,
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {expanded ? 'Section expanded' : 'Section collapsed'}
+                    </Typography>
+                  </Stack>
                   <Box
                     aria-hidden
                     data-navigation-expander="group"

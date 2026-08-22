@@ -32,6 +32,21 @@ function csrfCookie(cookieName: string): string {
   return value ? decodeURIComponent(value) : '';
 }
 
+function browserScopedProfileUrl(profileBaseUrl: string): URL {
+  const url = new URL(profileBaseUrl);
+  const browserHost = window.location.hostname;
+  const profileHost = url.hostname;
+  const loopbackHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+  if (
+    loopbackHosts.has(browserHost) &&
+    loopbackHosts.has(profileHost) &&
+    url.protocol === window.location.protocol
+  ) {
+    url.hostname = browserHost;
+  }
+  return url;
+}
+
 export async function authenticateEmployee(
   profileBaseUrl: string,
   enterpriseCode: string,
@@ -44,7 +59,10 @@ export async function authenticateEmployee(
   const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetchImplementation(
-      new URL('/nodics/profile/v0/employee/browser/authenticate', profileBaseUrl),
+      new URL(
+        '/nodics/profile/v0/employee/browser/authenticate',
+        browserScopedProfileUrl(profileBaseUrl),
+      ),
       {
         method: 'POST',
         headers: {
@@ -89,7 +107,10 @@ export async function logoutEmployee(
   const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetchImplementation(
-      new URL('/nodics/profile/v0/employee/browser/logout', profileBaseUrl),
+      new URL(
+        '/nodics/profile/v0/employee/browser/logout',
+        browserScopedProfileUrl(profileBaseUrl),
+      ),
       {
         method: 'POST',
         headers: {
@@ -126,7 +147,10 @@ export async function restoreEmployeeSession(
   const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetchImplementation(
-      new URL('/nodics/profile/v0/employee/browser/restore', profileBaseUrl),
+      new URL(
+        '/nodics/profile/v0/employee/browser/restore',
+        browserScopedProfileUrl(profileBaseUrl),
+      ),
       {
         method: 'POST',
         headers: {

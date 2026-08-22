@@ -585,6 +585,13 @@ export function FunctionalModuleRegistryRoutePage(
 ) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [navigationRefreshState, setNavigationRefreshState] = useState<
+    | undefined
+    | {
+        readonly severity: 'success' | 'warning';
+        readonly message: string;
+      }
+  >();
   const connection = selectModuleConnection(props.bootstrap, 'backoffice');
   const configuration = useMemo(
     () => ({
@@ -646,6 +653,7 @@ export function FunctionalModuleRegistryRoutePage(
       );
     },
     onSuccess: (updatedModule, variables) => {
+      setNavigationRefreshState(undefined);
       const registeredQueryKey = [
         ...registryQueryRoot,
         'registered',
@@ -697,7 +705,30 @@ export function FunctionalModuleRegistryRoutePage(
           queryKey: availableQueryKey,
           type: 'active',
         }),
-      ]).then(() => props.onBootstrapRefresh?.());
+      ])
+        .then(() => props.onBootstrapRefresh?.())
+        .then(() => {
+          setNavigationRefreshState({
+            severity: 'success',
+            message:
+              variables.action === 'activate'
+                ? `${updatedModule.displayName} is activated. Axis navigation was refreshed from the BackOffice bootstrap contract.`
+                : variables.action === 'deactivate'
+                  ? `${updatedModule.displayName} is deactivated. Axis navigation was refreshed from the BackOffice bootstrap contract.`
+                  : variables.action === 'register'
+                    ? `${updatedModule.displayName} is registered. Registry data is refreshed; activate it when required data is ready.`
+                    : `${updatedModule.displayName} is deregistered. Registry data and Axis navigation were refreshed.`,
+          });
+        })
+        .catch((error: unknown) => {
+          setNavigationRefreshState({
+            severity: 'warning',
+            message:
+              error instanceof Error
+                ? `Lifecycle completed, but Axis could not refresh navigation automatically: ${error.message}`
+                : 'Lifecycle completed, but Axis could not refresh navigation automatically.',
+          });
+        });
     },
   });
   const sampleData = useMutation({
@@ -845,6 +876,11 @@ export function FunctionalModuleRegistryRoutePage(
         {sampleData.isSuccess ? (
           <Alert severity="success">
             Sample data request completed for {String(sampleData.data.releaseCount)} release(s).
+          </Alert>
+        ) : null}
+        {navigationRefreshState ? (
+          <Alert severity={navigationRefreshState.severity}>
+            {navigationRefreshState.message}
           </Alert>
         ) : null}
         {loading ? (
