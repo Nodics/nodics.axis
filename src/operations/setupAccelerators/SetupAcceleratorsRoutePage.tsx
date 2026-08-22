@@ -13,10 +13,12 @@ import {
   Chip,
   CircularProgress,
   Divider,
+  MenuItem,
   Stack,
+  TextField,
   Typography,
 } from '@mui/material';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
@@ -45,6 +47,8 @@ interface SetupAcceleratorsRoutePageProps {
 }
 
 type AcceleratorOperation = 'initiate' | 'rollback' | 'retire' | 'approve';
+
+type AcceleratorFilter = 'ALL' | 'PROJECT' | 'DOCUMENTATION' | 'NEEDS_ACTION';
 
 
 const queryRoot = ['setup-accelerators'] as const;
@@ -80,6 +84,23 @@ function triggerLabel(trigger: string): string {
   return trigger.toLowerCase();
 }
 
+function readinessLabel(readiness: string): string {
+  if (readiness === 'NOT_IMPORTED') return 'Not initialized';
+  if (readiness === 'PUBLICATION_PENDING') return 'Waiting for approval';
+  if (readiness === 'READY') return 'Online and ready';
+  if (readiness === 'ROLLED_BACK') return 'Rolled back';
+  return readiness.replaceAll('_', ' ').toLowerCase();
+}
+
+function friendlyPackageLabel(code: string): string {
+  return code
+    .replace(/([a-z0-9])([A-Z])/gu, '$1 $2')
+    .replace(/[:._-]+/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .replace(/\b\w/gu, (value) => value.toUpperCase());
+}
+
 function profileErrorMessage(
   profile: ApplicationInitializationProfile,
   message: string,
@@ -93,6 +114,7 @@ function profileErrorMessage(
 export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [filter, setFilter] = useState<AcceleratorFilter>('ALL');
   const backofficeConnection = selectModuleConnection(props.bootstrap, 'backoffice');
   const processConnection =
     selectModuleConnection(props.bootstrap, 'flowApi', { server: 'processServer' }) ??
@@ -213,21 +235,35 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
   const pendingCount = statuses.filter(
     (item) => item.query.data?.readiness === 'PUBLICATION_PENDING',
   ).length;
+  const actionCount = statuses.filter(
+    (item) =>
+      item.query.data?.readiness !== 'READY' ||
+      item.query.data.allowedActions.length > 0,
+  ).length;
   const loading = queries.some((query) => query.isPending);
+  const filteredStatuses = statuses.filter((item) => {
+    if (filter === 'ALL') return true;
+    if (filter === 'PROJECT') return item.profile.kind === 'PROJECT';
+    if (filter === 'DOCUMENTATION') return item.profile.kind !== 'PROJECT';
+    return (
+      item.query.data?.readiness !== 'READY' ||
+      Boolean(item.query.data?.allowedActions.length)
+    );
+  });
   const statusGroups = [
     {
       key: 'projects',
       title: 'Project accelerators',
       description:
         'Business applications such as Nexus, Agora, partner storefronts, and future accelerators.',
-      items: statuses.filter((item) => item.profile.kind === 'PROJECT'),
+      items: filteredStatuses.filter((item) => item.profile.kind === 'PROJECT'),
     },
     {
       key: 'documentation',
       title: 'Documentation packs',
       description:
         'Framework, product, and project documentation that can be installed and published Online.',
-      items: statuses.filter((item) => item.profile.kind !== 'PROJECT'),
+      items: filteredStatuses.filter((item) => item.profile.kind !== 'PROJECT'),
     },
   ].filter((group) => group.items.length > 0);
 
@@ -250,6 +286,11 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
         <Alert severity="info">
           Import and activation inside Platform or Staged are audited operations.
           Anything that changes Online visibility remains approval-gated.
+        </Alert>
+        <Alert severity="success" variant="outlined">
+          Staged is the safe preparation area for imports, versions, validation, and
+          approval. Online is the public runtime consumed by Nexus, Agora, and other
+          customer-facing channels after approval.
         </Alert>
         {profiles.length === 0 ? (
           <Alert severity="warning">
@@ -285,6 +326,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                   color="warning"
                   label={`${String(pendingCount)} pending approval`}
                 />
+                <Chip color="info" label={`${String(actionCount)} need attention`} />
                 <Chip label={`${String(profiles.length)} profiles`} />
                 <Button
                   onClick={() => navigate('/registry')}
@@ -294,6 +336,38 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                   Open Module Registry
                 </Button>
               </Stack>
+            </Stack>
+          </CardContent>
+        </Card>
+        <Card variant="outlined">
+          <CardContent>
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={2}
+              sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between' }}
+            >
+              <Box>
+                <Typography component="h2" variant="h6">
+                  Focus the setup queue
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  Start with profiles that need action, then narrow to project
+                  accelerators or documentation packs as the catalogue grows.
+                </Typography>
+              </Box>
+              <TextField
+                label="View"
+                onChange={(event) => setFilter(event.target.value as AcceleratorFilter)}
+                select
+                size="small"
+                sx={{ minWidth: 240 }}
+                value={filter}
+              >
+                <MenuItem value="ALL">All profiles</MenuItem>
+                <MenuItem value="NEEDS_ACTION">Needs action</MenuItem>
+                <MenuItem value="PROJECT">Project accelerators</MenuItem>
+                <MenuItem value="DOCUMENTATION">Documentation packs</MenuItem>
+              </TextField>
             </Stack>
           </CardContent>
         </Card>
@@ -360,11 +434,11 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
                             <Chip
                               color={stateColor(status.readiness)}
-                              label={status.readiness}
+                              label={readinessLabel(status.readiness)}
                               size="small"
                             />
                             <Chip
-                              label={`${status.releaseCode} ${status.releaseVersion}`}
+                              label={`${friendlyPackageLabel(status.releaseCode)} ${status.releaseVersion}`}
                               size="small"
                               variant="outlined"
                             />
@@ -408,7 +482,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                     <Chip
                                       color={pack.required ? 'warning' : 'default'}
                                       key={`${pack.code}:${pack.kind}`}
-                                      label={`${pack.code} · ${triggerLabel(pack.trigger)}`}
+                                      label={`${friendlyPackageLabel(pack.code)} · ${triggerLabel(pack.trigger)}`}
                                       size="small"
                                       variant={pack.required ? 'filled' : 'outlined'}
                                     />
