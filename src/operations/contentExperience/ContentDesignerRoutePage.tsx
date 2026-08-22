@@ -692,6 +692,143 @@ function ValidationEvidencePanel({
   );
 }
 
+function ContentPublishReadinessPanel({
+  draft,
+  draftIsSaved,
+  draftIsValidated,
+  mediaFolders,
+  publicationParts,
+  routePath,
+  slotOptions,
+}: {
+  readonly draft: ContentDesignerDraft;
+  readonly draftIsSaved: boolean;
+  readonly draftIsValidated: boolean;
+  readonly mediaFolders: readonly ContentDesignerReference[];
+  readonly publicationParts: readonly string[];
+  readonly routePath: string;
+  readonly slotOptions: readonly ContentDesignerReference[];
+}) {
+  const hasTemplateSlotEvidence = draft.sections.every((section) =>
+    slotOptions.length
+      ? slotOptions.some((slot) => (slot.name || slot.code) === section.slot)
+      : Boolean(section.slot),
+  );
+  const hasComponentEvidence = draft.sections.every(
+    (section) => section.components.length > 0,
+  );
+  const hasRouteEvidence = routePath.startsWith('/');
+  const hasMediaEvidence =
+    draft.sections.some((section) =>
+      section.components.some((component) => (component.media ?? []).length > 0),
+    ) || mediaFolders.length > 0;
+  const checks = [
+    {
+      label: 'Content workspace readiness',
+      ready: draftIsValidated,
+      detail: draftIsValidated
+        ? 'WCMS validated this exact draft.'
+        : 'Validate this exact draft before save or submit.',
+    },
+    {
+      label: 'Template dependency',
+      ready: Boolean(draft.templateCode),
+      detail: `Template ${draft.templateCode} is selected for this draft.`,
+    },
+    {
+      label: 'Component dependency',
+      ready: hasComponentEvidence,
+      detail: hasComponentEvidence
+        ? 'Every section has at least one governed CMS component.'
+        : 'Add at least one component before publication.',
+    },
+    {
+      label: 'Route dependency',
+      ready: hasRouteEvidence,
+      detail: hasRouteEvidence
+        ? `Route intent ${routePath} is browser-addressable.`
+        : 'Route intent must start with a slash.',
+    },
+    {
+      label: 'Media dependency',
+      ready: hasMediaEvidence,
+      detail: hasMediaEvidence
+        ? 'Media folders or explicit media references are available.'
+        : 'No media source is available yet; publish only if media is not required.',
+    },
+    {
+      label: 'Layout-slot dependency',
+      ready: hasTemplateSlotEvidence,
+      detail: hasTemplateSlotEvidence
+        ? 'Draft slots match template slot metadata or safe fallback slots.'
+        : 'One or more slots are not present in template metadata.',
+    },
+    {
+      label: 'Preview before submit',
+      ready: draftIsValidated && draftIsSaved,
+      detail: draftIsSaved
+        ? 'Draft preview has been validated and saved before publication submit.'
+        : 'Save the validated draft before submitting for publication.',
+    },
+  ];
+  return (
+    <Card variant="outlined" sx={{ bgcolor: 'background.default', borderStyle: 'dashed' }}>
+      <CardContent>
+        <Stack spacing={2}>
+          <Box>
+            <Typography component="h3" variant="h6">
+              CMS publishing readiness and impact
+            </Typography>
+            <Typography color="text.secondary" variant="body2">
+              Validate dependencies before submit. Publishing impact is the saved
+              Staged draft plus route, component, template, media, and layout evidence
+              that approvers should inspect before Online movement.
+            </Typography>
+          </Box>
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 1,
+              gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+            }}
+          >
+            {checks.map((check) => (
+              <Alert key={check.label} severity={check.ready ? 'success' : 'warning'}>
+                <Typography component="div" variant="subtitle2">
+                  {check.label}
+                </Typography>
+                <Typography component="div" variant="body2">
+                  {check.detail}
+                </Typography>
+              </Alert>
+            ))}
+          </Box>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+            <Chip label={`Catalog: ${draft.catalogCode}`} size="small" />
+            <Chip label={`Site: ${draft.siteCode}`} size="small" variant="outlined" />
+            <Chip label={`Template: ${draft.templateCode}`} size="small" variant="outlined" />
+            <Chip label={`Route: ${routePath}`} size="small" variant="outlined" />
+            <Chip
+              label={
+                publicationParts.length
+                  ? `Required parts: ${publicationParts.join(', ')}`
+                  : 'Required parts: WCMS default'
+              }
+              size="small"
+              variant="outlined"
+            />
+          </Stack>
+          <Alert severity="info">
+            Approval impact summary: approvers should compare the saved Staged draft,
+            route intent, template slots, components, media references, and target site
+            before approving the publication request.
+          </Alert>
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
 function BackendGuidancePanel({
   mediaFolders,
   mediaTypes,
@@ -1184,6 +1321,15 @@ export function ContentDesignerRoutePage({
                 draftIsValidated={draftIsValidated}
                 result={validateMutation.data}
               />
+              <ContentPublishReadinessPanel
+                draft={draft}
+                draftIsSaved={draftIsSaved}
+                draftIsValidated={draftIsValidated}
+                mediaFolders={mediaFolderOptions}
+                publicationParts={publicationParts}
+                routePath={draftRoutePath(draft)}
+                slotOptions={slotOptions}
+              />
               {operationError ? (
                 <Alert severity="error">{operationError.message}</Alert>
               ) : null}
@@ -1264,6 +1410,12 @@ export function ContentDesignerRoutePage({
                 >
                   Choose media
                 </Button>
+                <Button component={RouterLink} to="/publishing/requests" variant="text">
+                  Review publication requests
+                </Button>
+                <Button component={RouterLink} to="/publishing/status" variant="text">
+                  Verify Online status
+                </Button>
               </Stack>
             </Stack>
           </Paper>
@@ -1283,6 +1435,11 @@ export function ContentDesignerRoutePage({
                 inside the owning workspace.
               </Typography>
             </Box>
+            <Alert severity="info">
+              CMS Online verification card: after a publication request is approved,
+              confirm Online status, deployment history, audit evidence, and browser
+              rendering for {draftRoutePath(draft)} before closing the content task.
+            </Alert>
             <Box
               sx={{
                 display: 'grid',
