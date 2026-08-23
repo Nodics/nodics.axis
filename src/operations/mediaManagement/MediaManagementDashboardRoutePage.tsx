@@ -85,6 +85,62 @@ const mediaMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     route: '/media/usage',
     icon: 'link',
   }),
+  Object.freeze({
+    id: 'media-placements',
+    label: 'Media placements',
+    moduleName: 'media',
+    schemaName: 'mediaPlacement',
+    description: 'Physical target evidence for active and replication locations.',
+    route: '/media/placements',
+    icon: 'server',
+  }),
+  Object.freeze({
+    id: 'media-artifacts',
+    label: 'Physical artifacts',
+    moduleName: 'media',
+    schemaName: 'mediaPhysicalArtifact',
+    description: 'Provider-governed physical file identities behind media records.',
+    route: '/media/artifacts',
+    icon: 'file',
+  }),
+  Object.freeze({
+    id: 'media-transfer-manifests',
+    label: 'Transfer manifests',
+    moduleName: 'media',
+    schemaName: 'mediaTransferManifest',
+    description:
+      'Path-free physical transfer manifests for Staged, Online, and DR targets.',
+    route: '/media/transfer-manifests',
+    icon: 'sync',
+  }),
+  Object.freeze({
+    id: 'media-publication-receipts',
+    label: 'Publication receipts',
+    moduleName: 'media',
+    schemaName: 'mediaPublicationReceipt',
+    description:
+      'Target import, publication audit, replication, cleanup, and rollback receipts.',
+    route: '/media/publication-receipts',
+    icon: 'receipt',
+  }),
+  Object.freeze({
+    id: 'media-cleanup-candidates',
+    label: 'Cleanup candidates',
+    moduleName: 'media',
+    schemaName: 'mediaCleanupCandidate',
+    description: 'Unused, expired, passive, and approved media cleanup review records.',
+    route: '/media/cleanup-candidates',
+    icon: 'cleanup',
+  }),
+  Object.freeze({
+    id: 'media-replication',
+    label: 'Replication queue',
+    moduleName: 'media',
+    schemaName: 'mediaReplicationQueue',
+    description: 'Failed, scheduled, escalated, and synchronized DR media work.',
+    route: '/media/replication',
+    icon: 'sync',
+  }),
 ]);
 
 const mediaFolderMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
@@ -251,6 +307,45 @@ const mediaPublicationReadinessPolicies = Object.freeze([
     title: 'External provider gate',
     detail:
       'CDN, DAM, storage, or transformation providers remain externally qualified gates; local acceptance records the policy but cannot certify production provider behavior.',
+  },
+]);
+
+const mediaReplicationOperations = Object.freeze([
+  {
+    label: 'Reconcile manifest media',
+    route: 'POST /nodics/cms/v0/publication/target/media/reconcile-replication',
+    detail:
+      'Manual or recovery trigger that replays one immutable publication package to the replication media location.',
+  },
+  {
+    label: 'Retry pending replication',
+    route: 'POST /nodics/media/v0/publication/replication/retry-pending',
+    detail:
+      'Cron-safe trigger that scans due generic media replication obligations across content, product, import, export, and custom media owners.',
+  },
+  {
+    label: 'Preview cleanup candidates',
+    route: 'POST /nodics/media/v0/cleanup/candidates/preview',
+    detail:
+      'Dry-run trigger that shows unused or expired media candidates without creating records or deleting files.',
+  },
+  {
+    label: 'Scan cleanup candidates',
+    route: 'POST /nodics/media/v0/cleanup/candidates/scan',
+    detail:
+      'Operator trigger that persists cleanup candidates for review before passive marking and approval.',
+  },
+  {
+    label: 'Run passive retention cleanup',
+    route: 'POST /nodics/media/v0/cleanup/retention/run',
+    detail:
+      'Cron-safe internal trigger that physically removes only approved passive media through provider APIs.',
+  },
+  {
+    label: 'Import target assets',
+    route: 'POST /nodics/media/v0/publication/target/assets/import',
+    detail:
+      'Target-local import keeps Online media owned by the target provider rather than pointing back to Staged.',
   },
 ]);
 
@@ -479,6 +574,33 @@ export function MediaManagementDashboardRoutePage({
               Media provider qualification remains a release gate outside this local
               Axis check. Local validation can prove the operator journey and policy
               visibility, not CDN/DAM production readiness.
+            </Alert>
+            <WorkspaceHeading
+              description="Active and replication media locations are role-based, so DR failover can reverse the serving and replication direction without manual file copying."
+              eyebrow="PROD and DR"
+              headingVariant="h5"
+              title="Replication operations"
+            />
+            <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
+              {mediaReplicationOperations.map((operation) => (
+                <Paper
+                  component="article"
+                  key={operation.label}
+                  sx={{ minWidth: 280, p: 1.5 }}
+                  variant="outlined"
+                >
+                  <strong>{operation.label}</strong>
+                  <p>{operation.detail}</p>
+                  <Chip label={operation.route} size="small" variant="outlined" />
+                </Paper>
+              ))}
+            </Stack>
+            <Alert severity="warning">
+              If Online activation succeeds while replication is unavailable, Axis must
+              show the pending replication queue until the governed retry workflow marks
+              the target synchronized. Cleanup follows the same governed pattern:
+              preview, candidate review, passive marking, approval, then provider-owned
+              deletion.
             </Alert>
           </Stack>
         </Paper>

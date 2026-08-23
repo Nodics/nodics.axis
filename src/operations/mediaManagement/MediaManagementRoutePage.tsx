@@ -41,6 +41,10 @@ import {
 } from '../../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
+  activeConnections,
+  connectionKey,
+} from '../shared/workbenchMetricDashboardModel';
+import {
   createWorkbenchRecord,
   deleteWorkbenchRecord,
   loadWorkbenchRecords,
@@ -183,6 +187,20 @@ const sectionSummaries: Readonly<Record<string, string>> = Object.freeze({
     'Define reusable presentation formats such as thumbnail, desktop, mobile, zoom, or import file.',
   'media-usage':
     'Review which product, content, import, or business records are using a media item.',
+  'media-placements':
+    'Inspect where each logical media artifact physically exists across active, Online, and replication locations.',
+  'media-replication':
+    'Track failed and synchronized media replication obligations for PROD and DR publishing targets.',
+  'media-artifacts':
+    'Review generic physical artifacts, ownership, publishability, lifecycle state, and hidden provider placement evidence.',
+  'media-transfer-manifests':
+    'Review provider-neutral physical transfer manifests for staged to online and replication movement.',
+  'media-publication-receipts':
+    'Review target import, publication audit, replication, cleanup, and rollback receipts for physical artifacts.',
+  'media-cleanup-candidates':
+    'Review unused, expired, passive, approved, and cleaned media candidates before physical cleanup.',
+  'media-cleanup-jobs':
+    'Operate cleanup scans, passive retention jobs, approval evidence, and cleanup audit outcomes.',
   'storage-delivery':
     'Inspect backend-published folder upload policy and delivery behavior for the active runtime.',
 });
@@ -204,6 +222,61 @@ function findCurrentItem(
   );
 }
 
+const mediaRouteFallbacks: Readonly<Record<string, AxisNavigationItem>> = Object.freeze(
+  {
+    '/media/artifacts': Object.freeze({
+      id: 'media-artifacts',
+      label: 'Physical Artifacts',
+      moduleName: 'media',
+      order: 352,
+      parentId: 'media-management',
+      route: '/media/artifacts',
+    } as AxisNavigationItem),
+    '/media/transfer-manifests': Object.freeze({
+      id: 'media-transfer-manifests',
+      label: 'Transfer Manifests',
+      moduleName: 'media',
+      order: 353,
+      parentId: 'media-management',
+      route: '/media/transfer-manifests',
+    } as AxisNavigationItem),
+    '/media/publication-receipts': Object.freeze({
+      id: 'media-publication-receipts',
+      label: 'Publication Receipts',
+      moduleName: 'media',
+      order: 354,
+      parentId: 'media-management',
+      route: '/media/publication-receipts',
+    } as AxisNavigationItem),
+    '/media/cleanup-candidates': Object.freeze({
+      id: 'media-cleanup-candidates',
+      label: 'Cleanup Candidates',
+      moduleName: 'media',
+      order: 357,
+      parentId: 'media-management',
+      route: '/media/cleanup-candidates',
+    } as AxisNavigationItem),
+    '/media/cleanup-jobs': Object.freeze({
+      id: 'media-cleanup-jobs',
+      label: 'Cleanup Jobs and Audit',
+      moduleName: 'media',
+      order: 358,
+      parentId: 'media-management',
+      route: '/media/cleanup-jobs',
+    } as AxisNavigationItem),
+  },
+);
+
+function resolveCurrentMediaItem(
+  items: readonly AxisNavigationItem[],
+  pathname: string,
+): AxisNavigationItem | undefined {
+  const matched = [...items]
+    .sort((left, right) => right.route.length - left.route.length)
+    .find((item) => pathname === item.route || pathname.startsWith(`${item.route}/`));
+  if (matched && matched.route !== '/media') return matched;
+  return mediaRouteFallbacks[pathname] ?? matched ?? items[0];
+}
 function resolveDeliveryUrl(
   connection: ReturnType<typeof selectModuleConnection>,
   record: WorkbenchRecord,
@@ -2039,6 +2112,566 @@ const recordWorkspaceConfigurations: Readonly<
       { label: 'Status', key: 'status' },
     ],
   },
+  'media-placements': {
+    schemaName: 'mediaPlacement',
+    title: 'Media placements',
+    description:
+      'Review physical placement evidence for logical media across Staged, Online, active production, and replication targets.',
+    recordCountLabel: 'placements',
+    searchPlaceholder:
+      'Search placements by media, checksum, role, provider, or manifest',
+    emptyMessage: 'No media placement evidence is available.',
+    detailEmptyMessage: 'Select a placement to review target evidence.',
+    hiddenPathNotice:
+      'Provider storage keys and raw paths are intentionally hidden from Axis. Use backend-governed provider APIs for physical access.',
+    searchKeys: [
+      'code',
+      'mediaCode',
+      'mediaChecksum',
+      'targetRole',
+      'providerCode',
+      'publicationCode',
+      'manifestCode',
+      'topologyCode',
+      'status',
+    ],
+    summary: (record) =>
+      `${textValue(record, 'mediaCode')} ${textValue(record, 'targetRole')}`,
+    columns: [
+      {
+        label: 'Media',
+        field: 'mediaCode',
+        render: (record) => (
+          <Box>
+            <Typography sx={{ fontWeight: 700 }}>
+              {textValue(record, 'mediaCode')}
+            </Typography>
+            <Typography color="text.secondary" variant="body2">
+              {textValue(record, 'mediaChecksum')}
+            </Typography>
+          </Box>
+        ),
+      },
+      {
+        label: 'Target role',
+        field: 'targetRole',
+        render: (record) => (
+          <Chip label={humanize(textValue(record, 'targetRole'))} size="small" />
+        ),
+      },
+      {
+        label: 'Provider',
+        field: 'providerCode',
+        render: (record) => textValue(record, 'providerCode'),
+      },
+      {
+        label: 'Manifest',
+        field: 'manifestCode',
+        render: (record) => textValue(record, 'manifestCode'),
+      },
+      {
+        label: 'Status',
+        field: 'status',
+        render: (record) => (
+          <Chip
+            color={
+              textValue(record, 'status') === 'REPLICATION_FAILED'
+                ? 'error'
+                : textValue(record, 'status') === 'REPLICATION_SYNCHRONIZED'
+                  ? 'success'
+                  : 'default'
+            }
+            label={textValue(record, 'status')}
+            size="small"
+          />
+        ),
+      },
+    ],
+    details: [
+      { label: 'Placement code', key: 'code' },
+      { label: 'Media code', key: 'mediaCode' },
+      { label: 'Checksum', key: 'mediaChecksum' },
+      { label: 'Checksum algorithm', key: 'checksumAlgorithm' },
+      { label: 'Target role', key: 'targetRole' },
+      { label: 'Provider', key: 'providerCode' },
+      { label: 'Publication', key: 'publicationCode' },
+      { label: 'Manifest', key: 'manifestCode' },
+      { label: 'Topology', key: 'topologyCode' },
+      { label: 'Status', key: 'status' },
+      { label: 'Evidence', key: 'evidence' },
+    ],
+  },
+  'media-artifacts': {
+    schemaName: 'mediaPhysicalArtifact',
+    title: 'Media physical artifacts',
+    description:
+      'Review generic physical artifacts across content, product, documentation, import, export, customer, audit, and operational media.',
+    recordCountLabel: 'physical artifacts',
+    searchPlaceholder:
+      'Search artifacts by media, owner, provider, class, checksum, or lifecycle',
+    emptyMessage: 'No media physical artifacts are currently recorded.',
+    detailEmptyMessage:
+      'Select a physical artifact to review lifecycle and publishability evidence.',
+    hiddenPathNotice:
+      'Provider storage keys, raw locators, and signed URLs are intentionally hidden from Axis.',
+    searchKeys: [
+      'code',
+      'mediaCode',
+      'artifactClass',
+      'ownerModule',
+      'ownerSchema',
+      'ownerReference',
+      'providerCode',
+      'checksum',
+      'lifecycleState',
+    ],
+    summary: (record) =>
+      `${textValue(record, 'mediaCode')} ${textValue(record, 'artifactClass')}`,
+    columns: [
+      {
+        label: 'Media',
+        field: 'mediaCode',
+        render: (record) => textValue(record, 'mediaCode'),
+      },
+      {
+        label: 'Artifact class',
+        field: 'artifactClass',
+        render: (record) => (
+          <Chip label={humanize(textValue(record, 'artifactClass'))} size="small" />
+        ),
+      },
+      {
+        label: 'Owner',
+        field: 'ownerReference',
+        render: (record) =>
+          `${textValue(record, 'ownerModule')} / ${textValue(record, 'ownerReference')}`,
+      },
+      {
+        label: 'Provider',
+        field: 'providerCode',
+        render: (record) => textValue(record, 'providerCode'),
+      },
+      {
+        label: 'State',
+        field: 'lifecycleState',
+        render: (record) => (
+          <Chip label={textValue(record, 'lifecycleState')} size="small" />
+        ),
+      },
+    ],
+    details: [
+      { label: 'Artifact code', key: 'code' },
+      { label: 'Media code', key: 'mediaCode' },
+      { label: 'Artifact class', key: 'artifactClass' },
+      { label: 'Owner module', key: 'ownerModule' },
+      { label: 'Owner schema', key: 'ownerSchema' },
+      { label: 'Owner reference', key: 'ownerReference' },
+      { label: 'Provider', key: 'providerCode' },
+      { label: 'Checksum', key: 'checksum' },
+      { label: 'Checksum algorithm', key: 'checksumAlgorithm' },
+      { label: 'Size', key: 'sizeBytes' },
+      { label: 'Lifecycle state', key: 'lifecycleState' },
+      { label: 'Publishable', key: 'publishable' },
+      { label: 'Evidence', key: 'evidence' },
+    ],
+  },
+  'media-transfer-manifests': {
+    schemaName: 'mediaTransferManifest',
+    title: 'Media transfer manifests',
+    description:
+      'Review path-free physical transfer manifests that bind business publication data to required media artifacts.',
+    recordCountLabel: 'transfer manifests',
+    searchPlaceholder:
+      'Search manifests by publication, manifest, runtime role, strategy, or status',
+    emptyMessage: 'No media transfer manifests are currently recorded.',
+    detailEmptyMessage:
+      'Select a transfer manifest to review artifact dependency evidence.',
+    searchKeys: [
+      'code',
+      'publicationCode',
+      'manifestCode',
+      'sourceRuntimeRole',
+      'targetRuntimeRole',
+      'transportStrategy',
+      'status',
+    ],
+    summary: (record) =>
+      `${textValue(record, 'publicationCode')} ${textValue(record, 'status')}`,
+    columns: [
+      {
+        label: 'Publication',
+        field: 'publicationCode',
+        render: (record) => textValue(record, 'publicationCode'),
+      },
+      {
+        label: 'Runtime path',
+        field: 'targetRuntimeRole',
+        render: (record) =>
+          `${humanize(textValue(record, 'sourceRuntimeRole'))} -> ${humanize(textValue(record, 'targetRuntimeRole'))}`,
+      },
+      {
+        label: 'Strategy',
+        field: 'transportStrategy',
+        render: (record) => (
+          <Chip label={humanize(textValue(record, 'transportStrategy'))} size="small" />
+        ),
+      },
+      {
+        label: 'Artifacts',
+        field: 'artifactCount',
+        render: (record) => textValue(record, 'artifactCount'),
+      },
+      {
+        label: 'Status',
+        field: 'status',
+        render: (record) => <Chip label={textValue(record, 'status')} size="small" />,
+      },
+    ],
+    details: [
+      { label: 'Manifest code', key: 'code' },
+      { label: 'Publication', key: 'publicationCode' },
+      { label: 'Data manifest', key: 'manifestCode' },
+      { label: 'Source role', key: 'sourceRuntimeRole' },
+      { label: 'Target role', key: 'targetRuntimeRole' },
+      { label: 'Transport strategy', key: 'transportStrategy' },
+      { label: 'Artifact count', key: 'artifactCount' },
+      { label: 'Total bytes', key: 'totalBytes' },
+      { label: 'Status', key: 'status' },
+      { label: 'Evidence', key: 'evidence' },
+    ],
+  },
+  'media-publication-receipts': {
+    schemaName: 'mediaPublicationReceipt',
+    title: 'Media publication receipts',
+    description:
+      'Review target import, publication audit, replication, cleanup, and rollback receipts for physical artifacts.',
+    recordCountLabel: 'publication receipts',
+    searchPlaceholder:
+      'Search receipts by publication, manifest, media, artifact, target, type, or status',
+    emptyMessage: 'No media publication receipts are currently recorded.',
+    detailEmptyMessage: 'Select a receipt to review target evidence.',
+    searchKeys: [
+      'code',
+      'publicationCode',
+      'manifestCode',
+      'mediaCode',
+      'artifactCode',
+      'targetRuntimeRole',
+      'receiptType',
+      'status',
+    ],
+    summary: (record) =>
+      `${textValue(record, 'mediaCode')} ${textValue(record, 'receiptType')}`,
+    columns: [
+      {
+        label: 'Media',
+        field: 'mediaCode',
+        render: (record) => textValue(record, 'mediaCode'),
+      },
+      {
+        label: 'Receipt type',
+        field: 'receiptType',
+        render: (record) => (
+          <Chip label={humanize(textValue(record, 'receiptType'))} size="small" />
+        ),
+      },
+      {
+        label: 'Target',
+        field: 'targetRuntimeRole',
+        render: (record) => humanize(textValue(record, 'targetRuntimeRole')),
+      },
+      {
+        label: 'Received',
+        field: 'receivedAt',
+        render: (record) => textValue(record, 'receivedAt'),
+      },
+      {
+        label: 'Status',
+        field: 'status',
+        render: (record) => <Chip label={textValue(record, 'status')} size="small" />,
+      },
+    ],
+    details: [
+      { label: 'Receipt code', key: 'code' },
+      { label: 'Publication', key: 'publicationCode' },
+      { label: 'Manifest', key: 'manifestCode' },
+      { label: 'Media code', key: 'mediaCode' },
+      { label: 'Artifact code', key: 'artifactCode' },
+      { label: 'Target role', key: 'targetRuntimeRole' },
+      { label: 'Receipt type', key: 'receiptType' },
+      { label: 'Status', key: 'status' },
+      { label: 'Checksum', key: 'checksum' },
+      { label: 'Received at', key: 'receivedAt' },
+      { label: 'Evidence', key: 'evidence' },
+    ],
+  },
+  'media-cleanup-candidates': {
+    schemaName: 'mediaCleanupCandidate',
+    title: 'Media cleanup candidates',
+    description:
+      'Review generic media cleanup candidates across CMS, product, documentation, import, export, and custom owners before passive marking or physical deletion.',
+    recordCountLabel: 'cleanup candidates',
+    searchPlaceholder:
+      'Search cleanup by media, folder, owner, artifact class, reason, or status',
+    emptyMessage: 'No media cleanup candidates are currently recorded.',
+    detailEmptyMessage:
+      'Select a cleanup candidate to review retention and approval evidence.',
+    hiddenPathNotice:
+      'Cleanup records never expose provider storage keys or raw paths. Physical deletion must run through governed backend provider APIs.',
+    searchKeys: [
+      'code',
+      'mediaCode',
+      'mediaChecksum',
+      'folderCode',
+      'providerCode',
+      'ownerModule',
+      'ownerType',
+      'ownerReference',
+      'artifactClass',
+      'reasonCode',
+      'status',
+    ],
+    summary: (record) =>
+      `${textValue(record, 'mediaCode')} ${textValue(record, 'status')}`,
+    columns: [
+      {
+        label: 'Media',
+        field: 'mediaCode',
+        render: (record) => (
+          <Box>
+            <Typography sx={{ fontWeight: 700 }}>
+              {textValue(record, 'mediaCode')}
+            </Typography>
+            <Typography color="text.secondary" variant="body2">
+              {textValue(record, 'folderCode')} / {textValue(record, 'providerCode')}
+            </Typography>
+          </Box>
+        ),
+      },
+      {
+        label: 'Artifact class',
+        field: 'artifactClass',
+        render: (record) => (
+          <Chip label={humanize(textValue(record, 'artifactClass'))} size="small" />
+        ),
+      },
+      {
+        label: 'Reason',
+        field: 'reasonCode',
+        render: (record) => humanize(textValue(record, 'reasonCode')),
+      },
+      {
+        label: 'Purge eligible',
+        field: 'purgeEligibleAt',
+        render: (record) => textValue(record, 'purgeEligibleAt'),
+      },
+      {
+        label: 'Status',
+        field: 'status',
+        render: (record) => {
+          const status = textValue(record, 'status');
+          return (
+            <Chip
+              color={
+                status === 'CLEANED'
+                  ? 'success'
+                  : status === 'CLEANUP_FAILED' || status === 'LEGAL_HOLD_BLOCKED'
+                    ? 'error'
+                    : status === 'PASSIVE' || status === 'CLEANUP_APPROVED'
+                      ? 'warning'
+                      : 'default'
+              }
+              label={status}
+              size="small"
+            />
+          );
+        },
+      },
+    ],
+    details: [
+      { label: 'Candidate code', key: 'code' },
+      { label: 'Media code', key: 'mediaCode' },
+      { label: 'Checksum', key: 'mediaChecksum' },
+      { label: 'Folder', key: 'folderCode' },
+      { label: 'Provider', key: 'providerCode' },
+      { label: 'Owner module', key: 'ownerModule' },
+      { label: 'Owner type', key: 'ownerType' },
+      { label: 'Owner reference', key: 'ownerReference' },
+      { label: 'Artifact class', key: 'artifactClass' },
+      { label: 'Reason', key: 'reasonCode' },
+      { label: 'Reason detail', key: 'reasonMessage' },
+      { label: 'Detected at', key: 'detectedAt' },
+      { label: 'Passive marked at', key: 'passiveMarkedAt' },
+      { label: 'Purge eligible at', key: 'purgeEligibleAt' },
+      { label: 'Approval code', key: 'approvalCode' },
+      { label: 'Approved by', key: 'approvedBy' },
+      { label: 'Approved at', key: 'approvedAt' },
+      { label: 'Legal hold', key: 'legalHold' },
+      { label: 'Status', key: 'status' },
+      { label: 'Evidence', key: 'evidence' },
+    ],
+  },
+  'media-cleanup-jobs': {
+    schemaName: 'mediaCleanupCandidate',
+    title: 'Media cleanup jobs and audit',
+    description:
+      'Operate scan output and passive-retention audit records for media cleanup across Staged, Online, and DR provider locations.',
+    recordCountLabel: 'cleanup audit records',
+    searchPlaceholder: 'Search cleanup audit by media, reason, approval, or status',
+    emptyMessage: 'No media cleanup audit records are currently recorded.',
+    detailEmptyMessage:
+      'Select a cleanup audit record to inspect job and approval evidence.',
+    hiddenPathNotice:
+      'Retention cleanup is provider-governed. Axis displays evidence and status, not physical storage locators.',
+    searchKeys: [
+      'code',
+      'mediaCode',
+      'approvalCode',
+      'approvedBy',
+      'reasonCode',
+      'status',
+    ],
+    summary: (record) =>
+      `${textValue(record, 'mediaCode')} ${textValue(record, 'status')}`,
+    columns: [
+      {
+        label: 'Media',
+        field: 'mediaCode',
+        render: (record) => textValue(record, 'mediaCode'),
+      },
+      {
+        label: 'Reason',
+        field: 'reasonCode',
+        render: (record) => humanize(textValue(record, 'reasonCode')),
+      },
+      {
+        label: 'Approval',
+        field: 'approvalCode',
+        render: (record) => textValue(record, 'approvalCode'),
+      },
+      {
+        label: 'Approved at',
+        field: 'approvedAt',
+        render: (record) => textValue(record, 'approvedAt'),
+      },
+      {
+        label: 'Status',
+        field: 'status',
+        render: (record) => <Chip label={textValue(record, 'status')} size="small" />,
+      },
+    ],
+    details: [
+      { label: 'Candidate code', key: 'code' },
+      { label: 'Media code', key: 'mediaCode' },
+      { label: 'Artifact class', key: 'artifactClass' },
+      { label: 'Reason', key: 'reasonCode' },
+      { label: 'Passive marked at', key: 'passiveMarkedAt' },
+      { label: 'Purge eligible at', key: 'purgeEligibleAt' },
+      { label: 'Approval code', key: 'approvalCode' },
+      { label: 'Approved by', key: 'approvedBy' },
+      { label: 'Approved at', key: 'approvedAt' },
+      { label: 'Status', key: 'status' },
+      { label: 'Evidence', key: 'evidence' },
+    ],
+  },
+  'media-replication': {
+    schemaName: 'mediaReplicationQueue',
+    title: 'Media replication queue',
+    description:
+      'Review failed, scheduled, escalated, and synchronized replication work for active and DR media targets.',
+    recordCountLabel: 'replication items',
+    searchPlaceholder:
+      'Search replication by media, manifest, status, provider, or failure',
+    emptyMessage: 'No media replication obligations are currently recorded.',
+    detailEmptyMessage: 'Select a replication item to review retry evidence.',
+    hiddenPathNotice:
+      'Replication source and target storage keys are hidden. Retry must run through governed backend workflows.',
+    searchKeys: [
+      'code',
+      'mediaCode',
+      'mediaChecksum',
+      'publicationCode',
+      'manifestCode',
+      'activeLocationRole',
+      'replicationLocationRole',
+      'activeProviderCode',
+      'replicationProviderCode',
+      'failureCode',
+      'status',
+    ],
+    summary: (record) =>
+      `${textValue(record, 'mediaCode')} ${textValue(record, 'status')}`,
+    columns: [
+      {
+        label: 'Media',
+        field: 'mediaCode',
+        render: (record) => (
+          <Box>
+            <Typography sx={{ fontWeight: 700 }}>
+              {textValue(record, 'mediaCode')}
+            </Typography>
+            <Typography color="text.secondary" variant="body2">
+              {textValue(record, 'manifestCode')}
+            </Typography>
+          </Box>
+        ),
+      },
+      {
+        label: 'Replication path',
+        field: 'replicationLocationRole',
+        render: (record) => (
+          <Typography variant="body2">
+            {humanize(textValue(record, 'activeLocationRole'))} →{' '}
+            {humanize(textValue(record, 'replicationLocationRole'))}
+          </Typography>
+        ),
+      },
+      {
+        label: 'Retry',
+        field: 'retryCount',
+        render: (record) => textValue(record, 'retryCount'),
+      },
+      {
+        label: 'Next retry',
+        field: 'nextRetryAt',
+        render: (record) => textValue(record, 'nextRetryAt'),
+      },
+      {
+        label: 'Status',
+        field: 'status',
+        render: (record) => (
+          <Chip
+            color={
+              textValue(record, 'status') === 'REPLICATION_SYNCHRONIZED'
+                ? 'success'
+                : textValue(record, 'status') === 'REPLICATION_ESCALATED'
+                  ? 'error'
+                  : 'warning'
+            }
+            label={textValue(record, 'status')}
+            size="small"
+          />
+        ),
+      },
+    ],
+    details: [
+      { label: 'Queue code', key: 'code' },
+      { label: 'Media code', key: 'mediaCode' },
+      { label: 'Checksum', key: 'mediaChecksum' },
+      { label: 'Publication', key: 'publicationCode' },
+      { label: 'Manifest', key: 'manifestCode' },
+      { label: 'Active role', key: 'activeLocationRole' },
+      { label: 'Replication role', key: 'replicationLocationRole' },
+      { label: 'Active provider', key: 'activeProviderCode' },
+      { label: 'Replication provider', key: 'replicationProviderCode' },
+      { label: 'Failure code', key: 'failureCode' },
+      { label: 'Failure message', key: 'failureMessage' },
+      { label: 'Retry count', key: 'retryCount' },
+      { label: 'Next retry', key: 'nextRetryAt' },
+      { label: 'Status', key: 'status' },
+      { label: 'Evidence', key: 'evidence' },
+    ],
+  },
 });
 
 const emptyFacetFilters: readonly MediaRecordFacetFilter[] = Object.freeze([]);
@@ -2130,6 +2763,100 @@ const recordWorkspaceFacetFilters: Readonly<
       value: (record) => textValue(record, 'status'),
     },
   ],
+  'media-artifacts': [
+    {
+      allLabel: 'All artifact classes',
+      key: 'artifactClass',
+      label: 'Artifact class',
+      optionLabel: humanize,
+      value: (record) => textValue(record, 'artifactClass'),
+    },
+    {
+      allLabel: 'All lifecycle states',
+      key: 'lifecycleState',
+      label: 'Lifecycle',
+      optionLabel: humanize,
+      value: (record) => textValue(record, 'lifecycleState'),
+    },
+    {
+      allLabel: 'All providers',
+      key: 'providerCode',
+      label: 'Provider',
+      optionLabel: humanize,
+      value: (record) => textValue(record, 'providerCode'),
+    },
+  ],
+  'media-transfer-manifests': [
+    {
+      allLabel: 'All strategies',
+      key: 'transportStrategy',
+      label: 'Strategy',
+      optionLabel: humanize,
+      value: (record) => textValue(record, 'transportStrategy'),
+    },
+    {
+      allLabel: 'All statuses',
+      key: 'status',
+      label: 'Status',
+      optionLabel: humanize,
+      value: (record) => textValue(record, 'status'),
+    },
+  ],
+  'media-publication-receipts': [
+    {
+      allLabel: 'All receipt types',
+      key: 'receiptType',
+      label: 'Receipt type',
+      optionLabel: humanize,
+      value: (record) => textValue(record, 'receiptType'),
+    },
+    {
+      allLabel: 'All statuses',
+      key: 'status',
+      label: 'Status',
+      optionLabel: humanize,
+      value: (record) => textValue(record, 'status'),
+    },
+  ],
+  'media-cleanup-candidates': [
+    {
+      allLabel: 'All artifact classes',
+      key: 'artifactClass',
+      label: 'Artifact class',
+      optionLabel: humanize,
+      value: (record) => textValue(record, 'artifactClass'),
+    },
+    {
+      allLabel: 'All reasons',
+      key: 'reasonCode',
+      label: 'Reason',
+      optionLabel: humanize,
+      value: (record) => textValue(record, 'reasonCode'),
+    },
+    {
+      allLabel: 'All statuses',
+      key: 'status',
+      label: 'Status',
+      optionLabel: humanize,
+      value: (record) => textValue(record, 'status'),
+    },
+  ],
+  'media-cleanup-jobs': [
+    {
+      allLabel: 'All statuses',
+      key: 'status',
+      label: 'Status',
+      optionLabel: humanize,
+      value: (record) => textValue(record, 'status'),
+    },
+    {
+      allLabel: 'All approvers',
+      key: 'approvedBy',
+      label: 'Approved by',
+      optionLabel: humanize,
+      value: (record) => textValue(record, 'approvedBy'),
+    },
+  ],
   'media-usage': [
     {
       allLabel: 'All owner modules',
@@ -2198,6 +2925,10 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
   );
   const connection = selectModuleConnection(props.bootstrap, 'media');
   const importConnection = selectModuleConnection(props.bootstrap, 'import');
+  const schemaConnections = useMemo(
+    () => activeConnections(props.bootstrap),
+    [props.bootstrap],
+  );
   const usageMediaCode =
     new URLSearchParams(location.search).get('mediaCode')?.trim() ?? '';
   const mediaNavigation = useMemo(
@@ -2208,7 +2939,7 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
         .sort((left, right) => left.order - right.order),
     [props.bootstrap.navigation],
   );
-  const currentItem = findCurrentItem(mediaNavigation, location.pathname);
+  const currentItem = resolveCurrentMediaItem(mediaNavigation, location.pathname);
   const currentItemId = currentItem?.id ?? 'media';
   const mediaFolderCrudMode = mediaFolderCrudModes[currentItemId] ?? 'none';
   const schemaRecordCrudMode = schemaRecordCrudModes[currentItemId] ?? 'none';
@@ -2263,10 +2994,10 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
     queryKey: [
       'media-management',
       'schemas',
-      connection?.endpoint,
+      connectionKey(schemaConnections),
       configuration.enterpriseCode,
     ],
-    queryFn: () => loadWorkbenchSchemas(connection ? [connection] : [], configuration),
+    queryFn: () => loadWorkbenchSchemas(schemaConnections, configuration),
   });
   const currentSchema = useMemo(
     () =>
