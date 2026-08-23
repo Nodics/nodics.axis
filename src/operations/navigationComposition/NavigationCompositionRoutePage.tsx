@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 
+import { useMutation } from '@tanstack/react-query';
 import {
   Alert,
   Box,
@@ -19,10 +20,18 @@ import type {
   AxisAuthenticatedBootstrap,
   AxisNavigationItem,
 } from '../../bootstrap/publicBootstrap';
+import { selectModuleConnection } from '../../bootstrap/publicBootstrap';
+import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
+import {
+  executeNavigationCompositionAction,
+  type NavigationCompositionAction,
+} from './api/navigationCompositionClient';
 
 interface NavigationCompositionRoutePageProps {
+  readonly accessToken: string;
   readonly bootstrap: AxisAuthenticatedBootstrap;
   readonly routeNavigation?: AxisNavigationItem | undefined;
+  readonly runtime: AxisRuntimeConfig;
 }
 
 function ownerLabel(item: AxisNavigationItem): string {
@@ -65,10 +74,52 @@ export function NavigationCompositionRoutePage(
 ) {
   const composition = props.bootstrap.effectiveNavigationComposition;
   const navigation = props.bootstrap.navigation;
+  const connection = selectModuleConnection(props.bootstrap, 'backoffice');
   const [searchTerm, setSearchTerm] = useState('');
+  const [lastActionResult, setLastActionResult] = useState<string>();
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  const configuration = useMemo(
+    () => ({
+      accessToken: props.accessToken,
+      enterpriseCode: props.runtime.enterpriseCode,
+      projectCode: props.runtime.projectCode,
+      timeoutMs: props.runtime.requestTimeoutMs,
+    }),
+    [
+      props.accessToken,
+      props.runtime.enterpriseCode,
+      props.runtime.projectCode,
+      props.runtime.requestTimeoutMs,
+    ],
+  );
+  const candidateComposition = useMemo(
+    () => ({
+      groups: composition?.groups ?? [],
+      navigation: composition?.navigation ?? navigation,
+    }),
+    [composition?.groups, composition?.navigation, navigation],
+  );
+  const lifecycleMutation = useMutation({
+    mutationFn: async (action: NavigationCompositionAction) => {
+      if (!connection) throw new Error('BackOffice navigation lifecycle is unavailable');
+      const candidate = ['preview', 'createDraft'].includes(action)
+        ? candidateComposition
+        : undefined;
+      return executeNavigationCompositionAction(
+        connection,
+        configuration,
+        action,
+        candidate,
+      );
+    },
+    onSuccess: (_result, action) => {
+      setLastActionResult(
+        `${action} completed. Refresh Axis bootstrap to see a newly published effective composition.`,
+      );
+    },
+  });
   const normalizedSearchTerm = searchTerm.trim().toLowerCase();
   const filteredNavigation = useMemo(
     () =>
@@ -314,6 +365,71 @@ export function NavigationCompositionRoutePage(
                   Checksum: {composition.checksum}
                 </Typography>
               ) : null}
+            </Stack>
+          </CardContent>
+        </Card>
+
+        <Card variant="outlined">
+          <CardContent>
+            <Stack spacing={2}>
+              <Box>
+                <Typography component="h2" variant="h5">
+                  Governed authoring actions
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  Use the existing BackOffice navigation APIs to preview, export,
+                  draft, submit, approve, publish, and rollback the effective Axis
+                  navigation composition. Each publishing movement remains explicit
+                  and approval-led.
+                </Typography>
+              </Box>
+              {!connection ? (
+                <Alert severity="warning">
+                  BackOffice registry connection is unavailable for this session.
+                </Alert>
+              ) : null}
+              {lifecycleMutation.error ? (
+                <Alert severity="error">
+                  {lifecycleMutation.error instanceof Error
+                    ? lifecycleMutation.error.message
+                    : 'Navigation lifecycle action failed'}
+                </Alert>
+              ) : null}
+              {lastActionResult ? (
+                <Alert severity="success">{lastActionResult}</Alert>
+              ) : null}
+              <Grid container spacing={1}>
+                {[
+                  { action: 'preview', label: 'Preview candidate' },
+                  { action: 'export', label: 'Export effective' },
+                  { action: 'createDraft', label: 'Create draft' },
+                  { action: 'submit', label: 'Submit draft' },
+                  { action: 'approve', label: 'Approve draft' },
+                  { action: 'publish', label: 'Publish effective' },
+                  { action: 'rollback', label: 'Rollback latest' },
+                ].map((item) => (
+                  <Grid key={item.action} size={{ xs: 12, sm: 6, md: 3 }}>
+                    <Button
+                      disabled={!connection || lifecycleMutation.isPending}
+                      fullWidth
+                      onClick={() =>
+                        lifecycleMutation.mutate(
+                          item.action as NavigationCompositionAction,
+                        )
+                      }
+                      variant={item.action === 'publish' ? 'contained' : 'outlined'}
+                    >
+                      {item.label}
+                    </Button>
+                  </Grid>
+                ))}
+              </Grid>
+              <Alert severity="info">
+                This panel intentionally uses the current effective composition as the
+                draft candidate. Detailed field-level CMS editing remains a deeper
+                BackOffice workbench, but lifecycle actions are now reachable and
+                auditable from Axis.
+              </Alert>
             </Stack>
           </CardContent>
         </Card>

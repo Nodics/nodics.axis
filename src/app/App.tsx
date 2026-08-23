@@ -1230,8 +1230,10 @@ export function App() {
             navigationCompositionNavigation ? (
               authenticatedShell(
                 <NavigationCompositionRoutePage
+                  accessToken={session.accessToken}
                   bootstrap={authenticatedBootstrap}
                   routeNavigation={navigationCompositionNavigation}
+                  runtime={runtime}
                 />,
               )
             ) : (
