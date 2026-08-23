@@ -21,12 +21,15 @@ export interface FunctionalModuleSampleDataResult {
 export type FunctionalModuleLifecycleAction =
   | 'register'
   | 'activate'
+  | 'rollback'
   | 'deactivate'
   | 'deregister';
 
 const ACTION_REASONS: Record<FunctionalModuleLifecycleAction, string> = {
   register: 'Axis Module Registry registration requested by an authorized employee.',
   activate: 'Axis Module Registry activation requested by an authorized employee.',
+  rollback:
+    'Axis Module Registry activation rollback requested by an authorized employee.',
   deactivate: 'Axis Module Registry deactivation requested by an authorized employee.',
   deregister:
     'Axis Module Registry deregistration requested by an authorized employee.',

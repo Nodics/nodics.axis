@@ -774,6 +774,16 @@ function ModuleCard({
               <Button
                 color="warning"
                 disabled={disabled || pending}
+                onClick={() => onAction(module, 'rollback')}
+                variant="outlined"
+              >
+                {pendingAction === 'rollback' ? 'Rolling back...' : 'Rollback activation'}
+              </Button>
+            ) : null}
+            {canDeactivate ? (
+              <Button
+                color="warning"
+                disabled={disabled || pending}
                 onClick={() => onAction(module, 'deactivate')}
                 variant="outlined"
               >
@@ -844,7 +854,7 @@ export function FunctionalModuleRegistryRoutePage(
     | undefined
     | {
         readonly module: FunctionalModuleRegistration;
-        readonly action: Extract<ModuleAction, 'deactivate' | 'deregister'>;
+        readonly action: Extract<ModuleAction, 'rollback' | 'deactivate' | 'deregister'>;
       }
   >();
   const connection = selectModuleConnection(props.bootstrap, 'backoffice');
@@ -968,6 +978,8 @@ export function FunctionalModuleRegistryRoutePage(
             message:
               variables.action === 'activate'
                 ? `${updatedModule.displayName} is activated. Axis navigation was refreshed from the BackOffice bootstrap contract.`
+                : variables.action === 'rollback'
+                  ? `${updatedModule.displayName} activation was rolled back. Imported data was retained and Axis navigation was refreshed from the BackOffice bootstrap contract.`
                 : variables.action === 'deactivate'
                   ? `${updatedModule.displayName} is deactivated. Axis navigation was refreshed from the BackOffice bootstrap contract.`
                   : variables.action === 'register'
@@ -1045,7 +1057,7 @@ export function FunctionalModuleRegistryRoutePage(
     action: ModuleAction,
   ) => {
     sampleData.reset();
-    if (action === 'deactivate' || action === 'deregister') {
+    if (action === 'rollback' || action === 'deactivate' || action === 'deregister') {
       setSafetyConfirmation({ action, module });
       return;
     }
