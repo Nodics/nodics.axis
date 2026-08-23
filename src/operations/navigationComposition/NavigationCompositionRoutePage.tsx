@@ -162,6 +162,15 @@ export function NavigationCompositionRoutePage(
     (warning) => String(warning.severity ?? 'WARNING') === 'INFO',
   );
   const authoring = composition?.authoring;
+  const lifecycleReady =
+    authoring?.draftSupported === true &&
+    authoring?.publishSupported === true &&
+    authoring?.rollbackSupported !== false;
+  const draftState = authoring?.draftState
+    ? String(authoring.draftState)
+    : authoring?.draftSupported === true
+      ? 'Ready'
+      : 'Not active';
   const allVisibleGroupsCollapsed = visibleGroups.every(([groupId]) =>
     collapsedGroups.has(groupId),
   );
@@ -177,7 +186,7 @@ export function NavigationCompositionRoutePage(
   return (
     <WorkspaceContainer>
       <WorkspaceHeading
-        description="Inspect the effective Axis navigation composition resolved by BackOffice. Module defaults are active today; governed draft, approval, publish, and rollback authoring remain protected future lifecycle steps."
+        description="Inspect the effective Axis navigation composition resolved by BackOffice, including module defaults, governed overrides, source trace, approval readiness, and rollback candidates."
         help={props.routeNavigation?.help}
         title="Navigation Composition"
       />
@@ -252,11 +261,7 @@ export function NavigationCompositionRoutePage(
                 <Chip label={`Lifecycle: ${composition?.lifecycleState ?? 'FALLBACK'}`} />
                 <Chip label={`Source: ${composition?.source ?? 'CATALOGUE'}`} />
                 <Chip
-                  label={`Drafts: ${
-                    composition?.authoring?.draftSupported === true
-                      ? 'Supported'
-                      : 'Not active'
-                  }`}
+                  label={`Drafts: ${draftState}`}
                   variant="outlined"
                 />
                 <Chip
@@ -274,7 +279,7 @@ export function NavigationCompositionRoutePage(
                 <Chip
                   label={`Import validation: ${
                     authoring?.importValidationSupported === true
-                      ? 'Validate only'
+                      ? 'Available'
                       : 'Not active'
                   }`}
                   variant="outlined"
@@ -282,8 +287,16 @@ export function NavigationCompositionRoutePage(
                 <Chip
                   label={`Publishing: ${
                     authoring?.publishSupported === true
-                      ? 'Supported'
+                      ? 'Approval required'
                       : 'Approval protected'
+                  }`}
+                  variant="outlined"
+                />
+                <Chip
+                  label={`Rollback: ${
+                    authoring?.rollbackSupported === true
+                      ? 'Candidates available'
+                      : 'Awaiting history'
                   }`}
                   variant="outlined"
                 />
@@ -315,9 +328,11 @@ export function NavigationCompositionRoutePage(
             },
             {
               title: 'Approval lifecycle',
-              state: authoring?.publishSupported === true ? 'Ready' : 'Protected',
+              state: lifecycleReady ? 'Ready' : 'Protected',
               detail:
-                'Draft submit, checker approval, publish, and rollback stay disabled until durable scoped persistence and audit query are wired.',
+                authoring?.publishSupported === true
+                  ? 'Draft submit, checker approval, publish-to-effective, and rollback are backend-governed operations. Staged-to-Online movement still requires approval.'
+                  : 'Draft submit, checker approval, publish, and rollback remain protected until the backend lifecycle is available.',
             },
             {
               title: 'RBAC boundary',
@@ -329,7 +344,7 @@ export function NavigationCompositionRoutePage(
               title: 'Localization',
               state: String(authoring?.localizationSupported ?? 'Label-key foundation'),
               detail:
-                'Module labels already carry label keys where available; business translation workflow remains a governed BackOffice data task.',
+                'Navigation groups and links carry label keys where available, so business translations can be governed as BackOffice data instead of frontend text changes.',
             },
           ].map((item) => (
             <Grid key={item.title} size={{ xs: 12, md: 3 }}>
