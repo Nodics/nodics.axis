@@ -203,9 +203,7 @@ export function App() {
           setLockedReturnPath(persistedLock.returnPath);
           setLocked(true);
           void navigate('/lock-screen', { replace: true });
-        } else if (
-          !['/', '/login', '/forgot-password'].includes(location.pathname)
-        ) {
+        } else if (!['/', '/login', '/forgot-password'].includes(location.pathname)) {
           void navigate(currentRoutePath, { replace: true });
         }
       })
@@ -383,14 +381,16 @@ export function App() {
   const workbenchNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'schema-workbench' && item.moduleName === 'backoffice',
   );
-  const documentationNavigation = authenticatedBootstrap?.navigation.find(
-    (item) => item.id === 'documentation' && item.moduleName === 'backoffice',
-  ) ?? authenticatedBootstrap?.navigation.find(
-    (item) =>
-      item.group?.label === 'Documentation' &&
-      item.route.startsWith('/docs/') &&
-      ['UP', 'DEGRADED'].includes(item.availability),
-  );
+  const documentationNavigation =
+    authenticatedBootstrap?.navigation.find(
+      (item) => item.id === 'documentation' && item.moduleName === 'backoffice',
+    ) ??
+    authenticatedBootstrap?.navigation.find(
+      (item) =>
+        item.group?.label === 'Documentation' &&
+        item.route.startsWith('/docs/') &&
+        ['UP', 'DEGRADED'].includes(item.availability),
+    );
   const moduleHealthNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'module-health' && item.moduleName === 'backoffice',
   );
@@ -401,8 +401,7 @@ export function App() {
     (item) => item.id === 'registry' && item.moduleName === 'backoffice',
   );
   const navigationCompositionNavigation = authenticatedBootstrap?.navigation.find(
-    (item) =>
-      item.id === 'navigation-composition' && item.moduleName === 'backoffice',
+    (item) => item.id === 'navigation-composition' && item.moduleName === 'backoffice',
   );
   const setupAcceleratorsNavigation = authenticatedBootstrap?.navigation.find(
     (item) =>
@@ -1255,7 +1254,10 @@ export function App() {
         <Route
           path="/setup-accelerators"
           element={
-            session && !locked && authenticatedBootstrap && setupAcceleratorsNavigation ? (
+            session &&
+            !locked &&
+            authenticatedBootstrap &&
+            setupAcceleratorsNavigation ? (
               authenticatedShell(
                 <SetupAcceleratorsRoutePage
                   accessToken={session.accessToken}

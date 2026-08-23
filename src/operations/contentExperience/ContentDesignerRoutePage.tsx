@@ -772,7 +772,10 @@ function ContentPublishReadinessPanel({
     },
   ];
   return (
-    <Card variant="outlined" sx={{ bgcolor: 'background.default', borderStyle: 'dashed' }}>
+    <Card
+      variant="outlined"
+      sx={{ bgcolor: 'background.default', borderStyle: 'dashed' }}
+    >
       <CardContent>
         <Stack spacing={2}>
           <Box>
@@ -780,9 +783,9 @@ function ContentPublishReadinessPanel({
               CMS publishing readiness and impact
             </Typography>
             <Typography color="text.secondary" variant="body2">
-              Validate dependencies before submit. Publishing impact is the saved
-              Staged draft plus route, component, template, media, and layout evidence
-              that approvers should inspect before Online movement.
+              Validate dependencies before submit. Publishing impact is the saved Staged
+              draft plus route, component, template, media, and layout evidence that
+              approvers should inspect before Online movement.
             </Typography>
           </Box>
           <Box
@@ -806,7 +809,11 @@ function ContentPublishReadinessPanel({
           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
             <Chip label={`Catalog: ${draft.catalogCode}`} size="small" />
             <Chip label={`Site: ${draft.siteCode}`} size="small" variant="outlined" />
-            <Chip label={`Template: ${draft.templateCode}`} size="small" variant="outlined" />
+            <Chip
+              label={`Template: ${draft.templateCode}`}
+              size="small"
+              variant="outlined"
+            />
             <Chip label={`Route: ${routePath}`} size="small" variant="outlined" />
             <Chip
               label={
@@ -1052,7 +1059,8 @@ export function ContentDesignerRoutePage({
   const draftIsValidated =
     validatedDraftSignature === draftSignature &&
     validationSucceeded(validateMutation.data);
-  const draftIsSaved = savedDraftSignature === draftSignature && Boolean(saveMutation.data);
+  const draftIsSaved =
+    savedDraftSignature === draftSignature && Boolean(saveMutation.data);
   const metrics = metricsById(data.data, designerMetrics);
   const operationError =
     validateMutation.error instanceof Error
@@ -1180,8 +1188,8 @@ export function ContentDesignerRoutePage({
               <Alert severity="info" variant="outlined">
                 Save Draft uses the existing CMS generated APIs to create immutable
                 Staged versions. Submit to Publishing then validates the exact saved
-                route version, sends it through nPublish approval, and relies on
-                backend revision checks to prevent stale approvals.
+                route version, sends it through nPublish approval, and relies on backend
+                revision checks to prevent stale approvals.
               </Alert>
               <TextField
                 helperText={

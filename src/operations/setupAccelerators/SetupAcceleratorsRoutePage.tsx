@@ -68,6 +68,62 @@ interface DestructiveConfirmationState {
 
 const queryRoot = ['setup-accelerators'] as const;
 
+const acceleratorLifecycleSteps = Object.freeze([
+  Object.freeze({
+    title: 'Select accelerator',
+    detail:
+      'Choose Nexus or one Agora domain independently. Shared/common data must be declared by the package, not hidden in Axis.',
+  }),
+  Object.freeze({
+    title: 'Initialize Staged data',
+    detail:
+      'Import init/core/project/docs/media packages into the governed preparation area with checksum and target scope.',
+  }),
+  Object.freeze({
+    title: 'Submit and approve',
+    detail:
+      'Create the Publishing Request and complete the Process approval task before Online visibility can change.',
+  }),
+  Object.freeze({
+    title: 'Verify Online',
+    detail:
+      'Confirm Online pointer, history, audit, and browser delivery in Nexus or the selected Agora storefront.',
+  }),
+  Object.freeze({
+    title: 'Rollback or retire',
+    detail:
+      'Use governed rollback/retire actions with business reason, current Online evidence, and post-action verification.',
+  }),
+]);
+
+const acceleratorDataClasses = Object.freeze([
+  Object.freeze({
+    label: 'init',
+    detail:
+      'Required framework/runtime baseline, safe to install as part of activation.',
+  }),
+  Object.freeze({
+    label: 'core',
+    detail:
+      'Required module or accelerator business data without which the capability cannot run.',
+  }),
+  Object.freeze({
+    label: 'sample',
+    detail:
+      'Optional demonstration data; operator-triggered and disabled by default for production.',
+  }),
+  Object.freeze({
+    label: 'project',
+    detail:
+      'Nexus, Agora, or customer project content that must publish through Staged-to-Online approval.',
+  }),
+  Object.freeze({
+    label: 'docs/media',
+    detail:
+      'Documentation content and binary references that need ownership, checksum, and provider readiness.',
+  }),
+]);
+
 function stateColor(
   state: string,
 ): 'success' | 'warning' | 'error' | 'info' | 'default' {
@@ -88,8 +144,8 @@ function operationLabel(operation: AcceleratorOperation): string {
 function canApprove(status: ApplicationInitializationStatus | undefined): boolean {
   return Boolean(
     status?.readiness === 'PUBLICATION_PENDING' &&
-      status.publication?.state === 'PENDING_APPROVAL' &&
-      status.publication.workflowRef,
+    status.publication?.state === 'PENDING_APPROVAL' &&
+    status.publication.workflowRef,
   );
 }
 
@@ -127,7 +183,8 @@ function profileErrorMessage(
 }
 
 function acceleratorFamily(profile: ApplicationInitializationProfile): string {
-  const code = `${profile.code} ${profile.applicationCode} ${profile.siteCode} ${profile.title}`.toLowerCase();
+  const code =
+    `${profile.code} ${profile.applicationCode} ${profile.siteCode} ${profile.title}`.toLowerCase();
   if (code.includes('nexus')) return 'Nexus corporate site';
   if (code.includes('apparel')) return 'Agora Apparel';
   if (code.includes('electronics')) return 'Agora Electronics';
@@ -171,7 +228,11 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
     [props.bootstrap.applicationInitializationProfiles],
   );
   const clients = useMemo(() => {
-    if (!backofficeConnection) return new Map<string, ReturnType<typeof createApplicationInitializationClient>>();
+    if (!backofficeConnection)
+      return new Map<
+        string,
+        ReturnType<typeof createApplicationInitializationClient>
+      >();
     return new Map(
       profiles.map((profile) => [
         profile.code,
@@ -197,7 +258,8 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
       queryKey: [...queryRoot, profile.code],
       queryFn: () => {
         const client = clients.get(profile.code);
-        if (!client) throw new Error('BackOffice application initialization is unavailable');
+        if (!client)
+          throw new Error('BackOffice application initialization is unavailable');
         return client.getStatus();
       },
       refetchInterval: (
@@ -207,8 +269,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
           ApplicationInitializationStatus,
           readonly unknown[]
         >,
-      ) =>
-        query.state.data?.readiness === 'PUBLICATION_PENDING' ? 2_000 : false,
+      ) => (query.state.data?.readiness === 'PUBLICATION_PENDING' ? 2_000 : false),
     })),
   });
   const mutation = useMutation({
@@ -224,7 +285,8 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
       readonly reason?: string | undefined;
     }) => {
       const client = clients.get(profile.code);
-      if (!client) throw new Error('BackOffice application initialization is unavailable');
+      if (!client)
+        throw new Error('BackOffice application initialization is unavailable');
       if (operation === 'approve') {
         if (!processConnection || !status?.publication?.workflowRef) {
           throw new Error('The governed Process approval task is unavailable');
@@ -271,14 +333,20 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
     },
   });
   type AcceleratorStatusQuery = (typeof queries)[number];
-  const statuses = profiles.map((profile, index) => {
-    const query = queries[index];
-    if (!query) return undefined;
-    return { profile, query };
-  }).filter(
-    (item): item is { readonly profile: ApplicationInitializationProfile; readonly query: AcceleratorStatusQuery } =>
-      Boolean(item),
-  );
+  const statuses = profiles
+    .map((profile, index) => {
+      const query = queries[index];
+      if (!query) return undefined;
+      return { profile, query };
+    })
+    .filter(
+      (
+        item,
+      ): item is {
+        readonly profile: ApplicationInitializationProfile;
+        readonly query: AcceleratorStatusQuery;
+      } => Boolean(item),
+    );
   const readyCount = statuses.filter(
     (item) => item.query.data?.readiness === 'READY',
   ).length;
@@ -351,6 +419,64 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
           browser page. Setup starts the journey; Publishing and Process provide the
           evidence.
         </Alert>
+        <Card variant="outlined">
+          <CardContent>
+            <Stack spacing={2}>
+              <Box>
+                <Typography component="h2" variant="h6">
+                  Accelerator lifecycle map
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  Nexus and Agora accelerators follow the same governed path, but each
+                  domain remains independently selectable, approvable, publishable, and
+                  rollback-capable.
+                </Typography>
+              </Box>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 2,
+                  gridTemplateColumns: {
+                    xs: '1fr',
+                    md: 'repeat(5, minmax(0, 1fr))',
+                  },
+                }}
+              >
+                {acceleratorLifecycleSteps.map((step) => (
+                  <Card key={step.title} variant="outlined">
+                    <CardContent>
+                      <Stack spacing={1}>
+                        <Typography variant="subtitle1">{step.title}</Typography>
+                        <Typography color="text.secondary" variant="body2">
+                          {step.detail}
+                        </Typography>
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                ))}
+              </Box>
+              <Divider />
+              <Box>
+                <Typography component="h3" variant="subtitle1">
+                  Data classification
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  Packages should be clear before import so operators know what is
+                  automatic, required, optional, project-specific, or provider-bound.
+                </Typography>
+              </Box>
+              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                {acceleratorDataClasses.map((item) => (
+                  <Chip
+                    key={item.label}
+                    label={`${item.label}: ${item.detail}`}
+                    variant="outlined"
+                  />
+                ))}
+              </Stack>
+            </Stack>
+          </CardContent>
+        </Card>
         {profiles.length === 0 ? (
           <Alert severity="warning">
             Authenticated bootstrap did not include any application-initialization
@@ -375,8 +501,8 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                 </Typography>
                 <Typography color="text.secondary" variant="body2">
                   Profiles are governed by the BackOffice application-initialization
-                  catalogue. Project modules can add accelerators through
-                  configuration without hardcoding new cards into Axis.
+                  catalogue. Project modules can add accelerators through configuration
+                  without hardcoding new cards into Axis.
                 </Typography>
               </Box>
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
@@ -449,7 +575,9 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                             variant="outlined"
                           />
                           <Chip
-                            color={requiredPackageCount(profile) > 0 ? 'warning' : 'default'}
+                            color={
+                              requiredPackageCount(profile) > 0 ? 'warning' : 'default'
+                            }
                             label={`${String(requiredPackageCount(profile))} required`}
                             size="small"
                           />
@@ -498,9 +626,15 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
               >
                 {[
                   ['1. Import', 'Required package data is imported into Staged.'],
-                  ['2. Request', 'A governed Publishing Request records target and evidence.'],
+                  [
+                    '2. Request',
+                    'A governed Publishing Request records target and evidence.',
+                  ],
                   ['3. Approve', 'Process approval decides whether Online can change.'],
-                  ['4. Verify', 'Online state, receipts, audit, and browser page are checked.'],
+                  [
+                    '4. Verify',
+                    'Online state, receipts, audit, and browser page are checked.',
+                  ],
                 ].map(([title, body]) => (
                   <Card key={title} variant="outlined">
                     <CardContent>
@@ -576,331 +710,409 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                   }}
                 >
                   {group.items.map(({ profile, query }) => {
-              const status = query.data;
-              const pending =
-                mutation.isPending &&
-                mutation.variables?.profile.code === profile.code;
-              return (
-                <Card key={profile.code} variant="outlined">
-                  <CardContent>
-                    <Stack spacing={2}>
-                      <Stack
-                        direction={{ xs: 'column', sm: 'row' }}
-                        spacing={1.5}
-                        sx={{ justifyContent: 'space-between' }}
-                      >
-                        <Box>
-                          <Typography component="h3" variant="h6">
-                            {profile.title}
-                          </Typography>
-                          <Typography color="text.secondary" variant="body2">
-                            {profile.summary}
-                          </Typography>
-                        </Box>
-                        <Chip
-                          color={profile.kind === 'PROJECT' ? 'primary' : 'default'}
-                          label={profile.kind === 'PROJECT' ? 'Project accelerator' : 'Documentation'}
-                          size="small"
-                        />
-                      </Stack>
-                      {query.error instanceof Error ? (
-                        <Alert severity="error">
-                          {profileErrorMessage(profile, query.error.message)}
-                        </Alert>
-                      ) : status ? (
-                        <>
-                          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                            <Chip
-                              color={stateColor(status.readiness)}
-                              label={readinessLabel(status.readiness)}
-                              size="small"
-                            />
-                            <Chip
-                              label={`${friendlyPackageLabel(status.releaseCode)} ${status.releaseVersion}`}
-                              size="small"
-                              variant="outlined"
-                            />
-                            <Chip
-                              label={status.owner}
-                              size="small"
-                              variant="outlined"
-                            />
-                          </Stack>
-                          <Box>
-                            <Typography color="text.secondary" variant="caption">
-                              Application and site
-                            </Typography>
-                            <Typography>
-                              {status.applicationCode} · {status.siteCode}
-                            </Typography>
-                          </Box>
-                          <Stack spacing={1}>
-                            <Card
-                              variant="outlined"
-                              sx={{ bgcolor: 'background.default', borderStyle: 'dashed' }}
+                    const status = query.data;
+                    const pending =
+                      mutation.isPending &&
+                      mutation.variables?.profile.code === profile.code;
+                    return (
+                      <Card key={profile.code} variant="outlined">
+                        <CardContent>
+                          <Stack spacing={2}>
+                            <Stack
+                              direction={{ xs: 'column', sm: 'row' }}
+                              spacing={1.5}
+                              sx={{ justifyContent: 'space-between' }}
                             >
-                              <CardContent>
-                                <Stack spacing={1.25}>
-                                  <Stack
-                                    direction={{ xs: 'column', sm: 'row' }}
-                                    spacing={1}
-                                    sx={{ justifyContent: 'space-between' }}
-                                  >
-                                    <Box>
-                                      <Typography component="h4" variant="subtitle1">
-                                        Dependency graph and publish verification
-                                      </Typography>
-                                      <Typography color="text.secondary" variant="body2">
-                                        {acceleratorFamily(profile)} depends on declared
-                                        runtimes, required data packages, approval, Online
-                                        status, and browser evidence for{' '}
-                                        {profilePublishChannel(profile)}.
-                                      </Typography>
-                                    </Box>
-                                    <Chip
-                                      color={
-                                        status.readiness === 'READY' ? 'success' : 'warning'
-                                      }
-                                      label={readinessLabel(status.readiness)}
-                                      size="small"
-                                    />
-                                  </Stack>
-                                  <Grid container spacing={1}>
-                                    {[
-                                      {
-                                        label: 'Runtime',
-                                        value: `${String(profile.requiredServers.length)} required`,
-                                      },
-                                      {
-                                        label: 'Required data',
-                                        value: `${String(requiredPackageCount(profile))} package(s)`,
-                                      },
-                                      {
-                                        label: 'Optional/sample',
-                                        value: `${String(optionalPackageCount(profile))} package(s)`,
-                                      },
-                                      {
-                                        label: 'Approval',
-                                        value: profile.activationPolicy.approvalRequiredForOnline
-                                          ? 'Required'
-                                          : 'Not required',
-                                      },
-                                    ].map((item) => (
-                                      <Grid key={item.label} size={{ xs: 12, sm: 6 }}>
-                                        <Alert severity="info" sx={{ height: '100%' }}>
-                                          <Typography component="div" variant="caption">
-                                            {item.label}
-                                          </Typography>
-                                          <Typography component="div" variant="body2">
-                                            {item.value}
-                                          </Typography>
-                                        </Alert>
-                                      </Grid>
-                                    ))}
-                                  </Grid>
-                                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                                    {[
-                                      'Publishing Request',
-                                      'Process Approval',
-                                      'Online Status',
-                                      'History & Audit',
-                                      'Browser Verification',
-                                    ].map((item) => (
-                                      <Chip key={item} label={item} size="small" variant="outlined" />
-                                    ))}
-                                  </Stack>
-                                </Stack>
-                              </CardContent>
-                            </Card>
-                            <Box>
-                              <Typography color="text.secondary" variant="caption">
-                                Required runtime
-                              </Typography>
-                              <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
-                                {profile.requiredServers.map((server) => (
+                              <Box>
+                                <Typography component="h3" variant="h6">
+                                  {profile.title}
+                                </Typography>
+                                <Typography color="text.secondary" variant="body2">
+                                  {profile.summary}
+                                </Typography>
+                              </Box>
+                              <Chip
+                                color={
+                                  profile.kind === 'PROJECT' ? 'primary' : 'default'
+                                }
+                                label={
+                                  profile.kind === 'PROJECT'
+                                    ? 'Project accelerator'
+                                    : 'Documentation'
+                                }
+                                size="small"
+                              />
+                            </Stack>
+                            {query.error instanceof Error ? (
+                              <Alert severity="error">
+                                {profileErrorMessage(profile, query.error.message)}
+                              </Alert>
+                            ) : status ? (
+                              <>
+                                <Stack
+                                  direction="row"
+                                  spacing={1}
+                                  sx={{ flexWrap: 'wrap' }}
+                                >
                                   <Chip
-                                    key={server}
-                                    label={server}
+                                    color={stateColor(status.readiness)}
+                                    label={readinessLabel(status.readiness)}
+                                    size="small"
+                                  />
+                                  <Chip
+                                    label={`${friendlyPackageLabel(status.releaseCode)} ${status.releaseVersion}`}
                                     size="small"
                                     variant="outlined"
                                   />
-                                ))}
-                              </Stack>
-                            </Box>
-                            {profile.dataPackages.length > 0 ? (
-                              <Box>
-                                <Typography color="text.secondary" variant="caption">
-                                  Data packages
-                                </Typography>
-                                <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
-                                  {profile.dataPackages.map((pack) => (
-                                    <Chip
-                                      color={pack.required ? 'warning' : 'default'}
-                                      key={`${pack.code}:${pack.kind}`}
-                                      label={`${friendlyPackageLabel(pack.code)} · ${triggerLabel(pack.trigger)}`}
-                                      size="small"
-                                      variant={pack.required ? 'filled' : 'outlined'}
-                                    />
-                                  ))}
+                                  <Chip
+                                    label={status.owner}
+                                    size="small"
+                                    variant="outlined"
+                                  />
                                 </Stack>
-                              </Box>
-                            ) : null}
-                            <Typography color="text.secondary" variant="caption">
-                              Online approval{' '}
-                              {profile.activationPolicy.approvalRequiredForOnline
-                                ? 'required'
-                                : 'not required'}{' '}
-                              · required data via{' '}
-                              {triggerLabel(profile.activationPolicy.requiredDataTrigger)}
-                              {' '}· sample data via{' '}
-                              {triggerLabel(profile.activationPolicy.sampleDataTrigger)}
-                            </Typography>
-                          </Stack>
-                          {status.publication ? (
-                            <Box>
-                              <Typography color="text.secondary" variant="caption">
-                                Publication
-                              </Typography>
-                              <Typography sx={{ overflowWrap: 'anywhere' }}>
-                                {status.publication.code} · {status.publication.state}
-                              </Typography>
-                              {status.publication.workflowRef ? (
-                                <Typography
-                                  color="text.secondary"
-                                  sx={{ overflowWrap: 'anywhere' }}
-                                  variant="caption"
+                                <Box>
+                                  <Typography color="text.secondary" variant="caption">
+                                    Application and site
+                                  </Typography>
+                                  <Typography>
+                                    {status.applicationCode} · {status.siteCode}
+                                  </Typography>
+                                </Box>
+                                <Stack spacing={1}>
+                                  <Card
+                                    variant="outlined"
+                                    sx={{
+                                      bgcolor: 'background.default',
+                                      borderStyle: 'dashed',
+                                    }}
+                                  >
+                                    <CardContent>
+                                      <Stack spacing={1.25}>
+                                        <Stack
+                                          direction={{ xs: 'column', sm: 'row' }}
+                                          spacing={1}
+                                          sx={{ justifyContent: 'space-between' }}
+                                        >
+                                          <Box>
+                                            <Typography
+                                              component="h4"
+                                              variant="subtitle1"
+                                            >
+                                              Dependency graph and publish verification
+                                            </Typography>
+                                            <Typography
+                                              color="text.secondary"
+                                              variant="body2"
+                                            >
+                                              {acceleratorFamily(profile)} depends on
+                                              declared runtimes, required data packages,
+                                              approval, Online status, and browser
+                                              evidence for{' '}
+                                              {profilePublishChannel(profile)}.
+                                            </Typography>
+                                          </Box>
+                                          <Chip
+                                            color={
+                                              status.readiness === 'READY'
+                                                ? 'success'
+                                                : 'warning'
+                                            }
+                                            label={readinessLabel(status.readiness)}
+                                            size="small"
+                                          />
+                                        </Stack>
+                                        <Grid container spacing={1}>
+                                          {[
+                                            {
+                                              label: 'Runtime',
+                                              value: `${String(profile.requiredServers.length)} required`,
+                                            },
+                                            {
+                                              label: 'Required data',
+                                              value: `${String(requiredPackageCount(profile))} package(s)`,
+                                            },
+                                            {
+                                              label: 'Optional/sample',
+                                              value: `${String(optionalPackageCount(profile))} package(s)`,
+                                            },
+                                            {
+                                              label: 'Approval',
+                                              value: profile.activationPolicy
+                                                .approvalRequiredForOnline
+                                                ? 'Required'
+                                                : 'Not required',
+                                            },
+                                          ].map((item) => (
+                                            <Grid
+                                              key={item.label}
+                                              size={{ xs: 12, sm: 6 }}
+                                            >
+                                              <Alert
+                                                severity="info"
+                                                sx={{ height: '100%' }}
+                                              >
+                                                <Typography
+                                                  component="div"
+                                                  variant="caption"
+                                                >
+                                                  {item.label}
+                                                </Typography>
+                                                <Typography
+                                                  component="div"
+                                                  variant="body2"
+                                                >
+                                                  {item.value}
+                                                </Typography>
+                                              </Alert>
+                                            </Grid>
+                                          ))}
+                                        </Grid>
+                                        <Stack
+                                          direction="row"
+                                          spacing={1}
+                                          sx={{ flexWrap: 'wrap' }}
+                                        >
+                                          {[
+                                            'Publishing Request',
+                                            'Process Approval',
+                                            'Online Status',
+                                            'History & Audit',
+                                            'Browser Verification',
+                                          ].map((item) => (
+                                            <Chip
+                                              key={item}
+                                              label={item}
+                                              size="small"
+                                              variant="outlined"
+                                            />
+                                          ))}
+                                        </Stack>
+                                      </Stack>
+                                    </CardContent>
+                                  </Card>
+                                  <Box>
+                                    <Typography
+                                      color="text.secondary"
+                                      variant="caption"
+                                    >
+                                      Required runtime
+                                    </Typography>
+                                    <Stack
+                                      direction="row"
+                                      spacing={0.75}
+                                      sx={{ flexWrap: 'wrap' }}
+                                    >
+                                      {profile.requiredServers.map((server) => (
+                                        <Chip
+                                          key={server}
+                                          label={server}
+                                          size="small"
+                                          variant="outlined"
+                                        />
+                                      ))}
+                                    </Stack>
+                                  </Box>
+                                  {profile.dataPackages.length > 0 ? (
+                                    <Box>
+                                      <Typography
+                                        color="text.secondary"
+                                        variant="caption"
+                                      >
+                                        Data packages
+                                      </Typography>
+                                      <Stack
+                                        direction="row"
+                                        spacing={0.75}
+                                        sx={{ flexWrap: 'wrap' }}
+                                      >
+                                        {profile.dataPackages.map((pack) => (
+                                          <Chip
+                                            color={
+                                              pack.required ? 'warning' : 'default'
+                                            }
+                                            key={`${pack.code}:${pack.kind}`}
+                                            label={`${friendlyPackageLabel(pack.code)} · ${triggerLabel(pack.trigger)}`}
+                                            size="small"
+                                            variant={
+                                              pack.required ? 'filled' : 'outlined'
+                                            }
+                                          />
+                                        ))}
+                                      </Stack>
+                                    </Box>
+                                  ) : null}
+                                  <Typography color="text.secondary" variant="caption">
+                                    Online approval{' '}
+                                    {profile.activationPolicy.approvalRequiredForOnline
+                                      ? 'required'
+                                      : 'not required'}{' '}
+                                    · required data via{' '}
+                                    {triggerLabel(
+                                      profile.activationPolicy.requiredDataTrigger,
+                                    )}{' '}
+                                    · sample data via{' '}
+                                    {triggerLabel(
+                                      profile.activationPolicy.sampleDataTrigger,
+                                    )}
+                                  </Typography>
+                                </Stack>
+                                {status.publication ? (
+                                  <Box>
+                                    <Typography
+                                      color="text.secondary"
+                                      variant="caption"
+                                    >
+                                      Publication
+                                    </Typography>
+                                    <Typography sx={{ overflowWrap: 'anywhere' }}>
+                                      {status.publication.code} ·{' '}
+                                      {status.publication.state}
+                                    </Typography>
+                                    {status.publication.workflowRef ? (
+                                      <Typography
+                                        color="text.secondary"
+                                        sx={{ overflowWrap: 'anywhere' }}
+                                        variant="caption"
+                                      >
+                                        Workflow {status.publication.workflowRef}
+                                      </Typography>
+                                    ) : null}
+                                  </Box>
+                                ) : null}
+                                <Alert
+                                  severity={
+                                    status.readiness === 'READY'
+                                      ? 'success'
+                                      : status.readiness === 'PUBLICATION_PENDING'
+                                        ? 'warning'
+                                        : 'info'
+                                  }
                                 >
-                                  Workflow {status.publication.workflowRef}
-                                </Typography>
-                              ) : null}
-                            </Box>
-                          ) : null}
-                          <Alert
-                            severity={
-                              status.readiness === 'READY'
-                                ? 'success'
-                                : status.readiness === 'PUBLICATION_PENDING'
-                                  ? 'warning'
-                                  : 'info'
-                            }
-                          >
-                            {status.readiness === 'READY'
-                              ? 'Next: verify the Online page or storefront, then review history and audit if evidence is needed.'
-                              : status.readiness === 'PUBLICATION_PENDING'
-                                ? 'Next: review the Process approval task. Approving can change Online; rejecting keeps Online unchanged.'
-                                : 'Next: initialize when the target runtime is available. Axis will create the publishing evidence after import.'}
-                          </Alert>
-                          <Divider />
-                          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                            {status.allowedActions.includes('INITIALIZE') ? (
-                              <Button
-                                disabled={pending}
-                                onClick={() =>
-                                  mutation.mutate({
-                                    operation: 'initiate',
-                                    profile,
-                                    status,
-                                  })
-                                }
-                                variant="contained"
-                              >
-                                {pending && mutation.variables?.operation === 'initiate'
-                                  ? 'Initializing...'
-                                  : 'Initialize'}
-                              </Button>
-                            ) : null}
-                            {canApprove(status) ? (
-                              <Button
-                                disabled={pending}
-                                onClick={() =>
-                                  mutation.mutate({
-                                    operation: 'approve',
-                                    profile,
-                                    status,
-                                  })
-                                }
-                                variant="contained"
-                              >
-                                {pending && mutation.variables?.operation === 'approve'
-                                  ? 'Approving...'
-                                  : 'Approve'}
-                              </Button>
-                            ) : null}
-                            {status.allowedActions.includes('ROLLBACK') ? (
-                              <Button
-                                color="warning"
-                                disabled={pending}
-                                onClick={() => {
-                                  setDestructiveReason(
-                                    `${profile.title} rollback requested after Online evidence review.`,
-                                  );
-                                  setDestructiveConfirmation({
-                                    operation: 'rollback',
-                                    profile,
-                                    status,
-                                  });
-                                }}
-                                variant="outlined"
-                              >
-                                {operationLabel('rollback')}
-                              </Button>
-                            ) : null}
-                            {status.allowedActions.includes('RETIRE') ? (
-                              <Button
-                                color="warning"
-                                disabled={pending}
-                                onClick={() => {
-                                  setDestructiveReason(
-                                    `${profile.title} retirement requested after Online evidence review.`,
-                                  );
-                                  setDestructiveConfirmation({
-                                    operation: 'retire',
-                                    profile,
-                                    status,
-                                  });
-                                }}
-                                variant="outlined"
-                              >
-                                {operationLabel('retire')}
-                              </Button>
-                            ) : null}
-                            <Button
-                              disabled={pending}
-                              onClick={() => void query.refetch()}
-                              variant="text"
-                            >
-                              Refresh
-                            </Button>
-                            <Button
-                              disabled={pending}
-                              onClick={() => navigate('/publishing/requests')}
-                              variant="text"
-                            >
-                              Requests
-                            </Button>
-                            <Button
-                              disabled={pending}
-                              onClick={() => navigate('/process/tasks')}
-                              variant="text"
-                            >
-                              Approvals
-                            </Button>
-                            <Button
-                              disabled={pending}
-                              onClick={() => navigate('/publishing/status')}
-                              variant="text"
-                            >
-                              Online status
-                            </Button>
+                                  {status.readiness === 'READY'
+                                    ? 'Next: verify the Online page or storefront, then review history and audit if evidence is needed.'
+                                    : status.readiness === 'PUBLICATION_PENDING'
+                                      ? 'Next: review the Process approval task. Approving can change Online; rejecting keeps Online unchanged.'
+                                      : 'Next: initialize when the target runtime is available. Axis will create the publishing evidence after import.'}
+                                </Alert>
+                                <Divider />
+                                <Stack
+                                  direction="row"
+                                  spacing={1}
+                                  sx={{ flexWrap: 'wrap' }}
+                                >
+                                  {status.allowedActions.includes('INITIALIZE') ? (
+                                    <Button
+                                      disabled={pending}
+                                      onClick={() =>
+                                        mutation.mutate({
+                                          operation: 'initiate',
+                                          profile,
+                                          status,
+                                        })
+                                      }
+                                      variant="contained"
+                                    >
+                                      {pending &&
+                                      mutation.variables?.operation === 'initiate'
+                                        ? 'Initializing...'
+                                        : 'Initialize'}
+                                    </Button>
+                                  ) : null}
+                                  {canApprove(status) ? (
+                                    <Button
+                                      disabled={pending}
+                                      onClick={() =>
+                                        mutation.mutate({
+                                          operation: 'approve',
+                                          profile,
+                                          status,
+                                        })
+                                      }
+                                      variant="contained"
+                                    >
+                                      {pending &&
+                                      mutation.variables?.operation === 'approve'
+                                        ? 'Approving...'
+                                        : 'Approve'}
+                                    </Button>
+                                  ) : null}
+                                  {status.allowedActions.includes('ROLLBACK') ? (
+                                    <Button
+                                      color="warning"
+                                      disabled={pending}
+                                      onClick={() => {
+                                        setDestructiveReason(
+                                          `${profile.title} rollback requested after Online evidence review.`,
+                                        );
+                                        setDestructiveConfirmation({
+                                          operation: 'rollback',
+                                          profile,
+                                          status,
+                                        });
+                                      }}
+                                      variant="outlined"
+                                    >
+                                      {operationLabel('rollback')}
+                                    </Button>
+                                  ) : null}
+                                  {status.allowedActions.includes('RETIRE') ? (
+                                    <Button
+                                      color="warning"
+                                      disabled={pending}
+                                      onClick={() => {
+                                        setDestructiveReason(
+                                          `${profile.title} retirement requested after Online evidence review.`,
+                                        );
+                                        setDestructiveConfirmation({
+                                          operation: 'retire',
+                                          profile,
+                                          status,
+                                        });
+                                      }}
+                                      variant="outlined"
+                                    >
+                                      {operationLabel('retire')}
+                                    </Button>
+                                  ) : null}
+                                  <Button
+                                    disabled={pending}
+                                    onClick={() => void query.refetch()}
+                                    variant="text"
+                                  >
+                                    Refresh
+                                  </Button>
+                                  <Button
+                                    disabled={pending}
+                                    onClick={() => navigate('/publishing/requests')}
+                                    variant="text"
+                                  >
+                                    Requests
+                                  </Button>
+                                  <Button
+                                    disabled={pending}
+                                    onClick={() => navigate('/process/tasks')}
+                                    variant="text"
+                                  >
+                                    Approvals
+                                  </Button>
+                                  <Button
+                                    disabled={pending}
+                                    onClick={() => navigate('/publishing/status')}
+                                    variant="text"
+                                  >
+                                    Online status
+                                  </Button>
+                                </Stack>
+                              </>
+                            ) : (
+                              <Alert severity="warning">
+                                Profile status is unavailable.
+                              </Alert>
+                            )}
                           </Stack>
-                        </>
-                      ) : (
-                        <Alert severity="warning">Profile status is unavailable.</Alert>
-                      )}
-                    </Stack>
-                  </CardContent>
-                </Card>
-              );
+                        </CardContent>
+                      </Card>
+                    );
                   })}
                 </Box>
               </Stack>
@@ -928,9 +1140,9 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <Alert severity="warning">
-              This can change the Online accelerator state. Confirm only after
-              checking the current Online version, rollback candidate, audit
-              evidence, and expected browser verification path.
+              This can change the Online accelerator state. Confirm only after checking
+              the current Online version, rollback candidate, audit evidence, and
+              expected browser verification path.
             </Alert>
             {destructiveConfirmation ? (
               <Box>

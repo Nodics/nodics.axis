@@ -39,8 +39,7 @@ export interface FunctionalModuleActivationPackage {
   readonly dataType: string;
 }
 
-export interface FunctionalModuleActivationReceipt
-  extends FunctionalModuleActivationPackage {
+export interface FunctionalModuleActivationReceipt extends FunctionalModuleActivationPackage {
   readonly receiptKey: string;
   readonly status: string;
   readonly idempotent: boolean;
@@ -146,10 +145,14 @@ function parseActivationReceipt(
         ? item.idempotent
         : boolean(item.idempotent, `${name} idempotent flag`),
     message: optionalString(item.message),
-    executionMode: item.executionMode === undefined ? undefined : optionalString(item.executionMode),
-    releaseStatus: item.releaseStatus === undefined ? undefined : optionalString(item.releaseStatus),
-    importRunId: item.importRunId === undefined ? undefined : optionalString(item.importRunId),
-    lastAttemptAt: item.lastAttemptAt === undefined ? undefined : optionalString(item.lastAttemptAt),
+    executionMode:
+      item.executionMode === undefined ? undefined : optionalString(item.executionMode),
+    releaseStatus:
+      item.releaseStatus === undefined ? undefined : optionalString(item.releaseStatus),
+    importRunId:
+      item.importRunId === undefined ? undefined : optionalString(item.importRunId),
+    lastAttemptAt:
+      item.lastAttemptAt === undefined ? undefined : optionalString(item.lastAttemptAt),
     revision: item.revision === undefined ? undefined : Number(item.revision),
   });
 }

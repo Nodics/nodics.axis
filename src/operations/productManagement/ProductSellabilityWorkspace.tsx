@@ -126,8 +126,12 @@ function readinessSchema(
       candidate.schemaName === target.schemaName,
   );
   return (
-    candidates.find((candidate) => candidate.connectionServer === 'commerceStagedServer') ??
-    candidates.find((candidate) => candidate.connectionEnvironment === 'kickoffLocal') ??
+    candidates.find(
+      (candidate) => candidate.connectionServer === 'commerceStagedServer',
+    ) ??
+    candidates.find(
+      (candidate) => candidate.connectionEnvironment === 'kickoffLocal',
+    ) ??
     candidates[0]
   );
 }
@@ -137,7 +141,10 @@ function isReady(record: WorkbenchRecord | undefined): boolean {
   return status === 'ACTIVE' || status === 'READY' || status === 'CURRENT';
 }
 
-function hasAnyText(record: WorkbenchRecord | undefined, fields: readonly string[]): boolean {
+function hasAnyText(
+  record: WorkbenchRecord | undefined,
+  fields: readonly string[],
+): boolean {
   return fields.some((field) => Boolean(text(record, field).trim()));
 }
 
@@ -168,10 +175,12 @@ export function ProductSellabilityWorkspace(props: ProductSellabilityWorkspacePr
     queryFn: async ({ signal }) => {
       const schemas = await loadWorkbenchSchemas(connections, configuration);
       const entries = await Promise.all(
-        (Object.entries(evidenceTargets) as readonly [
-          EvidenceKey,
-          (typeof evidenceTargets)[EvidenceKey],
-        ][]).map(async ([key, target]) => {
+        (
+          Object.entries(evidenceTargets) as readonly [
+            EvidenceKey,
+            (typeof evidenceTargets)[EvidenceKey],
+          ][]
+        ).map(async ([key, target]) => {
           const schema = readinessSchema(schemas, target);
           if (!schema) return [key, undefined] as const;
           const connection = connectionFor(props.bootstrap, schema);
@@ -213,7 +222,11 @@ export function ProductSellabilityWorkspace(props: ProductSellabilityWorkspacePr
     },
     {
       label: 'Category dependency',
-      ready: hasAnyText(product, ['categoryCode', 'primaryCategoryCode', 'defaultCategoryCode']),
+      ready: hasAnyText(product, [
+        'categoryCode',
+        'primaryCategoryCode',
+        'defaultCategoryCode',
+      ]),
       detail:
         'Publication should block when the assigned product category is missing, inactive, or not available in the target catalog version.',
       action: '/commerce/catalog/products',
@@ -290,36 +303,31 @@ export function ProductSellabilityWorkspace(props: ProductSellabilityWorkspacePr
   const policyCards = [
     {
       title: 'Staged vs Online diff',
-      body:
-        'Catalog publication must expose what changed in Staged before approval and what was promoted Online after completion.',
+      body: 'Catalog publication must expose what changed in Staged before approval and what was promoted Online after completion.',
       action: '/publishing/dependencies',
       cta: 'Review dependencies',
     },
     {
       title: 'Partial and full publish policy',
-      body:
-        'Partial publish can move a product or selected dependencies when blockers are clean. Full publish belongs to controlled catalog-version promotion and must show broader impact.',
+      body: 'Partial publish can move a product or selected dependencies when blockers are clean. Full publish belongs to controlled catalog-version promotion and must show broader impact.',
       action: '/publishing/requests',
       cta: 'Open requests',
     },
     {
       title: 'Blocking and warning policy',
-      body:
-        'Missing category, classification, required locale, price, variant, media, or search evidence should block or warn based on backend-owned policy, not frontend guesswork.',
+      body: 'Missing category, classification, required locale, price, variant, media, or search evidence should block or warn based on backend-owned policy, not frontend guesswork.',
       action: '/publishing/dependencies',
       cta: 'See policy signals',
     },
     {
       title: 'Rollback, restore, retire, and schedule',
-      body:
-        'Catalog changes need compatibility with rollback, restore, retire, withdrawal, and scheduled publication so operators are not trapped after approval.',
+      body: 'Catalog changes need compatibility with rollback, restore, retire, withdrawal, and scheduled publication so operators are not trapped after approval.',
       action: '/publishing/scheduled',
       cta: 'Open schedule flow',
     },
     {
       title: 'Audit mapping',
-      body:
-        'Every product publication should map request, approver, dependency manifest, Online verification, failure, and retry events into the audit trail.',
+      body: 'Every product publication should map request, approver, dependency manifest, Online verification, failure, and retry events into the audit trail.',
       action: '/publishing/audit',
       cta: 'Open audit',
     },
@@ -330,15 +338,15 @@ export function ProductSellabilityWorkspace(props: ProductSellabilityWorkspacePr
       <Stack spacing={0.5}>
         <Typography variant="h4">{props.navigation.label}</Typography>
         <Typography color="text.secondary">
-          One guided readiness cockpit for product basics, variants, localized
-          content, price, stock authority, and search visibility. Each signal is
-          read from backend-owned schema evidence.
+          One guided readiness cockpit for product basics, variants, localized content,
+          price, stock authority, and search visibility. Each signal is read from
+          backend-owned schema evidence.
         </Typography>
       </Stack>
       <Alert severity="info">
-        This workspace is read-only. It guides the business user to the owning
-        operation instead of creating a parallel product-readiness API or hidden
-        frontend rule engine.
+        This workspace is read-only. It guides the business user to the owning operation
+        instead of creating a parallel product-readiness API or hidden frontend rule
+        engine.
       </Alert>
       <TextField
         helperText="Use a staged Product code. Example: agoraLinenWrapDress."
@@ -350,9 +358,7 @@ export function ProductSellabilityWorkspace(props: ProductSellabilityWorkspacePr
       {evidence.isLoading || evidence.isFetching ? (
         <LinearProgress aria-label="Loading product sellability evidence" />
       ) : null}
-      {evidence.error ? (
-        <Alert severity="error">{evidence.error.message}</Alert>
-      ) : null}
+      {evidence.error ? <Alert severity="error">{evidence.error.message}</Alert> : null}
       <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
         <Chip
           color={completed === checks.length ? 'success' : 'warning'}
@@ -360,7 +366,9 @@ export function ProductSellabilityWorkspace(props: ProductSellabilityWorkspacePr
         />
         <Chip color="info" label="Approval required before Online" />
         <Chip color="info" label="Backend policy remains authoritative" />
-        {product ? <Chip label={`Catalog: ${text(product, 'catalogVersion')}`} /> : null}
+        {product ? (
+          <Chip label={`Catalog: ${text(product, 'catalogVersion')}`} />
+        ) : null}
         {variants
           .map((record) => text(record, 'sku'))
           .filter(Boolean)
@@ -369,7 +377,11 @@ export function ProductSellabilityWorkspace(props: ProductSellabilityWorkspacePr
             <Chip key={sku} label={`SKU: ${sku}`} />
           ))}
       </Stack>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ flexWrap: 'wrap' }}>
+      <Stack
+        direction={{ xs: 'column', md: 'row' }}
+        spacing={2}
+        sx={{ flexWrap: 'wrap' }}
+      >
         {checks.map((check) => (
           <Card key={check.label} sx={{ flex: '1 1 300px' }}>
             <CardContent>

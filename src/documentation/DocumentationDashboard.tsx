@@ -333,7 +333,10 @@ export function DocumentationDashboard({ bootstrap }: DocumentationDashboardProp
           </Box>
           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
             <Chip color="primary" label={`${String(cmsSources.length)} CMS pack(s)`} />
-            <Chip label={`${String(apiSources.length)} API source(s)`} variant="outlined" />
+            <Chip
+              label={`${String(apiSources.length)} API source(s)`}
+              variant="outlined"
+            />
             <Chip label="Content templates + docs data" variant="outlined" />
             <Chip label="Approval protected Online" variant="outlined" />
             <Chip label="Version 0 allowed pre-release" variant="outlined" />
@@ -380,7 +383,11 @@ export function DocumentationDashboard({ bootstrap }: DocumentationDashboardProp
                       size="small"
                       variant="outlined"
                     />
-                    <Chip label={`Route: ${source.route}`} size="small" variant="outlined" />
+                    <Chip
+                      label={`Route: ${source.route}`}
+                      size="small"
+                      variant="outlined"
+                    />
                   </Stack>
                 </Stack>
               </Paper>
@@ -388,8 +395,8 @@ export function DocumentationDashboard({ bootstrap }: DocumentationDashboardProp
           </Box>
           <Alert severity="info">
             Use Setup & Accelerators or a CMS documentation page to import the
-            documentation content pack to Staged, submit/request approval, verify
-            Online delivery, and capture browser evidence.
+            documentation content pack to Staged, submit/request approval, verify Online
+            delivery, and capture browser evidence.
           </Alert>
         </Stack>
       </Paper>

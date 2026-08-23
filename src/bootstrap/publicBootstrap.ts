@@ -241,11 +241,15 @@ export interface AxisDocumentationDashboardMetadata {
 export interface AxisAuthenticatedBootstrap {
   readonly axisPolicy: AxisEmployeePolicy;
   readonly navigation: readonly AxisNavigationItem[];
-  readonly effectiveNavigationComposition?: AxisEffectiveNavigationComposition | undefined;
+  readonly effectiveNavigationComposition?:
+    | AxisEffectiveNavigationComposition
+    | undefined;
   readonly moduleCatalog: Readonly<Record<string, AxisModuleCatalogEntry>>;
   readonly environments: readonly string[];
   readonly moduleConnections: Readonly<Record<string, readonly AxisModuleConnection[]>>;
-  readonly applicationInitializationProfiles?: readonly AxisApplicationInitializationProfile[] | undefined;
+  readonly applicationInitializationProfiles?:
+    | readonly AxisApplicationInitializationProfile[]
+    | undefined;
   readonly documentationSources: readonly AxisDocumentationSource[];
   readonly tenantCode: string;
 }
@@ -1145,7 +1149,9 @@ function parseEffectiveNavigationComposition(
   const composition = record(value, 'BackOffice effective navigation composition');
   const navigationValue = composition.navigation;
   if (!Array.isArray(navigationValue)) {
-    throw new Error('BackOffice effective navigation composition must contain navigation');
+    throw new Error(
+      'BackOffice effective navigation composition must contain navigation',
+    );
   }
   const navigation = navigationValue.map((rawItem, index) => {
     const item = record(rawItem, 'BackOffice effective navigation item');
@@ -1165,11 +1171,16 @@ function parseEffectiveNavigationComposition(
         typeof item.category === 'string' && item.category !== ''
           ? item.category
           : 'other',
-      icon:
-        typeof item.icon === 'string' && item.icon !== '' ? item.icon : 'module',
+      icon: typeof item.icon === 'string' && item.icon !== '' ? item.icon : 'module',
       availability: availabilityState(item.availability),
-      labelKey: optionalText(item.labelKey, `${moduleName} effective navigation label key`),
-      parentId: optionalText(item.parentId, `${moduleName} effective navigation parent id`),
+      labelKey: optionalText(
+        item.labelKey,
+        `${moduleName} effective navigation label key`,
+      ),
+      parentId: optionalText(
+        item.parentId,
+        `${moduleName} effective navigation parent id`,
+      ),
       parentModuleName:
         item.parentModuleName === undefined
           ? undefined
@@ -1181,7 +1192,10 @@ function parseEffectiveNavigationComposition(
       perspectives:
         item.perspectives === undefined
           ? Object.freeze(['operations'])
-          : stringList(item.perspectives, `${moduleName} effective navigation perspectives`),
+          : stringList(
+              item.perspectives,
+              `${moduleName} effective navigation perspectives`,
+            ),
       contexts:
         item.contexts === undefined
           ? Object.freeze([])
@@ -1205,8 +1219,9 @@ function parseEffectiveNavigationComposition(
   });
   const warnings = Array.isArray(composition.warnings)
     ? composition.warnings
-        .filter((warning): warning is Record<string, unknown> =>
-          typeof warning === 'object' && warning !== null && !Array.isArray(warning),
+        .filter(
+          (warning): warning is Record<string, unknown> =>
+            typeof warning === 'object' && warning !== null && !Array.isArray(warning),
         )
         .map((warning) => Object.freeze({ ...warning }))
     : [];
@@ -1556,7 +1571,10 @@ function parseApplicationInitializationProfiles(
   }
   return Object.freeze(
     value.map((candidate) => {
-      const profile = record(candidate, 'BackOffice application initialization profile');
+      const profile = record(
+        candidate,
+        'BackOffice application initialization profile',
+      );
       const activationPolicy = record(
         profile.activationPolicy ?? {},
         'BackOffice application initialization activation policy',
@@ -1568,12 +1586,16 @@ function parseApplicationInitializationProfiles(
               'BackOffice application initialization data package',
             );
             return Object.freeze({
-              code: text(dataPackage.code, 'application initialization data package code'),
-              kind: text(dataPackage.kind, 'application initialization data package kind'),
+              code: text(
+                dataPackage.code,
+                'application initialization data package code',
+              ),
+              kind: text(
+                dataPackage.kind,
+                'application initialization data package kind',
+              ),
               required:
-                typeof dataPackage.required === 'boolean'
-                  ? dataPackage.required
-                  : true,
+                typeof dataPackage.required === 'boolean' ? dataPackage.required : true,
               trigger: text(
                 dataPackage.trigger,
                 'application initialization data package trigger',

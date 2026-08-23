@@ -744,9 +744,7 @@ describe('MediaManagementRoutePage', () => {
             }),
           );
         }
-        if (
-          url.pathname === '/nodics/media/v0/mediaReference/safe-search'
-        ) {
+        if (url.pathname === '/nodics/media/v0/mediaReference/safe-search') {
           return Promise.resolve(
             json({
               records: [
@@ -1552,9 +1550,7 @@ describe('MediaManagementRoutePage', () => {
             }),
           );
         }
-        if (
-          url.pathname === '/nodics/media/v0/mediaSetEntry/safe-search'
-        ) {
+        if (url.pathname === '/nodics/media/v0/mediaSetEntry/safe-search') {
           return Promise.resolve(
             json({
               records: [
@@ -1635,9 +1631,7 @@ describe('MediaManagementRoutePage', () => {
       expect(
         fetchMock.mock.calls.some(([input]) => {
           const url = fetchInputUrl(input);
-          return (
-            url.pathname === '/nodics/media/v0/mediaSetEntry/safe-search'
-          );
+          return url.pathname === '/nodics/media/v0/mediaSetEntry/safe-search';
         }),
       ).toBe(true);
     });

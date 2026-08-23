@@ -87,7 +87,11 @@ function sortedModules(
 const registryQueryRoot = ['functional-module-registry'] as const;
 type ModuleAction = FunctionalModuleLifecycleAction | 'preview';
 type SampleDataAction = 'sampleData';
-type ModuleReadiness = 'Blocked' | 'Ready to activate' | 'Active' | 'Active with warnings';
+type ModuleReadiness =
+  | 'Blocked'
+  | 'Ready to activate'
+  | 'Active'
+  | 'Active with warnings';
 
 interface ModuleVisibilitySummary {
   readonly activeRoutes: number;
@@ -98,7 +102,8 @@ interface ModuleVisibilitySummary {
 function moduleReadiness(module: FunctionalModuleRegistration): ModuleReadiness {
   if (module.registrationState !== 'REGISTERED') return 'Ready to activate';
   if (!module.enabled && module.runtimeState !== 'ACTIVE') return 'Blocked';
-  if (module.enabled && module.runtimeState === 'DEGRADED') return 'Active with warnings';
+  if (module.enabled && module.runtimeState === 'DEGRADED')
+    return 'Active with warnings';
   if (module.enabled) return 'Active';
   return 'Ready to activate';
 }
@@ -152,8 +157,7 @@ function moduleVisibilitySummary(
           item.featureState === 'HIDDEN' || item.featureState === 'DISABLED';
         const unavailable = item.availability === 'UNAVAILABLE';
         return {
-          activeRoutes:
-            summary.activeRoutes + (!featureHidden && !unavailable ? 1 : 0),
+          activeRoutes: summary.activeRoutes + (!featureHidden && !unavailable ? 1 : 0),
           hiddenRoutes: summary.hiddenRoutes + (featureHidden ? 1 : 0),
           unavailableRoutes: summary.unavailableRoutes + (unavailable ? 1 : 0),
         };
@@ -182,7 +186,7 @@ function canRequestSampleData(module: FunctionalModuleRegistration): boolean {
   const receipt = sampleReceipt(module);
   return Boolean(
     receipt &&
-      ['SKIPPED_USER_TRIGGERED', 'FAILED', 'DATA_FAILED'].includes(receipt.status),
+    ['SKIPPED_USER_TRIGGERED', 'FAILED', 'DATA_FAILED'].includes(receipt.status),
   );
 }
 
@@ -258,9 +262,7 @@ interface ModuleCardProps {
   readonly visibility: ModuleVisibilitySummary;
 }
 
-function receiptSeverity(
-  status: string,
-): 'success' | 'warning' | 'error' | 'info' {
+function receiptSeverity(status: string): 'success' | 'warning' | 'error' | 'info' {
   if (['FAILED', 'DATA_FAILED'].includes(status)) return 'error';
   if (
     ['RUNNING', 'QUEUED', 'PENDING_IMPORT', 'WAITING_APPROVAL', 'RETRYABLE'].includes(
@@ -331,6 +333,12 @@ function ActivationDataPanel({
   );
   return (
     <Stack spacing={1}>
+      <Alert severity="info" variant="outlined">
+        Module activation data is classified before execution: init data prepares
+        framework/runtime prerequisites, core data is required for the module to run,
+        and sample data stays user-triggered so it never becomes a production dependency
+        by accident.
+      </Alert>
       <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
         <Chip label={`Execution: ${activationData.executionMode}`} size="small" />
         <Chip label={`Readiness: ${activationData.readiness}`} size="small" />
@@ -388,8 +396,7 @@ function ActivationDataPanel({
                       {group.packages.slice(0, 4).map((pack) => (
                         <Typography key={pack.code} variant="caption">
                           {friendlyCodeLabel(pack.code)} ·{' '}
-                          {dataTypeLabel(pack.dataType)} ·{' '}
-                          {pack.trigger || 'SYSTEM'}
+                          {dataTypeLabel(pack.dataType)} · {pack.trigger || 'SYSTEM'}
                         </Typography>
                       ))}
                       {group.packages.length > 4 ? (
@@ -415,14 +422,10 @@ function ActivationDataPanel({
             Activation data receipts
           </Typography>
           {activationData.receipts.map((receipt) => (
-            <Alert
-              key={receipt.receiptKey}
-              severity={receiptSeverity(receipt.status)}
-            >
+            <Alert key={receipt.receiptKey} severity={receiptSeverity(receipt.status)}>
               <strong>{friendlyCodeLabel(receipt.code)}</strong> ·{' '}
               {classificationLabel(receipt.classification)} ·{' '}
-              {dataTypeLabel(receipt.dataType)} ·{' '}
-              {receiptStatusLabel(receipt.status)}
+              {dataTypeLabel(receipt.dataType)} · {receiptStatusLabel(receipt.status)}
               {receipt.releaseStatus ? ` · release ${receipt.releaseStatus}` : ''}
               {receipt.importRunId ? ` · run ${receipt.importRunId}` : ''}
               <br />
@@ -435,9 +438,7 @@ function ActivationDataPanel({
           ))}
         </Stack>
       ) : (
-        <Alert severity="info">
-          No activation data is required for this module.
-        </Alert>
+        <Alert severity="info">No activation data is required for this module.</Alert>
       )}
       {activationData.nextActions.length > 0 ? (
         <Typography color="text.secondary" variant="caption">
@@ -728,7 +729,9 @@ function ModuleCard({
 
           <ActivationDataPanel activationData={activationData} />
 
-          <Alert severity={canActivate ? 'warning' : module.enabled ? 'success' : 'info'}>
+          <Alert
+            severity={canActivate ? 'warning' : module.enabled ? 'success' : 'info'}
+          >
             {canActivate
               ? activationData?.packages.length === 0
                 ? 'Activation enables Axis presentation for this module. No required data package is declared, so nImport does not need to run first.'
@@ -777,7 +780,9 @@ function ModuleCard({
                 onClick={() => onAction(module, 'rollback')}
                 variant="outlined"
               >
-                {pendingAction === 'rollback' ? 'Rolling back...' : 'Rollback activation'}
+                {pendingAction === 'rollback'
+                  ? 'Rolling back...'
+                  : 'Rollback activation'}
               </Button>
             ) : null}
             {canDeactivate ? (
@@ -854,7 +859,10 @@ export function FunctionalModuleRegistryRoutePage(
     | undefined
     | {
         readonly module: FunctionalModuleRegistration;
-        readonly action: Extract<ModuleAction, 'rollback' | 'deactivate' | 'deregister'>;
+        readonly action: Extract<
+          ModuleAction,
+          'rollback' | 'deactivate' | 'deregister'
+        >;
       }
   >();
   const connection = selectModuleConnection(props.bootstrap, 'backoffice');
@@ -980,11 +988,11 @@ export function FunctionalModuleRegistryRoutePage(
                 ? `${updatedModule.displayName} is activated. Axis navigation was refreshed from the BackOffice bootstrap contract.`
                 : variables.action === 'rollback'
                   ? `${updatedModule.displayName} activation was rolled back. Imported data was retained and Axis navigation was refreshed from the BackOffice bootstrap contract.`
-                : variables.action === 'deactivate'
-                  ? `${updatedModule.displayName} is deactivated. Axis navigation was refreshed from the BackOffice bootstrap contract.`
-                  : variables.action === 'register'
-                    ? `${updatedModule.displayName} is registered. Registry data is refreshed; activate it when required data is ready.`
-                    : `${updatedModule.displayName} is deregistered. Registry data and Axis navigation were refreshed.`,
+                  : variables.action === 'deactivate'
+                    ? `${updatedModule.displayName} is deactivated. Axis navigation was refreshed from the BackOffice bootstrap contract.`
+                    : variables.action === 'register'
+                      ? `${updatedModule.displayName} is registered. Registry data is refreshed; activate it when required data is ready.`
+                      : `${updatedModule.displayName} is deregistered. Registry data and Axis navigation were refreshed.`,
           });
         })
         .catch((error: unknown) => {
@@ -1002,11 +1010,7 @@ export function FunctionalModuleRegistryRoutePage(
     mutationFn: async (module: FunctionalModuleRegistration) => {
       const importConnection = selectSampleDataConnection(props.bootstrap, module);
       if (!importConnection) throw new Error('Import service is unavailable');
-      return installFunctionalModuleSampleData(
-        importConnection,
-        module,
-        configuration,
-      );
+      return installFunctionalModuleSampleData(importConnection, module, configuration);
     },
     onSuccess: async () => {
       await Promise.all([
@@ -1079,8 +1083,7 @@ export function FunctionalModuleRegistryRoutePage(
       : availableModules.error instanceof Error
         ? availableModules.error
         : undefined;
-  const lifecycleError =
-    lifecycle.error instanceof Error ? lifecycle.error : undefined;
+  const lifecycleError = lifecycle.error instanceof Error ? lifecycle.error : undefined;
   const sampleDataError =
     sampleData.error instanceof Error ? sampleData.error : undefined;
 
@@ -1106,10 +1109,9 @@ export function FunctionalModuleRegistryRoutePage(
                   Activation journey
                 </Typography>
                 <Typography color="text.secondary" variant="body2">
-                  Use this page as the operator control point for module
-                  registration, capability activation, bootstrap refresh, and the
-                  required-data receipt workflow backed by nImport data-release
-                  execution.
+                  Use this page as the operator control point for module registration,
+                  capability activation, bootstrap refresh, and the required-data
+                  receipt workflow backed by nImport data-release execution.
                 </Typography>
               </Box>
               <Grid container spacing={1}>
@@ -1151,12 +1153,11 @@ export function FunctionalModuleRegistryRoutePage(
                   Safety and visibility contract
                 </Typography>
                 <Typography color="text.secondary" variant="body2">
-                  Module activation changes operator reachability only after
-                  BackOffice accepts the lifecycle action and Axis refreshes the
-                  authenticated bootstrap. Deactivation and deregistration are
-                  protected by an explicit confirmation because they can remove menu
-                  groups, workbench cards, and project-specific capability entry
-                  points.
+                  Module activation changes operator reachability only after BackOffice
+                  accepts the lifecycle action and Axis refreshes the authenticated
+                  bootstrap. Deactivation and deregistration are protected by an
+                  explicit confirmation because they can remove menu groups, workbench
+                  cards, and project-specific capability entry points.
                 </Typography>
               </Box>
               <Grid container spacing={1}>
@@ -1184,7 +1185,7 @@ export function FunctionalModuleRegistryRoutePage(
               ? `${lifecycle.variables.module.displayName}: ${
                   lifecycleError?.message ?? 'Module lifecycle request failed'
                 }`
-              : lifecycleError?.message ?? 'Module lifecycle request failed'}
+              : (lifecycleError?.message ?? 'Module lifecycle request failed')}
           </Alert>
         ) : null}
         {sampleData.isError ? (
@@ -1193,12 +1194,13 @@ export function FunctionalModuleRegistryRoutePage(
               ? `${sampleData.variables.displayName}: ${
                   sampleDataError?.message ?? 'Sample data request failed'
                 }`
-              : sampleDataError?.message ?? 'Sample data request failed'}
+              : (sampleDataError?.message ?? 'Sample data request failed')}
           </Alert>
         ) : null}
         {sampleData.isSuccess ? (
           <Alert severity="success">
-            Sample data request completed for {String(sampleData.data.releaseCount)} release(s).
+            Sample data request completed for {String(sampleData.data.releaseCount)}{' '}
+            release(s).
           </Alert>
         ) : null}
         {navigationRefreshState ? (
@@ -1308,7 +1310,8 @@ export function FunctionalModuleRegistryRoutePage(
                       }
                       pendingSampleData={
                         sampleData.isPending &&
-                        sampleData.variables.functionalModule === module.functionalModule
+                        sampleData.variables.functionalModule ===
+                          module.functionalModule
                       }
                       sampleDataDisabled={
                         !selectSampleDataConnection(props.bootstrap, module)
@@ -1343,10 +1346,9 @@ export function FunctionalModuleRegistryRoutePage(
                   </Typography>
                   <Typography color="text.secondary" variant="body2">
                     Modules selected for this project. Activation controls whether Axis
-                      presents their business capabilities.
-                      Required activation data imports through nImport before the
-                      module is enabled. Optional sample-data import remains a
-                      separate user-triggered journey.
+                    presents their business capabilities. Required activation data
+                    imports through nImport before the module is enabled. Optional
+                    sample-data import remains a separate user-triggered journey.
                   </Typography>
                 </Box>
                 <Chip label={`${String(optional.length)} optional registered`} />
@@ -1371,7 +1373,8 @@ export function FunctionalModuleRegistryRoutePage(
                       }
                       pendingSampleData={
                         sampleData.isPending &&
-                        sampleData.variables.functionalModule === module.functionalModule
+                        sampleData.variables.functionalModule ===
+                          module.functionalModule
                       }
                       sampleDataDisabled={
                         !selectSampleDataConnection(props.bootstrap, module)
@@ -1431,7 +1434,8 @@ export function FunctionalModuleRegistryRoutePage(
                       }
                       pendingSampleData={
                         sampleData.isPending &&
-                        sampleData.variables.functionalModule === module.functionalModule
+                        sampleData.variables.functionalModule ===
+                          module.functionalModule
                       }
                       sampleDataDisabled={
                         !selectSampleDataConnection(props.bootstrap, module)

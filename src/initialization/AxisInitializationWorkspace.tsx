@@ -27,6 +27,29 @@ interface AxisInitializationWorkspaceProps {
   readonly onLogout: () => void;
 }
 
+const setupWizardSteps = Object.freeze([
+  Object.freeze({
+    title: '1. Bootstrap access',
+    body: 'Use the temporary recovery login only until the first governed admin and enterprise context are ready.',
+  }),
+  Object.freeze({
+    title: '2. Import baseline',
+    body: 'Import Axis CMS baseline, documentation templates, and required init/core data into Staged preparation.',
+  }),
+  Object.freeze({
+    title: '3. Review impact',
+    body: 'Inspect release checksum, entity counts, validation status, target site, catalog, and workflow reference.',
+  }),
+  Object.freeze({
+    title: '4. Approve Online',
+    body: 'Approve through the governed Process task; rejection keeps Online unchanged and visible in audit.',
+  }),
+  Object.freeze({
+    title: '5. Verify live Axis',
+    body: 'Refresh status, confirm Online state, and continue to Setup & Accelerators for Nexus, Agora, and docs packs.',
+  }),
+]);
+
 /** Renders the bundled recovery workspace until the CMS-driven Axis site has an Online receipt. */
 export function AxisInitializationWorkspace(props: AxisInitializationWorkspaceProps) {
   const [approvalOpen, setApprovalOpen] = useState(false);
@@ -84,6 +107,42 @@ export function AxisInitializationWorkspace(props: AxisInitializationWorkspacePr
               ) : null}
             </Stack>
           ) : null}
+          <Paper sx={{ bgcolor: 'background.default', p: 2.5 }} variant="outlined">
+            <Stack spacing={1.5}>
+              <Box>
+                <Typography component="h2" variant="h6">
+                  Empty-database setup wizard
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  First start should feel like a guided enterprise onboarding journey,
+                  not a hidden script. Axis shows what is prepared, what is approved,
+                  and what must be verified before the recovery shell retires.
+                </Typography>
+              </Box>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 1.5,
+                  gridTemplateColumns: { xs: '1fr', md: 'repeat(5, minmax(0, 1fr))' },
+                }}
+              >
+                {setupWizardSteps.map((step) => (
+                  <Paper key={step.title} sx={{ p: 1.5 }} variant="outlined">
+                    <Typography sx={{ fontWeight: 600 }} variant="body2">
+                      {step.title}
+                    </Typography>
+                    <Typography color="text.secondary" variant="caption">
+                      {step.body}
+                    </Typography>
+                  </Paper>
+                ))}
+              </Box>
+              <Alert severity="info">
+                Temporary bootstrap access should be retired after the first governed
+                admin and enterprise-scoped user model is active.
+              </Alert>
+            </Stack>
+          </Paper>
           {props.error ? <Alert severity="error">{props.error}</Alert> : null}
           {props.status?.readiness === 'PUBLICATION_PENDING' ? (
             <Alert severity="info">

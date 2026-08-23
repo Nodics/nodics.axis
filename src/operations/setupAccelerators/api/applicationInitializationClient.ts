@@ -147,9 +147,7 @@ function parseProfile(value: unknown): ApplicationInitializationProfile {
       : {}),
     requiredServers: Object.freeze(
       Array.isArray(data.requiredServers)
-        ? data.requiredServers.map((item) =>
-            text(item, 'Application required server'),
-          )
+        ? data.requiredServers.map((item) => text(item, 'Application required server'))
         : [],
     ),
     dataPackages: Object.freeze(dataPackages),
@@ -196,9 +194,7 @@ function parse(value: unknown): ApplicationInitializationStatus {
     text(item, 'Application action'),
   );
   if (
-    allowedActions.some(
-      (item) => !['INITIALIZE', 'ROLLBACK', 'RETIRE'].includes(item),
-    )
+    allowedActions.some((item) => !['INITIALIZE', 'ROLLBACK', 'RETIRE'].includes(item))
   ) {
     throw new Error('Application initialization action is unsupported');
   }
@@ -216,9 +212,7 @@ function parse(value: unknown): ApplicationInitializationStatus {
     releaseCode: text(data.releaseCode, 'Application release'),
     releaseVersion: text(data.releaseVersion, 'Application release version'),
     ...(data.profile ? { profile: parseProfile(data.profile) } : {}),
-    allowedActions: Object.freeze(
-      allowedActions as ApplicationInitializationAction[],
-    ),
+    allowedActions: Object.freeze(allowedActions as ApplicationInitializationAction[]),
     ...(optionalText(data.releaseStatus)
       ? { releaseStatus: optionalText(data.releaseStatus) }
       : {}),

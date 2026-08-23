@@ -195,7 +195,6 @@ const dashboard: ShellNavigationItem = Object.freeze({
   local: true,
 });
 
-
 export function composeShellNavigation(
   navigation: readonly AxisNavigationItem[],
 ): readonly ShellNavigationGroup[] {

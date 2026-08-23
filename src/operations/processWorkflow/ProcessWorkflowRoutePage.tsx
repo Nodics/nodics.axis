@@ -767,8 +767,9 @@ function TaskInbox({
           <Stack spacing={1.5}>
             <Alert severity="info" variant="outlined">
               For CMS publication tasks, approve only when the target site, source
-              version, and expected Online impact are understood. Rejecting a publication
-              keeps Online unchanged and leaves the decision in the workflow timeline.
+              version, and expected Online impact are understood. Rejecting a
+              publication keeps Online unchanged and leaves the decision in the workflow
+              timeline.
             </Alert>
             <TextField
               disabled={disabled}
@@ -834,7 +835,10 @@ function TaskInbox({
                           <Button
                             disabled={disabled || !actionable}
                             onClick={() =>
-                              onComplete(task.code, createCmsPublicationApprovalDecision())
+                              onComplete(
+                                task.code,
+                                createCmsPublicationApprovalDecision(),
+                              )
                             }
                             variant="contained"
                           >
@@ -844,7 +848,10 @@ function TaskInbox({
                             color="warning"
                             disabled={disabled || !actionable}
                             onClick={() =>
-                              onComplete(task.code, createCmsPublicationRejectionDecision())
+                              onComplete(
+                                task.code,
+                                createCmsPublicationRejectionDecision(),
+                              )
                             }
                             variant="outlined"
                           >

@@ -104,13 +104,17 @@ export async function executeNavigationCompositionAction(
   candidate?: unknown,
   fetchImplementation: typeof fetch = fetch,
 ): Promise<unknown> {
-  const body = candidate === undefined
-    ? undefined
-    : JSON.stringify({
-        candidate,
-        reason: 'Axis Navigation Composition governed lifecycle action.',
-      });
-  const routes: Record<NavigationCompositionAction, Readonly<{ method: 'GET' | 'POST'; path: string }>> = {
+  const body =
+    candidate === undefined
+      ? undefined
+      : JSON.stringify({
+          candidate,
+          reason: 'Axis Navigation Composition governed lifecycle action.',
+        });
+  const routes: Record<
+    NavigationCompositionAction,
+    Readonly<{ method: 'GET' | 'POST'; path: string }>
+  > = {
     preview: { method: 'POST', path: '/navigation/composition/preview' },
     export: { method: 'GET', path: '/navigation/composition/export' },
     createDraft: { method: 'POST', path: '/navigation/composition/draft' },

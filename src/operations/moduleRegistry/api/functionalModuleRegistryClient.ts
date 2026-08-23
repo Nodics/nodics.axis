@@ -167,15 +167,11 @@ export async function applyFunctionalModuleLifecycleAction(
   module: FunctionalModuleRegistration,
   action: FunctionalModuleLifecycleAction,
   configuration: FunctionalModuleRegistryClientConfiguration,
-  options:
-    | Readonly<{ dryRun?: boolean | undefined }>
-    | typeof fetch = {},
+  options: Readonly<{ dryRun?: boolean | undefined }> | typeof fetch = {},
   fetchImplementation: typeof fetch = fetch,
 ): Promise<FunctionalModuleRegistration> {
-  const lifecycleOptions =
-    typeof options === 'function' ? {} : options;
-  const effectiveFetch =
-    typeof options === 'function' ? options : fetchImplementation;
+  const lifecycleOptions = typeof options === 'function' ? {} : options;
+  const effectiveFetch = typeof options === 'function' ? options : fetchImplementation;
   const body = JSON.stringify({
     project: configuration.projectCode,
     expectedRevision: module.catalogueRevision,
@@ -197,7 +193,6 @@ export async function applyFunctionalModuleLifecycleAction(
   );
 }
 
-
 export async function installFunctionalModuleSampleData(
   connection: AxisModuleConnection,
   module: FunctionalModuleRegistration,
@@ -211,7 +206,9 @@ export async function installFunctionalModuleSampleData(
     )
     .map((receipt) => receipt.code);
   if (releaseCodes.length === 0) {
-    throw new Error('No user-triggered sample data package is declared for this module');
+    throw new Error(
+      'No user-triggered sample data package is declared for this module',
+    );
   }
   const value = await request(
     connection,

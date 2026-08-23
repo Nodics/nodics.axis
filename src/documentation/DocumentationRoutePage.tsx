@@ -282,13 +282,22 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
               <Button onClick={() => void reconcile()} variant="outlined">
                 Refresh evidence
               </Button>
-              <Button onClick={() => window.open('/publishing/status', '_blank')} variant="outlined">
+              <Button
+                onClick={() => window.open('/publishing/status', '_blank')}
+                variant="outlined"
+              >
                 Check Online status
               </Button>
-              <Button onClick={() => window.open('/publishing/history', '_blank')} variant="outlined">
+              <Button
+                onClick={() => window.open('/publishing/history', '_blank')}
+                variant="outlined"
+              >
                 View history
               </Button>
-              <Button onClick={() => window.open('/publishing/audit', '_blank')} variant="outlined">
+              <Button
+                onClick={() => window.open('/publishing/audit', '_blank')}
+                variant="outlined"
+              >
                 Inspect audit
               </Button>
             </Stack>

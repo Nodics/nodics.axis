@@ -205,9 +205,7 @@ describe('Schema Workbench API client', () => {
     });
 
     const [url, options] = request.mock.calls[0] ?? [];
-    expect((url as URL).pathname).toBe(
-      '/nodics/profile/v0/address/safe-search',
-    );
+    expect((url as URL).pathname).toBe('/nodics/profile/v0/address/safe-search');
     expect(options?.method).toBe('POST');
     const body = options?.body;
     if (typeof body !== 'string') throw new Error('Expected a JSON request body');
@@ -302,7 +300,9 @@ describe('Schema Workbench API client', () => {
     };
     const createRequest = vi
       .fn<typeof fetch>()
-      .mockResolvedValue(json({ code: 'PROMO', validFrom: '2026-08-21T00:00:00.000Z' }));
+      .mockResolvedValue(
+        json({ code: 'PROMO', validFrom: '2026-08-21T00:00:00.000Z' }),
+      );
     await createWorkbenchRecord(
       connection,
       datedSchema,
@@ -319,7 +319,9 @@ describe('Schema Workbench API client', () => {
 
     const updateRequest = vi
       .fn<typeof fetch>()
-      .mockResolvedValue(json({ models: [{ code: 'PROMO', validFrom: '2026-08-22T00:00:00.000Z' }] }));
+      .mockResolvedValue(
+        json({ models: [{ code: 'PROMO', validFrom: '2026-08-22T00:00:00.000Z' }] }),
+      );
     await updateWorkbenchRecord(
       connection,
       datedSchema,

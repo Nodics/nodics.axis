@@ -217,24 +217,12 @@ function fieldSx() {
   };
 }
 
-const editorialMediaPreviewByCode: Readonly<Record<string, string>> = Object.freeze({
-  nexusNewsPublicExperience: '/assets/nodics/editorial/news-public-experience-v1.png',
-  nexusNewsAxisRuntime: '/assets/nodics/editorial/news-axis-runtime-v1.png',
-  nexusNewsEngagementApi: '/assets/nodics/editorial/news-engagement-api-v1.png',
-  nexusNewsEditorialRelease: '/assets/nodics/editorial/news-editorial-release-v1.png',
-  nexusBlogCustomerEngagement:
-    '/assets/nodics/editorial/blog-customer-engagement-v1.png',
-  nexusBlogEditorialPublication:
-    '/assets/nodics/editorial/blog-editorial-publication-v1.png',
-  nexusBlogRuntimeDiscovery: '/assets/nodics/editorial/blog-runtime-discovery-v1.png',
-  nexusBlogAxisOperations: '/assets/nodics/editorial/blog-axis-operations-v1.png',
-});
-
 function mediaPreviewSource(featuredMediaCode: string): string | undefined {
   const value = featuredMediaCode.trim();
   if (!value) return undefined;
-  if (/^(https?:)?\/\//u.test(value) || value.startsWith('/')) return value;
-  return editorialMediaPreviewByCode[value];
+  if (/^(https?:)?\/\//u.test(value)) return value;
+  if (value.startsWith('/nodics/media/')) return value;
+  return undefined;
 }
 
 function mediaAccessSource(

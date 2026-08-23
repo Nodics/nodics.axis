@@ -355,6 +355,63 @@ const publishingDiagnosticSignals = Object.freeze([
   }),
 ]);
 
+const publishingSupportBundleItems = Object.freeze([
+  Object.freeze({
+    title: 'Request and workflow',
+    detail:
+      'Publication request code, workflow instance, task code, actor, decision, reason, and current lifecycle state.',
+  }),
+  Object.freeze({
+    title: 'Scope and ownership',
+    detail:
+      'Tenant, enterprise, environment, site/profile, catalog, module, accelerator, and target Online runtime.',
+  }),
+  Object.freeze({
+    title: 'Import and manifest',
+    detail:
+      'Import job, release code, checksum, generated manifest, changed records, dependency warnings, and idempotency key.',
+  }),
+  Object.freeze({
+    title: 'Online movement',
+    detail:
+      'Pointer transition, deployment receipt, rollback candidate, activation result, failed step, and retry safety.',
+  }),
+  Object.freeze({
+    title: 'Safe redaction',
+    detail:
+      'No tokens, provider paths, passwords, internal storage keys, customer PII, or raw stack traces in exported evidence.',
+  }),
+]);
+
+const stagedOnlineComparisonRows = Object.freeze([
+  Object.freeze({
+    area: 'CMS and documentation',
+    staged: 'Draft pages, components, slots, docs packs, localization readiness',
+    online: 'Published routes, rendered content, receipts, rollback revision',
+  }),
+  Object.freeze({
+    area: 'Accelerators',
+    staged:
+      'Selected Nexus or Agora profile, required/core/project data, approval task',
+    online: 'Live Nexus site or selected Agora storefront profile after verification',
+  }),
+  Object.freeze({
+    area: 'Catalog and search',
+    staged: 'Product/category/price/media readiness and search projection plan',
+    online: 'Customer-visible product/search result and reindex evidence',
+  }),
+  Object.freeze({
+    area: 'Media',
+    staged: 'Referenced media, checksum, rights, provider readiness, retention',
+    online: 'Deliverable asset reference without leaking storage path or secret',
+  }),
+  Object.freeze({
+    area: 'Navigation',
+    staged: 'Proposed group/link/content panel composition and source trace',
+    online: 'Effective approved composition available to authenticated Axis users',
+  }),
+]);
+
 const publishingScopeIsolationCards = Object.freeze([
   Object.freeze({
     title: 'Tenant scope',
@@ -380,6 +437,144 @@ const publishingScopeIsolationCards = Object.freeze([
     title: 'Rollback and import isolation',
     detail:
       'Rollback and import jobs should restore or prepare only the same scope that was approved, audited, and browser-verified.',
+  }),
+]);
+
+const publishingAccessRoles = Object.freeze([
+  Object.freeze({
+    role: 'Super admin',
+    scope: 'All enterprises and tenants',
+    responsibility:
+      'Emergency recovery, cross-enterprise support, release ownership, and production certification decisions.',
+  }),
+  Object.freeze({
+    role: 'Enterprise admin',
+    scope: 'Assigned enterprise only',
+    responsibility:
+      'Enterprise setup, module visibility, accelerator activation, user oversight, and publication governance.',
+  }),
+  Object.freeze({
+    role: 'Creator',
+    scope: 'Assigned enterprise, module, and content scope',
+    responsibility:
+      'Prepare data, validate dependencies, submit publication requests, and respond to rejection feedback.',
+  }),
+  Object.freeze({
+    role: 'Approver',
+    scope: 'Assigned enterprise and approval queue',
+    responsibility:
+      'Review impact, approve or reject publication, and preserve maker-checker separation from the creator.',
+  }),
+  Object.freeze({
+    role: 'Product manager',
+    scope: 'Product/catalog publishing scope',
+    responsibility:
+      'Own catalog readiness, product publication impact, sellability gates, and product-side rollback decisions.',
+  }),
+  Object.freeze({
+    role: 'Content manager',
+    scope: 'CMS, documentation, navigation, and accelerator content scope',
+    responsibility:
+      'Own content readiness, localization, page/component publication, and business-facing labels.',
+  }),
+  Object.freeze({
+    role: 'DevOps',
+    scope: 'Environment, provider, support, and recovery scope',
+    responsibility:
+      'Operate managed environments, provider diagnostics, support bundles, soak evidence, and rollback assistance.',
+  }),
+  Object.freeze({
+    role: 'Viewer',
+    scope: 'Read-only assigned enterprise scope',
+    responsibility:
+      'Inspect status, history, audit, evidence, and Online verification without mutating publication state.',
+  }),
+]);
+
+const publishingPermissionMatrix = Object.freeze([
+  Object.freeze({
+    permission: 'publishing.request.view',
+    label: 'View requests',
+    creator: true,
+    approver: true,
+    enterpriseAdmin: true,
+    viewer: true,
+  }),
+  Object.freeze({
+    permission: 'publishing.request.create',
+    label: 'Create/validate request',
+    creator: true,
+    approver: false,
+    enterpriseAdmin: true,
+    viewer: false,
+  }),
+  Object.freeze({
+    permission: 'publishing.request.submit',
+    label: 'Submit for approval',
+    creator: true,
+    approver: false,
+    enterpriseAdmin: true,
+    viewer: false,
+  }),
+  Object.freeze({
+    permission: 'publishing.request.approve',
+    label: 'Approve/reject',
+    creator: false,
+    approver: true,
+    enterpriseAdmin: true,
+    viewer: false,
+  }),
+  Object.freeze({
+    permission: 'publishing.rollback.execute',
+    label: 'Rollback/restore',
+    creator: false,
+    approver: true,
+    enterpriseAdmin: true,
+    viewer: false,
+  }),
+  Object.freeze({
+    permission: 'publishing.module.activate',
+    label: 'Activate module/accelerator',
+    creator: false,
+    approver: false,
+    enterpriseAdmin: true,
+    viewer: false,
+  }),
+  Object.freeze({
+    permission: 'publishing.evidence.export',
+    label: 'Export evidence',
+    creator: false,
+    approver: true,
+    enterpriseAdmin: true,
+    viewer: true,
+  }),
+]);
+
+const publishingActionVisibilityRules = Object.freeze([
+  Object.freeze({
+    title: 'Create and submit',
+    detail:
+      'Show to creators and enterprise admins only when the active module, target enterprise, environment, and dependency state allow a new request.',
+  }),
+  Object.freeze({
+    title: 'Approve and reject',
+    detail:
+      'Show to approvers and enterprise admins only for actionable Process tasks; disable when the signed-in actor created the request unless emergency override is explicitly permissioned.',
+  }),
+  Object.freeze({
+    title: 'Rollback, restore, retire',
+    detail:
+      'Show only when an Online revision, impact preview, approval requirement, and audit target are available for the same tenant and enterprise scope.',
+  }),
+  Object.freeze({
+    title: 'Module or accelerator activation',
+    detail:
+      'Show to enterprise admins only when the module is registered, compatible, not protected from the operation, and required init/core data is ready.',
+  }),
+  Object.freeze({
+    title: 'Read-only evidence',
+    detail:
+      'Keep status, history, audit, manifests, and evidence visible to viewers when allowed, but remove mutation buttons instead of leaving risky dead actions.',
   }),
 ]);
 
@@ -678,7 +873,9 @@ export function PublishingDashboardRoutePage({
         >
           <Stack spacing={dashboardContentGap}>
             <Box>
-              <Typography variant="h5">Scope isolation and final acceptance gates</Typography>
+              <Typography variant="h5">
+                Scope isolation and final acceptance gates
+              </Typography>
               <Typography color="text.secondary">
                 Publishing must be scoped before it is approved. Axis can make tenant,
                 enterprise, site/profile, environment, import, rollback, API, migration,
@@ -710,9 +907,9 @@ export function PublishingDashboardRoutePage({
               ))}
             </Box>
             <Alert severity="warning">
-              Scope isolation is product-authority work. This panel makes the decision
-              visible, but final closure still requires backend enforcement and role
-              policy validation.
+              Scope isolation is backend-authoritative. Publication requests already
+              preserve tenant and enterprise scope for approval; Axis keeps the operator
+              aware of that boundary before exposing role-sensitive actions.
             </Alert>
             <Box
               sx={{
@@ -732,6 +929,129 @@ export function PublishingDashboardRoutePage({
                     <Typography variant="h6">{card.title}</Typography>
                     <Typography color="text.secondary" variant="body2">
                       {card.detail}
+                    </Typography>
+                  </Stack>
+                </Paper>
+              ))}
+            </Box>
+          </Stack>
+        </Paper>
+
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+        >
+          <Stack spacing={dashboardContentGap}>
+            <Box>
+              <Typography variant="h5">
+                Access rights and publishing action visibility
+              </Typography>
+              <Typography color="text.secondary">
+                Publishing uses maker-checker separation: creators prepare and submit,
+                approvers decide, enterprise admins govern their enterprise, super
+                admins retain cross-enterprise recovery authority, and viewers stay
+                read-only.
+              </Typography>
+            </Box>
+            <Alert severity="info">
+              Axis should render actions from backend permissions, active module state,
+              tenant/enterprise scope, and workflow task ownership. Hidden or disabled
+              buttons are presentation only; backend services remain the enforcement
+              authority.
+            </Alert>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 2,
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  md: 'repeat(2, minmax(0, 1fr))',
+                  xl: 'repeat(4, minmax(0, 1fr))',
+                },
+              }}
+            >
+              {publishingAccessRoles.map((role) => (
+                <Paper
+                  component="article"
+                  elevation={0}
+                  key={role.role}
+                  sx={{ border: 1, borderColor: 'divider', p: 2 }}
+                >
+                  <Stack spacing={1}>
+                    <Typography variant="h6">{role.role}</Typography>
+                    <Chip label={role.scope} size="small" variant="outlined" />
+                    <Typography color="text.secondary" variant="body2">
+                      {role.responsibility}
+                    </Typography>
+                  </Stack>
+                </Paper>
+              ))}
+            </Box>
+            <Box sx={{ overflowX: 'auto' }}>
+              <Box
+                component="table"
+                sx={{
+                  borderCollapse: 'collapse',
+                  minWidth: 760,
+                  width: '100%',
+                  '& td, & th': {
+                    borderBottom: 1,
+                    borderColor: 'divider',
+                    p: 1.25,
+                    textAlign: 'left',
+                    verticalAlign: 'top',
+                  },
+                }}
+              >
+                <Box component="thead">
+                  <Box component="tr">
+                    <Box component="th">Permission</Box>
+                    <Box component="th">Action</Box>
+                    <Box component="th">Creator</Box>
+                    <Box component="th">Approver</Box>
+                    <Box component="th">Enterprise admin</Box>
+                    <Box component="th">Viewer</Box>
+                  </Box>
+                </Box>
+                <Box component="tbody">
+                  {publishingPermissionMatrix.map((row) => (
+                    <Box component="tr" key={row.permission}>
+                      <Box component="td">
+                        <Typography variant="body2">{row.permission}</Typography>
+                      </Box>
+                      <Box component="td">
+                        <Typography variant="body2">{row.label}</Typography>
+                      </Box>
+                      <Box component="td">{row.creator ? 'Allowed' : 'Denied'}</Box>
+                      <Box component="td">{row.approver ? 'Allowed' : 'Denied'}</Box>
+                      <Box component="td">
+                        {row.enterpriseAdmin ? 'Allowed' : 'Denied'}
+                      </Box>
+                      <Box component="td">{row.viewer ? 'Allowed' : 'Denied'}</Box>
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 2,
+                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+              }}
+            >
+              {publishingActionVisibilityRules.map((rule) => (
+                <Paper
+                  component="article"
+                  elevation={0}
+                  key={rule.title}
+                  sx={{ border: 1, borderColor: 'divider', p: 2 }}
+                >
+                  <Stack spacing={1}>
+                    <Typography variant="h6">{rule.title}</Typography>
+                    <Typography color="text.secondary" variant="body2">
+                      {rule.detail}
                     </Typography>
                   </Stack>
                 </Paper>
@@ -834,6 +1154,41 @@ export function PublishingDashboardRoutePage({
               permissioned. Axis defines the operator expectation and links the evidence
               rooms; it should not scrape sensitive data from the browser.
             </Alert>
+            <Box>
+              <Typography variant="h6">Support bundle checklist</Typography>
+              <Typography color="text.secondary" variant="body2">
+                A production support bundle should be generated by backend services and
+                attached to the request or incident, not assembled manually from browser
+                state.
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 2,
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  md: 'repeat(2, minmax(0, 1fr))',
+                  xl: 'repeat(5, minmax(0, 1fr))',
+                },
+              }}
+            >
+              {publishingSupportBundleItems.map((item) => (
+                <Paper
+                  component="article"
+                  elevation={0}
+                  key={item.title}
+                  sx={{ border: 1, borderColor: 'divider', p: 2 }}
+                >
+                  <Stack spacing={1}>
+                    <Typography variant="subtitle1">{item.title}</Typography>
+                    <Typography color="text.secondary" variant="body2">
+                      {item.detail}
+                    </Typography>
+                  </Stack>
+                </Paper>
+              ))}
+            </Box>
           </Stack>
         </Paper>
 
@@ -889,10 +1244,52 @@ export function PublishingDashboardRoutePage({
               ))}
             </Box>
             <Alert severity="info">
-              Staged imports prepare evidence; approval authorizes Online movement.
-              Axis should never describe an import as live until Online status and
-              browser delivery are verified.
+              Staged imports prepare evidence; approval authorizes Online movement. Axis
+              should never describe an import as live until Online status and browser
+              delivery are verified.
             </Alert>
+            <Box>
+              <Typography variant="h6">Staged vs Online comparison baseline</Typography>
+              <Typography color="text.secondary" variant="body2">
+                Operators should compare preparation state with live state before
+                approval, after publication, and before rollback. The comparison must
+                remain scope-aware and backend-derived.
+              </Typography>
+            </Box>
+            <Box sx={{ overflowX: 'auto' }}>
+              <Box
+                component="table"
+                sx={{
+                  borderCollapse: 'collapse',
+                  minWidth: 820,
+                  width: '100%',
+                  '& td, & th': {
+                    borderBottom: 1,
+                    borderColor: 'divider',
+                    p: 1.25,
+                    textAlign: 'left',
+                    verticalAlign: 'top',
+                  },
+                }}
+              >
+                <Box component="thead">
+                  <Box component="tr">
+                    <Box component="th">Area</Box>
+                    <Box component="th">Staged evidence</Box>
+                    <Box component="th">Online evidence</Box>
+                  </Box>
+                </Box>
+                <Box component="tbody">
+                  {stagedOnlineComparisonRows.map((row) => (
+                    <Box component="tr" key={row.area}>
+                      <Box component="td">{row.area}</Box>
+                      <Box component="td">{row.staged}</Box>
+                      <Box component="td">{row.online}</Box>
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+            </Box>
           </Stack>
         </Paper>
 
@@ -1094,7 +1491,9 @@ export function PublishingDashboardRoutePage({
         >
           <Stack spacing={dashboardContentGap}>
             <Box>
-              <Typography variant="h5">Rollback, withdrawal, and re-publish guardrails</Typography>
+              <Typography variant="h5">
+                Rollback, withdrawal, and re-publish guardrails
+              </Typography>
               <Typography color="text.secondary">
                 Recovery work should be handled with the same evidence discipline as a
                 normal publication. Do not treat rollback as a shortcut around approval,
@@ -1111,7 +1510,9 @@ export function PublishingDashboardRoutePage({
               <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', p: 2 }}>
                 <Stack spacing={1}>
                   <Chip color="warning" label="Rollback" size="small" />
-                  <Typography variant="h6">Return to a previous approved state</Typography>
+                  <Typography variant="h6">
+                    Return to a previous approved state
+                  </Typography>
                   <Typography color="text.secondary" variant="body2">
                     Use history and audit first, then confirm which prior Online pointer
                     or receipt should become authoritative again.
@@ -1121,7 +1522,9 @@ export function PublishingDashboardRoutePage({
               <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', p: 2 }}>
                 <Stack spacing={1}>
                   <Chip color="warning" label="Withdraw" size="small" />
-                  <Typography variant="h6">Stop a pending or scheduled publication</Typography>
+                  <Typography variant="h6">
+                    Stop a pending or scheduled publication
+                  </Typography>
                   <Typography color="text.secondary" variant="body2">
                     Withdrawal should explain what remains in Staged and why Online must
                     stay unchanged.
@@ -1131,7 +1534,9 @@ export function PublishingDashboardRoutePage({
               <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', p: 2 }}>
                 <Stack spacing={1}>
                   <Chip color="warning" label="Retire / re-publish" size="small" />
-                  <Typography variant="h6">Retire obsolete live content safely</Typography>
+                  <Typography variant="h6">
+                    Retire obsolete live content safely
+                  </Typography>
                   <Typography color="text.secondary" variant="body2">
                     Re-publish only from approved evidence, then verify the live page or
                     storefront from the browser.
@@ -1140,7 +1545,11 @@ export function PublishingDashboardRoutePage({
               </Paper>
             </Box>
             <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-              <Button component={RouterLink} to="/publishing/history" variant="outlined">
+              <Button
+                component={RouterLink}
+                to="/publishing/history"
+                variant="outlined"
+              >
                 Start from history
               </Button>
               <Button component={RouterLink} to="/publishing/audit" variant="outlined">

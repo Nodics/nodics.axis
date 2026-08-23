@@ -193,7 +193,9 @@ function listPayload(value: unknown): readonly unknown[] {
   return Object.freeze([]);
 }
 
-function mergeHumanTaskPayloads(...payloads: readonly unknown[]): readonly ProcessHumanTask[] {
+function mergeHumanTaskPayloads(
+  ...payloads: readonly unknown[]
+): readonly ProcessHumanTask[] {
   const merged = new Map<string, ProcessHumanTask>();
   for (const payload of payloads) {
     for (const item of listPayload(payload)) {

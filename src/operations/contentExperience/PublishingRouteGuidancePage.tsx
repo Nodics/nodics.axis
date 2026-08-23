@@ -1,13 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Paper,
-  Stack,
-  Typography,
-} from '@mui/material';
+import { Alert, Box, Button, Chip, Paper, Stack, Typography } from '@mui/material';
 import { useMemo } from 'react';
 import { Link as RouterLink } from 'react-router';
 
@@ -324,7 +316,8 @@ const metricDefinitionsByRoute = Object.freeze({
       label: 'Publishing audit',
       moduleName: 'publish',
       schemaName: 'publicationAudit',
-      description: 'Traceability for withdrawal, rollback, retire, and re-publish decisions.',
+      description:
+        'Traceability for withdrawal, rollback, retire, and re-publish decisions.',
       route: '/publishing/audit',
       icon: 'audit',
     }),
@@ -335,7 +328,8 @@ const metricDefinitionsByRoute = Object.freeze({
       label: 'Publishing requests',
       moduleName: 'publish',
       schemaName: 'publicationRequest',
-      description: 'Operational publishing requests affected by policy and target mapping.',
+      description:
+        'Operational publishing requests affected by policy and target mapping.',
       route: '/publishing/requests',
       icon: 'workflow',
     }),
@@ -345,7 +339,8 @@ const metricDefinitionsByRoute = Object.freeze({
 const roleGuidance = Object.freeze([
   Object.freeze({
     role: 'Creator',
-    responsibility: 'Prepare content, data packs, media, or accelerator initialization.',
+    responsibility:
+      'Prepare content, data packs, media, or accelerator initialization.',
     boundary: 'Cannot make Online visible without approval.',
   }),
   Object.freeze({
@@ -355,7 +350,8 @@ const roleGuidance = Object.freeze([
   }),
   Object.freeze({
     role: 'Enterprise admin',
-    responsibility: 'Own target profiles, policy, module activation, and recovery oversight.',
+    responsibility:
+      'Own target profiles, policy, module activation, and recovery oversight.',
     boundary: 'Should not bypass workflow evidence for convenience.',
   }),
   Object.freeze({
@@ -513,9 +509,11 @@ function normalizePublishingPath(path: string): keyof typeof publishingRouteGuid
   if (normalized.startsWith('/publishing/status')) return '/publishing/status';
   if (normalized.startsWith('/publishing/scheduled')) return '/publishing/scheduled';
   if (normalized.startsWith('/publishing/online')) return '/publishing/online';
-  if (normalized.startsWith('/publishing/dependencies')) return '/publishing/dependencies';
+  if (normalized.startsWith('/publishing/dependencies'))
+    return '/publishing/dependencies';
   if (normalized.startsWith('/publishing/failures')) return '/publishing/failures';
-  if (normalized.startsWith('/publishing/withdrawals')) return '/publishing/withdrawals';
+  if (normalized.startsWith('/publishing/withdrawals'))
+    return '/publishing/withdrawals';
   if (normalized.startsWith('/publishing/configuration')) {
     return '/publishing/configuration';
   }
@@ -549,7 +547,8 @@ export function PublishingRouteGuidancePage({
       runtime.enterpriseCode,
       connectionKey(connections),
     ],
-    queryFn: () => loadWorkbenchMetrics(connections, bootstrap, configuration, routeMetrics),
+    queryFn: () =>
+      loadWorkbenchMetrics(connections, bootstrap, configuration, routeMetrics),
   });
   return (
     <WorkspaceContainer>
@@ -629,7 +628,9 @@ export function PublishingRouteGuidancePage({
         >
           <Stack spacing={dashboardContentGap}>
             <Box>
-              <Typography variant="h5">Readiness, conflict, and trace checks</Typography>
+              <Typography variant="h5">
+                Readiness, conflict, and trace checks
+              </Typography>
               <Typography color="text.secondary">
                 Use these checks before treating this route as complete. They keep
                 Online readiness, Staged health, duplicate request prevention, and
@@ -727,9 +728,9 @@ export function PublishingRouteGuidancePage({
               ))}
             </Box>
             <Alert severity="info">
-              These panels use existing Publishing, Process, CMS, and Workbench
-              evidence routes. Backend publication policy remains authoritative for
-              actual blocking, locking, rollback, and audit persistence.
+              These panels use existing Publishing, Process, CMS, and Workbench evidence
+              routes. Backend publication policy remains authoritative for actual
+              blocking, locking, rollback, and audit persistence.
             </Alert>
           </Stack>
         </Paper>

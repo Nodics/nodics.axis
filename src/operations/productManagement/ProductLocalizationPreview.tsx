@@ -43,7 +43,9 @@ function previewPageSize(schema: WorkbenchSchema): number {
   );
 }
 
-function previewSort(schema: WorkbenchSchema): WorkbenchSchema['queryCapabilities']['defaultSort'] {
+function previewSort(
+  schema: WorkbenchSchema,
+): WorkbenchSchema['queryCapabilities']['defaultSort'] {
   const defaultSort = schema.queryCapabilities.defaultSort;
   if (schema.queryCapabilities.sortableFields.includes('locale')) {
     return { field: 'locale', direction: 'ASC' };
@@ -60,8 +62,12 @@ function productLocalizationSchema(
       candidate.schemaName === 'productLocalization',
   );
   return (
-    candidates.find((candidate) => candidate.connectionServer === 'commerceStagedServer') ??
-    candidates.find((candidate) => candidate.connectionEnvironment === 'kickoffLocal') ??
+    candidates.find(
+      (candidate) => candidate.connectionServer === 'commerceStagedServer',
+    ) ??
+    candidates.find(
+      (candidate) => candidate.connectionEnvironment === 'kickoffLocal',
+    ) ??
     candidates[0]
   );
 }

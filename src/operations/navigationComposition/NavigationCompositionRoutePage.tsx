@@ -34,6 +34,34 @@ interface NavigationCompositionRoutePageProps {
   readonly runtime: AxisRuntimeConfig;
 }
 
+const compositionGovernanceLayers = Object.freeze([
+  Object.freeze({
+    title: 'Module defaults',
+    detail:
+      'Owning backend modules publish safe defaults for groups, routes, labels, permissions, help, and workbench targets.',
+  }),
+  Object.freeze({
+    title: 'Project override',
+    detail:
+      'Customer projects can add groups such as Business Reports or Financial Reports without changing Axis source.',
+  }),
+  Object.freeze({
+    title: 'Enterprise override',
+    detail:
+      'Enterprise admins can rename, reorder, or hide allowed entries inside their approved enterprise scope.',
+  }),
+  Object.freeze({
+    title: 'Persona projection',
+    detail:
+      'BackOffice resolves tenant, enterprise, role, permission, module activation, and environment visibility.',
+  }),
+  Object.freeze({
+    title: 'Axis rendering',
+    detail:
+      'Axis renders the effective composition and owns only responsive behavior, search, collapse, fallback, and safe presentation.',
+  }),
+]);
+
 function ownerLabel(item: AxisNavigationItem): string {
   return item.routeOwner
     ? `${item.routeOwner.ownerType} · ${item.routeOwner.ownerModule}`
@@ -94,16 +122,21 @@ export function NavigationCompositionRoutePage(
       props.runtime.requestTimeoutMs,
     ],
   );
-  const candidateComposition = useMemo(
-    () => ({
-      groups: composition?.groups ?? [],
-      navigation: composition?.navigation ?? navigation,
-    }),
-    [composition?.groups, composition?.navigation, navigation],
-  );
+  const candidateComposition = useMemo(() => {
+    const candidateNavigation = composition?.navigation ?? navigation;
+    const candidateGroups = new Map<string, NonNullable<AxisNavigationItem['group']>>();
+    candidateNavigation.forEach((item) => {
+      if (item.group) candidateGroups.set(item.group.id, item.group);
+    });
+    return {
+      groups: [...candidateGroups.values()],
+      navigation: candidateNavigation,
+    };
+  }, [composition?.navigation, navigation]);
   const lifecycleMutation = useMutation({
     mutationFn: async (action: NavigationCompositionAction) => {
-      if (!connection) throw new Error('BackOffice navigation lifecycle is unavailable');
+      if (!connection)
+        throw new Error('BackOffice navigation lifecycle is unavailable');
       const candidate = ['preview', 'createDraft'].includes(action)
         ? candidateComposition
         : undefined;
@@ -252,6 +285,52 @@ export function NavigationCompositionRoutePage(
             Axis is rendering a governed effective navigation composition.
           </Alert>
         )}
+        <Card variant="outlined">
+          <CardContent>
+            <Stack spacing={2}>
+              <Box>
+                <Typography component="h2" variant="h6">
+                  CMS-governed navigation and content composition
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  Left navigation, sub-navigation, business labels, workbench targets,
+                  and related right-side content panels should come from a governed
+                  backend composition contract. Axis keeps rendering safe; BackOffice
+                  remains the authority for meaning, permissions, module state, and
+                  publication lifecycle.
+                </Typography>
+              </Box>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 2,
+                  gridTemplateColumns: {
+                    xs: '1fr',
+                    md: 'repeat(5, minmax(0, 1fr))',
+                  },
+                }}
+              >
+                {compositionGovernanceLayers.map((layer) => (
+                  <Card key={layer.title} variant="outlined">
+                    <CardContent>
+                      <Stack spacing={1}>
+                        <Typography variant="subtitle1">{layer.title}</Typography>
+                        <Typography color="text.secondary" variant="body2">
+                          {layer.detail}
+                        </Typography>
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                ))}
+              </Box>
+              <Alert severity="info">
+                Business users may customize approved labels and groups, but raw backend
+                identities stay unchanged for API calls, audit, permissions, cache keys,
+                and route ownership.
+              </Alert>
+            </Stack>
+          </CardContent>
+        </Card>
 
         <Grid container spacing={2}>
           <Grid size={{ xs: 12, md: 3 }}>
@@ -296,7 +375,9 @@ export function NavigationCompositionRoutePage(
                 <Typography color="text.secondary" variant="caption">
                   Warnings
                 </Typography>
-                <Typography variant="h5">{String(actionableWarnings.length)}</Typography>
+                <Typography variant="h5">
+                  {String(actionableWarnings.length)}
+                </Typography>
               </CardContent>
             </Card>
           </Grid>
@@ -309,12 +390,11 @@ export function NavigationCompositionRoutePage(
                 Governance status
               </Typography>
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                <Chip label={`Lifecycle: ${composition?.lifecycleState ?? 'FALLBACK'}`} />
-                <Chip label={`Source: ${composition?.source ?? 'CATALOGUE'}`} />
                 <Chip
-                  label={`Drafts: ${draftState}`}
-                  variant="outlined"
+                  label={`Lifecycle: ${composition?.lifecycleState ?? 'FALLBACK'}`}
                 />
+                <Chip label={`Source: ${composition?.source ?? 'CATALOGUE'}`} />
+                <Chip label={`Drafts: ${draftState}`} variant="outlined" />
                 <Chip
                   label={`Preview: ${
                     authoring?.previewSupported === true ? 'Available' : 'Not active'
@@ -353,9 +433,10 @@ export function NavigationCompositionRoutePage(
                 />
               </Stack>
               <Typography color="text.secondary" variant="body2">
-                Axis renders the effective composition and local presentation state only.
-                BackOffice remains responsible for source trace, validation, approval,
-                rollback, module activation filtering, and tenant/enterprise scope.
+                Axis renders the effective composition and local presentation state
+                only. BackOffice remains responsible for source trace, validation,
+                approval, rollback, module activation filtering, and tenant/enterprise
+                scope.
               </Typography>
               {authoring?.reason ? (
                 <Alert severity="info">{String(authoring.reason)}</Alert>
@@ -377,10 +458,10 @@ export function NavigationCompositionRoutePage(
                   Governed authoring actions
                 </Typography>
                 <Typography color="text.secondary" variant="body2">
-                  Use the existing BackOffice navigation APIs to preview, export,
-                  draft, submit, approve, publish, and rollback the effective Axis
-                  navigation composition. Each publishing movement remains explicit
-                  and approval-led.
+                  Use the existing BackOffice navigation APIs to preview, export, draft,
+                  submit, approve, publish, and rollback the effective Axis navigation
+                  composition. Each publishing movement remains explicit and
+                  approval-led.
                 </Typography>
               </Box>
               {!connection ? (
@@ -494,8 +575,8 @@ export function NavigationCompositionRoutePage(
               <Alert severity="info">
                 {String(informationalWarnings.length)} informational navigation alias
                 {informationalWarnings.length === 1 ? '' : 'es'} detected. These are
-                same-module grouping shortcuts and do not block the effective
-                navigation journey.
+                same-module grouping shortcuts and do not block the effective navigation
+                journey.
               </Alert>
             ) : null}
           </Stack>
@@ -525,7 +606,10 @@ export function NavigationCompositionRoutePage(
                             {summary.moduleName}
                           </Typography>
                           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                            <Chip label={`${String(summary.total)} total`} size="small" />
+                            <Chip
+                              label={`${String(summary.total)} total`}
+                              size="small"
+                            />
                             <Chip
                               color={summary.active > 0 ? 'success' : 'default'}
                               label={`${String(summary.active)} active`}
@@ -578,8 +662,8 @@ export function NavigationCompositionRoutePage(
                   Navigation browser validation matrix
                 </Typography>
                 <Typography color="text.secondary" variant="body2">
-                  Use this matrix whenever navigation, module activation, project
-                  packs, or future CMS navigation authoring changes the Axis menu.
+                  Use this matrix whenever navigation, module activation, project packs,
+                  or future CMS navigation authoring changes the Axis menu.
                 </Typography>
               </Box>
               <Grid container spacing={1}>
@@ -628,7 +712,8 @@ export function NavigationCompositionRoutePage(
                   Explore effective hierarchy
                 </Typography>
                 <Typography color="text.secondary" variant="body2">
-                  Filter by label, route, module, owner, source, feature state, or availability.
+                  Filter by label, route, module, owner, source, feature state, or
+                  availability.
                 </Typography>
               </Box>
               <Stack
@@ -671,7 +756,8 @@ export function NavigationCompositionRoutePage(
                 <Typography color="text.secondary" variant="body2">
                   Read-only view of group, item, route owner, module owner, source,
                   feature state, and availability. Showing{' '}
-                  {String(filteredNavigation.length)} of {String(navigation.length)} items.
+                  {String(filteredNavigation.length)} of {String(navigation.length)}{' '}
+                  items.
                 </Typography>
               </Box>
               {visibleGroups.length === 0 ? (
@@ -702,60 +788,85 @@ export function NavigationCompositionRoutePage(
                     </Button>
                   </Stack>
                   {collapsedGroups.has(groupId) ? null : (
-                  <Stack spacing={1}>
-                    {filteredNavigation
-                      .filter((item) => (item.group?.id ?? 'ungrouped') === groupId)
-                      .map((item) => (
-                        <Card key={`${item.moduleName}:${item.id}`} variant="outlined">
-                          <CardContent>
-                            <Stack spacing={1}>
-                              <Stack
-                                direction={{ xs: 'column', md: 'row' }}
-                                spacing={1}
-                                sx={{ justifyContent: 'space-between' }}
-                              >
-                                <Box>
-                                  <Typography component="h4" variant="subtitle1">
-                                    {item.label}
-                                  </Typography>
-                                  <Typography color="text.secondary" variant="body2">
-                                    {item.route}
-                                  </Typography>
-                                </Box>
-                                <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                                  <Chip label={item.featureState ?? 'ACTIVE'} size="small" />
-                                  <Chip
-                                    label={item.availability}
-                                    size="small"
-                                    variant="outlined"
-                                  />
+                    <Stack spacing={1}>
+                      {filteredNavigation
+                        .filter((item) => (item.group?.id ?? 'ungrouped') === groupId)
+                        .map((item) => (
+                          <Card
+                            key={`${item.moduleName}:${item.id}`}
+                            variant="outlined"
+                          >
+                            <CardContent>
+                              <Stack spacing={1}>
+                                <Stack
+                                  direction={{ xs: 'column', md: 'row' }}
+                                  spacing={1}
+                                  sx={{ justifyContent: 'space-between' }}
+                                >
+                                  <Box>
+                                    <Typography component="h4" variant="subtitle1">
+                                      {item.label}
+                                    </Typography>
+                                    <Typography color="text.secondary" variant="body2">
+                                      {item.route}
+                                    </Typography>
+                                  </Box>
+                                  <Stack
+                                    direction="row"
+                                    spacing={1}
+                                    sx={{ flexWrap: 'wrap' }}
+                                  >
+                                    <Chip
+                                      label={item.featureState ?? 'ACTIVE'}
+                                      size="small"
+                                    />
+                                    <Chip
+                                      label={item.availability}
+                                      size="small"
+                                      variant="outlined"
+                                    />
+                                  </Stack>
                                 </Stack>
+                                <Grid container spacing={1}>
+                                  <Grid size={{ xs: 12, md: 4 }}>
+                                    <Typography
+                                      color="text.secondary"
+                                      variant="caption"
+                                    >
+                                      Module owner
+                                    </Typography>
+                                    <Typography variant="body2">
+                                      {item.moduleName}
+                                    </Typography>
+                                  </Grid>
+                                  <Grid size={{ xs: 12, md: 4 }}>
+                                    <Typography
+                                      color="text.secondary"
+                                      variant="caption"
+                                    >
+                                      Route owner
+                                    </Typography>
+                                    <Typography variant="body2">
+                                      {ownerLabel(item)}
+                                    </Typography>
+                                  </Grid>
+                                  <Grid size={{ xs: 12, md: 4 }}>
+                                    <Typography
+                                      color="text.secondary"
+                                      variant="caption"
+                                    >
+                                      Source
+                                    </Typography>
+                                    <Typography variant="body2">
+                                      {sourceLabel(item)}
+                                    </Typography>
+                                  </Grid>
+                                </Grid>
                               </Stack>
-                              <Grid container spacing={1}>
-                                <Grid size={{ xs: 12, md: 4 }}>
-                                  <Typography color="text.secondary" variant="caption">
-                                    Module owner
-                                  </Typography>
-                                  <Typography variant="body2">{item.moduleName}</Typography>
-                                </Grid>
-                                <Grid size={{ xs: 12, md: 4 }}>
-                                  <Typography color="text.secondary" variant="caption">
-                                    Route owner
-                                  </Typography>
-                                  <Typography variant="body2">{ownerLabel(item)}</Typography>
-                                </Grid>
-                                <Grid size={{ xs: 12, md: 4 }}>
-                                  <Typography color="text.secondary" variant="caption">
-                                    Source
-                                  </Typography>
-                                  <Typography variant="body2">{sourceLabel(item)}</Typography>
-                                </Grid>
-                              </Grid>
-                            </Stack>
-                          </CardContent>
-                        </Card>
-                      ))}
-                  </Stack>
+                            </CardContent>
+                          </Card>
+                        ))}
+                    </Stack>
                   )}
                 </Box>
               ))}
