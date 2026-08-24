@@ -51,7 +51,7 @@ const requiredModules = [
   'nodics.platform',
   'nodics.wcms',
 ];
-const optionalObservedModules = ['nodics.cron'];
+const optionalObservedModules = ['nodics.process'];
 const documentationPacks = [
   'nodicsDocumentation',
   'axisDocumentation',
@@ -365,43 +365,33 @@ async function verifyMediaOperations(authorizedHeaders) {
 }
 
 async function verifyCronLifecycle(authorizedHeaders) {
-  let registry = await loadModuleRegistry(authorizedHeaders);
-  let cronModule =
-    registry.availableModules.find(
-      (module) => module.functionalModule === 'nodics.cron',
-    ) ||
+  const registry = await loadModuleRegistry(authorizedHeaders);
+  const processModule =
     registry.registeredModules.find(
-      (module) => module.functionalModule === 'nodics.cron',
+      (module) => module.functionalModule === 'nodics.process',
+    ) ||
+    registry.availableModules.find(
+      (module) => module.functionalModule === 'nodics.process',
     );
-  if (!cronModule) {
-    throw new Error('nodics.cron was not observed for lifecycle verification');
+  if (!processModule) {
+    throw new Error('nodics.process was not observed for cron verification');
   }
-
-  if (cronModule.registrationState !== 'REGISTERED') {
-    await applyLifecycleAction(cronModule, 'register', authorizedHeaders);
-    registry = await loadModuleRegistry(authorizedHeaders);
-    cronModule = assertModule(registry.registeredModules, 'nodics.cron', 'registered');
-    console.log('PASS cron lifecycle register');
+  if (
+    processModule.registrationState !== 'REGISTERED' ||
+    processModule.enabled !== true ||
+    processModule.runtimeState !== 'ACTIVE'
+  ) {
+    throw new Error(
+      'nodics.process is not registered, active, and enabled for cron verification',
+    );
   }
-
-  if (cronModule.enabled !== true) {
-    cronModule = await applyLifecycleAction(cronModule, 'activate', authorizedHeaders);
-    if (cronModule.enabled !== true) {
-      throw new Error('nodics.cron did not activate');
-    }
-    console.log('PASS cron lifecycle activate');
+  if (
+    !Array.isArray(processModule.technicalModules) ||
+    !processModule.technicalModules.includes('cronjob')
+  ) {
+    throw new Error('nodics.process did not expose cronjob as a technical module');
   }
-
-  cronModule = await applyLifecycleAction(cronModule, 'deactivate', authorizedHeaders);
-  if (cronModule.enabled !== false) {
-    throw new Error('nodics.cron did not deactivate');
-  }
-  console.log('PASS cron lifecycle deactivate');
-
-  await applyLifecycleAction(cronModule, 'deregister', authorizedHeaders);
-  registry = await loadModuleRegistry(authorizedHeaders);
-  assertModule(registry.availableModules, 'nodics.cron', 'available');
-  console.log('PASS cron lifecycle deregister returns module to available');
+  console.log('PASS cronjob observed under active nodics.process runtime');
 }
 
 async function verifyProcessOperations(authorizedHeaders) {

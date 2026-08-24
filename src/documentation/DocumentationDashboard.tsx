@@ -9,6 +9,13 @@ import {
   Typography,
   alpha,
 } from '@mui/material';
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+  type Query,
+} from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router';
 
 import { axisTokens } from '../app/axisTheme';
@@ -24,9 +31,17 @@ import {
   type AxisDocumentationCoverage,
   type AxisDocumentationSource,
 } from '../bootstrap/publicBootstrap';
+import type { AxisRuntimeConfig } from '../runtime/runtimeConfig';
+import { createDocumentationContentPackClient } from './api/documentationContentPackClient';
+import {
+  createDocumentationPublicationClient,
+  type DocumentationPublicationStatus,
+} from './api/documentationPublicationClient';
 
 interface DocumentationDashboardProps {
+  readonly accessToken: string;
   readonly bootstrap: AxisAuthenticatedBootstrap;
+  readonly runtime: AxisRuntimeConfig;
 }
 
 const dashboardComponentGap = workspaceComponentGap;
@@ -36,6 +51,10 @@ const dashboardCardSectionMinHeight = {
   summary: 72,
   metadata: 56,
 } as const;
+const publicationQueryKey = (enterpriseCode: string, profileCode: string) =>
+  ['documentation-publication', enterpriseCode, profileCode] as const;
+const packQueryKey = (enterpriseCode: string, packCode: string) =>
+  ['documentation-content-pack', enterpriseCode, packCode] as const;
 
 const statusLabels: Readonly<Record<AxisDocumentationCoverage['status'], string>> =
   Object.freeze({
@@ -109,12 +128,12 @@ function DocumentationSourceCard({
         border: 1,
         borderColor: 'divider',
         display: 'grid',
-        gap: dashboardContentGap,
+        gap: 1.5,
         gridTemplateRows: {
-          xs: 'auto auto auto auto minmax(0, 1fr) auto',
-          lg: `auto minmax(${String(dashboardCardSectionMinHeight.summary)}px, auto) minmax(${String(dashboardCardSectionMinHeight.metadata)}px, auto) auto minmax(0, 1fr) auto`,
+          xs: 'auto auto auto auto auto',
+          lg: `auto minmax(${String(dashboardCardSectionMinHeight.summary)}px, auto) minmax(${String(dashboardCardSectionMinHeight.metadata)}px, auto) auto auto`,
         },
-        minHeight: 300,
+        minHeight: 230,
         p: dashboardCardPadding,
       }}
     >
@@ -189,44 +208,6 @@ function DocumentationSourceCard({
         />
       </Box>
 
-      <Stack spacing={dashboardContentGap}>
-        {coverage?.signals.length ? (
-          <Box>
-            <Typography variant="subtitle2">Already covered</Typography>
-            <Stack component="ul" spacing={0.75} sx={{ m: 0, mt: 1, pl: 2.5 }}>
-              {coverage.signals.slice(0, 4).map((signal) => (
-                <Typography
-                  component="li"
-                  key={signal}
-                  color="text.secondary"
-                  variant="body2"
-                >
-                  {signal}
-                </Typography>
-              ))}
-            </Stack>
-          </Box>
-        ) : null}
-
-        {coverage?.gaps.length ? (
-          <Box>
-            <Typography variant="subtitle2">Documentation gaps</Typography>
-            <Stack component="ul" spacing={0.75} sx={{ m: 0, mt: 1, pl: 2.5 }}>
-              {coverage.gaps.slice(0, 4).map((gap) => (
-                <Typography
-                  component="li"
-                  key={gap}
-                  color="text.secondary"
-                  variant="body2"
-                >
-                  {gap}
-                </Typography>
-              ))}
-            </Stack>
-          </Box>
-        ) : null}
-      </Stack>
-
       <Button component={RouterLink} to={source.route} variant="contained">
         Open {source.label}
       </Button>
@@ -234,20 +215,269 @@ function DocumentationSourceCard({
   );
 }
 
-function sourcePackLabel(source: AxisDocumentationSource): string {
-  if (source.type === 'OPENAPI') return 'OpenAPI runtime contract';
-  return source.packCode;
+function documentationReadinessLabel(value: string | undefined): string {
+  return value ? value.replaceAll('_', ' ') : 'checking';
 }
 
-function sourcePublicationLabel(source: AxisDocumentationSource): string {
-  if (source.type === 'OPENAPI') return 'Runtime served';
-  return source.initializationProfile ?? 'Profile unavailable';
+type CmsDocumentationSource = Extract<
+  AxisDocumentationSource,
+  { readonly type: 'CMS' }
+>;
+
+function isCmsDocumentationSource(
+  source: AxisDocumentationSource,
+): source is CmsDocumentationSource {
+  return source.type === 'CMS';
 }
 
-export function DocumentationDashboard({ bootstrap }: DocumentationDashboardProps) {
+function CmsDocumentationReadinessCard({
+  accessToken,
+  bootstrap,
+  runtime,
+  source,
+}: {
+  readonly accessToken: string;
+  readonly bootstrap: AxisAuthenticatedBootstrap;
+  readonly runtime: AxisRuntimeConfig;
+  readonly source: Extract<AxisDocumentationSource, { readonly type: 'CMS' }>;
+}) {
+  const queryClient = useQueryClient();
+  const administrationConnection = selectModuleConnection(bootstrap, 'backoffice');
+  const initializationProfile = source.initializationProfile;
+  const canCheck = Boolean(administrationConnection && initializationProfile);
+  const packClient =
+    administrationConnection && initializationProfile
+      ? createDocumentationContentPackClient({
+          connection: administrationConnection,
+          enterpriseCode: runtime.enterpriseCode,
+          accessToken,
+          timeoutMs: runtime.requestTimeoutMs,
+          profileCode: initializationProfile,
+        })
+      : undefined;
+  const publicationClient =
+    administrationConnection && initializationProfile
+      ? createDocumentationPublicationClient({
+          connection: administrationConnection,
+          enterpriseCode: runtime.enterpriseCode,
+          accessToken,
+          timeoutMs: runtime.requestTimeoutMs,
+          profileCode: initializationProfile,
+        })
+      : undefined;
+  const pack = useQuery({
+    queryKey: packQueryKey(runtime.enterpriseCode, source.packCode),
+    queryFn: () => {
+      if (!packClient) throw new Error('Documentation administration is unavailable');
+      return packClient.getStatus();
+    },
+    enabled: canCheck,
+    refetchInterval: (query) =>
+      query.state.data?.state === 'IMPORTING' ? 2_000 : false,
+  });
+  const publication = useQuery({
+    queryKey: publicationQueryKey(runtime.enterpriseCode, initializationProfile ?? ''),
+    queryFn: () => {
+      if (!publicationClient) {
+        throw new Error('Documentation publication is unavailable');
+      }
+      return publicationClient.getStatus();
+    },
+    enabled: canCheck,
+    refetchInterval: (query) =>
+      query.state.data?.readiness === 'PUBLICATION_PENDING' ? 2_000 : false,
+  });
+  const reconcile = async () => {
+    await Promise.all([pack.refetch(), publication.refetch()]);
+  };
+  const packMutation = useMutation({
+    mutationFn: () => {
+      if (!packClient) throw new Error('Documentation administration is unavailable');
+      return packClient.importOrUpdate();
+    },
+    onSuccess: async (nextStatus) => {
+      queryClient.setQueryData(
+        packQueryKey(runtime.enterpriseCode, source.packCode),
+        nextStatus,
+      );
+      await publication.refetch();
+    },
+  });
+  const publicationMutation = useMutation({
+    mutationFn: () => {
+      if (!publicationClient) {
+        throw new Error('Documentation publication is unavailable');
+      }
+      return publicationClient.initiate();
+    },
+    onSuccess: async (nextStatus) => {
+      queryClient.setQueryData(
+        publicationQueryKey(runtime.enterpriseCode, initializationProfile ?? ''),
+        nextStatus,
+      );
+      await pack.refetch();
+    },
+  });
+  const packOperation = pack.data?.allowedOperations[0];
+  const canPublish =
+    pack.data?.state === 'CURRENT' &&
+    publication.data?.allowedActions.includes('INITIALIZE');
+  const busy =
+    pack.isPending ||
+    publication.isPending ||
+    packMutation.isPending ||
+    publicationMutation.isPending;
+  const error =
+    pack.error instanceof Error
+      ? pack.error.message
+      : publication.error instanceof Error
+        ? publication.error.message
+        : packMutation.error instanceof Error
+          ? packMutation.error.message
+          : publicationMutation.error instanceof Error
+            ? publicationMutation.error.message
+            : undefined;
+
+  return (
+    <Paper
+      component="article"
+      elevation={0}
+      sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+    >
+      <Stack spacing={dashboardContentGap}>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={1}
+          sx={{ justifyContent: 'space-between' }}
+        >
+          <Box>
+            <Typography variant="h6">{source.label}</Typography>
+            <Typography color="text.secondary" variant="body2">
+              {source.packCode} · {initializationProfile ?? 'profile unavailable'}
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+            <Chip
+              label={`Staged: ${documentationReadinessLabel(pack.data?.state)}`}
+              size="small"
+              variant="outlined"
+            />
+            <Chip
+              color={
+                ['FAILED', 'REJECTED'].includes(publication.data?.readiness ?? '')
+                  ? 'error'
+                  : publication.data?.readiness === 'READY'
+                    ? 'success'
+                    : 'default'
+              }
+              label={`Online: ${documentationReadinessLabel(publication.data?.readiness)}`}
+              size="small"
+            />
+          </Stack>
+        </Stack>
+
+        {!administrationConnection ? (
+          <Alert severity="warning">
+            Platform BackOffice is unavailable, so documentation initialization cannot
+            be managed from Axis right now.
+          </Alert>
+        ) : !initializationProfile ? (
+          <Alert severity="warning">
+            This documentation source does not declare an initialization profile.
+          </Alert>
+        ) : null}
+
+        {error ? <Alert severity="error">{error}</Alert> : null}
+        {publication.data?.readiness === 'PUBLICATION_PENDING' ? (
+          <Alert severity="info">
+            Publication is waiting for approval or Online activation.
+          </Alert>
+        ) : null}
+
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+          {packOperation ? (
+            <Button
+              disabled={busy}
+              onClick={() => packMutation.mutate()}
+              variant="contained"
+            >
+              {packMutation.isPending
+                ? 'Installing to Staged...'
+                : packOperation === 'UPDATE'
+                  ? pack.data?.presentation.updateAction
+                  : pack.data?.presentation.importAction}
+            </Button>
+          ) : null}
+          {canPublish ? (
+            <Button
+              disabled={busy}
+              onClick={() => publicationMutation.mutate()}
+              variant="contained"
+            >
+              {publicationMutation.isPending
+                ? 'Requesting publication...'
+                : publication.data?.readiness === 'FAILED'
+                  ? 'Retry publication'
+                  : 'Publish / request approval'}
+            </Button>
+          ) : null}
+          <Button disabled={busy || !canCheck} onClick={() => void reconcile()}>
+            Refresh status
+          </Button>
+        </Stack>
+      </Stack>
+    </Paper>
+  );
+}
+
+export function DocumentationDashboard({
+  accessToken,
+  bootstrap,
+  runtime,
+}: DocumentationDashboardProps) {
   const sources = bootstrap.documentationSources;
-  const cmsSources = sources.filter((source) => source.type === 'CMS');
+  const cmsSources = sources.filter(isCmsDocumentationSource);
   const apiSources = sources.filter((source) => source.type === 'OPENAPI');
+  const administrationConnection = selectModuleConnection(bootstrap, 'backoffice');
+  const managedCmsSources = cmsSources.filter((source) => source.initializationProfile);
+  const publicationQueries = useQueries({
+    queries: managedCmsSources.map((source) => ({
+      enabled: Boolean(administrationConnection && source.initializationProfile),
+      queryKey: publicationQueryKey(
+        runtime.enterpriseCode,
+        source.initializationProfile ?? '',
+      ),
+      queryFn: () => {
+        if (!administrationConnection || !source.initializationProfile) {
+          throw new Error('Documentation publication is unavailable');
+        }
+        return createDocumentationPublicationClient({
+          connection: administrationConnection,
+          enterpriseCode: runtime.enterpriseCode,
+          accessToken,
+          timeoutMs: runtime.requestTimeoutMs,
+          profileCode: source.initializationProfile,
+        }).getStatus();
+      },
+      refetchInterval: (
+        query: Query<
+          DocumentationPublicationStatus,
+          Error,
+          DocumentationPublicationStatus,
+          readonly unknown[]
+        >,
+      ) => (query.state.data?.readiness === 'PUBLICATION_PENDING' ? 2_000 : false),
+    })),
+  });
+  const readyCmsCount = publicationQueries.filter(
+    (query) => query.data?.readiness === 'READY',
+  ).length;
+  const publicationChecking = publicationQueries.some((query) => query.isPending);
+  const documentationVisible =
+    cmsSources.length === 0 ||
+    (managedCmsSources.length === cmsSources.length &&
+      managedCmsSources.length > 0 &&
+      readyCmsCount === managedCmsSources.length);
   const measured = sources.filter((source) => source.dashboard.coverage);
   const averageCoverage = measured.length
     ? Math.round(
@@ -260,146 +490,94 @@ export function DocumentationDashboard({ bootstrap }: DocumentationDashboardProp
 
   return (
     <Stack spacing={dashboardComponentGap}>
-      <Paper
-        component="section"
-        elevation={0}
-        sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
-      >
-        <Stack spacing={dashboardContentGap}>
-          <Stack
-            direction={{ xs: 'column', md: 'row' }}
-            spacing={1}
-            sx={{ justifyContent: 'space-between' }}
-          >
-            <Box>
-              <Typography variant="overline">Documentation home</Typography>
-              <Typography variant="h3">Nodics Documentation</Typography>
-              <Typography color="text.secondary" sx={{ mt: 0.5, maxWidth: 920 }}>
-                Explore framework guidance, API references, and application
-                documentation from registered backend-owned sources.
-              </Typography>
-            </Box>
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
-              <Chip label={`${String(sources.length)} areas`} />
-              {averageCoverage !== undefined ? (
+      {cmsSources.length ? (
+        <Paper
+          component="section"
+          elevation={0}
+          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+        >
+          <Stack spacing={dashboardContentGap}>
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={1.5}
+              sx={{ justifyContent: 'space-between' }}
+            >
+              <Box>
+                <Typography variant="h4">Documentation initialization</Typography>
+                <Typography color="text.secondary" sx={{ mt: 0.5, maxWidth: 900 }}>
+                  Install documentation packs to Staged and publish them Online before
+                  product documentation links are opened.
+                </Typography>
+              </Box>
+              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
                 <Chip
-                  color="primary"
-                  label={`${String(averageCoverage)}% avg coverage`}
+                  label={`${String(readyCmsCount)}/${String(cmsSources.length)} online`}
                 />
-              ) : null}
+                <Chip
+                  label={`${String(apiSources.length)} API source(s)`}
+                  variant="outlined"
+                />
+                {averageCoverage !== undefined ? (
+                  <Chip
+                    color={documentationVisible ? 'primary' : 'default'}
+                    label={`${String(averageCoverage)}% avg coverage`}
+                  />
+                ) : null}
+              </Stack>
             </Stack>
+            {!documentationVisible ? (
+              <Alert severity={publicationChecking ? 'info' : 'warning'}>
+                Framework, Swaggers, Axis, and Kickoff documentation areas stay locked
+                until the publishable documentation source is Online-ready.
+              </Alert>
+            ) : (
+              <Alert severity="success">
+                Documentation is Online-ready. The documentation areas below are now
+                available.
+              </Alert>
+            )}
+            <Box
+              sx={{
+                display: 'grid',
+                gap: dashboardComponentGap,
+                gridTemplateColumns: { xs: '1fr', lg: 'repeat(2, minmax(0, 1fr))' },
+              }}
+            >
+              {cmsSources.map((source) => (
+                <CmsDocumentationReadinessCard
+                  accessToken={accessToken}
+                  bootstrap={bootstrap}
+                  key={source.id}
+                  runtime={runtime}
+                  source={source}
+                />
+              ))}
+            </Box>
           </Stack>
+        </Paper>
+      ) : null}
 
-          <Alert severity="info">
-            This dashboard is generated from the BackOffice documentation-source
-            registry. Customer modules can add documentation areas and coverage metadata
-            through configuration.
-          </Alert>
-        </Stack>
-      </Paper>
-
-      <Box
-        sx={{
-          display: 'grid',
-          gap: dashboardComponentGap,
-          gridTemplateColumns: {
-            xs: '1fr',
-            lg: 'repeat(3, minmax(0, 1fr))',
-          },
-        }}
-      >
-        {sources.map((source) => (
-          <DocumentationSourceCard
-            bootstrap={bootstrap}
-            key={source.id}
-            source={source}
-          />
-        ))}
-      </Box>
-
-      <Paper
-        component="section"
-        elevation={0}
-        sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
-      >
-        <Stack spacing={dashboardContentGap}>
-          <Box>
-            <Typography variant="h5">Documentation publishing ownership</Typography>
-            <Typography color="text.secondary">
-              Documentation is backend-owned content. Axis shows the registry, import
-              readiness, approval path, and Online verification target without storing
-              publishable documentation data in the frontend repository.
-            </Typography>
-          </Box>
-          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-            <Chip color="primary" label={`${String(cmsSources.length)} CMS pack(s)`} />
-            <Chip
-              label={`${String(apiSources.length)} API source(s)`}
-              variant="outlined"
+      {documentationVisible ? (
+        <Box
+          component="section"
+          sx={{
+            display: 'grid',
+            gap: dashboardComponentGap,
+            gridTemplateColumns: {
+              xs: '1fr',
+              lg: 'repeat(3, minmax(0, 1fr))',
+            },
+          }}
+        >
+          {sources.map((source) => (
+            <DocumentationSourceCard
+              bootstrap={bootstrap}
+              key={source.id}
+              source={source}
             />
-            <Chip label="Content templates + docs data" variant="outlined" />
-            <Chip label="Approval protected Online" variant="outlined" />
-            <Chip label="Version 0 allowed pre-release" variant="outlined" />
-          </Stack>
-          <Box
-            sx={{
-              display: 'grid',
-              gap: 2,
-              gridTemplateColumns: { xs: '1fr', lg: 'repeat(2, minmax(0, 1fr))' },
-            }}
-          >
-            {sources.map((source) => (
-              <Paper
-                component="article"
-                elevation={0}
-                key={source.id}
-                sx={{ border: 1, borderColor: 'divider', p: 2 }}
-              >
-                <Stack spacing={1}>
-                  <Stack
-                    direction={{ xs: 'column', sm: 'row' }}
-                    spacing={1}
-                    sx={{ justifyContent: 'space-between' }}
-                  >
-                    <Box>
-                      <Typography variant="subtitle1">{source.label}</Typography>
-                      <Typography color="text.secondary" variant="body2">
-                        Owner: {source.ownerModule}
-                      </Typography>
-                    </Box>
-                    <Chip
-                      label={source.type === 'CMS' ? 'Publishable CMS' : 'Runtime API'}
-                      size="small"
-                    />
-                  </Stack>
-                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                    <Chip
-                      label={`Pack: ${sourcePackLabel(source)}`}
-                      size="small"
-                      variant="outlined"
-                    />
-                    <Chip
-                      label={`Profile: ${sourcePublicationLabel(source)}`}
-                      size="small"
-                      variant="outlined"
-                    />
-                    <Chip
-                      label={`Route: ${source.route}`}
-                      size="small"
-                      variant="outlined"
-                    />
-                  </Stack>
-                </Stack>
-              </Paper>
-            ))}
-          </Box>
-          <Alert severity="info">
-            Use Setup & Accelerators or a CMS documentation page to import the
-            documentation content pack to Staged, submit/request approval, verify Online
-            delivery, and capture browser evidence.
-          </Alert>
-        </Stack>
-      </Paper>
+          ))}
+        </Box>
+      ) : null}
     </Stack>
   );
 }

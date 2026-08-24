@@ -576,7 +576,11 @@ export function DocumentationRoutePage(props: DocumentationRoutePageProps) {
   if (props.path === '/docs') {
     return (
       <WorkspaceContainer>
-        <DocumentationDashboard bootstrap={props.bootstrap} />
+        <DocumentationDashboard
+          accessToken={props.accessToken}
+          bootstrap={props.bootstrap}
+          runtime={props.runtime}
+        />
       </WorkspaceContainer>
     );
   }

@@ -167,11 +167,46 @@ function requestPathname(request: URL | RequestInfo): string {
 }
 
 describe('DocumentationRoutePage', () => {
-  it('renders the documentation dashboard from registered documentation sources', () => {
+  it('renders the documentation dashboard from registered documentation sources once published', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((request) => {
+      const pathname = requestPathname(request);
+      if (pathname.includes('/content-pack')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ...packResponse,
+              data: {
+                ...packResponse.data,
+                state: 'CURRENT',
+                installedVersion: '1.0.0',
+                allowedOperations: [],
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            ...response,
+            data: {
+              ...response.data,
+              readiness: 'READY',
+              allowedActions: [],
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    });
+
     renderPage('/docs');
 
-    expect(screen.getByRole('heading', { name: 'Nodics Documentation' })).toBeVisible();
-    expect(screen.getByText('Core framework documentation.')).toBeVisible();
+    expect(
+      screen.getByRole('heading', { name: 'Documentation initialization' }),
+    ).toBeVisible();
+    expect(await screen.findByText('Core framework documentation.')).toBeVisible();
     expect(screen.getByText('Generated API contracts.')).toBeVisible();
     expect(screen.getByText('85% documented')).toBeVisible();
     expect(screen.getByText('100% documented')).toBeVisible();
@@ -185,6 +220,51 @@ describe('DocumentationRoutePage', () => {
       'href',
       '/docs/swaggers',
     );
+    fetchMock.mockRestore();
+  });
+
+  it('lets operators install documentation from the dashboard when it is absent', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation((request) =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify(
+              requestPathname(request).includes('/content-pack')
+                ? packResponse
+                : response,
+            ),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        ),
+      );
+    const user = userEvent.setup();
+    renderPage('/docs');
+
+    expect(await screen.findByText('Documentation initialization')).toBeVisible();
+    expect(
+      screen.getByText(
+        /Framework, Swaggers, Axis, and Kickoff documentation areas stay locked/iu,
+      ),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('link', { name: 'Open Framework' }),
+    ).not.toBeInTheDocument();
+    await user.click(
+      await screen.findByRole('button', { name: 'Install documentation' }),
+    );
+    expect(fetchMock.mock.calls).toEqual(
+      expect.arrayContaining([
+        [
+          expect.objectContaining({
+            pathname:
+              '/v0/applications/frameworkdocs/initialization/content-pack/install',
+          }),
+          expect.objectContaining({ method: 'POST' }),
+        ],
+      ]),
+    );
+    fetchMock.mockRestore();
   });
 
   it('offers the governed import action when documentation is absent', async () => {
@@ -353,8 +433,8 @@ describe('DocumentationRoutePage', () => {
     const user = userEvent.setup();
     renderPage('/docs/framework');
 
-    expect(await screen.findByText('Staged: CURRENT')).toBeVisible();
-    expect(screen.getByText('Online: IMPORTED')).toBeVisible();
+    expect((await screen.findAllByText('Staged: CURRENT'))[0]).toBeVisible();
+    expect(screen.getAllByText('Online: IMPORTED')[0]).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Validate staged release' }));
     await user.click(
       screen.getByRole('button', { name: 'Publish / request approval' }),
@@ -366,7 +446,9 @@ describe('DocumentationRoutePage', () => {
           init?.method === 'POST',
       ),
     ).toBe(true);
-    expect(await screen.findByText('Online: PUBLICATION PENDING')).toBeVisible();
+    expect(
+      (await screen.findAllByText('Online: PUBLICATION PENDING'))[0],
+    ).toBeVisible();
     fetchMock.mockRestore();
   });
 

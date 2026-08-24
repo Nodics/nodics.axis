@@ -75,6 +75,19 @@ function normalizeRoutePath(path: string): string {
   return path.replace(/\/$/, '') || '/';
 }
 
+function isDocumentationNavigationItem(item: AxisNavigationItem): boolean {
+  const route = normalizeRoutePath(item.route);
+  const groupId = item.group?.id?.trim().toLowerCase();
+  const groupLabel = item.group?.label?.trim().toLowerCase();
+  return (
+    (item.id === 'documentation' && item.moduleName === 'backoffice') ||
+    route === '/docs' ||
+    route.startsWith('/docs/') ||
+    groupId === 'documentation' ||
+    groupLabel === 'documentation'
+  );
+}
+
 function safeReturnPath(value: string | null | undefined): string | undefined {
   if (!value || !value.startsWith('/') || value.startsWith('//')) return undefined;
   if (['/login', '/forgot-password', '/lock-screen'].includes(value)) {
@@ -381,16 +394,11 @@ export function App() {
   const workbenchNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'schema-workbench' && item.moduleName === 'backoffice',
   );
-  const documentationNavigation =
-    authenticatedBootstrap?.navigation.find(
-      (item) => item.id === 'documentation' && item.moduleName === 'backoffice',
-    ) ??
-    authenticatedBootstrap?.navigation.find(
-      (item) =>
-        item.group?.label === 'Documentation' &&
-        item.route.startsWith('/docs/') &&
-        ['UP', 'DEGRADED'].includes(item.availability),
-    );
+  const documentationNavigation = authenticatedBootstrap?.navigation.find(
+    isDocumentationNavigationItem,
+  );
+  const documentationSourcesAvailable =
+    (authenticatedBootstrap?.documentationSources.length ?? 0) > 0;
   const moduleHealthNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'module-health' && item.moduleName === 'backoffice',
   );
@@ -663,9 +671,13 @@ export function App() {
         : authenticatedShell(<ModuleWorkspacePlaceholder item={navigationItem} />)
       : sessionFallback;
   const cmsWorkbenchElement =
-    cmsWorkbenchNavigation && currentWorkbenchSchema
+    currentWorkbenchNavigation && currentWorkbenchSchema
       ? workbenchRouteElement(currentWorkbenchNavigation)
-      : sessionFallback;
+      : currentNavigation?.route.startsWith('/content')
+        ? navigationRouteElement(currentNavigation)
+        : cmsWorkbenchNavigation
+          ? navigationRouteElement(cmsWorkbenchNavigation)
+          : sessionFallback;
   const contentDashboardElement =
     session && !locked && authenticatedBootstrap && contentDashboardNavigation
       ? authenticatedShell(
@@ -724,6 +736,28 @@ export function App() {
             />
           ) : (
             <ModuleWorkspacePlaceholder item={publishingDashboardNavigation} />
+          ),
+        )
+      : sessionFallback;
+  const documentationRouteElement =
+    session &&
+    !locked &&
+    authenticatedBootstrap &&
+    (documentationNavigation || documentationSourcesAvailable)
+      ? authenticatedShell(
+          documentationNavigation &&
+            !['UP', 'DEGRADED'].includes(documentationNavigation.availability) ? (
+            <ModuleWorkspacePlaceholder item={documentationNavigation} />
+          ) : (
+            <DocumentationRoutePage
+              accessToken={session.accessToken}
+              bootstrap={authenticatedBootstrap}
+              channel={composition.channel}
+              cmsBaseUrl={bootstrap.endpoints.cms}
+              locale={composition.locale}
+              path={location.pathname}
+              runtime={runtime}
+            />
           ),
         )
       : sessionFallback;
@@ -1388,41 +1422,8 @@ export function App() {
             )
           }
         />
-        <Route
-          path="/docs/*"
-          element={
-            session && !locked && authenticatedBootstrap && documentationNavigation ? (
-              authenticatedShell(
-                ['UP', 'DEGRADED'].includes(documentationNavigation.availability) ? (
-                  <DocumentationRoutePage
-                    accessToken={session.accessToken}
-                    bootstrap={authenticatedBootstrap}
-                    channel={composition.channel}
-                    cmsBaseUrl={bootstrap.endpoints.cms}
-                    locale={composition.locale}
-                    path={location.pathname}
-                    runtime={runtime}
-                  />
-                ) : (
-                  <ModuleWorkspacePlaceholder item={documentationNavigation} />
-                ),
-              )
-            ) : (
-              <Navigate
-                replace
-                to={
-                  session && !locked
-                    ? composition.defaultAuthenticatedPage
-                    : session
-                      ? '/lock-screen'
-                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
-                          currentRoutePath,
-                        )}`
-                }
-              />
-            )
-          }
-        />
+        <Route path="/docs" element={documentationRouteElement} />
+        <Route path="/docs/*" element={documentationRouteElement} />
         <Route path="/media" element={mediaManagementDashboardElement} />
         <Route
           path="/media/*"

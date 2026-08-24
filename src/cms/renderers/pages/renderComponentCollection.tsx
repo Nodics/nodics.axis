@@ -12,8 +12,10 @@ export function renderComponentCollection(
 ): ReactNode {
   return (
     <Stack spacing={2}>
-      {components.map((component) => (
-        <CmsRenderBoundary key={component.code}>
+      {components.map((component, index) => (
+        <CmsRenderBoundary
+          key={`${component.slot}:${String(component.index)}:${component.code}:${String(index)}`}
+        >
           <CmsComponentRenderer actions={actions} component={component} />
         </CmsRenderBoundary>
       ))}

@@ -28,7 +28,7 @@ function fetchInputUrl(input: Parameters<typeof fetch>[0]): string {
 
 const publicBootstrap = {
   data: {
-    contractVersion: 0,
+    contractVersion: 1,
     clientContractVersion: 1,
     endpoints: {
       profile: 'https://profile.example.com',
@@ -671,6 +671,326 @@ describe('employee login journey', () => {
     ).toBe(true);
   });
 
+  it('opens the documentation dashboard from source registry without a navigation item', async () => {
+    window.history.pushState({}, '', '/docs');
+    document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
+    const request = vi.fn<typeof fetch>().mockImplementation((input, options) => {
+      const url = fetchInputUrl(input);
+      if (url.includes('/bootstrap/public')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(publicBootstrap), { status: 200 }),
+        );
+      }
+      if (url.includes('/employee/browser/restore')) {
+        expect(new Headers(options?.headers).get('X-CSRF-Token')).toBe('refresh-csrf');
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              result: {
+                authToken: 'restored-docs-access',
+                loginId: 'operator',
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes('/axis/initialization')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(axisInitializationReady), { status: 200 }),
+        );
+      }
+      if (url.includes('/bootstrap')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: {
+                modules: {
+                  cms: [
+                    {
+                      moduleName: 'cms',
+                      instanceId: 'runtime-1',
+                      environment: 'kickoffLocal',
+                      clientCallable: true,
+                      endpoint: 'https://cms.example.com/nodics/cms',
+                      state: 'UP',
+                    },
+                  ],
+                  backoffice: [
+                    {
+                      moduleName: 'backoffice',
+                      instanceId: 'platform-1',
+                      environment: 'kickoffLocal',
+                      clientCallable: true,
+                      endpoint: 'https://platform.example.com/nodics/backoffice',
+                      state: 'UP',
+                    },
+                  ],
+                },
+                catalogue: {
+                  backoffice: {
+                    enabled: true,
+                    category: 'platform',
+                    icon: 'documentation',
+                    requiredPermissions: ['backoffice.documentation.view'],
+                    compatibility: { status: 'COMPATIBLE' },
+                    navigation: [],
+                  },
+                },
+                availability: {
+                  backoffice: { state: 'UP' },
+                  cms: { state: 'UP' },
+                },
+                axisPolicy: {
+                  contractVersion: 0,
+                  screenLockEnabled: true,
+                  idleTimeoutSeconds: 900,
+                  recentNavigationLimit: 12,
+                  revision: 0,
+                  source: 'DEFAULT',
+                },
+                documentationSources: [
+                  {
+                    id: 'framework',
+                    label: 'Framework',
+                    type: 'CMS',
+                    route: '/docs/framework',
+                    order: 100,
+                    ownerModule: 'backoffice',
+                    connectionModule: 'cms',
+                    site: 'axisCmsSite',
+                    catalog: 'nodicsDocumentationContentCatalog',
+                    defaultPage: '/docs',
+                    packCode: 'nodicsDocumentation',
+                    initializationProfile: 'frameworkdocs',
+                  },
+                ],
+                tenantCode: 'default',
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes('/initialization/content-pack')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: {
+                code: 'nodicsDocumentation',
+                enabled: true,
+                state: 'NOT_INSTALLED',
+                available: true,
+                installedVersion: null,
+                availableVersion: '1.0.0',
+                runId: null,
+                allowedOperations: ['IMPORT'],
+                presentation: {
+                  title: 'Nodics documentation',
+                  unavailableMessage: 'Documentation is unavailable.',
+                  disabledMessage: 'Documentation is disabled.',
+                  importAction: 'Install documentation',
+                  updateAction: 'Update documentation',
+                  retryAction: 'Retry',
+                },
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      if (url.includes('/applications/frameworkdocs/initialization')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: {
+                profileCode: 'frameworkdocs',
+                siteCode: 'nodicsDocumentationSite',
+                readiness: 'NOT_IMPORTED',
+                releaseCode: 'contentPack:nodicsDocumentation',
+                releaseVersion: '0.0.0',
+                allowedActions: ['INITIALIZE'],
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 404 }));
+    });
+    vi.stubGlobal('fetch', request);
+
+    render(
+      <AppProviders runtimeConfig={runtimeConfig}>
+        <App />
+      </AppProviders>,
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Documentation initialization' }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('link', { name: 'Open Framework' }),
+    ).not.toBeInTheDocument();
+    expect(
+      request.mock.calls.some(([input]) =>
+        fetchInputUrl(input).includes('/delivery/pages/resolve'),
+      ),
+    ).toBe(false);
+  });
+
+  it('restores a content workbench child route without requiring a cms parent item', async () => {
+    window.history.pushState({}, '', '/content/component-media');
+    document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
+    const request = vi.fn<typeof fetch>().mockImplementation((input, options) => {
+      const url = fetchInputUrl(input);
+      if (url.includes('/bootstrap/public')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(publicBootstrap), { status: 200 }),
+        );
+      }
+      if (url.includes('/employee/browser/restore')) {
+        expect(new Headers(options?.headers).get('X-CSRF-Token')).toBe('refresh-csrf');
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              result: {
+                authToken: 'restored-content-access',
+                loginId: 'operator',
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes('/axis/initialization')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(axisInitializationReady), { status: 200 }),
+        );
+      }
+      if (url.includes('/bootstrap')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: {
+                modules: {
+                  cms: [
+                    {
+                      moduleName: 'cms',
+                      instanceId: 'runtime-1',
+                      environment: 'kickoffLocal',
+                      clientCallable: true,
+                      endpoint: 'https://cms.example.com/nodics/cms',
+                      state: 'UP',
+                    },
+                  ],
+                },
+                catalogue: {
+                  cms: {
+                    enabled: true,
+                    category: 'content',
+                    icon: 'content',
+                    requiredPermissions: ['cms.backoffice.view'],
+                    compatibility: { status: 'COMPATIBLE' },
+                    navigation: [
+                      {
+                        id: 'component-media',
+                        label: 'Component Media',
+                        route: '/content/component-media',
+                        order: 220,
+                        group: {
+                          id: 'content',
+                          label: 'Content & Experience',
+                          order: 200,
+                        },
+                        requiredPermissions: ['cms.backoffice.view'],
+                        workbenchTarget: {
+                          moduleName: 'cms',
+                          schemaName: 'cmsPage',
+                        },
+                      },
+                    ],
+                  },
+                },
+                availability: {
+                  cms: { state: 'UP' },
+                },
+                axisPolicy: {
+                  contractVersion: 0,
+                  screenLockEnabled: true,
+                  idleTimeoutSeconds: 900,
+                  recentNavigationLimit: 12,
+                  revision: 0,
+                  source: 'DEFAULT',
+                },
+                documentationSources: [],
+                tenantCode: 'default',
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes('/schema/workbench')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ result: { schemas: [cmsPageWorkbenchSchema] } }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes('/cmsPage/safe-search')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              result: {
+                records: [{ code: 'home', name: 'Home Page' }],
+                totalCount: 1,
+                pageNumber: 1,
+                pageSize: 10,
+                sort: { field: 'code', direction: 'ASC' },
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes('path=%2Fschema-workbench')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ result: schemaWorkbenchPage }), { status: 200 }),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ result: dashboardPage }), { status: 200 }),
+      );
+    });
+    vi.stubGlobal('fetch', request);
+
+    render(
+      <AppProviders runtimeConfig={runtimeConfig}>
+        <App />
+      </AppProviders>,
+    );
+
+    expect(
+      (await screen.findAllByRole('cell', { name: 'home' }, { timeout: 5_000 }))
+        .length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText('Authenticated employee workspace')).not.toBeInTheDocument();
+    expect(
+      request.mock.calls.some(([input]) =>
+        fetchInputUrl(input).includes('/cmsPage/safe-search'),
+      ),
+    ).toBe(true);
+    expect(
+      request.mock.calls.some(([, options]) =>
+        new Headers(options?.headers)
+          .get('Authorization')
+          ?.includes('restored-content-access'),
+      ),
+    ).toBe(true);
+  });
+
   it('discovers modules, authenticates through Profile, and protects dashboard', async () => {
     window.history.pushState({}, '', '/login');
     const request = vi.fn<typeof fetch>().mockImplementation((input, options) => {
@@ -1097,7 +1417,7 @@ describe('employee login journey', () => {
       screen.getByRole('navigation', { name: 'Primary navigation' }),
     ).toBeInTheDocument();
     await user.click(
-      screen.getByRole('button', { name: 'Expand Content and Experience' }),
+      screen.getByRole('button', { name: 'Expand Content & Experience' }),
     );
     const contentNavigationItem = screen
       .getAllByRole('button', { name: 'Content' })
