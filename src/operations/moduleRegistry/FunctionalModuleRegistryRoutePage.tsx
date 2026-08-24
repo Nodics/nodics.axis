@@ -7,19 +7,23 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  Collapse,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   Divider,
   Grid,
+  IconButton,
   Stack,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
+import { ShellIcon } from '../../app/shell/ShellIcon';
 import { WorkspaceContainer } from '../../app/shell/ShellPrimitives';
 import {
   selectModuleConnection,
@@ -459,6 +463,7 @@ function ModuleCard({
   sampleDataDisabled,
   visibility,
 }: ModuleCardProps) {
+  const [expanded, setExpanded] = useState(false);
   const [technicalExpanded, setTechnicalExpanded] = useState(false);
   const isRegistered = module.registrationState === 'REGISTERED';
   const canRegister = module.registrationState === 'AVAILABLE';
@@ -486,6 +491,17 @@ function ModuleCard({
   const remainingTechnicalModules =
     module.technicalModules.length - visibleTechnicalModules.length;
   const hasSampleData = canRequestSampleData(module);
+  const detailId = `module-registry-details-${module.functionalModule.replace(
+    /[^A-Za-z0-9_-]/gu,
+    '-',
+  )}`;
+  const primaryAction = canRegister
+    ? 'register'
+    : canActivate
+      ? 'activate'
+      : !module.enabled
+        ? 'preview'
+        : undefined;
 
   return (
     <Card
@@ -502,341 +518,322 @@ function ModuleCard({
       }}
     >
       <CardContent>
-        <Stack spacing={2}>
+        <Stack spacing={expanded ? 2 : 0}>
           <Stack
             direction={{ xs: 'column', sm: 'row' }}
-            spacing={1.5}
-            sx={{ justifyContent: 'space-between' }}
+            spacing={1}
+            sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
           >
-            <Box>
-              <Typography component="h3" variant="h6">
-                {module.displayName}
-              </Typography>
-              <Typography color="text.secondary" variant="body2">
-                {module.functionalModule}
-                {module.registeredVersion ? ` · v${module.registeredVersion}` : ''}
-              </Typography>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Stack
+                direction={{ xs: 'column', md: 'row' }}
+                spacing={1}
+                sx={{ alignItems: { md: 'center' }, minWidth: 0 }}
+              >
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography component="h3" noWrap variant="subtitle1">
+                    {module.displayName}
+                  </Typography>
+                  <Typography color="text.secondary" noWrap variant="caption">
+                    {module.functionalModule}
+                    {module.registeredVersion ? ` · v${module.registeredVersion}` : ''}
+                  </Typography>
+                </Box>
+                <Stack
+                  direction="row"
+                  spacing={0.75}
+                  sx={{ flexWrap: 'wrap', rowGap: 0.75 }}
+                >
+                  <Chip
+                    color={stateColor(module.registrationState)}
+                    label={module.registrationState}
+                    size="small"
+                  />
+                  <Chip
+                    color={stateColor(module.runtimeState)}
+                    label={module.runtimeState}
+                    size="small"
+                    variant="outlined"
+                  />
+                  <Chip
+                    color={module.enabled ? 'success' : stateColor('DISABLED')}
+                    label={module.enabled ? 'Enabled' : 'Disabled'}
+                    size="small"
+                  />
+                  <Chip
+                    color={readinessColor(readiness)}
+                    label={readiness}
+                    size="small"
+                    variant="outlined"
+                  />
+                  <Chip
+                    label={module.required ? 'Required' : 'Optional'}
+                    size="small"
+                    variant="outlined"
+                  />
+                </Stack>
+              </Stack>
             </Box>
-            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-              <Chip
-                color={stateColor(module.registrationState)}
-                label={module.registrationState}
-                size="small"
-              />
-              <Chip
-                color={stateColor(module.runtimeState)}
-                label={module.runtimeState}
-                size="small"
-                variant="outlined"
-              />
-              <Chip
-                color={module.enabled ? 'success' : stateColor('DISABLED')}
-                label={module.enabled ? 'Enabled' : 'Disabled'}
-                size="small"
-              />
-              <Chip
-                color={readinessColor(readiness)}
-                label={readiness}
-                size="small"
-                variant="outlined"
-              />
-              {module.required ? (
-                <Chip color="default" label="Required" size="small" />
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ flexShrink: 0, flexWrap: 'wrap', rowGap: 1 }}
+            >
+              {primaryAction === 'register' ? (
+                <Button
+                  disabled={disabled || pending}
+                  onClick={() => onAction(module, 'register')}
+                  size="small"
+                  variant="contained"
+                >
+                  {pendingAction === 'register' ? 'Registering...' : 'Register'}
+                </Button>
               ) : null}
+              {primaryAction === 'preview' ? (
+                <Button
+                  disabled={disabled || pending || !isRegistered}
+                  onClick={() => onAction(module, 'preview')}
+                  size="small"
+                  variant="outlined"
+                >
+                  {pendingAction === 'preview' ? 'Previewing...' : 'Preview'}
+                </Button>
+              ) : null}
+              {primaryAction === 'activate' ? (
+                <Button
+                  disabled={disabled || pending}
+                  onClick={() => onAction(module, 'activate')}
+                  size="small"
+                  variant="contained"
+                >
+                  {pendingAction === 'activate' ? 'Activating...' : 'Activate'}
+                </Button>
+              ) : null}
+              <Tooltip title={expanded ? 'Hide details' : 'Show details'}>
+                <IconButton
+                  aria-controls={detailId}
+                  aria-expanded={expanded}
+                  aria-label={`${expanded ? 'Collapse' : 'Expand'} ${module.displayName}`}
+                  onClick={() => setExpanded((value) => !value)}
+                  size="small"
+                  sx={{ height: 32, width: 32 }}
+                >
+                  <ShellIcon
+                    fontSize="small"
+                    name={expanded ? 'chevron-up' : 'chevron-down'}
+                  />
+                </IconButton>
+              </Tooltip>
             </Stack>
           </Stack>
 
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12, md: 4 }}>
-              <Typography color="text.secondary" variant="caption">
-                Catalogue revision
-              </Typography>
-              <Typography>{module.catalogueRevision}</Typography>
-            </Grid>
-            <Grid size={{ xs: 12, md: 4 }}>
-              <Typography color="text.secondary" variant="caption">
-                Last observed
-              </Typography>
-              <Typography>{formatTime(module.lastObservedAt)}</Typography>
-            </Grid>
-            <Grid size={{ xs: 12, md: 4 }}>
-              <Typography color="text.secondary" variant="caption">
-                Observed servers
-              </Typography>
-              <Typography>
-                {module.observedServers.length > 0
-                  ? module.observedServers.join(', ')
-                  : 'No runtime server observed'}
-              </Typography>
-            </Grid>
-          </Grid>
+          <Collapse id={detailId} in={expanded} timeout="auto" unmountOnExit>
+            <Stack spacing={2} sx={{ pt: 2 }}>
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 12, md: 4 }}>
+                  <Typography color="text.secondary" variant="caption">
+                    Revision
+                  </Typography>
+                  <Typography>{module.catalogueRevision}</Typography>
+                </Grid>
+                <Grid size={{ xs: 12, md: 4 }}>
+                  <Typography color="text.secondary" variant="caption">
+                    Last observed
+                  </Typography>
+                  <Typography>{formatTime(module.lastObservedAt)}</Typography>
+                </Grid>
+                <Grid size={{ xs: 12, md: 4 }}>
+                  <Typography color="text.secondary" variant="caption">
+                    Observed servers
+                  </Typography>
+                  <Typography>
+                    {module.observedServers.length > 0
+                      ? module.observedServers.join(', ')
+                      : 'No runtime server observed'}
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 12, md: 4 }}>
+                  <Typography color="text.secondary" variant="caption">
+                    Activation mode
+                  </Typography>
+                  <Typography>{activationMode(module)}</Typography>
+                </Grid>
+                <Grid size={{ xs: 12, md: 4 }}>
+                  <Typography color="text.secondary" variant="caption">
+                    Runtime signals
+                  </Typography>
+                  <Typography>
+                    {String(impactCount)} technical/server signal(s)
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 12, md: 4 }}>
+                  <Typography color="text.secondary" variant="caption">
+                    Data receipts
+                  </Typography>
+                  <Typography>
+                    {activationData
+                      ? `${String(activationData.receipts.length)} receipt(s)`
+                      : 'Preview available'}
+                  </Typography>
+                </Grid>
+              </Grid>
 
-          <Box>
-            <Typography color="text.secondary" sx={{ mb: 1 }} variant="caption">
-              Technical modules
-            </Typography>
-            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-              {visibleTechnicalModules.map((technicalModule) => (
+              <Box>
+                <Typography color="text.secondary" sx={{ mb: 1 }} variant="caption">
+                  Technical modules
+                </Typography>
+                <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                  {visibleTechnicalModules.map((technicalModule) => (
+                    <Chip
+                      key={technicalModule}
+                      label={technicalModule}
+                      size="small"
+                      variant="outlined"
+                    />
+                  ))}
+                  {module.technicalModules.length > 8 ? (
+                    <Button
+                      onClick={() => setTechnicalExpanded((value) => !value)}
+                      size="small"
+                      variant="text"
+                    >
+                      {technicalExpanded
+                        ? 'Show fewer'
+                        : `Show ${String(remainingTechnicalModules)} more`}
+                    </Button>
+                  ) : null}
+                </Stack>
+              </Box>
+
+              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
                 <Chip
-                  key={technicalModule}
-                  label={technicalModule}
+                  color={visibility.activeRoutes > 0 ? 'success' : 'default'}
+                  label={`${String(visibility.activeRoutes)} visible`}
+                  size="small"
+                />
+                <Chip
+                  color={visibility.hiddenRoutes > 0 ? 'warning' : 'default'}
+                  label={`${String(visibility.hiddenRoutes)} hidden/disabled`}
                   size="small"
                   variant="outlined"
                 />
-              ))}
-              {module.technicalModules.length > 8 ? (
-                <Button
-                  onClick={() => setTechnicalExpanded((expanded) => !expanded)}
+                <Chip
+                  color={visibility.unavailableRoutes > 0 ? 'error' : 'default'}
+                  label={`${String(visibility.unavailableRoutes)} unavailable`}
                   size="small"
-                  variant="text"
-                >
-                  {technicalExpanded
-                    ? 'Hide technical modules'
-                    : `Show ${String(remainingTechnicalModules)} more`}
-                </Button>
-              ) : null}
+                  variant="outlined"
+                />
+                <Chip
+                  color={requiredPackageCount > 0 ? 'warning' : 'default'}
+                  label={`${String(requiredPackageCount)} required/core`}
+                  size="small"
+                />
+                <Chip
+                  color={userSamplePackageCount > 0 ? 'info' : 'default'}
+                  label={`${String(userSamplePackageCount)} sample/user`}
+                  size="small"
+                  variant="outlined"
+                />
+                <Chip
+                  label={`${String(dependencyCount)} dependencies`}
+                  size="small"
+                  variant="outlined"
+                />
+                <Chip
+                  color={blockedReasonCount > 0 ? 'error' : 'success'}
+                  label={
+                    blockedReasonCount > 0
+                      ? `${String(blockedReasonCount)} blocker(s)`
+                      : 'No blockers'
+                  }
+                  size="small"
+                />
+              </Stack>
+
+              <ActivationDataPanel activationData={activationData} />
+
+              <Alert
+                severity={canActivate ? 'warning' : module.enabled ? 'success' : 'info'}
+              >
+                {canActivate
+                  ? activationData?.packages.length === 0
+                    ? 'No required data package is declared.'
+                    : 'Activation imports required data before enabling Axis capabilities.'
+                  : module.enabled
+                    ? 'Axis capabilities are enabled for this module.'
+                    : 'Registry state is ready for operator review.'}
+              </Alert>
+
+              <Divider />
+
+              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                {canDeactivate ? (
+                  <Button
+                    color="warning"
+                    disabled={disabled || pending}
+                    onClick={() => onAction(module, 'rollback')}
+                    variant="outlined"
+                  >
+                    {pendingAction === 'rollback'
+                      ? 'Rolling back...'
+                      : 'Rollback activation'}
+                  </Button>
+                ) : null}
+                {canDeactivate ? (
+                  <Button
+                    color="warning"
+                    disabled={disabled || pending}
+                    onClick={() => onAction(module, 'deactivate')}
+                    variant="outlined"
+                  >
+                    {pendingAction === 'deactivate' ? 'Deactivating...' : 'Deactivate'}
+                  </Button>
+                ) : null}
+                {canDeregister ? (
+                  <Button
+                    color="error"
+                    disabled={disabled || pending}
+                    onClick={() => onAction(module, 'deregister')}
+                    variant="outlined"
+                  >
+                    {pendingAction === 'deregister' ? 'Deregistering...' : 'Deregister'}
+                  </Button>
+                ) : null}
+                {hasSampleData ? (
+                  <Button
+                    disabled={
+                      disabled ||
+                      pending ||
+                      pendingSampleData ||
+                      sampleDataDisabled ||
+                      !module.enabled
+                    }
+                    onClick={() => onSampleData(module)}
+                    variant="outlined"
+                  >
+                    {pendingSampleData
+                      ? 'Importing sample data...'
+                      : 'Import sample data'}
+                  </Button>
+                ) : null}
+                {hasSampleData && sampleDataDisabled ? (
+                  <Alert severity="info" sx={{ flex: 1, py: 0 }}>
+                    No active data-import runtime is available for this module target.
+                  </Alert>
+                ) : null}
+                {module.required ? (
+                  <Alert severity="info" sx={{ flex: 1, py: 0 }}>
+                    Required modules cannot be changed here.
+                  </Alert>
+                ) : null}
+                {isRegistered && !module.enabled && module.runtimeState !== 'ACTIVE' ? (
+                  <Alert severity="warning" sx={{ flex: 1, py: 0 }}>
+                    Activation is blocked until a compatible runtime server is active.
+                  </Alert>
+                ) : null}
+              </Stack>
             </Stack>
-          </Box>
-
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12, md: 4 }}>
-              <Typography color="text.secondary" variant="caption">
-                Activation mode
-              </Typography>
-              <Typography>{activationMode(module)}</Typography>
-            </Grid>
-            <Grid size={{ xs: 12, md: 4 }}>
-              <Typography color="text.secondary" variant="caption">
-                Impact preview
-              </Typography>
-              <Typography>
-                {String(impactCount)} runtime and technical signals available
-              </Typography>
-            </Grid>
-            <Grid size={{ xs: 12, md: 4 }}>
-              <Typography color="text.secondary" variant="caption">
-                Data receipts
-              </Typography>
-              <Typography>
-                {activationData
-                  ? `${String(activationData.receipts.length)} receipts`
-                  : 'Preview available'}
-              </Typography>
-            </Grid>
-          </Grid>
-
-          <Card
-            variant="outlined"
-            sx={{ bgcolor: 'background.default', borderStyle: 'dashed' }}
-          >
-            <CardContent>
-              <Stack spacing={1.5}>
-                <Stack
-                  direction={{ xs: 'column', md: 'row' }}
-                  spacing={1}
-                  sx={{ justifyContent: 'space-between' }}
-                >
-                  <Box>
-                    <Typography component="h4" variant="subtitle1">
-                      Axis capability visibility
-                    </Typography>
-                    <Typography color="text.secondary" variant="body2">
-                      Visibility is resolved from the refreshed BackOffice bootstrap,
-                      not from hardcoded frontend routes. Activation and deactivation
-                      must refresh this contract before operators trust the menu.
-                    </Typography>
-                  </Box>
-                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                    <Chip
-                      color={visibility.activeRoutes > 0 ? 'success' : 'default'}
-                      label={`${String(visibility.activeRoutes)} visible`}
-                      size="small"
-                    />
-                    <Chip
-                      color={visibility.hiddenRoutes > 0 ? 'warning' : 'default'}
-                      label={`${String(visibility.hiddenRoutes)} hidden/disabled`}
-                      size="small"
-                      variant="outlined"
-                    />
-                    <Chip
-                      color={visibility.unavailableRoutes > 0 ? 'error' : 'default'}
-                      label={`${String(visibility.unavailableRoutes)} unavailable`}
-                      size="small"
-                      variant="outlined"
-                    />
-                  </Stack>
-                </Stack>
-              </Stack>
-            </CardContent>
-          </Card>
-
-          <Card
-            variant="outlined"
-            sx={{ bgcolor: 'background.default', borderStyle: 'dashed' }}
-          >
-            <CardContent>
-              <Stack spacing={1.5}>
-                <Stack
-                  direction={{ xs: 'column', md: 'row' }}
-                  spacing={1}
-                  sx={{ justifyContent: 'space-between' }}
-                >
-                  <Box>
-                    <Typography component="h4" variant="subtitle1">
-                      Activation dependency preview
-                    </Typography>
-                    <Typography color="text.secondary" variant="body2">
-                      Review required data, optional sample data, runtime dependencies,
-                      and blockers before enabling module capabilities.
-                    </Typography>
-                  </Box>
-                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                    <Chip
-                      color={requiredPackageCount > 0 ? 'warning' : 'default'}
-                      label={`${String(requiredPackageCount)} required/core`}
-                      size="small"
-                    />
-                    <Chip
-                      color={userSamplePackageCount > 0 ? 'info' : 'default'}
-                      label={`${String(userSamplePackageCount)} sample/user`}
-                      size="small"
-                      variant="outlined"
-                    />
-                    <Chip
-                      label={`${String(dependencyCount)} dependencies`}
-                      size="small"
-                      variant="outlined"
-                    />
-                    {blockedReasonCount > 0 ? (
-                      <Chip
-                        color="error"
-                        label={`${String(blockedReasonCount)} blocker(s)`}
-                        size="small"
-                      />
-                    ) : (
-                      <Chip color="success" label="No blockers" size="small" />
-                    )}
-                  </Stack>
-                </Stack>
-                <Alert severity={requiredPackageCount > 0 ? 'warning' : 'info'}>
-                  Required init/core data belongs to activation. Sample data remains a
-                  user-triggered action so demo records do not become hidden production
-                  dependencies.
-                </Alert>
-              </Stack>
-            </CardContent>
-          </Card>
-
-          <ActivationDataPanel activationData={activationData} />
-
-          <Alert
-            severity={canActivate ? 'warning' : module.enabled ? 'success' : 'info'}
-          >
-            {canActivate
-              ? activationData?.packages.length === 0
-                ? 'Activation enables Axis presentation for this module. No required data package is declared, so nImport does not need to run first.'
-                : 'Preview shows declared required/core/sample packages before activation. Activation imports required data through the existing nImport data-release executor before enabling Axis capabilities.'
-              : module.enabled
-                ? 'Navigation and workspaces become visible only through the refreshed backend bootstrap after activation.'
-                : 'Preflight uses current registry data: runtime state, observed servers, protected-module rules, and catalogue revision.'}
-          </Alert>
-
-          <Divider />
-
-          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-            {canRegister ? (
-              <Button
-                disabled={disabled || pending}
-                onClick={() => onAction(module, 'register')}
-                variant="contained"
-              >
-                {pendingAction === 'register' ? 'Registering…' : 'Register'}
-              </Button>
-            ) : null}
-            {isRegistered && !module.enabled ? (
-              <Button
-                disabled={disabled || pending}
-                onClick={() => onAction(module, 'preview')}
-                variant="outlined"
-              >
-                {pendingAction === 'preview' ? 'Previewing...' : 'Preview activation'}
-              </Button>
-            ) : null}
-            {canActivate ? (
-              <Button
-                disabled={disabled || pending}
-                onClick={() => onAction(module, 'activate')}
-                variant="contained"
-              >
-                {pendingAction === 'activate'
-                  ? 'Activating...'
-                  : 'Activate capabilities'}
-              </Button>
-            ) : null}
-            {canDeactivate ? (
-              <Button
-                color="warning"
-                disabled={disabled || pending}
-                onClick={() => onAction(module, 'rollback')}
-                variant="outlined"
-              >
-                {pendingAction === 'rollback'
-                  ? 'Rolling back...'
-                  : 'Rollback activation'}
-              </Button>
-            ) : null}
-            {canDeactivate ? (
-              <Button
-                color="warning"
-                disabled={disabled || pending}
-                onClick={() => onAction(module, 'deactivate')}
-                variant="outlined"
-              >
-                {pendingAction === 'deactivate' ? 'Deactivating…' : 'Deactivate'}
-              </Button>
-            ) : null}
-            {canDeregister ? (
-              <Button
-                color="error"
-                disabled={disabled || pending}
-                onClick={() => onAction(module, 'deregister')}
-                variant="outlined"
-              >
-                {pendingAction === 'deregister' ? 'Deregistering…' : 'Deregister'}
-              </Button>
-            ) : null}
-            {hasSampleData ? (
-              <Button
-                disabled={
-                  disabled ||
-                  pending ||
-                  pendingSampleData ||
-                  sampleDataDisabled ||
-                  !module.enabled
-                }
-                onClick={() => onSampleData(module)}
-                variant="outlined"
-              >
-                {pendingSampleData ? 'Importing sample data...' : 'Import sample data'}
-              </Button>
-            ) : null}
-            {hasSampleData && sampleDataDisabled ? (
-              <Alert severity="info" sx={{ flex: 1, py: 0 }}>
-                Sample data is declared, but no active data-import runtime is available
-                for this module target.
-              </Alert>
-            ) : null}
-            {module.required ? (
-              <Alert severity="info" sx={{ flex: 1, py: 0 }}>
-                Required framework modules cannot be deactivated or deregistered.
-              </Alert>
-            ) : null}
-            {isRegistered && !module.enabled && module.runtimeState !== 'ACTIVE' ? (
-              <Alert severity="warning" sx={{ flex: 1, py: 0 }}>
-                Activation is blocked until a compatible runtime server is active.
-              </Alert>
-            ) : null}
-          </Stack>
+          </Collapse>
         </Stack>
       </CardContent>
     </Card>
