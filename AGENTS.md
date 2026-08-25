@@ -8,6 +8,17 @@
 - Authentication tokens remain in memory or session storage; never persist them in local storage.
 - Do not create an initialization endpoint in the client. Consume only a governed Platform contract.
 
+## AI tool GitHub entry path
+
+A user may start Axis work from Codex, Claude Code, GitHub Copilot, or another
+repository-aware AI coding tool by providing the Axis GitHub repository URL. In
+that path the user does not need to run `nodics.installer` first.
+
+The AI tool must read this `AGENTS.md`, the Axis README, and the nearest feature
+README/AGENTS or focused tests before changing source. Use `nodics.installer`
+only when the request is to create, repair, preflight, start, initialize,
+accept, or inspect a local customer workspace that includes Axis.
+
 ## AI operating role
 
 Before changing Axis, an AI tool must act as all of these roles together:

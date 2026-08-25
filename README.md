@@ -10,6 +10,16 @@ Axis is a separate browser application and runtime. It discovers authorized
 module connections through Back Office and calls the owning modules directly;
 it does not proxy business operations or maintain a second module registry.
 
+## AI tool entry
+
+A beginner user can start from Codex, Claude Code, GitHub Copilot, or another
+repository-aware AI coding tool by providing the Axis GitHub repository URL
+directly. The user does not need to run `nodics.installer` first for repository
+analysis or source work. The AI tool must read root `AGENTS.md`, then this
+README, then the nearest feature README/AGENTS or focused tests before changing
+files. Use `nodics.installer` only when creating, repairing, or operating a
+local customer workspace that includes Axis.
+
 ## Nodics application brand contract
 
 The mark currently implemented by Axis is the approved Nodics application
