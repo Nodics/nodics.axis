@@ -250,6 +250,14 @@ describe('DocumentationRoutePage', () => {
     expect(
       screen.queryByRole('link', { name: 'Open Framework' }),
     ).not.toBeInTheDocument();
+    expect(screen.queryByText('Release code')).not.toBeInTheDocument();
+    const detailsToggle = screen.getByRole('button', {
+      name: 'Show Framework details',
+    });
+    expect(detailsToggle).toHaveAttribute('aria-expanded', 'false');
+    await user.click(detailsToggle);
+    expect(detailsToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Release code')).toBeVisible();
     await user.click(
       await screen.findByRole('button', { name: 'Install documentation' }),
     );

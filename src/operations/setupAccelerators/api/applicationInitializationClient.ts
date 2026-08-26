@@ -15,7 +15,7 @@ export type ApplicationInitializationAction = 'INITIALIZE' | 'ROLLBACK' | 'RETIR
 export interface ApplicationInitializationProfile {
   readonly code: string;
   readonly title: string;
-  readonly kind: 'PROJECT' | 'DOCUMENTATION' | string;
+  readonly kind: string;
   readonly category: string;
   readonly summary: string;
   readonly order: number;

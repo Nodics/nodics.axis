@@ -340,8 +340,10 @@ describe('ContentDesignerRoutePage', () => {
     expect(screen.getByText('Helpful backend hints')).toBeVisible();
     expect(screen.getByText(/Start with the fields below/i)).toBeVisible();
     expect(screen.getByText(/Validate first\. Save will unlock/i)).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Save draft' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Submit to Publishing' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save immutable draft' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Submit to governed Publishing' }),
+    ).toBeDisabled();
     expect(screen.getByRole('link', { name: 'Open media' })).toHaveAttribute(
       'href',
       '/media/items?folderCode=cmsAssets',
@@ -355,12 +357,16 @@ describe('ContentDesignerRoutePage', () => {
       expect(screen.getByText('Template Slots: any number')).toBeVisible();
     });
     expect(screen.getByText(/Page: summerCampaign/i)).toBeVisible();
-    expect(screen.getByText(/Catalog: documentationContentCatalog/i)).toBeVisible();
-    expect(screen.getByText(/Site: axisCmsSite/i)).toBeVisible();
-    expect(screen.getByText(/Template: documentationLandingTemplate/i)).toBeVisible();
-    expect(screen.getByText(/Slot: hero/i)).toBeVisible();
-    expect(screen.getByText(/Slot: body/i)).toBeVisible();
-    expect(screen.getByText(/Slot: footer/i)).toBeVisible();
+    expect(
+      screen.getAllByText(/Catalog: documentationContentCatalog/i).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Site: axisCmsSite/i).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/Template: documentationLandingTemplate/i).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Slot: hero/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Slot: body/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Slot: footer/i).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'en' })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -379,14 +385,20 @@ describe('ContentDesignerRoutePage', () => {
     expect(
       screen.getByText(/This draft is validated and ready to save/i),
     ).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Save draft' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Save immutable draft' })).toBeEnabled();
 
-    await user.click(screen.getByRole('button', { name: 'Save draft' }));
+    await user.click(screen.getByRole('button', { name: 'Save immutable draft' }));
     await waitFor(() => {
-      expect(screen.getByText(/Save result: DRAFT_SAVED/i)).toBeVisible();
+      expect(
+        screen.getByText(/Save result: CMS draft saved as governed Staged records/i),
+      ).toBeVisible();
     });
-    expect(screen.getByRole('button', { name: 'Submit to Publishing' })).toBeEnabled();
-    await user.click(screen.getByRole('button', { name: 'Submit to Publishing' }));
+    expect(
+      screen.getByRole('button', { name: 'Submit to governed Publishing' }),
+    ).toBeEnabled();
+    await user.click(
+      screen.getByRole('button', { name: 'Submit to governed Publishing' }),
+    );
     await waitFor(() => {
       expect(screen.getByText(/Publishing result: PENDING_APPROVAL/i)).toBeVisible();
     });

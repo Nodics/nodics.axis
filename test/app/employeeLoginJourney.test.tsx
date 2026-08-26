@@ -957,7 +957,9 @@ describe('employee login journey', () => {
       }
       if (url.includes('path=%2Fschema-workbench')) {
         return Promise.resolve(
-          new Response(JSON.stringify({ result: schemaWorkbenchPage }), { status: 200 }),
+          new Response(JSON.stringify({ result: schemaWorkbenchPage }), {
+            status: 200,
+          }),
         );
       }
       return Promise.resolve(
@@ -973,10 +975,11 @@ describe('employee login journey', () => {
     );
 
     expect(
-      (await screen.findAllByRole('cell', { name: 'home' }, { timeout: 5_000 }))
-        .length,
+      (await screen.findAllByRole('cell', { name: 'home' }, { timeout: 5_000 })).length,
     ).toBeGreaterThan(0);
-    expect(screen.queryByText('Authenticated employee workspace')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Authenticated employee workspace'),
+    ).not.toBeInTheDocument();
     expect(
       request.mock.calls.some(([input]) =>
         fetchInputUrl(input).includes('/cmsPage/safe-search'),

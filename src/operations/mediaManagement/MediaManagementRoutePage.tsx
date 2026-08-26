@@ -209,19 +209,6 @@ function validEnterpriseCode(value: string): boolean {
   return /^[A-Za-z][A-Za-z0-9_-]{0,127}$/.test(value.trim());
 }
 
-function findCurrentItem(
-  items: readonly AxisNavigationItem[],
-  pathname: string,
-): AxisNavigationItem | undefined {
-  return (
-    [...items]
-      .sort((left, right) => right.route.length - left.route.length)
-      .find(
-        (item) => pathname === item.route || pathname.startsWith(`${item.route}/`),
-      ) ?? items[0]
-  );
-}
-
 const mediaRouteFallbacks: Readonly<Record<string, AxisNavigationItem>> = Object.freeze(
   {
     '/media/artifacts': Object.freeze({

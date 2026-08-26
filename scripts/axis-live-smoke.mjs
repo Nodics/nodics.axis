@@ -214,28 +214,6 @@ function assertFunctionalModuleRuntimeStates(modules) {
   }
 }
 
-async function applyLifecycleAction(module, action, authorizedHeaders) {
-  const body = JSON.stringify({
-    expectedRevision: module.catalogueRevision,
-    project: projectCode,
-    reason: `Axis live smoke ${action} verification for ${module.functionalModule}.`,
-  });
-  const response = await requestJson(
-    endpoint(
-      platformUrl,
-      `/nodics/backoffice/v0/runtime/modules/registrations/${encodeURIComponent(
-        module.functionalModule,
-      )}/${action}?project=${encodeURIComponent(projectCode)}`,
-    ),
-    {
-      body,
-      headers: authorizedHeaders,
-      method: 'POST',
-    },
-  );
-  return resultPayload(response);
-}
-
 async function verifyDocumentationContentPacks(authorizedHeaders) {
   for (const packCode of documentationPacks) {
     const body = await requestJson(

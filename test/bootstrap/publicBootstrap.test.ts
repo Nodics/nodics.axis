@@ -9,7 +9,7 @@ import {
 const document = {
   code: 'SUC_BOF_00014',
   data: {
-    contractVersion: 0,
+    contractVersion: 1,
     clientContractVersion: 1,
     endpoints: {
       profile: 'https://profile.example.com',
@@ -330,7 +330,7 @@ describe('Axis bootstrap clients', () => {
         labelKey: 'axis.navigation.content',
         group: {
           id: 'content',
-          label: 'Content and Experience',
+          label: 'Content & Experience',
           labelKey: 'axis.group.content',
           order: 200,
         },

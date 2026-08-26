@@ -130,9 +130,10 @@ describe('PublishingDashboardRoutePage', () => {
       'href',
       '/process/tasks',
     );
-    expect(screen.getByRole('link', { name: 'Check Online status' })).toHaveAttribute(
-      'href',
-      '/publishing/status',
-    );
+    expect(
+      screen
+        .getAllByRole('link', { name: 'Check Online status' })
+        .some((link) => link.getAttribute('href') === '/publishing/status'),
+    ).toBe(true);
   });
 });

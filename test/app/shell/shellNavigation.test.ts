@@ -28,9 +28,9 @@ describe('Axis shell navigation composition', () => {
     ]);
 
     expect(groups.map((group) => group.label)).toEqual([
-      'System and Integrations',
-      'Content and Experience',
-      'Products and Merchandising',
+      'System & Integrations',
+      'Content & Experience',
+      'Products & Merchandising',
     ]);
     expect(groups[0]?.items[0]).toEqual(
       expect.objectContaining({ label: 'Runtime Dashboard', local: true }),
@@ -82,6 +82,64 @@ describe('Axis shell navigation composition', () => {
       ['registry', 1],
     ]);
     expect(operations?.items[1]?.hasChildren).toBe(true);
+  });
+
+  it('keeps the documentation dashboard visible in its backend-owned group', () => {
+    const groups = composeShellNavigation([
+      {
+        id: 'content-dashboard',
+        label: 'Dashboard',
+        route: '/content',
+        order: 200,
+        moduleName: 'wcms',
+        category: 'content',
+        icon: 'content',
+        availability: 'UP',
+      },
+      {
+        id: 'documentation-dashboard',
+        label: 'Dashboard',
+        route: '/docs',
+        order: 105,
+        moduleName: 'backoffice',
+        category: 'platform',
+        icon: 'content',
+        availability: 'UP',
+        featureState: 'ACTIVE',
+        group: { id: 'documentation', label: 'Documentation', order: 1600 },
+      },
+      {
+        id: 'documentation-framework',
+        label: 'Framework',
+        route: '/docs/framework',
+        order: 110,
+        moduleName: 'backoffice',
+        category: 'platform',
+        icon: 'content',
+        availability: 'UP',
+        featureState: 'DISABLED',
+        group: { id: 'documentation', label: 'Documentation', order: 1600 },
+      },
+    ]);
+
+    expect(groups.map((group) => group.id)).toEqual([
+      'system-integrations',
+      'content',
+      'documentation',
+    ]);
+    expect(groups[2]).toEqual(
+      expect.objectContaining({
+        id: 'documentation',
+        label: 'Documentation',
+        items: [
+          expect.objectContaining({
+            id: 'documentation-dashboard',
+            label: 'Dashboard',
+            route: '/docs',
+          }),
+        ],
+      }),
+    );
   });
 
   it('moves WCMS page composition items out of system operations into content experience', () => {
@@ -272,8 +330,8 @@ describe('Axis shell navigation composition', () => {
         .filter((group) => group.items.some((item) => item.id !== 'dashboard'))
         .map((group) => [group.id, group.label]),
     ).toEqual([
-      ['organization', 'Customers and Organisation'],
-      ['search-discovery', 'Search and Discovery'],
+      ['organization', 'Customer Experience'],
+      ['search-discovery', 'Search & Discovery'],
       ['publishing', 'Publishing'],
     ]);
   });

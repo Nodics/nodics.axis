@@ -41,7 +41,7 @@ describe('Product sellability workspace', () => {
       schema('pricing', 'priceRow'),
       schema('product', 'productSearchProjection'),
     ] as never);
-    vi.mocked(loadWorkbenchRecords).mockImplementation(async (_connection, target) => {
+    vi.mocked(loadWorkbenchRecords).mockImplementation((_connection, target) => {
       const schemaName = target.schemaName;
       const recordsBySchema: Record<string, readonly Record<string, unknown>[]> = {
         product: [
@@ -50,6 +50,9 @@ describe('Product sellability workspace', () => {
             name: 'Linen Wrap Dress',
             status: 'ACTIVE',
             catalogVersion: 'agoraStaged',
+            categoryCode: 'agoraWomenDresses',
+            classificationCode: 'apparelStyleClassification',
+            primaryImageCode: 'agoraLinenWrapDressFront',
           },
         ],
         productVariant: [
@@ -57,6 +60,7 @@ describe('Product sellability workspace', () => {
             productCode: 'agoraLinenWrapDress',
             sku: 'AGORA-DRESS-S',
             status: 'ACTIVE',
+            imageCode: 'agoraLinenWrapDressFront',
           },
         ],
         productLocalization: [
@@ -78,13 +82,13 @@ describe('Product sellability workspace', () => {
           },
         ],
       };
-      return {
+      return Promise.resolve({
         records: recordsBySchema[schemaName] ?? [],
         pageNumber: 1,
         pageSize: 10,
         totalCount: recordsBySchema[schemaName]?.length ?? 0,
         sort: queryCapabilities.defaultSort,
-      } as never;
+      } as never);
     });
 
     render(
@@ -130,7 +134,7 @@ describe('Product sellability workspace', () => {
     expect(
       await screen.findByRole('heading', { name: 'Make Product Sellable' }),
     ).toBeVisible();
-    expect(await screen.findByText('6 of 6 readiness checks passing')).toBeVisible();
+    expect(await screen.findByText('11 of 11 readiness checks passing')).toBeVisible();
     expect(screen.getByText('Product identity')).toBeVisible();
     expect(screen.getByText('Mandatory languages')).toBeVisible();
     expect(screen.getByText('Stock authority')).toBeVisible();

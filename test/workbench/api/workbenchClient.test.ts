@@ -101,14 +101,16 @@ describe('Schema Workbench API client', () => {
       }),
     ]);
 
-    const [url, options] = request.mock.calls[0] ?? [];
-    expect((url as URL).href).toBe(
+    const firstRequestCall = request.mock.calls[0];
+    expect(firstRequestCall).toBeDefined();
+    const [url, options] = firstRequestCall as [URL, RequestInit?];
+    expect(url.href).toBe(
       'https://profile.example.com/nodics/profile/v0/schema/workbench',
     );
     const headers = new Headers(options?.headers);
     expect(headers.get('Authorization')).toBe('Bearer memory-only-token');
     expect(headers.get('x-enterprise-code')).toBe('default');
-    expect((url as URL).href).not.toContain('memory-only-token');
+    expect(url.href).not.toContain('memory-only-token');
   });
 
   it('deduplicates repeated schema discovery for the same business schema', async () => {
@@ -226,29 +228,26 @@ describe('Schema Workbench API client', () => {
   it('loads schema capabilities through the generated schema utility route', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(json(address));
 
-    await expect(
-      loadGeneratedSchemaCapabilities(
-        connection,
-        { schemaName: 'address' },
-        configuration,
-        request,
-      ),
-    ).resolves.toEqual(
-      expect.objectContaining({
-        schemaName: 'address',
-        moduleName: 'profile',
-        connectionModuleName: 'profile',
-        connectionInstanceId: 'profile-1',
-        queryCapabilities: expect.objectContaining({
-          searchableFields: ['code'],
-        }),
-      }),
+    const capabilities = await loadGeneratedSchemaCapabilities(
+      connection,
+      { schemaName: 'address' },
+      configuration,
+      request,
     );
+    expect(capabilities).toMatchObject({
+      schemaName: 'address',
+      moduleName: 'profile',
+      connectionModuleName: 'profile',
+      connectionInstanceId: 'profile-1',
+    });
+    expect(capabilities.queryCapabilities.searchableFields).toEqual(['code']);
 
-    const [url, options] = request.mock.calls[0] ?? [];
-    expect((url as URL).pathname).toBe('/nodics/profile/v0/address/capabilities');
+    const firstRequestCall = request.mock.calls[0];
+    expect(firstRequestCall).toBeDefined();
+    const [url, options] = firstRequestCall as [URL, RequestInit?];
+    expect(url.pathname).toBe('/nodics/profile/v0/address/capabilities');
     expect(options?.method).toBeUndefined();
-    expect((url as URL).pathname).not.toContain('/schema/workbench');
+    expect(url.pathname).not.toContain('/schema/workbench');
   });
 
   it('creates through generated CRUD without changing module ownership', async () => {

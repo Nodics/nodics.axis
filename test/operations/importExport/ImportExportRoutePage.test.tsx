@@ -100,7 +100,7 @@ const currentRelease = {
   parentModule: 'nodics.platform',
   canonicalIdentity: 'nodics.cron/modules/cronjob',
   dataType: 'core',
-  version: '0.0.0',
+  version: '1.0.0',
   description: 'Scheduled Jobs core data',
   checksum: 'a'.repeat(64),
   installedVersion: '1.0.0',
@@ -404,7 +404,7 @@ describe('ImportExportRoutePage', () => {
     const updateRelease = {
       ...currentRelease,
       releaseCode: 'cronjob:core',
-      version: '0.0.0',
+      version: '1.1.0',
       installedVersion: '1.0.0',
       status: 'UPDATE_AVAILABLE',
     };
@@ -442,7 +442,7 @@ describe('ImportExportRoutePage', () => {
     const updateRelease = {
       ...currentRelease,
       releaseCode: 'cronjob:core',
-      version: '0.0.0',
+      version: '1.1.0',
       installedVersion: '1.0.0',
       status: 'UPDATE_AVAILABLE',
     };
@@ -549,7 +549,7 @@ describe('ImportExportRoutePage', () => {
       ...stagedProjection,
       status: 'CURRENT',
       installedVersion: '1.0.3',
-      version: '0.0.0',
+      version: '1.0.3',
     };
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = fetchInputUrl(input);
@@ -588,7 +588,7 @@ describe('ImportExportRoutePage', () => {
     ).toBe(true);
   });
 
-  it('ignores runtimes where the data import API category is disabled', async () => {
+  it('does not query online runtimes for import release discovery', async () => {
     const platformProjection = {
       ...currentRelease,
       releaseCode: 'catalog:init',
@@ -597,7 +597,7 @@ describe('ImportExportRoutePage', () => {
       destinationRole: 'PLATFORM',
       status: 'CURRENT',
       installedVersion: '1.0.3',
-      version: '0.0.0',
+      version: '1.0.3',
     };
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = fetchInputUrl(input);
@@ -635,14 +635,14 @@ describe('ImportExportRoutePage', () => {
         ([input]) =>
           fetchInputUrl(input) === 'http://localhost:4314/nodics/import/v0/init',
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('preserves selected releases after validation so the user can install next', async () => {
     const updateRelease = {
       ...currentRelease,
       releaseCode: 'cronjob:core',
-      version: '0.0.0',
+      version: '1.0.3',
       installedVersion: undefined,
       status: 'NOT_INSTALLED',
     };
@@ -858,7 +858,7 @@ describe('ImportExportRoutePage', () => {
       moduleName: 'cms',
       displayName: 'CMS Foundation',
       dataType: 'init',
-      version: '0.0.0',
+      version: '1.0.3',
       destinationRole: 'WCMS_STAGED',
       status: 'CURRENT',
       installedVersion: '1.0.3',
@@ -870,7 +870,7 @@ describe('ImportExportRoutePage', () => {
       moduleName: 'cms',
       displayName: 'CMS Publication Approval Workflow',
       dataType: 'init',
-      version: '0.0.0',
+      version: '1.0.0',
       destinationRole: 'PROCESS',
       status: 'NOT_INSTALLED',
       installedVersion: undefined,

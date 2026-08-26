@@ -514,14 +514,18 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                 <Chip color="info" label={`${String(actionCount)} need attention`} />
                 <Chip label={`${String(profiles.length)} profiles`} />
                 <Button
-                  onClick={() => navigate('/registry')}
+                  onClick={() => {
+                    void navigate('/registry');
+                  }}
                   size="small"
                   variant="outlined"
                 >
                   Open Module Registry
                 </Button>
                 <Button
-                  onClick={() => navigate('/publishing')}
+                  onClick={() => {
+                    void navigate('/publishing');
+                  }}
                   size="small"
                   variant="outlined"
                 >
@@ -1083,21 +1087,27 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                   </Button>
                                   <Button
                                     disabled={pending}
-                                    onClick={() => navigate('/publishing/requests')}
+                                    onClick={() => {
+                                      void navigate('/publishing/requests');
+                                    }}
                                     variant="text"
                                   >
                                     Requests
                                   </Button>
                                   <Button
                                     disabled={pending}
-                                    onClick={() => navigate('/process/tasks')}
+                                    onClick={() => {
+                                      void navigate('/process/tasks');
+                                    }}
                                     variant="text"
                                   >
                                     Approvals
                                   </Button>
                                   <Button
                                     disabled={pending}
-                                    onClick={() => navigate('/publishing/status')}
+                                    onClick={() => {
+                                      void navigate('/publishing/status');
+                                    }}
                                     variant="text"
                                   >
                                     Online status

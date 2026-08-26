@@ -160,7 +160,7 @@ describe('Axis application shell navigation', () => {
     expect(screen.getByRole('button', { name: 'Expand navigation' })).toBeVisible();
     expect(screen.queryByText('NODICS')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Content' })).toBeVisible();
-    expect(screen.queryByText('Content and Experience')).not.toBeInTheDocument();
+    expect(screen.queryByText('Content & Experience')).not.toBeInTheDocument();
   });
 
   it('lets desktop employees resize the navigation rail within safe bounds', async () => {
@@ -314,9 +314,8 @@ describe('Axis application shell navigation', () => {
                 moduleName: 'pricing',
                 category: 'commerce',
                 icon: 'pricing',
-                availability: 'UP',
+                availability: 'UNAVAILABLE',
                 perspectives: ['commerce'],
-                featureState: 'DISABLED',
               },
             ]}
           >
@@ -333,7 +332,7 @@ describe('Axis application shell navigation', () => {
     expect(screen.queryByRole('button', { name: 'Pricing' })).not.toBeInTheDocument();
 
     await user.clear(menuSearch);
-    await user.type(menuSearch, 'commerce');
+    await user.type(menuSearch, 'pricing');
     expect(screen.getByRole('button', { name: 'Pricing' })).toHaveAttribute(
       'aria-disabled',
       'true',
@@ -382,10 +381,10 @@ describe('Axis application shell navigation', () => {
 
     await user.click(screen.getByRole('button', { name: 'Open navigation' }));
     await user.click(
-      screen.getByRole('button', { name: 'Expand Content and Experience' }),
+      screen.getByRole('button', { name: 'Expand Content & Experience' }),
     );
     const collapse = screen.getByRole('button', {
-      name: 'Collapse Content and Experience',
+      name: 'Collapse Content & Experience',
     });
     expect(collapse).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('button', { name: 'Websites' })).toBeVisible();
@@ -398,14 +397,14 @@ describe('Axis application shell navigation', () => {
 
     await user.click(collapse);
     expect(
-      screen.getByRole('button', { name: 'Expand Content and Experience' }),
+      screen.getByRole('button', { name: 'Expand Content & Experience' }),
     ).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('button', { name: 'Content' })).not.toBeInTheDocument();
 
     await user.type(screen.getByRole('textbox', { name: 'Search menu' }), 'content');
     expect(screen.getByRole('button', { name: 'Content' })).toBeVisible();
     expect(
-      screen.getByRole('button', { name: 'Collapse Content and Experience' }),
+      screen.getByRole('button', { name: 'Collapse Content & Experience' }),
     ).toHaveAttribute('aria-expanded', 'true');
   });
 
@@ -511,7 +510,7 @@ describe('Axis application shell navigation', () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByText('Favourite: Content')).not.toBeInTheDocument();
     await user.click(
-      screen.getByRole('button', { name: 'Expand Content and Experience' }),
+      screen.getByRole('button', { name: 'Expand Content & Experience' }),
     );
     await user.click(screen.getByRole('button', { name: 'Content' }));
     expect(screen.queryByText('Recent: Content')).not.toBeInTheDocument();

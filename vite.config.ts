@@ -43,14 +43,6 @@ function positiveInteger(env: Record<string, string>, name: string): number {
   return value;
 }
 
-function nonNegativeInteger(env: Record<string, string>, name: string): number {
-  const value = Number(required(env, name));
-  if (!Number.isInteger(value) || value < 0) {
-    throw new Error(`${name} must be a non-negative integer`);
-  }
-  return value;
-}
-
 function booleanValue(env: Record<string, string>, name: string): boolean {
   const value = required(env, name).toLowerCase();
   if (!['true', 'false'].includes(value)) {
@@ -64,7 +56,7 @@ export function buildRuntimeConfig(env: Record<string, string>): AxisRuntimeConf
     backofficeBaseUrl: required(env, 'AXIS_BACKOFFICE_BASE_URL'),
     enterpriseCode: required(env, 'AXIS_ENTERPRISE_CODE'),
     projectCode: required(env, 'AXIS_PROJECT_CODE'),
-    clientContractVersion: nonNegativeInteger(env, 'AXIS_CLIENT_CONTRACT_VERSION'),
+    clientContractVersion: positiveInteger(env, 'AXIS_CLIENT_CONTRACT_VERSION'),
     requestTimeoutMs: positiveInteger(env, 'AXIS_REQUEST_TIMEOUT_MS'),
     browserSessionCsrfCookieName: required(
       env,

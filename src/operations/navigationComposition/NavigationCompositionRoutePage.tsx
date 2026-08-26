@@ -78,6 +78,12 @@ function sourceLabel(item: AxisNavigationItem): string {
     : 'catalogue.navigation · fallback';
 }
 
+function navigationText(value: unknown, fallback: string): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return fallback;
+}
+
 interface ModuleContributionSummary {
   readonly moduleName: string;
   readonly total: number;
@@ -240,10 +246,10 @@ export function NavigationCompositionRoutePage(
   }, [navigation]);
   const warnings = composition?.warnings ?? [];
   const actionableWarnings = warnings.filter(
-    (warning) => String(warning.severity ?? 'WARNING') !== 'INFO',
+    (warning) => navigationText(warning.severity, 'WARNING') !== 'INFO',
   );
   const informationalWarnings = warnings.filter(
-    (warning) => String(warning.severity ?? 'WARNING') === 'INFO',
+    (warning) => navigationText(warning.severity, 'WARNING') === 'INFO',
   );
   const authoring = composition?.authoring;
   const lifecycleReady =
@@ -251,7 +257,7 @@ export function NavigationCompositionRoutePage(
     authoring?.publishSupported === true &&
     authoring?.rollbackSupported !== false;
   const draftState = authoring?.draftState
-    ? String(authoring.draftState)
+    ? navigationText(authoring.draftState, 'Ready')
     : authoring?.draftSupported === true
       ? 'Ready'
       : 'Not active';
@@ -439,7 +445,12 @@ export function NavigationCompositionRoutePage(
                 scope.
               </Typography>
               {authoring?.reason ? (
-                <Alert severity="info">{String(authoring.reason)}</Alert>
+                <Alert severity="info">
+                  {navigationText(
+                    authoring.reason,
+                    'Navigation authoring is governed.',
+                  )}
+                </Alert>
               ) : null}
               {composition?.checksum ? (
                 <Typography color="text.secondary" variant="caption">
@@ -533,13 +544,16 @@ export function NavigationCompositionRoutePage(
             },
             {
               title: 'RBAC boundary',
-              state: String(authoring?.rbacBoundary ?? 'Permission gated'),
+              state: navigationText(authoring?.rbacBoundary, 'Permission gated'),
               detail:
                 'Authoring must be scoped by super-admin, enterprise-admin, creator, checker, and read-only permissions before edits are enabled.',
             },
             {
               title: 'Localization',
-              state: String(authoring?.localizationSupported ?? 'Label-key foundation'),
+              state: navigationText(
+                authoring?.localizationSupported,
+                'Label-key foundation',
+              ),
               detail:
                 'Navigation groups and links carry label keys where available, so business translations can be governed as BackOffice data instead of frontend text changes.',
             },
@@ -568,7 +582,7 @@ export function NavigationCompositionRoutePage(
           <Stack spacing={1}>
             {actionableWarnings.map((warning, index) => (
               <Alert key={`warning-${String(index)}`} severity="warning">
-                {String(warning.message ?? warning.code ?? 'Navigation warning')}
+                {navigationText(warning.message ?? warning.code, 'Navigation warning')}
               </Alert>
             ))}
             {informationalWarnings.length > 0 ? (

@@ -166,7 +166,9 @@ function selectReleaseCatalogueConnections(
   runtime: AxisRuntimeConfig,
 ): readonly AxisModuleConnection[] {
   const connections = (bootstrap.moduleConnections.import ?? []).filter(
-    (connection) => connection.state === 'UP' || connection.state === 'DEGRADED',
+    (connection) =>
+      (connection.state === 'UP' || connection.state === 'DEGRADED') &&
+      connection.runtimeRole?.publication !== 'ONLINE',
   );
   const values = [...connections];
   if (!values.some((connection) => connection.runtimeRole?.code === 'PLATFORM')) {
@@ -176,6 +178,14 @@ function selectReleaseCatalogueConnections(
     Array.from(
       new Map(values.map((connection) => [connection.instanceId, connection])).values(),
     ),
+  );
+}
+
+function isAuthoringSchemaConnection(connection: AxisModuleConnection): boolean {
+  return (
+    connection.state === 'UP' &&
+    connection.runtimeRole?.publication !== 'ONLINE' &&
+    !['import', 'export', 'localizationApi'].includes(connection.moduleName)
   );
 }
 
@@ -318,7 +328,7 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
       Object.freeze(
         Object.values(props.bootstrap.moduleConnections)
           .flat()
-          .filter((connection) => connection.state === 'UP'),
+          .filter(isAuthoringSchemaConnection),
       ),
     [props.bootstrap.moduleConnections],
   );
@@ -348,10 +358,11 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
     enabled: Boolean(connection),
   });
   const history = useQuery({
-    queryKey: ['import-export-history', props.runtime.enterpriseCode],
+    queryKey: ['import-export-history', props.runtime.enterpriseCode, historyFilter],
     queryFn: async () => {
       if (!connection) throw new Error('Import service is unavailable');
       const importRuns = await loadImportHistory(connection, configuration);
+      if (historyFilter !== 'exports') return Object.freeze([...importRuns]);
       const exportRunResults = await Promise.allSettled(
         exportConnections.map((exportConnection) =>
           loadExportHistory(exportConnection, configuration),
@@ -360,9 +371,12 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
       const exportRuns = exportRunResults.flatMap((result) =>
         result.status === 'fulfilled' ? [...result.value] : [],
       );
-      return Object.freeze([...importRuns, ...exportRuns]);
+      return Object.freeze([...exportRuns]);
     },
-    enabled: Boolean(connection) && area === 'history',
+    enabled:
+      Boolean(connection) &&
+      area === 'history' &&
+      (historyFilter !== 'exports' || exportConnections.length > 0),
   });
   const releaseType = isDataReleaseArea(area) ? area : 'init';
   const visible = useMemo(

@@ -19,7 +19,7 @@ const validConfig = {
 const publicBootstrap = {
   code: 'SUC_BOF_00014',
   data: {
-    contractVersion: 0,
+    contractVersion: 1,
     clientContractVersion: 1,
     endpoints: {
       profile: 'http://localhost:3000',

@@ -151,6 +151,7 @@ const GROUP_ID_ALIASES: Readonly<Record<string, ShellNavigationGroupDefinition>>
     'system-integrations': BUSINESS_GROUPS.systemIntegrations,
     content: BUSINESS_GROUPS.contentExperience,
     'content-experience': BUSINESS_GROUPS.contentExperience,
+    commerce: BUSINESS_GROUPS.productsMerchandising,
     'media-management': BUSINESS_GROUPS.mediaManagement,
     'products-merchandising': BUSINESS_GROUPS.productsMerchandising,
     'catalogs-products': BUSINESS_GROUPS.productsMerchandising,
@@ -195,6 +196,17 @@ const dashboard: ShellNavigationItem = Object.freeze({
   local: true,
 });
 
+function isRuntimeDashboardDuplicate(item: AxisNavigationItem): boolean {
+  const label = item.label.trim().toLowerCase();
+  const route = item.route.replace(/\/$/, '') || '/';
+  return (
+    item.id === dashboard.id ||
+    (label === 'dashboard' &&
+      item.category === 'platform' &&
+      (route === dashboard.route || route.startsWith(`${dashboard.route}/`)))
+  );
+}
+
 export function composeShellNavigation(
   navigation: readonly AxisNavigationItem[],
 ): readonly ShellNavigationGroup[] {
@@ -209,8 +221,7 @@ export function composeShellNavigation(
   const shellItems = navigation
     .filter(
       (item) =>
-        item.id !== dashboard.id &&
-        item.label.trim().toLowerCase() !== 'dashboard' &&
+        !isRuntimeDashboardDuplicate(item) &&
         item.featureState !== 'HIDDEN' &&
         item.featureState !== 'DISABLED',
     )

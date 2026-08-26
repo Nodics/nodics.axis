@@ -3,9 +3,13 @@ import {
   Box,
   Button,
   Chip,
+  Collapse,
+  Divider,
+  IconButton,
   LinearProgress,
   Paper,
   Stack,
+  Tooltip,
   Typography,
   alpha,
 } from '@mui/material';
@@ -16,6 +20,7 @@ import {
   useQueryClient,
   type Query,
 } from '@tanstack/react-query';
+import { useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
 import { axisTokens } from '../app/axisTheme';
@@ -219,6 +224,70 @@ function documentationReadinessLabel(value: string | undefined): string {
   return value ? value.replaceAll('_', ' ') : 'checking';
 }
 
+function publicationReadinessColor(
+  readiness: DocumentationPublicationStatus['readiness'] | undefined,
+): 'default' | 'success' | 'warning' | 'error' {
+  if (['FAILED', 'REJECTED'].includes(readiness ?? '')) return 'error';
+  if (readiness === 'READY') return 'success';
+  if (readiness === 'PUBLICATION_PENDING' || readiness === 'IMPORTED') return 'warning';
+  return 'default';
+}
+
+function DetailValue({
+  label,
+  value,
+}: {
+  readonly label: string;
+  readonly value: string | number | undefined | null;
+}) {
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography color="text.secondary" variant="caption">
+        {label}
+      </Typography>
+      <Typography sx={{ overflowWrap: 'anywhere' }} variant="body2">
+        {value ?? 'Unavailable'}
+      </Typography>
+    </Box>
+  );
+}
+
+function networkErrorLabel(
+  error: string | undefined,
+  hasStatusData: boolean,
+): string | undefined {
+  if (!error) return undefined;
+  if (/failed to fetch|networkerror|load failed/iu.test(error)) {
+    return hasStatusData ? 'Refresh failed' : 'Backend unavailable';
+  }
+  return error;
+}
+
+function HeaderMetric({
+  label,
+  value,
+}: {
+  readonly label: string;
+  readonly value: string;
+}) {
+  return (
+    <Box
+      sx={{
+        minWidth: 96,
+        px: 1.5,
+        py: 0.75,
+      }}
+    >
+      <Typography color="text.secondary" variant="caption">
+        {label}
+      </Typography>
+      <Typography sx={{ fontWeight: 700, lineHeight: 1.2 }} variant="subtitle2">
+        {value}
+      </Typography>
+    </Box>
+  );
+}
+
 type CmsDocumentationSource = Extract<
   AxisDocumentationSource,
   { readonly type: 'CMS' }
@@ -241,6 +310,7 @@ function CmsDocumentationReadinessCard({
   readonly runtime: AxisRuntimeConfig;
   readonly source: Extract<AxisDocumentationSource, { readonly type: 'CMS' }>;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const queryClient = useQueryClient();
   const administrationConnection = selectModuleConnection(bootstrap, 'backoffice');
   const initializationProfile = source.initializationProfile;
@@ -337,94 +407,258 @@ function CmsDocumentationReadinessCard({
           : publicationMutation.error instanceof Error
             ? publicationMutation.error.message
             : undefined;
+  const hasBlockingConfiguration = !administrationConnection || !initializationProfile;
+  const hasStatusData = Boolean(pack.data || publication.data);
+  const rowError = networkErrorLabel(error, hasStatusData);
+  const rowStatus =
+    rowError ??
+    (!administrationConnection
+      ? 'Platform BackOffice is unavailable.'
+      : !initializationProfile
+        ? 'Initialization profile is not configured.'
+        : publication.data?.readiness === 'PUBLICATION_PENDING'
+          ? 'Waiting for approval or Online activation.'
+          : undefined);
 
   return (
     <Paper
-      component="article"
+      component="li"
       elevation={0}
-      sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+      sx={{
+        border: 1,
+        borderColor: 'divider',
+        display: 'block',
+        listStyle: 'none',
+        p: { xs: 1.5, md: 2 },
+      }}
     >
-      <Stack spacing={dashboardContentGap}>
+      <Stack spacing={expanded ? dashboardContentGap : 1}>
         <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          spacing={1}
-          sx={{ justifyContent: 'space-between' }}
+          direction={{ xs: 'column', lg: 'row' }}
+          spacing={1.5}
+          sx={{ alignItems: { xs: 'stretch', lg: 'center' } }}
         >
-          <Box>
-            <Typography variant="h6">{source.label}</Typography>
-            <Typography color="text.secondary" variant="body2">
+          <Box sx={{ minWidth: 0, flex: '1 1 260px' }}>
+            <Typography sx={{ overflowWrap: 'anywhere' }} variant="h6">
+              {source.label}
+            </Typography>
+            <Typography
+              color="text.secondary"
+              sx={{ overflowWrap: 'anywhere' }}
+              variant="body2"
+            >
               {source.packCode} · {initializationProfile ?? 'profile unavailable'}
             </Typography>
           </Box>
-          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{
+              alignItems: 'center',
+              flex: '0 1 auto',
+              flexWrap: 'wrap',
+              gap: 1,
+            }}
+          >
             <Chip
               label={`Staged: ${documentationReadinessLabel(pack.data?.state)}`}
               size="small"
               variant="outlined"
             />
             <Chip
-              color={
-                ['FAILED', 'REJECTED'].includes(publication.data?.readiness ?? '')
-                  ? 'error'
-                  : publication.data?.readiness === 'READY'
-                    ? 'success'
-                    : 'default'
-              }
+              color={publicationReadinessColor(publication.data?.readiness)}
               label={`Online: ${documentationReadinessLabel(publication.data?.readiness)}`}
               size="small"
             />
+            {rowStatus ? (
+              <Chip
+                color={error || hasBlockingConfiguration ? 'error' : 'info'}
+                label={rowStatus}
+                size="small"
+                sx={{
+                  maxWidth: { xs: '100%', md: 320 },
+                  '& .MuiChip-label': {
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  },
+                }}
+                title={error ? `Latest backend request failed: ${error}` : undefined}
+                variant="outlined"
+              />
+            ) : null}
+          </Stack>
+
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{
+              alignItems: 'center',
+              flex: '0 0 auto',
+              flexWrap: 'wrap',
+              gap: 1,
+              justifyContent: { xs: 'flex-start', lg: 'flex-end' },
+            }}
+          >
+            {packOperation ? (
+              <Button
+                disabled={busy}
+                onClick={() => packMutation.mutate()}
+                size="small"
+                variant="contained"
+              >
+                {packMutation.isPending
+                  ? 'Installing...'
+                  : packOperation === 'UPDATE'
+                    ? pack.data?.presentation.updateAction
+                    : pack.data?.presentation.importAction}
+              </Button>
+            ) : null}
+            {canPublish ? (
+              <Tooltip
+                arrow
+                title={
+                  publication.data?.readiness === 'FAILED'
+                    ? 'Retry publication'
+                    : 'Publish / request approval'
+                }
+              >
+                <span>
+                  <IconButton
+                    aria-label={
+                      publication.data?.readiness === 'FAILED'
+                        ? 'Retry publication'
+                        : 'Publish / request approval'
+                    }
+                    disabled={busy}
+                    onClick={() => publicationMutation.mutate()}
+                    size="small"
+                    sx={{
+                      bgcolor: alpha(axisTokens.color.signatureGold, 0.22),
+                      color: 'primary.main',
+                      '&:hover': {
+                        bgcolor: alpha(axisTokens.color.signatureGold, 0.34),
+                      },
+                    }}
+                  >
+                    <ShellIcon fontSize="small" name="approve" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            ) : null}
+            <Tooltip arrow title="Refresh status">
+              <span>
+                <IconButton
+                  aria-label="Refresh status"
+                  disabled={busy || !canCheck}
+                  onClick={() => void reconcile()}
+                  size="small"
+                >
+                  <ShellIcon fontSize="small" name="refresh" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip
+              arrow
+              title={`${expanded ? 'Hide' : 'Show'} ${source.label} details`}
+            >
+              <span>
+                <IconButton
+                  aria-expanded={expanded}
+                  aria-label={`${expanded ? 'Hide' : 'Show'} ${source.label} details`}
+                  onClick={() => setExpanded((current) => !current)}
+                  size="small"
+                >
+                  <ShellIcon
+                    fontSize="small"
+                    name={expanded ? 'chevron-up' : 'chevron-down'}
+                  />
+                </IconButton>
+              </span>
+            </Tooltip>
           </Stack>
         </Stack>
 
-        {!administrationConnection ? (
-          <Alert severity="warning">
-            Platform BackOffice is unavailable, so documentation initialization cannot
-            be managed from Axis right now.
-          </Alert>
-        ) : !initializationProfile ? (
-          <Alert severity="warning">
-            This documentation source does not declare an initialization profile.
-          </Alert>
-        ) : null}
+        <Collapse in={expanded} timeout="auto" unmountOnExit>
+          <Stack spacing={dashboardContentGap} sx={{ pt: 1 }}>
+            <Divider />
+            {!administrationConnection ? (
+              <Alert severity="warning">
+                Platform BackOffice is unavailable, so documentation initialization
+                cannot be managed from Axis right now.
+              </Alert>
+            ) : !initializationProfile ? (
+              <Alert severity="warning">
+                This documentation source does not declare an initialization profile.
+              </Alert>
+            ) : null}
 
-        {error ? <Alert severity="error">{error}</Alert> : null}
-        {publication.data?.readiness === 'PUBLICATION_PENDING' ? (
-          <Alert severity="info">
-            Publication is waiting for approval or Online activation.
-          </Alert>
-        ) : null}
+            {error ? (
+              <Alert severity="error">Latest backend request failed: {error}</Alert>
+            ) : null}
+            {publication.data?.readiness === 'PUBLICATION_PENDING' ? (
+              <Alert severity="info">
+                Publication is waiting for approval or Online activation.
+              </Alert>
+            ) : null}
 
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-          {packOperation ? (
-            <Button
-              disabled={busy}
-              onClick={() => packMutation.mutate()}
-              variant="contained"
+            <Box
+              sx={{
+                display: 'grid',
+                gap: dashboardContentGap,
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  md: 'repeat(2, minmax(0, 1fr))',
+                  xl: 'repeat(4, minmax(0, 1fr))',
+                },
+              }}
             >
-              {packMutation.isPending
-                ? 'Installing to Staged...'
-                : packOperation === 'UPDATE'
-                  ? pack.data?.presentation.updateAction
-                  : pack.data?.presentation.importAction}
-            </Button>
-          ) : null}
-          {canPublish ? (
-            <Button
-              disabled={busy}
-              onClick={() => publicationMutation.mutate()}
-              variant="contained"
-            >
-              {publicationMutation.isPending
-                ? 'Requesting publication...'
-                : publication.data?.readiness === 'FAILED'
-                  ? 'Retry publication'
-                  : 'Publish / request approval'}
-            </Button>
-          ) : null}
-          <Button disabled={busy || !canCheck} onClick={() => void reconcile()}>
-            Refresh status
-          </Button>
-        </Stack>
+              <DetailValue label="Owner module" value={source.ownerModule} />
+              <DetailValue label="Connection module" value={source.connectionModule} />
+              <DetailValue label="Site" value={source.site} />
+              <DetailValue label="Catalog" value={source.catalog} />
+              <DetailValue label="Default page" value={source.defaultPage} />
+              <DetailValue
+                label="Available version"
+                value={pack.data?.availableVersion}
+              />
+              <DetailValue
+                label="Installed version"
+                value={pack.data?.installedVersion}
+              />
+              <DetailValue label="Import run" value={pack.data?.runId} />
+              <DetailValue
+                label="Publication site"
+                value={publication.data?.siteCode}
+              />
+              <DetailValue label="Release code" value={publication.data?.releaseCode} />
+              <DetailValue
+                label="Release version"
+                value={publication.data?.releaseVersion}
+              />
+              <DetailValue
+                label="Release status"
+                value={publication.data?.releaseStatus}
+              />
+              <DetailValue
+                label="Publication code"
+                value={publication.data?.publication?.code}
+              />
+              <DetailValue
+                label="Publication state"
+                value={publication.data?.publication?.state}
+              />
+              <DetailValue
+                label="Publication revision"
+                value={publication.data?.publication?.revision}
+              />
+              <DetailValue
+                label="Correlation"
+                value={publication.data?.publication?.correlationId}
+              />
+            </Box>
+          </Stack>
+        </Collapse>
       </Stack>
     </Paper>
   );
@@ -497,34 +731,63 @@ export function DocumentationDashboard({
           sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
         >
           <Stack spacing={dashboardContentGap}>
-            <Stack
-              direction={{ xs: 'column', md: 'row' }}
-              spacing={1.5}
-              sx={{ justifyContent: 'space-between' }}
+            <Box
+              sx={{
+                alignItems: { xs: 'stretch', lg: 'center' },
+                display: 'grid',
+                gap: dashboardContentGap,
+                gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) auto' },
+              }}
             >
-              <Box>
-                <Typography variant="h4">Documentation initialization</Typography>
-                <Typography color="text.secondary" sx={{ mt: 0.5, maxWidth: 900 }}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography sx={{ lineHeight: 1.15 }} variant="h4">
+                  Documentation initialization
+                </Typography>
+                <Typography color="text.secondary" sx={{ mt: 0.75, maxWidth: 900 }}>
                   Install documentation packs to Staged and publish them Online before
                   product documentation links are opened.
                 </Typography>
               </Box>
-              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
-                <Chip
-                  label={`${String(readyCmsCount)}/${String(cmsSources.length)} online`}
+              <Box
+                aria-label="Documentation initialization summary"
+                sx={{
+                  alignSelf: { xs: 'stretch', lg: 'start' },
+                  bgcolor: alpha(axisTokens.color.signatureGold, 0.08),
+                  border: 1,
+                  borderColor: 'divider',
+                  borderRadius: axisTokens.radius.medium,
+                  display: 'grid',
+                  gridTemplateColumns: {
+                    xs: 'repeat(2, minmax(0, 1fr))',
+                    sm:
+                      averageCoverage === undefined
+                        ? 'repeat(2, minmax(0, 1fr))'
+                        : 'repeat(3, minmax(0, 1fr))',
+                  },
+                  overflow: 'hidden',
+                  '& > * + *': {
+                    borderLeft: { sm: 1 },
+                    borderTop: { xs: 1, sm: 0 },
+                    borderColor: 'divider',
+                  },
+                  '& > *:nth-of-type(2)': {
+                    borderTop: { xs: 0 },
+                  },
+                }}
+              >
+                <HeaderMetric
+                  label="Online"
+                  value={`${String(readyCmsCount)} / ${String(cmsSources.length)}`}
                 />
-                <Chip
-                  label={`${String(apiSources.length)} API source(s)`}
-                  variant="outlined"
-                />
+                <HeaderMetric label="API sources" value={String(apiSources.length)} />
                 {averageCoverage !== undefined ? (
-                  <Chip
-                    color={documentationVisible ? 'primary' : 'default'}
-                    label={`${String(averageCoverage)}% avg coverage`}
+                  <HeaderMetric
+                    label="Coverage"
+                    value={`${String(averageCoverage)}% avg`}
                   />
                 ) : null}
-              </Stack>
-            </Stack>
+              </Box>
+            </Box>
             {!documentationVisible ? (
               <Alert severity={publicationChecking ? 'info' : 'warning'}>
                 Framework, Swaggers, Axis, and Kickoff documentation areas stay locked
@@ -536,11 +799,13 @@ export function DocumentationDashboard({
                 available.
               </Alert>
             )}
-            <Box
+            <Stack
+              component="ul"
+              spacing={1.25}
               sx={{
-                display: 'grid',
-                gap: dashboardComponentGap,
-                gridTemplateColumns: { xs: '1fr', lg: 'repeat(2, minmax(0, 1fr))' },
+                listStyle: 'none',
+                m: 0,
+                p: 0,
               }}
             >
               {cmsSources.map((source) => (
@@ -552,7 +817,7 @@ export function DocumentationDashboard({
                   source={source}
                 />
               ))}
-            </Box>
+            </Stack>
           </Stack>
         </Paper>
       ) : null}

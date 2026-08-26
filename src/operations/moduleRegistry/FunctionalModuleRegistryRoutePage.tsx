@@ -90,7 +90,6 @@ function sortedModules(
 
 const registryQueryRoot = ['functional-module-registry'] as const;
 type ModuleAction = FunctionalModuleLifecycleAction | 'preview';
-type SampleDataAction = 'sampleData';
 type ModuleReadiness =
   | 'Blocked'
   | 'Ready to activate'
@@ -1132,7 +1131,9 @@ export function FunctionalModuleRegistryRoutePage(
               </Grid>
               <Box>
                 <Button
-                  onClick={() => navigate('/setup-accelerators')}
+                  onClick={() => {
+                    void navigate('/setup-accelerators');
+                  }}
                   size="small"
                   variant="outlined"
                 >

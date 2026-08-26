@@ -99,6 +99,7 @@ function Harness() {
 
 describe('Axis localization context', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     window.localStorage.clear();
     window.localStorage.setItem('nodics-axis-locale-v1', 'ar');
     document.documentElement.lang = 'en';
@@ -146,6 +147,53 @@ describe('Axis localization context', () => {
     }
     render(<InternalHarness />);
     expect(await screen.findByText('Safe existing fallback')).toBeVisible();
+  });
+
+  it('does not request a remote bundle for a single-locale fallback shell without a cached bundle', async () => {
+    const singleLocaleBootstrap: AxisPublicBootstrap = {
+      ...bootstrap,
+      uiComposition: {
+        ...bootstrap.uiComposition,
+        supportedLocales: ['en'],
+        fallbackLocales: [],
+      },
+    };
+    window.localStorage.setItem('nodics-axis-locale-v1', 'en');
+
+    function SingleLocaleHarness() {
+      const localization = useAxisLocalizationController(
+        singleLocaleBootstrap,
+        runtime,
+      );
+      return (
+        <AxisLocalizationBoundary value={localization}>
+          <output>{localization.format('auth.invalidCredentials', 'Fallback')}</output>
+        </AxisLocalizationBoundary>
+      );
+    }
+
+    render(<SingleLocaleHarness />);
+
+    expect(await screen.findByText('Fallback')).toBeVisible();
+    expect(loadLocalizationBundle).not.toHaveBeenCalled();
+  });
+
+  it('does not request a remote bundle for the default fallback locale without a cached bundle', async () => {
+    window.localStorage.setItem('nodics-axis-locale-v1', 'en');
+
+    function DefaultLocaleHarness() {
+      const localization = useAxisLocalizationController(bootstrap, runtime);
+      return (
+        <AxisLocalizationBoundary value={localization}>
+          <output>{localization.format('auth.invalidCredentials', 'Fallback')}</output>
+        </AxisLocalizationBoundary>
+      );
+    }
+
+    render(<DefaultLocaleHarness />);
+
+    expect(await screen.findByText('Fallback')).toBeVisible();
+    expect(loadLocalizationBundle).not.toHaveBeenCalled();
   });
 
   it('retains a last-known-good bundle during an outage and fails closed on markup-like messages', async () => {

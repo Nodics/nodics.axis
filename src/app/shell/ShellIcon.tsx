@@ -7,6 +7,7 @@ const iconPaths: Readonly<Record<string, string>> = Object.freeze({
   assistant: 'M12 2a8 8 0 0 0-6.32 12.9L4 20l5.1-1.68A8 8 0 1 0 12 2Z',
   automation:
     'M7 3h10v4h-4v3.17A3.001 3.001 0 0 1 15 13v1h2v-2h4v6h-4v-2h-2v1a3 3 0 0 1-3 3H7v-4h5a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1h-2v2H3V9h6v2h2V7H7V3Z',
+  approve: 'M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17Z',
   bell: 'M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6v-5a7 7 0 0 0-5-6.71V3a2 2 0 0 0-4 0v1.29A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2Z',
   cart: 'M7 18a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm10 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM6.2 6l.8 2h11.8l-1.7 6H8.4L5 4H2V2h4l.2 4Z',
   commerce:
@@ -56,6 +57,8 @@ const iconPaths: Readonly<Record<string, string>> = Object.freeze({
     'M8 12a4 4 0 0 1 4-4h3V6h-3a6 6 0 0 0 0 12h3v-2h-3a4 4 0 0 1-4-4Zm3 1h6v-2h-6v2Zm1-5h3a4 4 0 0 1 0 8h-3v2h3a6 6 0 0 0 0-12h-3v2Z',
   recent:
     'M12 2a10 10 0 1 0 9.54 13h-2.12A8 8 0 1 1 20 12h-3l4 4 4-4h-3A10 10 0 0 0 12 2Zm1 5h-2v6l5 3 1-1.73-4-2.27V7Z',
+  refresh:
+    'M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.45 5h-2.13A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h8V3l-3.35 3.35Z',
   search:
     'M10.5 4a6.5 6.5 0 1 0 3.98 11.64L19.85 21 21 19.85l-5.36-5.37A6.5 6.5 0 0 0 10.5 4Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z',
   schema:

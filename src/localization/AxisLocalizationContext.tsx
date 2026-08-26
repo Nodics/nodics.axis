@@ -79,6 +79,9 @@ export function useAxisLocalizationController(
 
   useEffect(() => {
     if (!bootstrap?.endpoints.localization) return;
+    if (!cached?.bundle && (supportedLocales.length <= 1 || locale === defaultLocale)) {
+      return;
+    }
     let active = true;
     void loadLocalizationBundle(
       bootstrap.endpoints.localization,
@@ -119,9 +122,11 @@ export function useAxisLocalizationController(
     bootstrap,
     cached?.bundle,
     cached?.etag,
+    defaultLocale,
     locale,
     runtime.enterpriseCode,
     runtime.requestTimeoutMs,
+    supportedLocales.length,
   ]);
 
   return useMemo(() => {
