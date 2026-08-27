@@ -95,6 +95,48 @@ describe('Axis initialization client', () => {
     });
   });
 
+  it('accepts an import-in-progress readiness state from the backend', async () => {
+    const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ...status,
+          data: { ...status.data, readiness: 'IMPORTING', releaseStatus: 'RUNNING' },
+        }),
+        { status: 200 },
+      ),
+    );
+    await expect(
+      loadAxisInitializationStatus(
+        'http://platform.local',
+        'employee-token',
+        1_000,
+        fetchImplementation,
+      ),
+    ).resolves.toMatchObject({ readiness: 'IMPORTING', releaseStatus: 'RUNNING' });
+  });
+
+  it('surfaces backend error messages for failed initialization calls', async () => {
+    const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: 'ERR_BOF_00085',
+          message: 'Axis initialization target failed for baseline axis',
+        }),
+        { status: 409 },
+      ),
+    );
+    await expect(
+      initiateAxisInitialization(
+        'http://platform.local',
+        'employee-token',
+        1_000,
+        fetchImplementation,
+      ),
+    ).rejects.toThrow(
+      'Axis initialization returned HTTP 409: Axis initialization target failed for baseline axis',
+    );
+  });
+
   it('fails closed on an unknown readiness state', async () => {
     const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(

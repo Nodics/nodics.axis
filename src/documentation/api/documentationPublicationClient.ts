@@ -114,6 +114,48 @@ function parse(value: unknown): DocumentationPublicationStatus {
   return Object.freeze(result);
 }
 
+async function parseErrorMessage(response: Response): Promise<string> {
+  let body = '';
+  try {
+    body = await response.text();
+  } catch {
+    body = '';
+  }
+  if (!body.trim()) return `Documentation publication returned HTTP ${String(response.status)}`;
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    const envelope = record(parsed, 'Documentation publication error');
+    const data =
+      typeof envelope.data === 'object' &&
+      envelope.data !== null &&
+      !Array.isArray(envelope.data)
+        ? (envelope.data as Record<string, unknown>)
+        : {};
+    const metadata =
+      typeof envelope.metadata === 'object' &&
+      envelope.metadata !== null &&
+      !Array.isArray(envelope.metadata)
+        ? (envelope.metadata as Record<string, unknown>)
+        : {};
+    const message = [
+      typeof envelope.message === 'string' ? envelope.message : '',
+      typeof envelope.error === 'string' ? envelope.error : '',
+      typeof data.message === 'string' ? data.message : '',
+      typeof metadata.targetMessage === 'string' ? metadata.targetMessage : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+    if (/content changed without a new release version|increment and regenerate|checksum/iu.test(message)) {
+      return 'Release version update required. Increment the content-pack version, regenerate the pack, then update Staged again.';
+    }
+    return message.trim()
+      ? message
+      : `Documentation publication returned HTTP ${String(response.status)}`;
+  } catch {
+    return body.trim().slice(0, 500);
+  }
+}
+
 async function invoke(
   options: Options,
   method: 'GET' | 'POST',
@@ -148,12 +190,12 @@ async function invoke(
         : {}),
     };
     const response = await fetchImplementation(new URL(endpoint + path), requestInit);
-    if (!response.ok)
-      throw new Error(
-        response.status === 403
-          ? 'You are not authorized to publish documentation.'
-          : `Documentation publication returned HTTP ${String(response.status)}`,
-      );
+    if (!response.ok) {
+      if (response.status === 403) {
+        throw new Error('You are not authorized to publish documentation.');
+      }
+      throw new Error(await parseErrorMessage(response));
+    }
     return parse(await response.json());
   } finally {
     globalThis.clearTimeout(timeout);

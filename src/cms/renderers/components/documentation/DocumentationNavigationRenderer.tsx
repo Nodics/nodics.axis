@@ -13,6 +13,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { useMemo, useState } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router';
 
@@ -69,10 +70,8 @@ function parseItems(value: readonly unknown[]): readonly DocumentationNavigation
       boundedString(record.category) ||
       boundedString(record.section);
     const section = category || 'Documentation';
-    const group =
-      boundedString(record.groupTitle) || boundedString(record.group) || section;
-    const subgroup =
-      boundedString(record.subgroupTitle) || boundedString(record.subgroup);
+    const group = section;
+    const subgroup = '';
     const searchText = boundedString(record.searchText);
     if (!title || !route.startsWith('/docs')) return [];
     const audience = Array.isArray(record.audience)
@@ -94,6 +93,68 @@ function parseItems(value: readonly unknown[]): readonly DocumentationNavigation
       },
     ];
   });
+}
+
+function sortedDocumentationItems(
+  items: readonly DocumentationNavigationItem[],
+): readonly DocumentationNavigationItem[] {
+  return [...items].sort(
+    (left, right) =>
+      left.sectionOrder - right.sectionOrder ||
+      left.order - right.order ||
+      left.title.localeCompare(right.title),
+  );
+}
+
+function DocumentationPageLink({
+  item,
+  locationPathname,
+}: {
+  readonly item: DocumentationNavigationItem;
+  readonly locationPathname: string;
+}) {
+  const selected = locationPathname === item.route;
+
+  return (
+    <ListItemButton
+      component={RouterLink}
+      key={item.route}
+      selected={selected}
+      sx={{
+        alignItems: 'flex-start',
+        borderRadius: 1,
+        minHeight: 40,
+        px: 1.5,
+        py: 0.75,
+        '&.Mui-selected': {
+          bgcolor: (theme) => alpha(theme.palette.primary.main, 0.16),
+          color: 'text.primary',
+        },
+        '&.Mui-selected:hover': {
+          bgcolor: (theme) => alpha(theme.palette.primary.main, 0.22),
+        },
+      }}
+      to={item.route}
+    >
+      <ListItemText
+        primary={item.title}
+        slotProps={{
+          primary: {
+            title: item.title,
+            sx: {
+              display: '-webkit-box',
+              fontSize: '0.92rem',
+              fontWeight: selected ? 700 : 500,
+              lineHeight: 1.35,
+              overflow: 'hidden',
+              WebkitBoxOrient: 'vertical',
+              WebkitLineClamp: 2,
+            },
+          },
+        }}
+      />
+    </ListItemButton>
+  );
 }
 
 export function DocumentationNavigationRenderer({
@@ -125,7 +186,14 @@ export function DocumentationNavigationRenderer({
   );
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filtered = items.filter((item) => {
-    const searchable = [item.title, item.category, item.searchText, ...item.audience]
+    const searchable = [
+      item.title,
+      item.category,
+      item.group,
+      item.subgroup,
+      item.searchText,
+      ...item.audience,
+    ]
       .join(' ')
       .toLocaleLowerCase();
     return (
@@ -135,16 +203,23 @@ export function DocumentationNavigationRenderer({
   });
   const grouped = filtered.reduce((result, item) => {
     const section = humanize(item.section || item.category);
-    const group = humanize(item.group || item.category);
     const sectionEntry = result.get(section) ?? {
       order: item.sectionOrder,
-      groups: new Map<string, DocumentationNavigationItem[]>(),
+      items: [],
     };
     sectionEntry.order = Math.min(sectionEntry.order, item.sectionOrder);
-    sectionEntry.groups.set(group, [...(sectionEntry.groups.get(group) ?? []), item]);
+    sectionEntry.items.push(item);
     result.set(section, sectionEntry);
     return result;
-  }, new Map<string, { order: number; groups: Map<string, DocumentationNavigationItem[]> }>());
+  }, new Map<string, { order: number; items: DocumentationNavigationItem[] }>());
+  const sortedGroups = [...grouped.entries()].sort(
+    (left, right) =>
+      left[1].order - right[1].order || left[0].localeCompare(right[0]),
+  );
+  const titleAsSection = humanize(title).toLocaleLowerCase();
+  const shouldUseTitleAsOnlyGroup =
+    sortedGroups.length === 1 &&
+    sortedGroups[0]?.[0].toLocaleLowerCase() === titleAsSection;
   const toggleExpanded = (key: string) => {
     setExpanded((current) => {
       if (current.has('*')) return new Set();
@@ -158,16 +233,18 @@ export function DocumentationNavigationRenderer({
     Boolean(normalizedQuery) || expanded.has('*') || expanded.has(key);
 
   return (
-    <Stack component="nav" aria-label={title} spacing={1}>
-      <Typography component="h2" variant="h6">
+    <Stack component="nav" aria-label={title} spacing={1.25} sx={{ pr: 0.5 }}>
+      <Typography component="h2" sx={{ fontWeight: 800, pr: 5 }} variant="h6">
         {title}
       </Typography>
       <TextField
         fullWidth
-        label={searchLabel}
         placeholder={searchPlaceholder}
         size="small"
         slotProps={{
+          htmlInput: {
+            'aria-label': searchLabel,
+          },
           input: {
             startAdornment: (
               <InputAdornment position="start">
@@ -186,6 +263,12 @@ export function DocumentationNavigationRenderer({
                 </IconButton>
               </InputAdornment>
             ) : undefined,
+          },
+        }}
+        sx={{
+          '& .MuiOutlinedInput-root': {
+            bgcolor: 'background.paper',
+            borderRadius: 1,
           },
         }}
         value={query}
@@ -212,21 +295,32 @@ export function DocumentationNavigationRenderer({
         <Typography color="text.secondary" role="status" variant="body2">
           {emptyMessage}
         </Typography>
+      ) : shouldUseTitleAsOnlyGroup ? (
+        <List dense disablePadding sx={{ py: 0.25 }}>
+          {sortedDocumentationItems(sortedGroups[0]?.[1].items ?? []).map((item) => (
+            <DocumentationPageLink
+              item={item}
+              key={item.route}
+              locationPathname={location.pathname}
+            />
+          ))}
+        </List>
       ) : (
-        <Stack spacing={1.5}>
-          {[...grouped.entries()]
-            .sort(
-              (left, right) =>
-                left[1].order - right[1].order || left[0].localeCompare(right[0]),
-            )
-            .map(([section, sectionEntry]) => (
+        <Stack spacing={0.5}>
+          {sortedGroups.map(([section, sectionEntry]) => (
               <Box component="section" key={section}>
                 <ListItemButton
                   aria-expanded={shouldExpand(section)}
                   aria-label={`${shouldExpand(section) ? 'Collapse' : 'Expand'} ${section}`}
                   dense
                   onClick={() => toggleExpanded(section)}
-                  sx={{ borderRadius: 1 }}
+                  sx={{
+                    alignItems: 'center',
+                    borderRadius: 1,
+                    minHeight: 44,
+                    px: 1,
+                    py: 0.75,
+                  }}
                 >
                   <ShellIcon
                     color="action"
@@ -237,100 +331,26 @@ export function DocumentationNavigationRenderer({
                     primary={section}
                     slotProps={{
                       primary: {
-                        sx: { fontWeight: 700, ml: 1 },
+                        sx: {
+                          fontWeight: 800,
+                          lineHeight: 1.25,
+                          ml: 1,
+                        },
                         title: section,
                       },
                     }}
                   />
                 </ListItemButton>
                 <Collapse in={shouldExpand(section)} timeout="auto" unmountOnExit>
-                  <Stack spacing={0.75} sx={{ pl: 1 }}>
-                    {[...sectionEntry.groups.entries()]
-                      .sort((left, right) => {
-                        const leftOrder = Math.min(
-                          ...left[1].map((item) => item.groupOrder),
-                        );
-                        const rightOrder = Math.min(
-                          ...right[1].map((item) => item.groupOrder),
-                        );
-                        return (
-                          leftOrder - rightOrder || left[0].localeCompare(right[0])
-                        );
-                      })
-                      .map(([group, groupItems]) => {
-                        const groupKey = `${section}:${group}`;
-                        return (
-                          <Box key={group} component="section">
-                            <ListItemButton
-                              aria-expanded={shouldExpand(groupKey)}
-                              aria-label={`${shouldExpand(groupKey) ? 'Collapse' : 'Expand'} ${group}`}
-                              dense
-                              onClick={() => toggleExpanded(groupKey)}
-                              sx={{ borderRadius: 1, pl: 2 }}
-                            >
-                              <ShellIcon
-                                color="action"
-                                fontSize="small"
-                                name={
-                                  shouldExpand(groupKey)
-                                    ? 'chevron-down'
-                                    : 'chevron-right'
-                                }
-                              />
-                              <ListItemText
-                                primary={group}
-                                slotProps={{
-                                  primary: {
-                                    color: 'text.secondary',
-                                    sx: { fontWeight: 600, ml: 1 },
-                                    title: group,
-                                  },
-                                }}
-                              />
-                            </ListItemButton>
-                            <Collapse
-                              in={shouldExpand(groupKey)}
-                              timeout="auto"
-                              unmountOnExit
-                            >
-                              <List dense disablePadding sx={{ pl: 3 }}>
-                                {groupItems
-                                  .sort(
-                                    (left, right) =>
-                                      left.order - right.order ||
-                                      left.title.localeCompare(right.title),
-                                  )
-                                  .map((item) => (
-                                    <ListItemButton
-                                      component={RouterLink}
-                                      key={item.route}
-                                      selected={location.pathname === item.route}
-                                      sx={{ borderRadius: 1 }}
-                                      to={item.route}
-                                    >
-                                      <ListItemText
-                                        primary={item.title}
-                                        secondary={
-                                          item.subgroup
-                                            ? humanize(item.subgroup)
-                                            : undefined
-                                        }
-                                        slotProps={{
-                                          primary: { noWrap: true, title: item.title },
-                                          secondary: {
-                                            noWrap: true,
-                                            title: item.subgroup,
-                                          },
-                                        }}
-                                      />
-                                    </ListItemButton>
-                                  ))}
-                              </List>
-                            </Collapse>
-                          </Box>
-                        );
-                      })}
-                  </Stack>
+                  <List dense disablePadding sx={{ pl: 3.5, pr: 0.5, py: 0.5 }}>
+                    {sortedDocumentationItems(sectionEntry.items).map((item) => (
+                      <DocumentationPageLink
+                        item={item}
+                        key={item.route}
+                        locationPathname={location.pathname}
+                      />
+                    ))}
+                  </List>
                 </Collapse>
               </Box>
             ))}

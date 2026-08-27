@@ -2,8 +2,10 @@ import type { AxisModuleConnection } from '../../../bootstrap/publicBootstrap';
 
 export type ApplicationInitializationReadiness =
   | 'NOT_IMPORTED'
+  | 'IMPORTING'
   | 'IMPORTED'
   | 'PUBLICATION_PENDING'
+  | 'BLOCKED'
   | 'READY'
   | 'REJECTED'
   | 'FAILED'
@@ -26,17 +28,46 @@ export interface ApplicationInitializationProfile {
   readonly baselineCode: string;
   readonly contentPackCode?: string | undefined;
   readonly requiredServers: readonly string[];
+  readonly requiredFunctionalModules: readonly Readonly<{
+    readonly code: string;
+    readonly label: string;
+    readonly required: boolean;
+    readonly order: number;
+  }>[];
   readonly dataPackages: readonly Readonly<{
     readonly code: string;
     readonly kind: string;
     readonly required: boolean;
     readonly trigger: string;
+    readonly dataType?: string | undefined;
+    readonly targetServer?: string | undefined;
+    readonly targetRuntimeRole?: string | undefined;
   }>[];
+  readonly preparationSteps?: readonly ApplicationPreparationStep[] | undefined;
   readonly activationPolicy: Readonly<{
     readonly approvalRequiredForOnline: boolean;
     readonly requiredDataTrigger: string;
     readonly sampleDataTrigger: string;
   }>;
+}
+
+export interface ApplicationPreparationStep {
+  readonly order: number;
+  readonly type: string;
+  readonly code: string;
+  readonly kind: string;
+  readonly label?: string | undefined;
+  readonly required: boolean;
+  readonly trigger: string;
+  readonly dataType: string;
+  readonly targetServer: string;
+  readonly targetRuntimeRole: string;
+  readonly status?: string | undefined;
+  readonly version?: string | undefined;
+  readonly installedVersion?: string | undefined;
+  readonly description?: string | undefined;
+  readonly message?: string | undefined;
+  readonly manifestPath?: string | undefined;
 }
 
 export interface ApplicationInitializationStatus {
@@ -51,6 +82,10 @@ export interface ApplicationInitializationStatus {
   readonly releaseStatus?: string | undefined;
   readonly profile?: ApplicationInitializationProfile | undefined;
   readonly allowedActions: readonly ApplicationInitializationAction[];
+  readonly preparation?: Readonly<{
+    readonly status: string;
+    readonly steps: readonly ApplicationPreparationStep[];
+  }>;
   readonly publication?: Readonly<{
     readonly code: string;
     readonly state: string;
@@ -71,6 +106,14 @@ interface ApplicationInitializationClientOptions {
 
 interface ApplicationInitializationOperationInput {
   readonly reason?: string | undefined;
+}
+
+function requestTimeoutMs(
+  options: ApplicationInitializationClientOptions,
+  operation: 'initiate' | 'rollback' | 'retire' | undefined,
+): number {
+  if (!operation) return Math.max(options.timeoutMs, 60_000);
+  return Math.max(options.timeoutMs, 180_000);
 }
 
 function record(value: unknown, name: string): Record<string, unknown> {
@@ -115,6 +158,36 @@ async function safeError(response: Response): Promise<string> {
 
 function parseProfile(value: unknown): ApplicationInitializationProfile {
   const data = record(value, 'Application initialization profile');
+  const parseStep = (item: unknown): ApplicationPreparationStep => {
+    const step = record(item, 'Application preparation step');
+    return Object.freeze({
+      order: Number(step.order ?? 1000),
+      type: text(step.type, 'Application preparation step type'),
+      code: text(step.code, 'Application preparation step code'),
+      kind: text(step.kind, 'Application preparation step kind'),
+      ...(optionalText(step.label) ? { label: optionalText(step.label) } : {}),
+      required: booleanValue(step.required, true),
+      trigger: text(step.trigger, 'Application preparation step trigger'),
+      dataType: text(step.dataType, 'Application preparation step data type'),
+      targetServer: text(step.targetServer, 'Application preparation target'),
+      targetRuntimeRole: text(
+        step.targetRuntimeRole,
+        'Application preparation runtime role',
+      ),
+      ...(optionalText(step.status) ? { status: optionalText(step.status) } : {}),
+      ...(optionalText(step.version) ? { version: optionalText(step.version) } : {}),
+      ...(optionalText(step.installedVersion)
+        ? { installedVersion: optionalText(step.installedVersion) }
+        : {}),
+      ...(optionalText(step.description)
+        ? { description: optionalText(step.description) }
+        : {}),
+      ...(optionalText(step.message) ? { message: optionalText(step.message) } : {}),
+      ...(optionalText(step.manifestPath)
+        ? { manifestPath: optionalText(step.manifestPath) }
+        : {}),
+    });
+  };
   const dataPackages = Array.isArray(data.dataPackages)
     ? data.dataPackages.map((item) => {
         const pack = record(item, 'Application initialization data package');
@@ -123,6 +196,24 @@ function parseProfile(value: unknown): ApplicationInitializationProfile {
           kind: text(pack.kind, 'Application data package kind'),
           required: booleanValue(pack.required, true),
           trigger: text(pack.trigger, 'Application data package trigger'),
+          ...(optionalText(pack.dataType) ? { dataType: optionalText(pack.dataType) } : {}),
+          ...(optionalText(pack.targetServer)
+            ? { targetServer: optionalText(pack.targetServer) }
+            : {}),
+          ...(optionalText(pack.targetRuntimeRole)
+            ? { targetRuntimeRole: optionalText(pack.targetRuntimeRole) }
+            : {}),
+        });
+      })
+    : [];
+  const requiredFunctionalModules = Array.isArray(data.requiredFunctionalModules)
+    ? data.requiredFunctionalModules.map((item) => {
+        const requirement = record(item, 'Application required capability');
+        return Object.freeze({
+          code: text(requirement.code, 'Application required capability code'),
+          label: text(requirement.label, 'Application required capability label'),
+          required: booleanValue(requirement.required, true),
+          order: Number(requirement.order ?? 1000),
         });
       })
     : [];
@@ -150,7 +241,11 @@ function parseProfile(value: unknown): ApplicationInitializationProfile {
         ? data.requiredServers.map((item) => text(item, 'Application required server'))
         : [],
     ),
+    requiredFunctionalModules: Object.freeze(requiredFunctionalModules),
     dataPackages: Object.freeze(dataPackages),
+    ...(Array.isArray(data.preparationSteps)
+      ? { preparationSteps: Object.freeze(data.preparationSteps.map(parseStep)) }
+      : {}),
     activationPolicy: Object.freeze({
       approvalRequiredForOnline: booleanValue(
         activationPolicy.approvalRequiredForOnline,
@@ -178,8 +273,10 @@ function parse(value: unknown): ApplicationInitializationStatus {
   if (
     ![
       'NOT_IMPORTED',
+      'IMPORTING',
       'IMPORTED',
       'PUBLICATION_PENDING',
+      'BLOCKED',
       'READY',
       'REJECTED',
       'FAILED',
@@ -202,6 +299,43 @@ function parse(value: unknown): ApplicationInitializationStatus {
     data.publication === undefined
       ? undefined
       : record(data.publication, 'Application publication');
+  const preparation =
+    data.preparation === undefined
+      ? undefined
+      : record(data.preparation, 'Application preparation');
+  const preparationSteps =
+    preparation && Array.isArray(preparation.steps)
+      ? preparation.steps.map((item) => {
+          const step = record(item, 'Application preparation step');
+          return Object.freeze({
+            order: Number(step.order ?? 1000),
+            type: text(step.type, 'Application preparation step type'),
+            code: text(step.code, 'Application preparation step code'),
+            kind: text(step.kind, 'Application preparation step kind'),
+            ...(optionalText(step.label) ? { label: optionalText(step.label) } : {}),
+            required: booleanValue(step.required, true),
+            trigger: text(step.trigger, 'Application preparation step trigger'),
+            dataType: text(step.dataType, 'Application preparation step data type'),
+            targetServer: text(step.targetServer, 'Application preparation target'),
+            targetRuntimeRole: text(
+              step.targetRuntimeRole,
+              'Application preparation runtime role',
+            ),
+            ...(optionalText(step.status) ? { status: optionalText(step.status) } : {}),
+            ...(optionalText(step.version) ? { version: optionalText(step.version) } : {}),
+            ...(optionalText(step.installedVersion)
+              ? { installedVersion: optionalText(step.installedVersion) }
+              : {}),
+            ...(optionalText(step.description)
+              ? { description: optionalText(step.description) }
+              : {}),
+            ...(optionalText(step.message) ? { message: optionalText(step.message) } : {}),
+            ...(optionalText(step.manifestPath)
+              ? { manifestPath: optionalText(step.manifestPath) }
+              : {}),
+          });
+        })
+      : [];
   return Object.freeze({
     profileCode: text(data.profileCode, 'Application profile'),
     type: text(data.type, 'Application profile type'),
@@ -213,6 +347,14 @@ function parse(value: unknown): ApplicationInitializationStatus {
     releaseVersion: text(data.releaseVersion, 'Application release version'),
     ...(data.profile ? { profile: parseProfile(data.profile) } : {}),
     allowedActions: Object.freeze(allowedActions as ApplicationInitializationAction[]),
+    ...(preparation
+      ? {
+          preparation: Object.freeze({
+            status: text(preparation.status, 'Application preparation status'),
+            steps: Object.freeze(preparationSteps),
+          }),
+        }
+      : {}),
     ...(optionalText(data.releaseStatus)
       ? { releaseStatus: optionalText(data.releaseStatus) }
       : {}),
@@ -252,7 +394,10 @@ async function invoke(
     options.profileCode,
   )}/initialization${operation ? `/${operation}` : ''}`;
   const controller = new AbortController();
-  const timeout = globalThis.setTimeout(() => controller.abort(), options.timeoutMs);
+  const timeout = globalThis.setTimeout(
+    () => controller.abort(),
+    requestTimeoutMs(options, operation),
+  );
   try {
     const response = await fetchImplementation(new URL(endpoint + path), {
       method,
@@ -284,7 +429,11 @@ async function invoke(
     return parse(await response.json());
   } catch (error: unknown) {
     if (controller.signal.aborted) {
-      throw new Error('Application initialization request timed out');
+      throw new Error(
+        operation
+          ? 'Application initialization is still running. Refresh status in a moment to continue from the latest backend state.'
+          : 'Setup status is taking longer than expected. Refresh status in a moment to continue from the latest backend state.',
+      );
     }
     throw error instanceof Error
       ? error

@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryRouter, useNavigate } from 'react-router';
 
 import type { CmsPageContract } from '../../../../src/cms/cmsContract';
@@ -24,6 +24,10 @@ const page: CmsPageContract = {
 };
 
 describe('DocumentationArticleTemplateRenderer', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
   it('keeps documentation navigation on the left and lets readers hide it', async () => {
     const user = userEvent.setup();
     render(
@@ -69,6 +73,38 @@ describe('DocumentationArticleTemplateRenderer', () => {
     );
 
     expect(screen.getByText('Documentation navigation')).toBeVisible();
+  });
+
+  it('lets readers resize the documentation navigation and reset the split', () => {
+    render(
+      <MemoryRouter>
+        <DocumentationArticleTemplateRenderer
+          page={page}
+          slots={{
+            navigation: <nav aria-label="Documentation">Documentation navigation</nav>,
+            article: <h1>Framework article</h1>,
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    const resizer = screen.getByRole('separator', {
+      name: 'Resize documentation navigation',
+    });
+    expect(resizer).toHaveAttribute('aria-valuenow', '360');
+
+    fireEvent.pointerDown(resizer, { clientX: 320 });
+    fireEvent.pointerMove(document, { clientX: 440 });
+    fireEvent.pointerUp(document);
+
+    expect(resizer).toHaveAttribute('aria-valuenow', '480');
+    expect(window.localStorage.getItem('axis.documentation.navigationWidth')).toBe(
+      '480',
+    );
+
+    fireEvent.doubleClick(resizer);
+
+    expect(resizer).toHaveAttribute('aria-valuenow', '360');
   });
 
   it('returns the article panel to the top when the selected topic changes', async () => {

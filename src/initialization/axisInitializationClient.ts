@@ -1,5 +1,6 @@
 export type AxisInitializationReadiness =
   | 'NOT_IMPORTED'
+  | 'IMPORTING'
   | 'IMPORTED'
   | 'PUBLICATION_PENDING'
   | 'READY'
@@ -159,6 +160,7 @@ function parseStatus(value: unknown): AxisInitializationStatus {
   if (
     ![
       'NOT_IMPORTED',
+      'IMPORTING',
       'IMPORTED',
       'PUBLICATION_PENDING',
       'READY',
@@ -212,7 +214,9 @@ async function requestInitialization(
   fetchImplementation: typeof fetch,
 ): Promise<AxisInitializationStatus> {
   const controller = new AbortController();
-  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  const operationTimeoutMs =
+    operation === 'initiate' ? Math.max(timeoutMs, 120_000) : timeoutMs;
+  const timeout = globalThis.setTimeout(() => controller.abort(), operationTimeoutMs);
   try {
     const response = await fetchImplementation(
       new URL(
@@ -238,7 +242,22 @@ async function requestInitialization(
       },
     );
     if (!response.ok) {
-      throw new Error(`Axis initialization returned HTTP ${String(response.status)}`);
+      let message = `Axis initialization returned HTTP ${String(response.status)}`;
+      try {
+        const errorBody = record(await response.json(), 'Axis initialization error');
+        const remoteMessage =
+          typeof errorBody.message === 'string'
+            ? errorBody.message
+            : typeof errorBody.error === 'string'
+              ? errorBody.error
+              : typeof errorBody.reason === 'string'
+                ? errorBody.reason
+                : undefined;
+        if (remoteMessage) message = `${message}: ${remoteMessage}`;
+      } catch {
+        // Keep the bounded HTTP status when the backend cannot provide JSON.
+      }
+      throw new Error(message);
     }
     return parseStatus(await response.json());
   } finally {

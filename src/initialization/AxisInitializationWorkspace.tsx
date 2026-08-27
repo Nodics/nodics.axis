@@ -70,6 +70,16 @@ export function AxisInitializationWorkspace(props: AxisInitializationWorkspacePr
     props.status?.readiness === 'NOT_IMPORTED' ||
     props.status?.readiness === 'IMPORTED' ||
     props.status?.readiness === 'FAILED';
+  const readinessLabel =
+    props.status?.readiness === 'NOT_IMPORTED'
+      ? 'Not imported'
+      : props.status?.readiness === 'IMPORTING'
+        ? 'Import in progress'
+        : props.status?.readiness === 'PUBLICATION_PENDING'
+          ? 'Approval pending'
+          : props.status?.readiness === 'READY'
+            ? 'Online'
+            : props.status?.readiness ?? 'Checking';
   return (
     <Box
       component="main"
@@ -81,7 +91,7 @@ export function AxisInitializationWorkspace(props: AxisInitializationWorkspacePr
         p: 2,
       }}
     >
-      <Paper sx={{ maxWidth: 720, p: 4, width: '100%' }}>
+      <Paper sx={{ maxWidth: 820, p: { xs: 2.5, sm: 4 }, width: '100%' }}>
         <Stack spacing={3}>
           <Box>
             <Typography component="h1" variant="h4">
@@ -93,9 +103,13 @@ export function AxisInitializationWorkspace(props: AxisInitializationWorkspacePr
             </Typography>
           </Box>
           {props.status ? (
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}
+            >
               <Chip
-                label={props.status.readiness}
+                label={readinessLabel}
                 color={props.status.readiness === 'READY' ? 'success' : 'warning'}
               />
               <Chip
@@ -111,38 +125,51 @@ export function AxisInitializationWorkspace(props: AxisInitializationWorkspacePr
             <Stack spacing={1.5}>
               <Box>
                 <Typography component="h2" variant="h6">
-                  Empty-database setup wizard
+                  First-run setup
                 </Typography>
                 <Typography color="text.secondary" variant="body2">
-                  First start should feel like a guided enterprise onboarding journey,
-                  not a hidden script. Axis shows what is prepared, what is approved,
-                  and what must be verified before the recovery shell retires.
+                  Bring the CMS-managed Axis workspace Online through a governed
+                  baseline release. The recovery shell retires after approval.
                 </Typography>
               </Box>
-              <Box
-                sx={{
-                  display: 'grid',
-                  gap: 1.5,
-                  gridTemplateColumns: { xs: '1fr', md: 'repeat(5, minmax(0, 1fr))' },
-                }}
-              >
+              <Stack spacing={1}>
                 {setupWizardSteps.map((step) => (
-                  <Paper key={step.title} sx={{ p: 1.5 }} variant="outlined">
-                    <Typography sx={{ fontWeight: 600 }} variant="body2">
+                  <Box
+                    key={step.title}
+                    sx={{
+                      alignItems: 'baseline',
+                      border: 1,
+                      borderColor: 'divider',
+                      borderRadius: 1,
+                      display: 'grid',
+                      gap: { xs: 0.5, sm: 2 },
+                      gridTemplateColumns: { xs: '1fr', sm: '190px minmax(0, 1fr)' },
+                      px: 1.5,
+                      py: 1.25,
+                    }}
+                  >
+                    <Typography sx={{ fontWeight: 700 }} variant="body2">
                       {step.title}
                     </Typography>
-                    <Typography color="text.secondary" variant="caption">
+                    <Typography color="text.secondary" variant="body2">
                       {step.body}
                     </Typography>
-                  </Paper>
+                  </Box>
                 ))}
-              </Box>
+              </Stack>
               <Alert severity="info">
                 Temporary bootstrap access should be retired after the first governed
                 admin and enterprise-scoped user model is active.
               </Alert>
             </Stack>
           </Paper>
+          {props.status?.readiness === 'IMPORTING' ? (
+            <Alert severity="info">
+              Axis is importing the baseline into Staged. Leave this screen open or
+              refresh status after a moment; approval becomes available when the
+              import finishes.
+            </Alert>
+          ) : null}
           {props.error ? <Alert severity="error">{props.error}</Alert> : null}
           {props.status?.readiness === 'PUBLICATION_PENDING' ? (
             <Alert severity="info">

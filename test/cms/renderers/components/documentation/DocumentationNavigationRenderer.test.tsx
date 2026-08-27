@@ -31,6 +31,16 @@ const navigation: CmsComponentContract = {
         audience: ['business', 'developer'],
       },
       {
+        title: 'Why Nodics Exists',
+        route: '/docs/overview/why-nodics-exists',
+        sectionTitle: 'Documentation Roadmap',
+        sectionOrder: 10,
+        groupTitle: 'Framework Orientation',
+        groupOrder: 10,
+        order: 20,
+        audience: ['business', 'developer'],
+      },
+      {
         title: 'Configure Security',
         route: '/docs/security/configure-security',
         sectionTitle: 'Administration',
@@ -122,7 +132,7 @@ describe('DocumentationNavigationRenderer', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('renders backend hierarchy as expandable sections and groups', async () => {
+  it('renders backend hierarchy as expandable sections with direct page links', async () => {
     const user = userEvent.setup();
     render(
       <MemoryRouter>
@@ -134,9 +144,15 @@ describe('DocumentationNavigationRenderer', () => {
       screen.getByRole('button', { name: 'Collapse Documentation Roadmap' }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Collapse Framework Orientation' }),
-    ).toBeInTheDocument();
-    expect(screen.getByText('Start Safely')).toBeVisible();
+      screen.queryByRole('button', { name: 'Collapse Framework Orientation' }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('Start Safely')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'What Nodics Is' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Why Nodics Exists' })).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Collapse Security Controls' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Configure Security' })).toBeVisible();
 
     await user.click(
       screen.getByRole('button', { name: 'Collapse Documentation Roadmap' }),

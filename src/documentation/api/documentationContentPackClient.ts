@@ -124,10 +124,19 @@ async function responseFailure(response: Response): Promise<Error> {
   if (response.status === 403) {
     return new Error('You are not authorized to manage documentation.');
   }
-  const contentType = response.headers.get('Content-Type') ?? '';
-  if (contentType.toLowerCase().includes('application/json')) {
+  let bodyText = '';
+  try {
+    bodyText = await response.text();
+  } catch {
+    bodyText = '';
+  }
+  if (bodyText.trim()) {
     try {
-      const body = record(await response.json(), 'Documentation error response');
+      const body = record(JSON.parse(bodyText), 'Documentation error response');
+      const data =
+        typeof body.data === 'object' && body.data !== null
+          ? (body.data as Record<string, unknown>)
+          : {};
       const metadata =
         typeof body.metadata === 'object' && body.metadata !== null
           ? (body.metadata as Record<string, unknown>)
@@ -137,19 +146,29 @@ async function responseFailure(response: Response): Promise<Error> {
         typeof metadata.targetCode === 'string' ? metadata.targetCode : '';
       const message = [
         typeof body.message === 'string' ? body.message : '',
+        typeof body.error === 'string' ? body.error : '',
+        typeof data.message === 'string' ? data.message : '',
         typeof metadata.targetMessage === 'string' ? metadata.targetMessage : '',
       ].join(' ');
       if (/already running/iu.test(message)) {
         return new Error(importAlreadyRunningMessage);
       }
       if (
-        (code === 'ERR_IMP_00003' || targetCode === 'ERR_IMP_00003') &&
-        /version change|new release version|checksum/iu.test(message)
+        (code === 'ERR_IMP_00003' || targetCode === 'ERR_IMP_00003' || response.status === 409) &&
+        /version change|new release version|checksum|content changed/iu.test(message)
       ) {
         return new Error(immutableReleaseConflictMessage);
       }
+      if (message.trim()) return new Error(message.trim());
     } catch {
-      // Fall through to the bounded transport failure below.
+      const bounded = bodyText.trim().slice(0, 500);
+      if (/already running/iu.test(bounded)) {
+        return new Error(importAlreadyRunningMessage);
+      }
+      if (/version change|new release version|checksum|content changed/iu.test(bounded)) {
+        return new Error(immutableReleaseConflictMessage);
+      }
+      return new Error(bounded);
     }
   }
   return new Error(`Documentation service returned HTTP ${String(response.status)}`);
@@ -161,7 +180,10 @@ function createRequest(
   fetchImplementation: typeof fetch,
 ): Promise<DocumentationContentPackStatus> {
   const controller = new AbortController();
-  const timeout = globalThis.setTimeout(() => controller.abort(), options.timeoutMs);
+  const timeout = globalThis.setTimeout(
+    () => controller.abort(),
+    method === 'POST' ? Math.max(options.timeoutMs, 180_000) : options.timeoutMs,
+  );
   const profileCode = encodeURIComponent(options.profileCode);
   const suffix = method === 'POST' ? '/install' : '';
   const endpoint = options.connection.endpoint.replace(/\/$/, '');
@@ -188,7 +210,11 @@ function createRequest(
     })
     .catch((error: unknown) => {
       if (controller.signal.aborted) {
-        throw new Error('Documentation service request timed out');
+        throw new Error(
+          method === 'POST'
+            ? 'Documentation update is still running. Axis will refresh status automatically.'
+            : 'Documentation service request timed out',
+        );
       }
       throw error instanceof Error
         ? error

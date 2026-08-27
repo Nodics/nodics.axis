@@ -484,12 +484,17 @@ export function App() {
   );
   const shellNavigation = useMemo(() => {
     if (!authenticatedBootstrap) return undefined;
-    const existingRoutes = new Set(
-      authenticatedBootstrap.navigation.map((item) => normalizeRoutePath(item.route)),
+    const documentationSourceRoutes = new Set(
+      authenticatedBootstrap.documentationSources.map((source) =>
+        normalizeRoutePath(source.route),
+      ),
     );
+    const baseNavigation = authenticatedBootstrap.navigation.filter((item) => {
+      const route = normalizeRoutePath(item.route);
+      return route === '/docs' || !documentationSourceRoutes.has(route);
+    });
     const sourceItems = authenticatedBootstrap.documentationSources
       .filter((source) => {
-        if (existingRoutes.has(normalizeRoutePath(source.route))) return false;
         if (source.type === 'OPENAPI') return true;
         return Boolean(
           source.initializationProfile &&
@@ -497,7 +502,7 @@ export function App() {
         );
       })
       .map(documentationSourceNavigationItem);
-    return Object.freeze([...authenticatedBootstrap.navigation, ...sourceItems]);
+    return Object.freeze([...baseNavigation, ...sourceItems]);
   }, [authenticatedBootstrap, onlineDocumentationProfiles]);
 
   if (bootstrapError) {
@@ -1458,6 +1463,7 @@ export function App() {
                 <SetupAcceleratorsRoutePage
                   accessToken={session.accessToken}
                   bootstrap={authenticatedBootstrap}
+                  onBootstrapRefresh={refreshAuthenticatedBootstrap}
                   routeNavigation={setupAcceleratorsNavigation}
                   runtime={runtime}
                 />,

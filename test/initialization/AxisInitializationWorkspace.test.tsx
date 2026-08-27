@@ -134,6 +134,28 @@ describe('bundled Axis initialization experience', () => {
     expect(onApprove).toHaveBeenCalledOnce();
   });
 
+  it('shows import progress without offering duplicate initialization', () => {
+    render(
+      <AxisInitializationWorkspace
+        busy={false}
+        onApprove={vi.fn()}
+        onInitiate={vi.fn()}
+        onLogout={vi.fn()}
+        onRefresh={vi.fn()}
+        status={{
+          baselineCode: 'axis',
+          releaseCode: 'axis:axisBaseline',
+          releaseVersion: '0.0.0',
+          releaseStatus: 'RUNNING',
+          readiness: 'IMPORTING',
+        }}
+      />,
+    );
+    expect(screen.getByText('Import in progress')).toBeVisible();
+    expect(screen.getByText(/importing the baseline into Staged/)).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Initialize and submit' })).toBeNull();
+  });
+
   it('fails closed when the authoritative review is missing or does not match the workflow', () => {
     render(
       <AxisInitializationWorkspace

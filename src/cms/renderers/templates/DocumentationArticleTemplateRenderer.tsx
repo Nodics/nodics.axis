@@ -1,6 +1,6 @@
 import { Box, IconButton, Paper, Stack, Tooltip } from '@mui/material';
 import type { ReactNode } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router';
 
 import { axisTokens } from '../../../app/axisTheme';
@@ -19,18 +19,70 @@ interface DocumentationArticleTemplateRendererProps {
   readonly slots: DocumentationArticleTemplateSlots;
 }
 
+const documentationNavigationWidthKey = 'axis.documentation.navigationWidth';
+const defaultDocumentationNavigationWidth = 360;
+const minDocumentationNavigationWidth = 280;
+const maxDocumentationNavigationWidth = 640;
+
+function clampDocumentationNavigationWidth(width: number): number {
+  return Math.min(
+    maxDocumentationNavigationWidth,
+    Math.max(minDocumentationNavigationWidth, Math.round(width)),
+  );
+}
+
+function initialDocumentationNavigationWidth(): number {
+  if (typeof window === 'undefined') return defaultDocumentationNavigationWidth;
+  const storedValue = window.localStorage.getItem(documentationNavigationWidthKey);
+  if (!storedValue) return defaultDocumentationNavigationWidth;
+  const stored = Number(storedValue);
+  return Number.isFinite(stored)
+    ? clampDocumentationNavigationWidth(stored)
+    : defaultDocumentationNavigationWidth;
+}
+
 export function DocumentationArticleTemplateRenderer({
   page,
   slots,
 }: DocumentationArticleTemplateRendererProps) {
   const location = useLocation();
   const [navigationOpen, setNavigationOpen] = useState(true);
+  const [navigationWidth, setNavigationWidth] = useState(
+    initialDocumentationNavigationWidth,
+  );
   const articleScrollRef = useRef<HTMLElement>(null);
+  const resizeStartRef = useRef<Readonly<{ x: number; width: number }> | null>(null);
+
+  const handleNavigationResize = useCallback((event: PointerEvent) => {
+    if (!resizeStartRef.current) return;
+    setNavigationWidth(
+      clampDocumentationNavigationWidth(
+        resizeStartRef.current.width + event.clientX - resizeStartRef.current.x,
+      ),
+    );
+  }, []);
+
+  const stopNavigationResize = useCallback(() => {
+    resizeStartRef.current = null;
+    document.removeEventListener('pointermove', handleNavigationResize);
+    document.removeEventListener('pointerup', stopNavigationResize);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  }, [handleNavigationResize]);
 
   useEffect(() => {
     if (location.hash) return;
     if (articleScrollRef.current) articleScrollRef.current.scrollTop = 0;
   }, [location.hash, location.pathname]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      documentationNavigationWidthKey,
+      String(navigationWidth),
+    );
+  }, [navigationWidth]);
+
+  useEffect(() => stopNavigationResize, [stopNavigationResize]);
 
   return (
     <WorkspaceContainer>
@@ -38,9 +90,11 @@ export function DocumentationArticleTemplateRenderer({
         sx={{
           alignItems: 'stretch',
           display: 'grid',
-          gap: 1,
           gridTemplateColumns: navigationOpen
-            ? { xs: 'minmax(0, 1fr)', lg: '300px minmax(0, 1fr)' }
+            ? {
+                xs: 'minmax(0, 1fr)',
+                lg: `${String(navigationWidth)}px 10px minmax(0, 1fr)`,
+              }
             : { xs: '56px minmax(0, 1fr)', lg: '56px minmax(0, 1fr)' },
           gridTemplateRows: { xs: 'auto', lg: 'minmax(0, 1fr)' },
           height: {
@@ -115,6 +169,54 @@ export function DocumentationArticleTemplateRenderer({
             </Stack>
           )}
         </Paper>
+        {navigationOpen ? (
+          <Box
+            aria-label="Resize documentation navigation"
+            aria-valuemax={maxDocumentationNavigationWidth}
+            aria-valuemin={minDocumentationNavigationWidth}
+            aria-valuenow={navigationWidth}
+            data-testid="documentation-layout-resizer"
+            onDoubleClick={() =>
+              setNavigationWidth(defaultDocumentationNavigationWidth)
+            }
+            onPointerDown={(event) => {
+              event.preventDefault();
+              resizeStartRef.current = {
+                x: event.clientX,
+                width: navigationWidth,
+              };
+              document.body.style.cursor = 'col-resize';
+              document.body.style.userSelect = 'none';
+              document.addEventListener('pointermove', handleNavigationResize);
+              document.addEventListener('pointerup', stopNavigationResize);
+            }}
+            role="separator"
+            sx={{
+              alignItems: 'center',
+              cursor: 'col-resize',
+              display: { xs: 'none', lg: 'flex' },
+              justifyContent: 'center',
+              mx: -0.25,
+              outline: 0,
+              touchAction: 'none',
+              '&::before': {
+                bgcolor: 'divider',
+                borderRadius: axisTokens.radius.pill,
+                content: '""',
+                height: '100%',
+                maxHeight: 96,
+                transition: (theme) =>
+                  theme.transitions.create(['background-color', 'width']),
+                width: 2,
+              },
+              '&:hover::before, &:focus-visible::before': {
+                bgcolor: 'primary.main',
+                width: 4,
+              },
+            }}
+            tabIndex={0}
+          />
+        ) : null}
         <Paper
           ref={articleScrollRef}
           component="article"

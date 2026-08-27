@@ -62,13 +62,14 @@ const dashboardContentGap = workspaceContentGap;
 const dashboardCardPadding = workspacePanelPadding;
 const dashboardPublicationRowGrid = {
   xs: '1fr',
-  lg: '250px 260px minmax(0, 1fr)',
+  lg: 'minmax(220px, 1fr) minmax(240px, 280px) minmax(300px, auto)',
+  xl: 'minmax(300px, 1fr) minmax(320px, 420px) minmax(220px, auto)',
 } as const;
 const dashboardDocumentationSourceRowGrid = {
   xs: '1fr',
-  md: 'minmax(260px, 340px) minmax(320px, 1fr)',
-  lg: 'minmax(300px, 380px) minmax(320px, 1fr) 220px',
-  xl: 'minmax(340px, 420px) minmax(360px, 1fr) 240px',
+  md: 'minmax(280px, 1fr) minmax(300px, 360px)',
+  lg: 'minmax(260px, 1fr) minmax(240px, 340px) minmax(220px, auto)',
+  xl: 'minmax(340px, 1fr) minmax(360px, 460px) minmax(240px, auto)',
 } as const;
 const dashboardRadiusSmall = `${String(axisTokens.radius.small)}px`;
 const dashboardRadiusMedium = `${String(axisTokens.radius.medium)}px`;
@@ -100,7 +101,7 @@ const dashboardIconButtonSx = {
 } as const;
 const dashboardStatusChipSx = {
   maxWidth: '100%',
-  minWidth: { md: 190 },
+  minWidth: { md: 180 },
   justifyContent: 'flex-start',
   '& .MuiChip-label': {
     display: 'block',
@@ -463,6 +464,9 @@ function networkErrorLabel(
   if (!error) return undefined;
   if (/failed to fetch|networkerror|load failed/iu.test(error)) {
     return hasStatusData ? 'Refresh failed' : 'Backend unavailable';
+  }
+  if (/content changed without a new release version|increment and regenerate/iu.test(error)) {
+    return 'Release version update required. Increment the content-pack version, regenerate the pack, then update Staged again.';
   }
   return error;
 }
@@ -959,10 +963,6 @@ function CmsDocumentationReadinessCard({
     : undefined;
   const packActionLabel =
     packOperation === 'UPDATE' ? 'Update staged' : 'Install staged';
-  const packActionTooltip =
-    packOperation === 'UPDATE'
-      ? (pack.data?.presentation.updateAction ?? 'Update documentation')
-      : (pack.data?.presentation.importAction ?? 'Install documentation');
   const rowStatusText = rowError ?? pendingApprovalStatus ?? rowStatus;
   const rowStatusIsError = Boolean((rowError && !transientImportRunning) || hasBlockingConfiguration);
 
@@ -1060,68 +1060,53 @@ function CmsDocumentationReadinessCard({
               gap: 1,
               gridColumn: { xs: '1', lg: 'auto' },
               justifyContent: { xs: 'flex-start', lg: 'flex-end' },
-              justifySelf: { lg: 'stretch' },
+              justifySelf: { lg: 'end' },
               minWidth: 0,
               overflowX: { xs: 'auto', lg: 'visible' },
               pb: { xs: 0.25, lg: 0 },
-              width: '100%',
+              width: { xs: '100%', lg: 'auto' },
             }}
           >
             {canModifyStaged ? (
-              <Tooltip arrow title={packActionTooltip}>
-                <span>
-                  <Button
-                    disabled={busy}
-                    onClick={() => packMutation.mutate()}
-                    size="small"
-                    sx={
-                      canDecideInline || canPublish
-                        ? dashboardSecondaryActionButtonSx
-                        : dashboardActionButtonSx
-                    }
-                    variant={canDecideInline || canPublish ? 'outlined' : 'contained'}
-                  >
-                    {packMutation.isPending ? 'Working...' : packActionLabel}
-                  </Button>
-                </span>
-              </Tooltip>
+              <Button
+                disabled={busy}
+                onClick={() => packMutation.mutate()}
+                size="small"
+                sx={
+                  canDecideInline || canPublish
+                    ? dashboardSecondaryActionButtonSx
+                    : dashboardActionButtonSx
+                }
+                variant={canDecideInline || canPublish ? 'outlined' : 'contained'}
+              >
+                {packMutation.isPending ? 'Working...' : packActionLabel}
+              </Button>
             ) : null}
             {canPublish ? (
-              <Tooltip
-                arrow
-                title={
+              <Button
+                aria-label={
                   publication.data?.readiness === 'FAILED'
                     ? 'Retry publication'
                     : 'Publish / request approval'
                 }
+                disabled={busy}
+                onClick={() => publicationMutation.mutate()}
+                size="small"
+                startIcon={<ShellIcon fontSize="small" name="approve" />}
+                sx={{
+                  ...dashboardActionButtonSx,
+                  bgcolor: alpha(axisTokens.color.signatureGold, 0.22),
+                  color: 'primary.main',
+                  '&:hover': {
+                    bgcolor: alpha(axisTokens.color.signatureGold, 0.34),
+                  },
+                }}
+                variant="contained"
               >
-                <span>
-                  <Button
-                    aria-label={
-                      publication.data?.readiness === 'FAILED'
-                        ? 'Retry publication'
-                        : 'Publish / request approval'
-                    }
-                    disabled={busy}
-                    onClick={() => publicationMutation.mutate()}
-                    size="small"
-                    startIcon={<ShellIcon fontSize="small" name="approve" />}
-                    sx={{
-                      ...dashboardActionButtonSx,
-                      bgcolor: alpha(axisTokens.color.signatureGold, 0.22),
-                      color: 'primary.main',
-                      '&:hover': {
-                        bgcolor: alpha(axisTokens.color.signatureGold, 0.34),
-                      },
-                    }}
-                    variant="contained"
-                  >
-                    {publication.data?.readiness === 'FAILED'
-                      ? 'Retry publication'
-                      : 'Request approval'}
-                  </Button>
-                </span>
-              </Tooltip>
+                {publication.data?.readiness === 'FAILED'
+                  ? 'Retry publication'
+                  : 'Request approval'}
+              </Button>
             ) : null}
             {canDecideInline ? (
               <>
@@ -1185,43 +1170,42 @@ function CmsDocumentationReadinessCard({
           </Stack>
         </Box>
 
-        {!canOpenApprovalTasks ? (
-          <Box
-            sx={{
-              bgcolor:
-                operatorGuidance.severity === 'error'
-                  ? alpha(axisTokens.color.error, 0.06)
-                  : operatorGuidance.severity === 'success'
-                    ? alpha(axisTokens.color.success, 0.06)
-                    : operatorGuidance.severity === 'warning'
-                      ? alpha(axisTokens.color.warning, 0.06)
-                      : alpha(axisTokens.color.info, 0.05),
-              borderLeft: 3,
-              borderColor:
-                operatorGuidance.severity === 'error'
-                  ? axisTokens.color.error
-                  : operatorGuidance.severity === 'success'
-                    ? axisTokens.color.success
-                    : operatorGuidance.severity === 'warning'
-                      ? axisTokens.color.warning
-                      : axisTokens.color.info,
-              borderRadius: dashboardRadiusSmall,
-              px: 1.25,
-              py: 1,
-            }}
-          >
-            <Typography sx={{ fontWeight: 700 }} variant="body2">
-              Next step: {operatorGuidance.title}
-            </Typography>
-            <Typography color="text.secondary" variant="body2">
-              {operatorGuidance.body}
-            </Typography>
-          </Box>
-        ) : null}
-
         <Collapse in={expanded} timeout="auto" unmountOnExit>
           <Stack spacing={dashboardContentGap} sx={{ pt: 1 }}>
             <Divider />
+            {!canOpenApprovalTasks ? (
+              <Box
+                sx={{
+                  bgcolor:
+                    operatorGuidance.severity === 'error'
+                      ? alpha(axisTokens.color.error, 0.06)
+                      : operatorGuidance.severity === 'success'
+                        ? alpha(axisTokens.color.success, 0.06)
+                        : operatorGuidance.severity === 'warning'
+                          ? alpha(axisTokens.color.warning, 0.06)
+                          : alpha(axisTokens.color.info, 0.05),
+                  borderLeft: 3,
+                  borderColor:
+                    operatorGuidance.severity === 'error'
+                      ? axisTokens.color.error
+                      : operatorGuidance.severity === 'success'
+                        ? axisTokens.color.success
+                        : operatorGuidance.severity === 'warning'
+                          ? axisTokens.color.warning
+                          : axisTokens.color.info,
+                  borderRadius: dashboardRadiusSmall,
+                  px: 1.25,
+                  py: 1,
+                }}
+              >
+                <Typography sx={{ fontWeight: 700 }} variant="body2">
+                  Next step: {operatorGuidance.title}
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  {operatorGuidance.body}
+                </Typography>
+              </Box>
+            ) : null}
             {!administrationConnection ? (
               <Alert severity="warning">
                 Platform BackOffice is unavailable, so documentation initialization
@@ -1464,6 +1448,7 @@ export function DocumentationDashboard({
                         : 'repeat(3, minmax(0, 1fr))',
                   },
                   overflow: 'hidden',
+                  width: { xs: '100%', lg: 360 },
                   '& > * + *': {
                     borderLeft: { sm: 1 },
                     borderTop: { xs: 1, sm: 0 },

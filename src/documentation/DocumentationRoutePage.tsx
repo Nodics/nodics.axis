@@ -12,7 +12,6 @@ import {
   DialogTitle,
   Paper,
   Stack,
-  Tooltip,
   Typography,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
@@ -158,6 +157,7 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
   const initializationProfile = source.initializationProfile;
   const queryClient = useQueryClient();
   const [confirmation, setConfirmation] = useState<'ROLLBACK' | 'RETIRE'>();
+  const [journeyExpanded, setJourneyExpanded] = useState(false);
   const [verificationExpanded, setVerificationExpanded] = useState(false);
   const publicationClient = useMemo(
     () =>
@@ -470,10 +470,6 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
   const packOperation = pack.data?.allowedOperations[0];
   const packActionLabel =
     packOperation === 'UPDATE' ? 'Update staged' : 'Install staged';
-  const packActionTooltip =
-    packOperation === 'UPDATE'
-      ? (pack.data?.presentation.updateAction ?? 'Update documentation')
-      : (pack.data?.presentation.importAction ?? 'Install documentation');
   const canPublish =
     pack.data?.state === 'CURRENT' &&
     publication.data?.allowedActions.includes('INITIALIZE');
@@ -502,7 +498,7 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
             p: { xs: 2.5, md: 4 },
           }}
         >
-          <Stack spacing={3} sx={{ maxWidth: 820 }}>
+          <Stack spacing={2.25}>
             <Stack spacing={1}>
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
                 <Chip label="Wiki" size="small" variant="outlined" />
@@ -542,104 +538,24 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
 
             {error ? <Alert severity="error">{error}</Alert> : null}
 
-            <Paper
-              component="section"
-              elevation={0}
-              sx={{ border: 1, borderColor: 'divider', p: 2 }}
+            <Box
+              sx={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 1,
+                pt: 0.5,
+              }}
             >
-              <Stack spacing={2}>
-                <Box>
-                  <Typography variant="h6">
-                    Documentation initialization journey
-                  </Typography>
-                  <Typography color="text.secondary" variant="body2">
-                    Install content templates and docs data to Staged first. Then
-                    request approval-backed publication and verify the Online
-                    documentation route in the browser.
-                  </Typography>
-                </Box>
-                <Box
-                  sx={{
-                    display: 'grid',
-                    gap: 1,
-                    gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
-                  }}
-                >
-                  {documentationLifecycleSteps.map((step) => (
-                    <Alert key={step.title} severity="info">
-                      <Typography component="div" variant="subtitle2">
-                        {step.title}
-                      </Typography>
-                      <Typography component="div" variant="body2">
-                        {step.body}
-                      </Typography>
-                    </Alert>
-                  ))}
-                </Box>
-                <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                  <Chip
-                    label={`Content pack: ${source.packCode}`}
-                    size="small"
-                    variant="outlined"
-                  />
-                  <Chip
-                    label={`Profile: ${initializationProfile}`}
-                    size="small"
-                    variant="outlined"
-                  />
-                  <Chip
-                    label={`Staged: ${pack.data?.state ?? 'checking'}`}
-                    size="small"
-                    variant="outlined"
-                  />
-                  <Chip
-                    label={`Online readiness: ${documentationPublicationReadinessLabel(
-                      publication.data?.readiness,
-                    )}`}
-                    size="small"
-                    variant="outlined"
-                  />
-                </Stack>
-                <Alert severity="warning">
-                  Documentation version `0` is valid while Nodics is pre-release.
-                  Content changes still require regenerated backend-owned releases and
-                  must not bypass approval before Online publication.
-                </Alert>
-              </Stack>
-            </Paper>
-
-            {publication.data &&
-            ['FAILED', 'REJECTED'].includes(publication.data.readiness) ? (
-              <Alert severity="warning">
-                The documentation publication did not complete. Review its Process
-                decision and audit evidence before retrying.
-              </Alert>
-            ) : null}
-
-            {pack.data?.state === 'INVALID_RELEASE' ||
-            publication.data?.releaseStatus === 'INVALID_RELEASE' ? (
-              <Alert severity="error">
-                This release is invalid because its content changed without a new
-                version. Correct and regenerate the backend-owned release before
-                continuing.
-              </Alert>
-            ) : null}
-
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ pt: 1 }}>
               {packOperation ? (
-                <Tooltip arrow title={packActionTooltip}>
-                  <span>
-                    <Button
-                      disabled={busy}
-                      onClick={() => packMutation.mutate()}
-                      size="large"
-                      sx={documentationActionButtonSx}
-                      variant="contained"
-                    >
-                      {packMutation.isPending ? 'Working...' : packActionLabel}
-                    </Button>
-                  </span>
-                </Tooltip>
+                <Button
+                  disabled={busy}
+                  onClick={() => packMutation.mutate()}
+                  size="large"
+                  sx={documentationActionButtonSx}
+                  variant="contained"
+                >
+                  {packMutation.isPending ? 'Working...' : packActionLabel}
+                </Button>
               ) : null}
               {pack.data?.state === 'CURRENT' ? (
                 <Button
@@ -661,11 +577,170 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
                   {publicationMutation.isPending
                     ? 'Requesting...'
                     : publication.data?.readiness === 'FAILED'
-                      ? 'Retry'
+                      ? 'Retry publication'
                       : 'Request approval'}
                 </Button>
               ) : null}
-            </Stack>
+              {error ? (
+                <Button
+                  onClick={() => {
+                    packMutation.reset();
+                    publicationMutation.reset();
+                    void reconcile();
+                  }}
+                  sx={documentationSecondaryActionButtonSx}
+                  variant="outlined"
+                >
+                  Refresh status
+                </Button>
+              ) : null}
+            </Box>
+
+            <Paper
+              component="section"
+              elevation={0}
+              sx={{ border: 1, borderColor: 'divider', overflow: 'hidden' }}
+            >
+              <Box
+                aria-controls="documentation-initialization-journey"
+                aria-expanded={journeyExpanded}
+                component="button"
+                onClick={() => setJourneyExpanded((current) => !current)}
+                sx={{
+                  alignItems: 'center',
+                  bgcolor: 'background.paper',
+                  border: 0,
+                  color: 'text.primary',
+                  cursor: 'pointer',
+                  display: 'grid',
+                  font: 'inherit',
+                  gap: 1.5,
+                  gridTemplateColumns: 'minmax(0, 1fr) auto',
+                  minHeight: 52,
+                  px: 2,
+                  py: 1.25,
+                  textAlign: 'left',
+                  width: '100%',
+                  '&:hover': {
+                    bgcolor: alpha(axisTokens.color.signatureGold, 0.06),
+                  },
+                }}
+                type="button"
+              >
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography component="div" sx={{ fontWeight: 800 }} variant="body1">
+                    Publication journey
+                  </Typography>
+                  <Typography color="text.secondary" variant="body2">
+                    See the governed path from Staged content to Online delivery.
+                  </Typography>
+                </Box>
+                <ShellIcon
+                  fontSize="small"
+                  name={journeyExpanded ? 'chevron-up' : 'chevron-down'}
+                />
+              </Box>
+              <Collapse
+                id="documentation-initialization-journey"
+                in={journeyExpanded}
+                timeout="auto"
+                unmountOnExit
+              >
+                <Stack sx={{ borderTop: 1, borderColor: 'divider', p: 0 }}>
+                  <Box component="ol" sx={{ listStyle: 'none', m: 0, p: 0 }}>
+                    {documentationLifecycleSteps.map((step) => (
+                      <Box
+                        key={step.title}
+                        component="li"
+                        sx={{
+                          alignItems: 'flex-start',
+                          borderBottom: 1,
+                          borderColor: 'divider',
+                          display: 'grid',
+                          gap: 1.5,
+                          gridTemplateColumns: {
+                            xs: '1fr',
+                            sm: '220px minmax(0, 1fr)',
+                          },
+                          px: 2,
+                          py: 1.25,
+                          '&:last-of-type': {
+                            borderBottom: 0,
+                          },
+                        }}
+                      >
+                        <Typography component="div" sx={{ fontWeight: 800 }} variant="body2">
+                          {step.title}
+                        </Typography>
+                        <Typography color="text.secondary" component="div" variant="body2">
+                          {step.body}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    sx={{
+                      borderTop: 1,
+                      borderColor: 'divider',
+                      flexWrap: 'wrap',
+                      gap: 1,
+                      px: 2,
+                      py: 1.25,
+                    }}
+                  >
+                    <Chip
+                      label={`Content pack: ${source.packCode}`}
+                      size="small"
+                      variant="outlined"
+                    />
+                    <Chip
+                      label={`Profile: ${initializationProfile}`}
+                      size="small"
+                      variant="outlined"
+                    />
+                    <Chip
+                      label={`Staged: ${pack.data?.state ?? 'checking'}`}
+                      size="small"
+                      variant="outlined"
+                    />
+                    <Chip
+                      label={`Online readiness: ${documentationPublicationReadinessLabel(
+                        publication.data?.readiness,
+                      )}`}
+                      size="small"
+                      variant="outlined"
+                    />
+                  </Stack>
+                  <Alert
+                    severity="warning"
+                    sx={{ borderRadius: 0, borderTop: 1, borderColor: 'divider' }}
+                  >
+                    Documentation version 0 is valid while Nodics is pre-release.
+                    Content changes still require regenerated backend-owned releases and
+                    must not bypass approval before Online publication.
+                  </Alert>
+                </Stack>
+              </Collapse>
+            </Paper>
+
+            {publication.data &&
+            ['FAILED', 'REJECTED'].includes(publication.data.readiness) ? (
+              <Alert severity="warning">
+                The documentation publication did not complete. Review its Process
+                decision and audit evidence before retrying.
+              </Alert>
+            ) : null}
+
+            {pack.data?.state === 'INVALID_RELEASE' ||
+            publication.data?.releaseStatus === 'INVALID_RELEASE' ? (
+              <Alert severity="error">
+                This release is invalid because its content changed without a new
+                version. Correct and regenerate the backend-owned release before
+                continuing.
+              </Alert>
+            ) : null}
 
             {publication.data?.readiness === 'PUBLICATION_PENDING' ? (
               <Alert severity="info">
@@ -686,20 +761,6 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
               </Alert>
             ) : null}
 
-            {error ? (
-              <Box>
-                <Button
-                  onClick={() => {
-                    packMutation.reset();
-                    publicationMutation.reset();
-                    void reconcile();
-                  }}
-                  variant="outlined"
-                >
-                  Retry
-                </Button>
-              </Box>
-            ) : null}
           </Stack>
         </Paper>
       </Stack>
