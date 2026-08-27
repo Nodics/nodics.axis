@@ -57,21 +57,11 @@ const bootstrap: AxisAuthenticatedBootstrap = {
   environments: ['kickoffLocal'],
   moduleCatalog: {},
   moduleConnections: {
-    flowApi: [
-      {
-        moduleName: 'flowApi',
-        instanceId: 'kickoffLocal:processServer:flowApi:0',
-        endpoint: 'http://localhost:4330/nodics/process',
-        environment: 'kickoffLocal',
-        server: 'processServer',
-        state: 'UP',
-      },
-    ],
     workflow: [
       {
         moduleName: 'workflow',
         instanceId: 'kickoffLocal:processServer:workflow:0',
-        endpoint: 'http://localhost:4330/nodics/workflow',
+        endpoint: 'http://localhost:4330/nodics/process',
         environment: 'kickoffLocal',
         server: 'processServer',
         state: 'UP',

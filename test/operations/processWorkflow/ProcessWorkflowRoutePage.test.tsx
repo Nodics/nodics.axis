@@ -57,10 +57,10 @@ const bootstrap: AxisAuthenticatedBootstrap = {
   environments: ['kickoffLocal'],
   moduleCatalog: {},
   moduleConnections: {
-    flowApi: [
+    workflow: [
       {
-        moduleName: 'flowApi',
-        instanceId: 'kickoffLocal:processServer:process:0',
+        moduleName: 'workflow',
+        instanceId: 'kickoffLocal:processServer:workflow:0',
         endpoint: 'http://localhost:4330/nodics/process',
         environment: 'kickoffLocal',
         server: 'processServer',
@@ -70,6 +70,43 @@ const bootstrap: AxisAuthenticatedBootstrap = {
   },
   documentationSources: [],
   tenantCode: 'default',
+};
+
+const bootstrapWithDocumentationSource: AxisAuthenticatedBootstrap = {
+  ...bootstrap,
+  moduleConnections: {
+    ...bootstrap.moduleConnections,
+    backoffice: [
+      {
+        moduleName: 'backoffice',
+        instanceId: 'kickoffLocal:platformServer:backoffice:0',
+        endpoint: 'http://localhost:4300/nodics/backoffice',
+        environment: 'kickoffLocal',
+        server: 'platformServer',
+        state: 'UP',
+      },
+    ],
+  },
+  documentationSources: [
+    {
+      id: 'framework',
+      label: 'Framework',
+      type: 'CMS',
+      route: '/docs/framework',
+      order: 10,
+      ownerModule: 'nodicsDocumentation',
+      connectionModule: 'backoffice',
+      site: 'frameworkdocs',
+      catalog: 'frameworkdocs',
+      defaultPage: 'framework-home',
+      packCode: 'frameworkDocumentation',
+      initializationProfile: 'frameworkdocs',
+      dashboard: {
+        audiences: ['business', 'developer'],
+        summary: 'Framework documentation source.',
+      },
+    },
+  ],
 };
 
 function jsonResponse(data: unknown): Response {
@@ -85,7 +122,11 @@ function requestUrl(input: RequestInfo | URL): string {
   return input.url;
 }
 
-function renderPage() {
+function renderPage(
+  path = '/process',
+  pageBootstrap: AxisAuthenticatedBootstrap = bootstrap,
+) {
+  window.history.pushState({}, '', path);
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
@@ -94,7 +135,7 @@ function renderPage() {
       <QueryClientProvider client={queryClient}>
         <ProcessWorkflowRoutePage
           accessToken="employee-token"
-          bootstrap={bootstrap}
+          bootstrap={pageBootstrap}
           navigation={navigation}
           runtime={runtime}
         />
@@ -105,6 +146,7 @@ function renderPage() {
 
 describe('ProcessWorkflowRoutePage', () => {
   afterEach(() => {
+    window.history.pushState({}, '', '/');
     vi.restoreAllMocks();
   });
 
@@ -547,7 +589,7 @@ describe('ProcessWorkflowRoutePage', () => {
       ).toBe(true),
     );
 
-    await user.click(screen.getByRole('button', { name: 'Approve publication' }));
+    await user.click(screen.getByRole('button', { name: 'Approve' }));
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some(([input, init]) => {
@@ -588,6 +630,103 @@ describe('ProcessWorkflowRoutePage', () => {
             requestUrl(input).includes('/triggers/daily-content-approval/archive') &&
             init?.method === 'POST',
         ),
+      ).toBe(true),
+    );
+  });
+
+  it('shows documentation approvals as a focused work queue on the tasks route', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation((input, init) => {
+        const url = requestUrl(input);
+        const method = init?.method ?? 'GET';
+        if (method === 'POST' && url.includes('/tasks/cms-task-1/complete')) {
+          return Promise.resolve(
+            jsonResponse({
+              task: { code: 'cms-task-1', status: 'COMPLETED' },
+              instance: {
+                code: 'cmsPublicationApproval-publication-1',
+                status: 'COMPLETED',
+              },
+            }),
+          );
+        }
+        if (url.includes('/applications/frameworkdocs/initialization')) {
+          return Promise.resolve(
+            jsonResponse({
+              profileCode: 'frameworkdocs',
+              siteCode: 'frameworkdocs',
+              readiness: 'PUBLICATION_PENDING',
+              releaseCode: 'cmsBaseline_frameworkdocs_0_16_1',
+              releaseVersion: '0.16.1',
+              releaseStatus: 'CURRENT',
+              allowedActions: [],
+              publication: {
+                code: 'publication-1',
+                state: 'APPROVAL_PENDING',
+                revision: 1,
+                requestedBy: 'author',
+                workflowRef: 'cmsPublicationApproval-publication-1',
+              },
+            }),
+          );
+        }
+        if (url.includes('/tasks')) {
+          return Promise.resolve(
+            jsonResponse([
+              {
+                code: 'cms-task-1',
+                instanceCode: 'cmsPublicationApproval-publication-1',
+                nodeCode: 'publicationReview',
+                assignee: 'admin',
+                status: 'OPEN',
+              },
+            ]),
+          );
+        }
+        if (
+          url.includes('/instances') ||
+          url.includes('/incidents') ||
+          url.includes('/audit-events') ||
+          url.includes('/triggers')
+        ) {
+          return Promise.resolve(jsonResponse([]));
+        }
+        return Promise.resolve(jsonResponse([]));
+      });
+
+    renderPage('/process/tasks', bootstrapWithDocumentationSource);
+
+    expect(screen.getByText('Approval tasks')).toBeInTheDocument();
+    expect(screen.queryByText('Process workspace focus')).not.toBeInTheDocument();
+    expect(screen.getByText('Approval task queue')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Documentation publication approvals'),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: 'Framework' }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText(/frameworkdocs -> frameworkdocs/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Review evidence' }));
+    expect(screen.getByText('Review before decision')).toBeInTheDocument();
+    expect(screen.getByText('Staged profile')).toBeInTheDocument();
+    expect(screen.getByText('Target site')).toBeInTheDocument();
+    expect(screen.getByText('Decision available')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Approve' }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([input, init]) => {
+          const body = init?.body;
+          return (
+            requestUrl(input).includes('/tasks/cms-task-1/complete') &&
+            init?.method === 'POST' &&
+            typeof body === 'string' &&
+            body.includes('"approved":true') &&
+            body.includes('"outcome":"approved-from-axis"')
+          );
+        }),
       ).toBe(true),
     );
   });

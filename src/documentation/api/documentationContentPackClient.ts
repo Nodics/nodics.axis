@@ -38,10 +38,10 @@ interface DocumentationContentPackClientOptions {
   readonly profileCode: string;
 }
 
-const DOCUMENTATION_ERROR_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
-  ERR_IMP_00003:
-    'The documentation content changed without a new release version. Ask the release owner to increment and regenerate the content pack, then try again.',
-});
+const immutableReleaseConflictMessage =
+  'The documentation content changed without a new release version. Ask the release owner to increment and regenerate the content pack, then try again.';
+const importAlreadyRunningMessage =
+  'Documentation update is already running. Axis will refresh status automatically.';
 
 function record(value: unknown, name: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -128,9 +128,26 @@ async function responseFailure(response: Response): Promise<Error> {
   if (contentType.toLowerCase().includes('application/json')) {
     try {
       const body = record(await response.json(), 'Documentation error response');
+      const metadata =
+        typeof body.metadata === 'object' && body.metadata !== null
+          ? (body.metadata as Record<string, unknown>)
+          : {};
       const code = typeof body.code === 'string' ? body.code : '';
-      const mappedMessage = DOCUMENTATION_ERROR_MESSAGES[code];
-      if (mappedMessage) return new Error(mappedMessage);
+      const targetCode =
+        typeof metadata.targetCode === 'string' ? metadata.targetCode : '';
+      const message = [
+        typeof body.message === 'string' ? body.message : '',
+        typeof metadata.targetMessage === 'string' ? metadata.targetMessage : '',
+      ].join(' ');
+      if (/already running/iu.test(message)) {
+        return new Error(importAlreadyRunningMessage);
+      }
+      if (
+        (code === 'ERR_IMP_00003' || targetCode === 'ERR_IMP_00003') &&
+        /version change|new release version|checksum/iu.test(message)
+      ) {
+        return new Error(immutableReleaseConflictMessage);
+      }
     } catch {
       // Fall through to the bounded transport failure below.
     }

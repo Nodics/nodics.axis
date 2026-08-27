@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router';
+import { useQueries, useQueryClient, type Query } from '@tanstack/react-query';
 
 import {
   authenticateEmployee,
@@ -19,6 +20,10 @@ import {
 import { AssistantRoutePage } from '../assistant/AssistantRoutePage';
 import { WorkbenchRoutePage } from '../workbench/WorkbenchRoutePage';
 import { DocumentationRoutePage } from '../documentation/DocumentationRoutePage';
+import {
+  createDocumentationPublicationClient,
+  type DocumentationPublicationStatus,
+} from '../documentation/api/documentationPublicationClient';
 import { ModuleHealthRoutePage } from '../operations/moduleHealth/ModuleHealthRoutePage';
 import { FunctionalModuleRegistryRoutePage } from '../operations/moduleRegistry/FunctionalModuleRegistryRoutePage';
 import { NavigationCompositionRoutePage } from '../operations/navigationComposition/NavigationCompositionRoutePage';
@@ -28,6 +33,7 @@ import { ContentDashboardRoutePage } from '../operations/contentExperience/Conte
 import { ContentDesignerRoutePage } from '../operations/contentExperience/ContentDesignerRoutePage';
 import { PublishingDashboardRoutePage } from '../operations/contentExperience/PublishingDashboardRoutePage';
 import { PublishingRouteGuidancePage } from '../operations/contentExperience/PublishingRouteGuidancePage';
+import { DocumentationManagementRoutePage } from '../operations/documentationManagement/DocumentationManagementRoutePage';
 import { ImportExportRoutePage } from '../operations/importExport/ImportExportRoutePage';
 import { ComplianceManagementRoutePage } from '../operations/compliance/ComplianceManagementRoutePage';
 import { NotificationManagementRoutePage } from '../operations/notifications/NotificationManagementRoutePage';
@@ -86,6 +92,48 @@ function isDocumentationNavigationItem(item: AxisNavigationItem): boolean {
     groupId === 'documentation' ||
     groupLabel === 'documentation'
   );
+}
+
+function isCmsDocumentationSource(
+  source: AxisAuthenticatedBootstrap['documentationSources'][number],
+): source is Extract<
+  AxisAuthenticatedBootstrap['documentationSources'][number],
+  { readonly type: 'CMS' }
+> {
+  return source.type === 'CMS';
+}
+
+function documentationSourceDisplayLabel(
+  source: AxisAuthenticatedBootstrap['documentationSources'][number],
+): string {
+  return source.label.trim();
+}
+
+const documentationPublicationQueryKey = (
+  enterpriseCode: string,
+  profileCode: string,
+) => ['documentation-publication', enterpriseCode, profileCode] as const;
+
+function documentationSourceNavigationItem(
+  source: AxisAuthenticatedBootstrap['documentationSources'][number],
+): AxisNavigationItem {
+  return {
+    id: `documentation-source-${source.id}`,
+    label: documentationSourceDisplayLabel(source),
+    route: source.route,
+    order: 200 + source.order,
+    moduleName: 'axisDocumentation',
+    category: 'documentation',
+    icon: source.dashboard.icon ?? (source.type === 'OPENAPI' ? 'reference' : 'content'),
+    availability: 'UP',
+    perspectives: ['business', 'developer', 'operations'],
+    contexts: ['documentation'],
+    featureState: 'ACTIVE',
+    group: { id: 'documentation', label: 'Documentation', order: 1_600 },
+    help: {
+      summary: `Open ${documentationSourceDisplayLabel(source)}.`,
+    },
+  };
 }
 
 function safeReturnPath(value: string | null | undefined): string | undefined {
@@ -151,6 +199,7 @@ export function App() {
   const runtime = useRuntimeConfig();
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const [attempt, setAttempt] = useState(0);
   const [bootstrap, setBootstrap] = useState<AxisPublicBootstrap>();
   const [bootstrapError, setBootstrapError] = useState<string>();
@@ -274,6 +323,20 @@ export function App() {
     setEmployeePolicy(employeeBootstrap.axisPolicy);
   }, [locked, runtime, session]);
 
+  const refreshDocumentationNavigation = useCallback(
+    async (status: DocumentationPublicationStatus) => {
+      queryClient.setQueryData(
+        documentationPublicationQueryKey(runtime.enterpriseCode, status.profileCode),
+        status,
+      );
+      await queryClient.invalidateQueries({
+        queryKey: ['documentation-publication', runtime.enterpriseCode],
+      });
+      await refreshAuthenticatedBootstrap();
+    },
+    [queryClient, refreshAuthenticatedBootstrap, runtime.enterpriseCode],
+  );
+
   const refreshInitialization = useCallback(async () => {
     if (!session) return;
     setInitializationBusy(true);
@@ -311,13 +374,9 @@ export function App() {
         runtime.requestTimeoutMs,
       );
       setAuthenticatedBootstrap(latestBootstrap);
-      const processConnection =
-        selectModuleConnection(latestBootstrap, 'flowApi', {
-          server: 'processServer',
-        }) ??
-        selectModuleConnection(latestBootstrap, 'workflow', {
-          server: 'processServer',
-        });
+      const processConnection = selectModuleConnection(latestBootstrap, 'workflow', {
+        server: 'processServer',
+      });
       if (!processConnection) {
         throw new Error('The governed Process approval task is unavailable');
       }
@@ -369,6 +428,77 @@ export function App() {
     }
     void refreshInitialization();
   }, [authenticatedBootstrap, refreshInitialization, session]);
+
+  const documentationAdministrationConnection = authenticatedBootstrap
+    ? selectModuleConnection(authenticatedBootstrap, 'backoffice')
+    : undefined;
+  const cmsDocumentationSources = (
+    authenticatedBootstrap?.documentationSources ?? []
+  ).filter(isCmsDocumentationSource);
+  const publicationNavigationQueries = useQueries({
+    queries: cmsDocumentationSources
+      .filter((source) => source.initializationProfile)
+      .map((source) => ({
+        enabled: Boolean(
+          session &&
+            !locked &&
+            authenticatedBootstrap &&
+            documentationAdministrationConnection,
+        ),
+        queryKey: documentationPublicationQueryKey(
+          runtime.enterpriseCode,
+          source.initializationProfile ?? '',
+        ),
+        queryFn: () => {
+          if (!documentationAdministrationConnection || !source.initializationProfile) {
+            throw new Error('Documentation publication is unavailable');
+          }
+          return createDocumentationPublicationClient({
+            connection: documentationAdministrationConnection,
+            enterpriseCode: runtime.enterpriseCode,
+            accessToken: session?.accessToken ?? '',
+            timeoutMs: runtime.requestTimeoutMs,
+            profileCode: source.initializationProfile,
+          }).getStatus();
+        },
+        refetchInterval: (
+          query: Query<
+            DocumentationPublicationStatus,
+            Error,
+            DocumentationPublicationStatus,
+            readonly unknown[]
+          >,
+        ) => (query.state.data?.readiness === 'PUBLICATION_PENDING' ? 2_000 : false),
+      })),
+  });
+  const onlineDocumentationProfiles = useMemo(
+    () =>
+      new Set(
+        publicationNavigationQueries
+          .map((query) =>
+            query.data?.readiness === 'READY' ? query.data.profileCode : undefined,
+          )
+          .filter((profileCode): profileCode is string => Boolean(profileCode)),
+      ),
+    [publicationNavigationQueries],
+  );
+  const shellNavigation = useMemo(() => {
+    if (!authenticatedBootstrap) return undefined;
+    const existingRoutes = new Set(
+      authenticatedBootstrap.navigation.map((item) => normalizeRoutePath(item.route)),
+    );
+    const sourceItems = authenticatedBootstrap.documentationSources
+      .filter((source) => {
+        if (existingRoutes.has(normalizeRoutePath(source.route))) return false;
+        if (source.type === 'OPENAPI') return true;
+        return Boolean(
+          source.initializationProfile &&
+            onlineDocumentationProfiles.has(source.initializationProfile),
+        );
+      })
+      .map(documentationSourceNavigationItem);
+    return Object.freeze([...authenticatedBootstrap.navigation, ...sourceItems]);
+  }, [authenticatedBootstrap, onlineDocumentationProfiles]);
 
   if (bootstrapError) {
     return (
@@ -612,7 +742,7 @@ export function App() {
       enterpriseCode={runtime.enterpriseCode}
       environments={authenticatedBootstrap?.environments}
       tenantCode={authenticatedBootstrap?.tenantCode}
-      navigation={authenticatedBootstrap?.navigation}
+      navigation={shellNavigation}
       recentNavigationLimit={authenticatedBootstrap?.axisPolicy.recentNavigationLimit}
       site={composition.site}
       onLock={lockScreen}
@@ -754,7 +884,9 @@ export function App() {
               bootstrap={authenticatedBootstrap}
               channel={composition.channel}
               cmsBaseUrl={bootstrap.endpoints.cms}
+              employeeId={session.loginId}
               locale={composition.locale}
+              onPublicationStatusChange={refreshDocumentationNavigation}
               path={location.pathname}
               runtime={runtime}
             />
@@ -765,6 +897,36 @@ export function App() {
     authenticatedBootstrap?.navigation.find(
       (item) => item.route === '/content/designer',
     ) ?? contentDashboardNavigation;
+  const documentationManagementNavigation =
+    authenticatedBootstrap?.navigation.find(
+      (item) => item.id === 'documentation-governance-readiness',
+    ) ??
+    authenticatedBootstrap?.navigation.find(
+      (item) => item.id === 'documentation-management',
+    );
+  const documentationManagementElement =
+    session && !locked && authenticatedBootstrap && documentationManagementNavigation
+      ? authenticatedShell(
+          ['UP', 'DEGRADED'].includes(
+            documentationManagementNavigation.availability,
+          ) ? (
+            <DocumentationManagementRoutePage
+              accessToken={session.accessToken}
+              bootstrap={authenticatedBootstrap}
+              channel={composition.channel}
+              cmsBaseUrl={bootstrap.endpoints.cms}
+              employeeId={session.loginId}
+              locale={composition.locale}
+              navigation={documentationManagementNavigation}
+              path={location.pathname}
+              runtime={runtime}
+              site={composition.site}
+            />
+          ) : (
+            <ModuleWorkspacePlaceholder item={documentationManagementNavigation} />
+          ),
+        )
+      : sessionFallback;
   const contentDesignerElement =
     session && !locked && authenticatedBootstrap && contentDesignerNavigation
       ? authenticatedShell(
@@ -1460,6 +1622,14 @@ export function App() {
           }
         />
         <Route path="/content" element={contentDashboardElement} />
+        <Route
+          path="/content/designer/documentation"
+          element={documentationManagementElement}
+        />
+        <Route
+          path="/content/designer/documentation/*"
+          element={documentationManagementElement}
+        />
         <Route path="/content/designer" element={contentDesignerElement} />
         <Route path="/content/*" element={cmsWorkbenchElement} />
         <Route path="/publishing" element={publishingDashboardElement} />

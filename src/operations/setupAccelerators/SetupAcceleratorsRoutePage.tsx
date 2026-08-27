@@ -217,9 +217,9 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
     useState<DestructiveConfirmationState>();
   const [destructiveReason, setDestructiveReason] = useState('');
   const backofficeConnection = selectModuleConnection(props.bootstrap, 'backoffice');
-  const processConnection =
-    selectModuleConnection(props.bootstrap, 'flowApi', { server: 'processServer' }) ??
-    selectModuleConnection(props.bootstrap, 'workflow', { server: 'processServer' });
+  const processConnection = selectModuleConnection(props.bootstrap, 'workflow', {
+    server: 'processServer',
+  });
   const profiles = useMemo(
     () =>
       (props.bootstrap.applicationInitializationProfiles ?? [])

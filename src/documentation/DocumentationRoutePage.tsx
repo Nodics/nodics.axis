@@ -3,6 +3,7 @@ import {
   Box,
   Button,
   Chip,
+  Collapse,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -11,13 +12,17 @@ import {
   DialogTitle,
   Paper,
   Stack,
+  Tooltip,
   Typography,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 
+import { axisTokens } from '../app/axisTheme';
 import { CmsRoutePage } from '../app/CmsRoutePage';
 import { WorkspaceHeading } from '../app/help/WorkspaceHelp';
+import { ShellIcon } from '../app/shell/ShellIcon';
 import { WorkspaceContainer } from '../app/shell/ShellPrimitives';
 import {
   selectModuleConnection,
@@ -27,7 +32,11 @@ import {
 } from '../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../runtime/runtimeConfig';
 import { createDocumentationContentPackClient } from './api/documentationContentPackClient';
-import { createDocumentationPublicationClient } from './api/documentationPublicationClient';
+import {
+  createDocumentationPublicationClient,
+  type DocumentationPublicationReadiness,
+  type DocumentationPublicationStatus,
+} from './api/documentationPublicationClient';
 import { DocumentationDashboard } from './DocumentationDashboard';
 import { DocumentationSourceNavigation } from './DocumentationSourceNavigation';
 import { OpenApiDocumentationRenderer } from './OpenApiDocumentationRenderer';
@@ -37,7 +46,11 @@ interface DocumentationRoutePageProps {
   readonly bootstrap: AxisAuthenticatedBootstrap;
   readonly channel: string;
   readonly cmsBaseUrl: string;
+  readonly employeeId: string;
   readonly locale: string;
+  readonly onPublicationStatusChange?:
+    | ((status: DocumentationPublicationStatus) => void | Promise<void>)
+    | undefined;
   readonly path: string;
   readonly runtime: AxisRuntimeConfig;
 }
@@ -46,6 +59,22 @@ const publicationQueryKey = (enterpriseCode: string, profileCode: string) =>
   ['documentation-publication', enterpriseCode, profileCode] as const;
 const packQueryKey = (enterpriseCode: string, packCode: string) =>
   ['documentation-content-pack', enterpriseCode, packCode] as const;
+const documentationActionButtonSx = {
+  minHeight: 40,
+  minWidth: { xs: 0, sm: 128 },
+  px: 1.5,
+  whiteSpace: 'nowrap',
+} as const;
+const documentationSecondaryActionButtonSx = {
+  ...documentationActionButtonSx,
+  bgcolor: 'background.paper',
+  borderColor: 'divider',
+  color: 'text.primary',
+  '&:hover': {
+    bgcolor: 'rgba(250, 191, 0, 0.08)',
+    borderColor: 'rgba(250, 191, 0, 0.55)',
+  },
+} as const;
 
 function sourceForPath(
   sources: readonly AxisDocumentationSource[],
@@ -79,16 +108,45 @@ const documentationLifecycleSteps = Object.freeze([
   }),
 ]);
 
-function documentationReadinessLabel(readiness: string | undefined): string {
-  if (!readiness) return 'Unknown';
-  if (readiness === 'NOT_IMPORTED') return 'Not initialized';
-  if (readiness === 'PUBLICATION_PENDING') return 'Waiting for approval';
-  if (readiness === 'READY') return 'Online and ready';
-  return readiness.replaceAll('_', ' ').toLowerCase();
+function documentationPublicationReadinessLabel(
+  readiness: DocumentationPublicationReadiness | undefined,
+): string {
+  switch (readiness) {
+    case 'NOT_IMPORTED':
+      return 'Not initialized';
+    case 'IMPORTED':
+      return 'Approval needed';
+    case 'PUBLICATION_PENDING':
+      return 'Approval in progress';
+    case 'READY':
+      return 'Online ready';
+    case 'REJECTED':
+      return 'Rejected';
+    case 'FAILED':
+      return 'Failed';
+    case 'ROLLED_BACK':
+      return 'Rolled back';
+    case 'RETIRED':
+      return 'Retired';
+    default:
+      return 'Checking';
+  }
+}
+
+function documentationPublicationColor(
+  readiness: DocumentationPublicationReadiness | undefined,
+): 'default' | 'success' | 'warning' | 'error' {
+  if (['FAILED', 'REJECTED'].includes(readiness ?? '')) return 'error';
+  if (readiness === 'READY') return 'success';
+  if (readiness === 'IMPORTED' || readiness === 'PUBLICATION_PENDING') return 'warning';
+  return 'default';
 }
 
 interface CmsDocumentationRoutePageProps extends DocumentationRoutePageProps {
   readonly administrationConnection: AxisModuleConnection;
+  readonly onPublicationStatusChange?:
+    | ((status: DocumentationPublicationStatus) => void | Promise<void>)
+    | undefined;
   readonly source: Extract<AxisDocumentationSource, { readonly type: 'CMS' }>;
 }
 
@@ -100,6 +158,7 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
   const initializationProfile = source.initializationProfile;
   const queryClient = useQueryClient();
   const [confirmation, setConfirmation] = useState<'ROLLBACK' | 'RETIRE'>();
+  const [verificationExpanded, setVerificationExpanded] = useState(false);
   const publicationClient = useMemo(
     () =>
       createDocumentationPublicationClient({
@@ -172,7 +231,10 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
         nextStatus,
       );
       setConfirmation(undefined);
-      await pack.refetch();
+      await Promise.all([
+        pack.refetch(),
+        props.onPublicationStatusChange?.(nextStatus),
+      ]);
     },
   });
   const busy = packMutation.isPending || publicationMutation.isPending;
@@ -183,125 +245,189 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
         <Paper
           component="section"
           elevation={0}
-          sx={{ border: 1, borderColor: 'divider', p: 2 }}
+          sx={{ border: 1, borderColor: 'divider', overflow: 'hidden' }}
         >
-          <Stack
-            direction={{ xs: 'column', sm: 'row' }}
-            spacing={1}
-            sx={{ alignItems: { sm: 'center' } }}
+          <Box
+            aria-controls="online-verification-checklist"
+            aria-expanded={verificationExpanded}
+            component="button"
+            onClick={() => setVerificationExpanded((current) => !current)}
+            sx={{
+              alignItems: 'center',
+              bgcolor: 'background.paper',
+              border: 0,
+              color: 'text.primary',
+              cursor: 'pointer',
+              display: 'grid',
+              font: 'inherit',
+              gap: 1.5,
+              gridTemplateColumns: {
+                xs: 'minmax(0, 1fr) auto',
+                md: 'auto minmax(0, 1fr) auto',
+              },
+              minHeight: 48,
+              px: 2,
+              py: 1,
+              textAlign: 'left',
+              width: '100%',
+              '&:hover': {
+                bgcolor: alpha(axisTokens.color.signatureGold, 0.06),
+              },
+            }}
+            type="button"
           >
-            <Chip color="success" label="Online" size="small" />
-            <Typography sx={{ flex: 1 }} variant="body2">
-              Version {publication.data.releaseVersion} is available through Online
-              delivery.
-            </Typography>
-            {publication.data.allowedActions.includes('ROLLBACK') ? (
-              <Button
-                disabled={busy}
-                onClick={() => setConfirmation('ROLLBACK')}
-                variant="outlined"
+            <Chip
+              label="Online verification"
+              size="small"
+              sx={{
+                bgcolor: alpha(axisTokens.color.signatureGold, 0.16),
+                color: axisTokens.color.charcoal[900],
+                display: { xs: 'none', md: 'inline-flex' },
+                fontWeight: 700,
+                justifySelf: 'start',
+              }}
+            />
+            <Box sx={{ minWidth: 0 }}>
+              <Typography component="span" sx={{ fontWeight: 700 }} variant="body2">
+                Online version {publication.data.releaseVersion}
+              </Typography>
+              <Typography
+                color="text.secondary"
+                component="span"
+                sx={{ display: { xs: 'none', sm: 'inline' }, ml: 1 }}
+                variant="caption"
               >
-                Rollback
-              </Button>
-            ) : null}
-            {publication.data.allowedActions.includes('RETIRE') ? (
-              <Button
-                color="warning"
-                disabled={busy}
-                onClick={() => setConfirmation('RETIRE')}
-                variant="outlined"
-              >
-                Retire
-              </Button>
-            ) : null}
-          </Stack>
-          {publicationMutation.error instanceof Error ? (
-            <Alert severity="error" sx={{ mt: 2 }}>
-              {publicationMutation.error.message}
-            </Alert>
-          ) : null}
-        </Paper>
-        <Paper
-          component="section"
-          elevation={0}
-          sx={{ border: 1, borderColor: 'divider', p: 2 }}
-        >
-          <Stack spacing={2}>
-            <Box>
-              <Typography variant="h6">Online verification checklist</Typography>
-              <Typography color="text.secondary" variant="body2">
-                This documentation release is Online. Verification should still capture
-                the browser page, publication receipt, rollback candidate, and audit
-                trail before the task is closed.
+                Verification evidence, history, audit, and retirement controls
               </Typography>
             </Box>
-            <Box
-              sx={{
-                display: 'grid',
-                gap: 1,
-                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
-              }}
+            <ShellIcon
+              fontSize="small"
+              name={verificationExpanded ? 'chevron-up' : 'chevron-down'}
+            />
+          </Box>
+          <Collapse
+            id="online-verification-checklist"
+            in={verificationExpanded}
+            timeout="auto"
+            unmountOnExit
+          >
+            <Stack
+              spacing={1.5}
+              sx={{ borderTop: 1, borderColor: 'divider', p: 2 }}
             >
-              {documentationLifecycleSteps.map((step) => (
-                <Alert key={step.title} severity="info">
-                  <Typography component="div" variant="subtitle2">
-                    {step.title}
-                  </Typography>
-                  <Typography component="div" variant="body2">
-                    {step.body}
-                  </Typography>
-                </Alert>
-              ))}
-            </Box>
-            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-              <Chip label={`Site: ${publication.data.siteCode}`} size="small" />
-              <Chip
-                label={`Content pack: ${source.packCode}`}
-                size="small"
-                variant="outlined"
-              />
-              <Chip
-                label={`Release: ${publication.data.releaseCode} ${publication.data.releaseVersion}`}
-                size="small"
-                variant="outlined"
-              />
-              <Chip
-                label={`Profile: ${initializationProfile}`}
-                size="small"
-                variant="outlined"
-              />
-              {publication.data.publication ? (
+              {publicationMutation.error instanceof Error ? (
+                <Alert severity="error">{publicationMutation.error.message}</Alert>
+              ) : null}
+              <Typography color="text.secondary" variant="body2">
+                This documentation release is Online. Verification should capture the
+                browser page, publication receipt, rollback candidate, and audit trail
+                before the task is closed.
+              </Typography>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 1,
+                  gridTemplateColumns: {
+                    xs: '1fr',
+                    md: 'repeat(2, minmax(0, 1fr))',
+                  },
+                }}
+              >
+                {documentationLifecycleSteps.map((step) => (
+                  <Box
+                    key={step.title}
+                    sx={{
+                      bgcolor: alpha(axisTokens.color.signatureGold, 0.05),
+                      border: 1,
+                      borderColor: 'divider',
+                      borderRadius: 1,
+                      px: 1.25,
+                      py: 1,
+                    }}
+                  >
+                    <Typography component="div" variant="subtitle2">
+                      {step.title}
+                    </Typography>
+                    <Typography component="div" variant="body2">
+                      {step.body}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
                 <Chip
-                  label={`Revision: ${String(publication.data.publication.revision)}`}
+                  label={`Site: ${publication.data.siteCode}`}
+                  size="small"
+                />
+                <Chip
+                  label={`Content pack: ${source.packCode}`}
                   size="small"
                   variant="outlined"
                 />
-              ) : null}
+                <Chip
+                  label={`Release: ${publication.data.releaseCode} ${publication.data.releaseVersion}`}
+                  size="small"
+                  variant="outlined"
+                />
+                <Chip
+                  label={`Profile: ${initializationProfile}`}
+                  size="small"
+                  variant="outlined"
+                />
+                {publication.data.publication ? (
+                  <Chip
+                    label={`Revision: ${String(
+                      publication.data.publication.revision,
+                    )}`}
+                    size="small"
+                    variant="outlined"
+                  />
+                ) : null}
+              </Stack>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                <Button onClick={() => void reconcile()} variant="outlined">
+                  Refresh evidence
+                </Button>
+                <Button
+                  onClick={() => window.open('/publishing/status', '_blank')}
+                  variant="outlined"
+                >
+                  Check Online status
+                </Button>
+                <Button
+                  onClick={() => window.open('/publishing/history', '_blank')}
+                  variant="outlined"
+                >
+                  View history
+                </Button>
+                <Button
+                  onClick={() => window.open('/publishing/audit', '_blank')}
+                  variant="outlined"
+                >
+                  Inspect audit
+                </Button>
+                {publication.data.allowedActions.includes('ROLLBACK') ? (
+                  <Button
+                    disabled={busy}
+                    onClick={() => setConfirmation('ROLLBACK')}
+                    variant="outlined"
+                  >
+                    Rollback
+                  </Button>
+                ) : null}
+                {publication.data.allowedActions.includes('RETIRE') ? (
+                  <Button
+                    color="warning"
+                    disabled={busy}
+                    onClick={() => setConfirmation('RETIRE')}
+                    variant="outlined"
+                  >
+                    Retire
+                  </Button>
+                ) : null}
+              </Stack>
             </Stack>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-              <Button onClick={() => void reconcile()} variant="outlined">
-                Refresh evidence
-              </Button>
-              <Button
-                onClick={() => window.open('/publishing/status', '_blank')}
-                variant="outlined"
-              >
-                Check Online status
-              </Button>
-              <Button
-                onClick={() => window.open('/publishing/history', '_blank')}
-                variant="outlined"
-              >
-                View history
-              </Button>
-              <Button
-                onClick={() => window.open('/publishing/audit', '_blank')}
-                variant="outlined"
-              >
-                Inspect audit
-              </Button>
-            </Stack>
-          </Stack>
+          </Collapse>
         </Paper>
         <CmsRoutePage
           channel={props.channel}
@@ -342,6 +468,12 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
   }
 
   const packOperation = pack.data?.allowedOperations[0];
+  const packActionLabel =
+    packOperation === 'UPDATE' ? 'Update staged' : 'Install staged';
+  const packActionTooltip =
+    packOperation === 'UPDATE'
+      ? (pack.data?.presentation.updateAction ?? 'Update documentation')
+      : (pack.data?.presentation.importAction ?? 'Install documentation');
   const canPublish =
     pack.data?.state === 'CURRENT' &&
     publication.data?.allowedActions.includes('INITIALIZE');
@@ -385,12 +517,10 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
                 ) : null}
                 {publication.data ? (
                   <Chip
-                    color={
-                      ['FAILED', 'REJECTED'].includes(publication.data.readiness)
-                        ? 'error'
-                        : 'default'
-                    }
-                    label={`Online: ${publication.data.readiness.replaceAll('_', ' ')}`}
+                    color={documentationPublicationColor(publication.data.readiness)}
+                    label={`Online readiness: ${documentationPublicationReadinessLabel(
+                      publication.data.readiness,
+                    )}`}
                     size="small"
                   />
                 ) : null}
@@ -463,7 +593,9 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
                     variant="outlined"
                   />
                   <Chip
-                    label={`Online: ${documentationReadinessLabel(publication.data?.readiness)}`}
+                    label={`Online readiness: ${documentationPublicationReadinessLabel(
+                      publication.data?.readiness,
+                    )}`}
                     size="small"
                     variant="outlined"
                   />
@@ -495,39 +627,42 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
 
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ pt: 1 }}>
               {packOperation ? (
-                <Button
-                  disabled={busy}
-                  onClick={() => packMutation.mutate()}
-                  size="large"
-                  variant="contained"
-                >
-                  {packMutation.isPending
-                    ? 'Installing to Staged…'
-                    : packOperation === 'UPDATE'
-                      ? pack.data?.presentation.updateAction
-                      : pack.data?.presentation.importAction}
-                </Button>
+                <Tooltip arrow title={packActionTooltip}>
+                  <span>
+                    <Button
+                      disabled={busy}
+                      onClick={() => packMutation.mutate()}
+                      size="large"
+                      sx={documentationActionButtonSx}
+                      variant="contained"
+                    >
+                      {packMutation.isPending ? 'Working...' : packActionLabel}
+                    </Button>
+                  </span>
+                </Tooltip>
               ) : null}
               {pack.data?.state === 'CURRENT' ? (
                 <Button
                   disabled={busy}
                   onClick={() => void reconcile()}
+                  sx={documentationSecondaryActionButtonSx}
                   variant="outlined"
                 >
-                  Validate staged release
+                  Validate staged
                 </Button>
               ) : null}
               {canPublish ? (
                 <Button
                   disabled={busy}
                   onClick={() => publicationMutation.mutate('INITIALIZE')}
+                  sx={documentationActionButtonSx}
                   variant="contained"
                 >
                   {publicationMutation.isPending
-                    ? 'Requesting publication…'
+                    ? 'Requesting...'
                     : publication.data?.readiness === 'FAILED'
-                      ? 'Retry publication'
-                      : 'Publish / request approval'}
+                      ? 'Retry'
+                      : 'Request approval'}
                 </Button>
               ) : null}
             </Stack>
@@ -579,6 +714,7 @@ export function DocumentationRoutePage(props: DocumentationRoutePageProps) {
         <DocumentationDashboard
           accessToken={props.accessToken}
           bootstrap={props.bootstrap}
+          onPublicationStatusChange={props.onPublicationStatusChange}
           runtime={props.runtime}
         />
       </WorkspaceContainer>
@@ -638,6 +774,7 @@ export function DocumentationRoutePage(props: DocumentationRoutePageProps) {
       <CmsDocumentationRoutePage
         {...props}
         administrationConnection={administrationConnection}
+        onPublicationStatusChange={props.onPublicationStatusChange}
         source={source}
       />
     );

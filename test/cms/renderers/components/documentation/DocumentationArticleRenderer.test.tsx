@@ -18,6 +18,10 @@ const article: CmsComponentContract = {
     title: 'Build your first capability',
     category: 'Getting started',
     audience: ['developer'],
+    maturityState: 'operational',
+    accessMode: 'PUBLIC',
+    lifecycleState: 'ONLINE',
+    visualRequirements: ['screen-flow', 'command-example'],
     headings: [{ level: 2, text: 'Configure safely', anchor: 'configure-safely' }],
     previous: { title: 'Introduction', route: '/docs/introduction' },
     next: { title: 'Deployment', route: '/docs/deployment' },
@@ -79,6 +83,12 @@ describe('DocumentationArticleRenderer', () => {
     expect(screen.getByText('configuration guide').tagName).toBe('STRONG');
     expect(screen.getByText('official reference').tagName).toBe('EM');
     expect(screen.getByText('properties.js').tagName).toBe('CODE');
+    expect(screen.getByText('operational')).toBeInTheDocument();
+    expect(screen.getByText('PUBLIC')).toBeInTheDocument();
+    expect(screen.getByText('ONLINE')).toBeInTheDocument();
+    expect(screen.getByText('Visual contract')).toBeInTheDocument();
+    expect(screen.getByText('screen-flow')).toBeInTheDocument();
+    expect(screen.getByText('command-example')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Nodics request flow' })).toHaveAttribute(
       'src',
       'data:image/png;base64,iVBORw0KGgo=',

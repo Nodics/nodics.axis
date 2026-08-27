@@ -146,6 +146,40 @@ describe('documentation content-pack client', () => {
     );
   });
 
+  it('distinguishes an in-progress documentation update from an immutable release conflict', async () => {
+    const client = createDocumentationContentPackClient(
+      {
+        connection,
+        enterpriseCode: 'default',
+        accessToken: 'employee-token',
+        timeoutMs: 1_000,
+        profileCode: 'frameworkdocs',
+      },
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            code: 'ERR_BOF_00085',
+            message:
+              'Application initialization target failed for profile frameworkdocs baseline frameworkdocs on cms: ERR_IMP_00003 - Content-pack import is already running',
+            metadata: {
+              targetCode: 'ERR_IMP_00003',
+              targetMessage: 'Content-pack import is already running',
+              targetResponseCode: '400',
+            },
+          }),
+          {
+            status: 409,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      ),
+    );
+
+    await expect(client.importOrUpdate()).rejects.toThrow(
+      'Documentation update is already running. Axis will refresh status automatically.',
+    );
+  });
+
   it('does not expose unknown backend diagnostics', async () => {
     const client = createDocumentationContentPackClient(
       {

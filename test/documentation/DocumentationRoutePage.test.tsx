@@ -52,6 +52,14 @@ const bootstrap = {
     system: [connection],
     cms: [{ ...connection, moduleName: 'cms' }],
     backoffice: [{ ...connection, moduleName: 'backoffice' }],
+    workflow: [
+      {
+        ...connection,
+        moduleName: 'workflow',
+        instanceId: 'process/local',
+        server: 'processServer',
+      },
+    ],
   },
   documentationSources: [
     {
@@ -151,6 +159,7 @@ function renderPage(path = '/docs') {
           bootstrap={bootstrap}
           channel="web"
           cmsBaseUrl="http://localhost:3000"
+          employeeId="admin"
           locale="en"
           path={path}
           runtime={runtime}
@@ -204,11 +213,12 @@ describe('DocumentationRoutePage', () => {
     renderPage('/docs');
 
     expect(
-      screen.getByRole('heading', { name: 'Documentation initialization' }),
+      screen.getByRole('heading', { name: 'Documentation publication center' }),
     ).toBeVisible();
-    expect(await screen.findByText('Core framework documentation.')).toBeVisible();
-    expect(screen.getByText('Generated API contracts.')).toBeVisible();
-    expect(screen.getByText('85% documented')).toBeVisible();
+    expect(await screen.findByRole('link', { name: 'Open Framework' })).toBeVisible();
+    expect(
+      screen.queryByText('Core framework documentation.'),
+    ).not.toBeInTheDocument();
     expect(screen.getByText('100% documented')).toBeVisible();
     expect(screen.queryByRole('tab', { name: 'Framework' })).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Swaggers' })).not.toBeInTheDocument();
@@ -220,6 +230,11 @@ describe('DocumentationRoutePage', () => {
       'href',
       '/docs/swaggers',
     );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Show Framework overview details' }),
+    );
+    expect(await screen.findByText('Core framework documentation.')).toBeVisible();
+    expect(screen.getAllByText('85% documented').length).toBeGreaterThan(0);
     fetchMock.mockRestore();
   });
 
@@ -241,15 +256,18 @@ describe('DocumentationRoutePage', () => {
     const user = userEvent.setup();
     renderPage('/docs');
 
-    expect(await screen.findByText('Documentation initialization')).toBeVisible();
+    expect(await screen.findByText('Documentation publication center')).toBeVisible();
     expect(
-      screen.getByText(
-        /Framework, Swaggers, Axis, and Kickoff documentation areas stay locked/iu,
-      ),
+      screen.getByText(/Axis is checking documentation publication state/iu),
     ).toBeVisible();
+    expect(screen.getByText('Publication flow')).toBeVisible();
     expect(
       screen.queryByRole('link', { name: 'Open Framework' }),
     ).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open Swaggers' })).toHaveAttribute(
+      'href',
+      '/docs/swaggers',
+    );
     expect(screen.queryByText('Release code')).not.toBeInTheDocument();
     const detailsToggle = screen.getByRole('button', {
       name: 'Show Framework details',
@@ -258,9 +276,7 @@ describe('DocumentationRoutePage', () => {
     await user.click(detailsToggle);
     expect(detailsToggle).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('Release code')).toBeVisible();
-    await user.click(
-      await screen.findByRole('button', { name: 'Install documentation' }),
-    );
+    await user.click(await screen.findByRole('button', { name: 'Install staged' }));
     expect(fetchMock.mock.calls).toEqual(
       expect.arrayContaining([
         [
@@ -298,9 +314,7 @@ describe('DocumentationRoutePage', () => {
     ).toBeVisible();
     expect(screen.getByRole('tab', { name: 'Framework' })).toBeVisible();
     expect(screen.getByRole('tab', { name: 'Swaggers' })).toBeVisible();
-    await user.click(
-      await screen.findByRole('button', { name: 'Install documentation' }),
-    );
+    await user.click(await screen.findByRole('button', { name: 'Install staged' }));
     expect(fetchMock.mock.calls).toEqual(
       expect.arrayContaining([
         [
@@ -442,11 +456,9 @@ describe('DocumentationRoutePage', () => {
     renderPage('/docs/framework');
 
     expect((await screen.findAllByText('Staged: CURRENT'))[0]).toBeVisible();
-    expect(screen.getAllByText('Online: IMPORTED')[0]).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Validate staged release' }));
-    await user.click(
-      screen.getByRole('button', { name: 'Publish / request approval' }),
-    );
+    expect(screen.getAllByText('Online readiness: Approval needed')[0]).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Validate staged' }));
+    await user.click(screen.getByRole('button', { name: 'Request approval' }));
     expect(
       fetchMock.mock.calls.some(
         ([request, init]) =>
@@ -455,8 +467,84 @@ describe('DocumentationRoutePage', () => {
       ),
     ).toBe(true);
     expect(
-      (await screen.findAllByText('Online: PUBLICATION PENDING'))[0],
+      (await screen.findAllByText('Online readiness: Approval in progress'))[0],
     ).toBeVisible();
+    fetchMock.mockRestore();
+  });
+
+  it('prioritizes reviewer decision when a documentation publication is pending', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((request) => {
+      const pathname = requestPathname(request);
+      if (pathname.includes('/content-pack')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ...packResponse,
+              data: {
+                ...packResponse.data,
+                state: 'UPDATE_AVAILABLE',
+                installedVersion: '1.0.0',
+                allowedOperations: ['UPDATE'],
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      if (pathname.includes('/tasks')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  code: 'cmsPublicationApprovalTask',
+                  instanceCode: 'cmsPublicationApprovalWorkflow',
+                  nodeCode: 'reviewPublication',
+                  assignee: 'admin',
+                  status: 'OPEN',
+                  dueAt: null,
+                },
+              ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            ...response,
+            data: {
+              ...response.data,
+              readiness: 'PUBLICATION_PENDING',
+              allowedActions: [],
+              publication: {
+                code: 'cmsPublication',
+                state: 'PENDING_APPROVAL',
+                revision: 1,
+                requestedBy: 'admin',
+                workflowRef: 'cmsPublicationApprovalWorkflow',
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    });
+    renderPage('/docs');
+
+    expect(await screen.findByText('Online: approval in progress')).toBeVisible();
+    expect(screen.getByText('Pending review · requested by admin')).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Update staged' }),
+    ).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Approve' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Reject' })).toBeVisible();
+    expect(
+      fetchMock.mock.calls.some(([request]) =>
+        requestPathname(request).endsWith('/tasks'),
+      ),
+    ).toBe(true);
     fetchMock.mockRestore();
   });
 

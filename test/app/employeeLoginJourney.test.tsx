@@ -827,7 +827,7 @@ describe('employee login journey', () => {
     );
 
     expect(
-      await screen.findByRole('heading', { name: 'Documentation initialization' }),
+      await screen.findByRole('heading', { name: 'Documentation publication center' }),
     ).toBeVisible();
     expect(
       screen.queryByRole('link', { name: 'Open Framework' }),
@@ -837,6 +837,616 @@ describe('employee login journey', () => {
         fetchInputUrl(input).includes('/delivery/pages/resolve'),
       ),
     ).toBe(false);
+  });
+
+  it('adds an Online-ready documentation source to the shell navigation', async () => {
+    window.history.pushState({}, '', '/docs');
+    document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
+    const user = userEvent.setup();
+    const request = vi.fn<typeof fetch>().mockImplementation((input, options) => {
+      const url = fetchInputUrl(input);
+      if (url.includes('/bootstrap/public')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(publicBootstrap), { status: 200 }),
+        );
+      }
+      if (url.includes('/employee/browser/restore')) {
+        expect(new Headers(options?.headers).get('X-CSRF-Token')).toBe('refresh-csrf');
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              result: {
+                authToken: 'restored-docs-access',
+                loginId: 'operator',
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes('/axis/initialization')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(axisInitializationReady), { status: 200 }),
+        );
+      }
+      if (url.includes('/bootstrap')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: {
+                modules: {
+                  cms: [
+                    {
+                      moduleName: 'cms',
+                      instanceId: 'runtime-1',
+                      environment: 'kickoffLocal',
+                      clientCallable: true,
+                      endpoint: 'https://cms.example.com/nodics/cms',
+                      state: 'UP',
+                    },
+                  ],
+                  backoffice: [
+                    {
+                      moduleName: 'backoffice',
+                      instanceId: 'platform-1',
+                      environment: 'kickoffLocal',
+                      clientCallable: true,
+                      endpoint: 'https://platform.example.com/nodics/backoffice',
+                      state: 'UP',
+                    },
+                  ],
+                },
+                catalogue: {
+                  backoffice: {
+                    enabled: true,
+                    category: 'platform',
+                    icon: 'documentation',
+                    requiredPermissions: ['backoffice.documentation.view'],
+                    compatibility: { status: 'COMPATIBLE' },
+                    navigation: [
+                      {
+                        id: 'documentation',
+                        label: 'Documentation',
+                        route: '/docs',
+                        order: 100,
+                        requiredPermissions: ['backoffice.documentation.view'],
+                      },
+                    ],
+                  },
+                },
+                availability: {
+                  backoffice: { state: 'UP' },
+                  cms: { state: 'UP' },
+                },
+                axisPolicy: {
+                  contractVersion: 0,
+                  screenLockEnabled: true,
+                  idleTimeoutSeconds: 900,
+                  recentNavigationLimit: 12,
+                  revision: 0,
+                  source: 'DEFAULT',
+                },
+                documentationSources: [
+                  {
+                    id: 'framework',
+                    label: 'Framework',
+                    type: 'CMS',
+                    route: '/docs/framework',
+                    order: 100,
+                    ownerModule: 'backoffice',
+                    connectionModule: 'cms',
+                    site: 'axisCmsSite',
+                    catalog: 'nodicsDocumentationContentCatalog',
+                    defaultPage: '/docs',
+                    packCode: 'nodicsDocumentation',
+                    initializationProfile: 'frameworkdocs',
+                  },
+                ],
+                tenantCode: 'default',
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes('/initialization/content-pack')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: {
+                code: 'nodicsDocumentation',
+                enabled: true,
+                state: 'CURRENT',
+                available: true,
+                installedVersion: '1.0.0',
+                availableVersion: '1.0.0',
+                runId: 'docs-ready',
+                allowedOperations: [],
+                presentation: {
+                  title: 'Nodics documentation',
+                  unavailableMessage: 'Documentation is unavailable.',
+                  disabledMessage: 'Documentation is disabled.',
+                  importAction: 'Install documentation',
+                  updateAction: 'Update documentation',
+                  retryAction: 'Retry',
+                },
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      if (url.includes('/applications/frameworkdocs/initialization')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: {
+                profileCode: 'frameworkdocs',
+                siteCode: 'nodicsDocumentationSite',
+                readiness: 'READY',
+                releaseCode: 'contentPack:nodicsDocumentation',
+                releaseVersion: '1.0.0',
+                allowedActions: [],
+                publication: {
+                  code: 'frameworkdocs-1.0.0',
+                  state: 'ONLINE',
+                  revision: 1,
+                },
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 404 }));
+    });
+    vi.stubGlobal('fetch', request);
+
+    render(
+      <AppProviders runtimeConfig={runtimeConfig}>
+        <App />
+      </AppProviders>,
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Documentation publication center' }),
+    ).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Open navigation' }));
+    expect(await screen.findByRole('button', { name: 'Framework' })).toBeVisible();
+  });
+
+  it('keeps OpenAPI documentation visible while CMS documentation waits for publication', async () => {
+    window.history.pushState({}, '', '/docs');
+    document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
+    const user = userEvent.setup();
+    const request = vi.fn<typeof fetch>().mockImplementation((input, options) => {
+      const url = fetchInputUrl(input);
+      if (url.includes('/bootstrap/public')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(publicBootstrap), { status: 200 }),
+        );
+      }
+      if (url.includes('/employee/browser/restore')) {
+        expect(new Headers(options?.headers).get('X-CSRF-Token')).toBe('refresh-csrf');
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              result: {
+                authToken: 'restored-docs-access',
+                loginId: 'operator',
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes('/axis/initialization')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(axisInitializationReady), { status: 200 }),
+        );
+      }
+      if (url.includes('/bootstrap')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: {
+                modules: {
+                  cms: [
+                    {
+                      moduleName: 'cms',
+                      instanceId: 'runtime-1',
+                      environment: 'kickoffLocal',
+                      clientCallable: true,
+                      endpoint: 'https://cms.example.com/nodics/cms',
+                      state: 'UP',
+                    },
+                  ],
+                  backoffice: [
+                    {
+                      moduleName: 'backoffice',
+                      instanceId: 'platform-1',
+                      environment: 'kickoffLocal',
+                      clientCallable: true,
+                      endpoint: 'https://platform.example.com/nodics/backoffice',
+                      state: 'UP',
+                    },
+                  ],
+                  system: [
+                    {
+                      moduleName: 'system',
+                      instanceId: 'system-1',
+                      environment: 'kickoffLocal',
+                      clientCallable: true,
+                      endpoint: 'https://system.example.com/nodics/system',
+                      state: 'UP',
+                    },
+                  ],
+                },
+                catalogue: {
+                  backoffice: {
+                    enabled: true,
+                    category: 'platform',
+                    icon: 'documentation',
+                    requiredPermissions: ['backoffice.documentation.view'],
+                    compatibility: { status: 'COMPATIBLE' },
+                    navigation: [
+                      {
+                        id: 'documentation',
+                        label: 'Documentation',
+                        route: '/docs',
+                        order: 100,
+                        requiredPermissions: ['backoffice.documentation.view'],
+                      },
+                    ],
+                  },
+                },
+                availability: {
+                  backoffice: { state: 'UP' },
+                  cms: { state: 'UP' },
+                  system: { state: 'UP' },
+                },
+                axisPolicy: {
+                  contractVersion: 0,
+                  screenLockEnabled: true,
+                  idleTimeoutSeconds: 900,
+                  recentNavigationLimit: 12,
+                  revision: 0,
+                  source: 'DEFAULT',
+                },
+                documentationSources: [
+                  {
+                    id: 'framework',
+                    label: 'Framework',
+                    type: 'CMS',
+                    route: '/docs/framework',
+                    order: 100,
+                    ownerModule: 'backoffice',
+                    connectionModule: 'cms',
+                    site: 'axisCmsSite',
+                    catalog: 'nodicsDocumentationContentCatalog',
+                    defaultPage: '/docs',
+                    packCode: 'nodicsDocumentation',
+                    initializationProfile: 'frameworkdocs',
+                  },
+                  {
+                    id: 'swaggers',
+                    label: 'Swaggers',
+                    type: 'OPENAPI',
+                    route: '/docs/swaggers',
+                    order: 200,
+                    ownerModule: 'backoffice',
+                    connectionModule: 'system',
+                    openApiPath: '/v0/contract/openapi',
+                    swaggerPath: '/v0/contract/swagger',
+                  },
+                ],
+                tenantCode: 'default',
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes('/initialization/content-pack')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: {
+                code: 'nodicsDocumentation',
+                enabled: true,
+                state: 'CURRENT',
+                available: true,
+                installedVersion: '1.0.0',
+                availableVersion: '1.0.0',
+                runId: 'docs-current',
+                allowedOperations: [],
+                presentation: {
+                  title: 'Nodics documentation',
+                  unavailableMessage: 'Documentation is unavailable.',
+                  disabledMessage: 'Documentation is disabled.',
+                  importAction: 'Install documentation',
+                  updateAction: 'Update documentation',
+                  retryAction: 'Retry',
+                },
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      if (url.includes('/applications/frameworkdocs/initialization')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: {
+                profileCode: 'frameworkdocs',
+                siteCode: 'nodicsDocumentationSite',
+                readiness: 'PUBLICATION_PENDING',
+                releaseCode: 'contentPack:nodicsDocumentation',
+                releaseVersion: '1.0.0',
+                allowedActions: [],
+                publication: {
+                  code: 'frameworkdocs-1.0.0',
+                  state: 'PENDING_APPROVAL',
+                  revision: 1,
+                  requestedBy: 'admin',
+                  workflowRef: 'cmsPublicationApprovalWorkflow',
+                },
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      if (url.includes('/tasks')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ data: [] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 404 }));
+    });
+    vi.stubGlobal('fetch', request);
+
+    render(
+      <AppProviders runtimeConfig={runtimeConfig}>
+        <App />
+      </AppProviders>,
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Documentation publication center' }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('link', { name: 'Open Framework' }),
+    ).not.toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Open Swaggers' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Open navigation' }));
+    expect(screen.queryByRole('button', { name: 'Framework' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Swaggers' })).toBeVisible();
+  });
+
+  it('adds a documentation source to navigation immediately after inline approval', async () => {
+    window.history.pushState({}, '', '/docs');
+    document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
+    const user = userEvent.setup();
+    let frameworkApproved = false;
+    const request = vi.fn<typeof fetch>().mockImplementation((input, options) => {
+      const url = fetchInputUrl(input);
+      if (url.includes('/bootstrap/public')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(publicBootstrap), { status: 200 }),
+        );
+      }
+      if (url.includes('/employee/browser/restore')) {
+        expect(new Headers(options?.headers).get('X-CSRF-Token')).toBe('refresh-csrf');
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              result: {
+                authToken: 'restored-docs-access',
+                loginId: 'operator',
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes('/axis/initialization')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(axisInitializationReady), { status: 200 }),
+        );
+      }
+      if (url.includes('/bootstrap')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: {
+                modules: {
+                  backoffice: [
+                    {
+                      moduleName: 'backoffice',
+                      instanceId: 'platform-1',
+                      environment: 'kickoffLocal',
+                      clientCallable: true,
+                      endpoint: 'https://platform.example.com/nodics/backoffice',
+                      state: 'UP',
+                    },
+                  ],
+                  cms: [
+                    {
+                      moduleName: 'cms',
+                      instanceId: 'runtime-1',
+                      environment: 'kickoffLocal',
+                      clientCallable: true,
+                      endpoint: 'https://cms.example.com/nodics/cms',
+                      state: 'UP',
+                    },
+                  ],
+                  workflow: [
+                    {
+                      moduleName: 'workflow',
+                      instanceId: 'process-1',
+                      environment: 'kickoffLocal',
+                      clientCallable: true,
+                      endpoint: 'https://process.example.com/nodics/process',
+                      server: 'processServer',
+                      state: 'UP',
+                    },
+                  ],
+                },
+                catalogue: {
+                  backoffice: {
+                    enabled: true,
+                    category: 'platform',
+                    icon: 'documentation',
+                    requiredPermissions: ['backoffice.documentation.view'],
+                    compatibility: { status: 'COMPATIBLE' },
+                    navigation: [
+                      {
+                        id: 'documentation',
+                        label: 'Documentation',
+                        route: '/docs',
+                        order: 100,
+                        requiredPermissions: ['backoffice.documentation.view'],
+                      },
+                    ],
+                  },
+                },
+                availability: {
+                  backoffice: { state: 'UP' },
+                  cms: { state: 'UP' },
+                  workflow: { state: 'UP' },
+                },
+                axisPolicy: {
+                  contractVersion: 0,
+                  screenLockEnabled: true,
+                  idleTimeoutSeconds: 900,
+                  recentNavigationLimit: 12,
+                  revision: 0,
+                  source: 'DEFAULT',
+                },
+                documentationSources: [
+                  {
+                    id: 'framework',
+                    label: 'Framework',
+                    type: 'CMS',
+                    route: '/docs/framework',
+                    order: 100,
+                    ownerModule: 'backoffice',
+                    connectionModule: 'cms',
+                    site: 'axisCmsSite',
+                    catalog: 'nodicsDocumentationContentCatalog',
+                    defaultPage: '/docs',
+                    packCode: 'nodicsDocumentation',
+                    initializationProfile: 'frameworkdocs',
+                  },
+                ],
+                tenantCode: 'default',
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes('/initialization/content-pack')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: {
+                code: 'nodicsDocumentation',
+                enabled: true,
+                state: 'CURRENT',
+                available: true,
+                installedVersion: '1.0.0',
+                availableVersion: '1.0.0',
+                runId: 'docs-current',
+                allowedOperations: [],
+                presentation: {
+                  title: 'Nodics documentation',
+                  unavailableMessage: 'Documentation is unavailable.',
+                  disabledMessage: 'Documentation is disabled.',
+                  importAction: 'Install documentation',
+                  updateAction: 'Update documentation',
+                  retryAction: 'Retry',
+                },
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      if (url.includes('/tasks/cmsPublicationApprovalTask/complete')) {
+        frameworkApproved = true;
+        return Promise.resolve(
+          new Response(JSON.stringify({ data: { status: 'COMPLETED' } }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      if (url.includes('/tasks')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  code: 'cmsPublicationApprovalTask',
+                  instanceCode: 'cmsPublicationApprovalWorkflow',
+                  nodeCode: 'reviewPublication',
+                  assignee: 'operator',
+                  status: frameworkApproved ? 'COMPLETED' : 'OPEN',
+                  dueAt: null,
+                },
+              ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      if (url.includes('/applications/frameworkdocs/initialization')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: {
+                profileCode: 'frameworkdocs',
+                siteCode: 'nodicsDocumentationSite',
+                readiness: frameworkApproved ? 'READY' : 'PUBLICATION_PENDING',
+                releaseCode: 'contentPack:nodicsDocumentation',
+                releaseVersion: '1.0.0',
+                allowedActions: [],
+                publication: {
+                  code: 'frameworkdocs-1.0.0',
+                  state: frameworkApproved ? 'ONLINE' : 'PENDING_APPROVAL',
+                  revision: frameworkApproved ? 2 : 1,
+                  requestedBy: 'admin',
+                  workflowRef: 'cmsPublicationApprovalWorkflow',
+                },
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 404 }));
+    });
+    vi.stubGlobal('fetch', request);
+
+    render(
+      <AppProviders runtimeConfig={runtimeConfig}>
+        <App />
+      </AppProviders>,
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Documentation publication center' }),
+    ).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Framework' })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'Approve' }));
+    await user.click(screen.getByRole('button', { name: 'Open navigation' }));
+    expect(await screen.findByRole('button', { name: 'Framework' })).toBeVisible();
   });
 
   it('restores a content workbench child route without requiring a cms parent item', async () => {

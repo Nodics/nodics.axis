@@ -22,14 +22,24 @@ const navigation: CmsComponentContract = {
       {
         title: 'What Nodics Is',
         route: '/docs/overview/what-is-nodics',
-        category: 'overview',
+        sectionTitle: 'Documentation Roadmap',
+        sectionOrder: 10,
+        groupTitle: 'Framework Orientation',
+        groupOrder: 10,
+        subgroupTitle: 'Start Safely',
+        order: 10,
         audience: ['business', 'developer'],
       },
       {
         title: 'Configure Security',
         route: '/docs/security/configure-security',
-        category: 'security',
+        sectionTitle: 'Administration',
+        sectionOrder: 20,
+        groupTitle: 'Security Controls',
+        groupOrder: 10,
+        order: 20,
         audience: ['operator'],
+        searchText: 'security access role permission',
       },
       {
         title: 'Unsafe route',
@@ -53,7 +63,7 @@ describe('DocumentationNavigationRenderer', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole('link', { name: 'What Nodics Is' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /What Nodics Is/ })).toHaveAttribute(
       'href',
       '/docs/overview/what-is-nodics',
     );
@@ -63,7 +73,7 @@ describe('DocumentationNavigationRenderer', () => {
 
     expect(screen.getByRole('link', { name: 'Configure Security' })).toBeVisible();
     expect(
-      screen.queryByRole('link', { name: 'What Nodics Is' }),
+      screen.queryByRole('link', { name: /What Nodics Is/ }),
     ).not.toBeInTheDocument();
   });
 
@@ -105,10 +115,35 @@ describe('DocumentationNavigationRenderer', () => {
     );
 
     expect(search).toHaveValue('');
-    expect(screen.getByRole('link', { name: 'What Nodics Is' })).toBeVisible();
+    expect(screen.getByRole('link', { name: /What Nodics Is/ })).toBeVisible();
     expect(screen.getByRole('link', { name: 'Configure Security' })).toBeVisible();
     expect(
       screen.queryByRole('button', { name: 'Clear documentation search' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('renders backend hierarchy as expandable sections and groups', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <DocumentationNavigationRenderer component={navigation} />
+      </MemoryRouter>,
+    );
+
+    expect(
+      screen.getByRole('button', { name: 'Collapse Documentation Roadmap' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Collapse Framework Orientation' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Start Safely')).toBeVisible();
+
+    await user.click(
+      screen.getByRole('button', { name: 'Collapse Documentation Roadmap' }),
+    );
+
+    expect(
+      screen.queryByRole('link', { name: 'What Nodics Is' }),
     ).not.toBeInTheDocument();
   });
 });

@@ -18,6 +18,7 @@ const projectCode = process.env.AXIS_PROJECT || 'nodics.kickoff';
 const loginId = process.env.AXIS_LOGIN_ID || 'admin';
 const password = process.env.AXIS_PASSWORD || 'adminPassword';
 const browserOrigin = process.env.AXIS_BROWSER_ORIGIN || axisUrl;
+const clientContractVersion = process.env.AXIS_CLIENT_CONTRACT_VERSION || '1';
 const strictModules = process.env.AXIS_EXPECT_MODULES === '1';
 const verifyDocumentationPacks = process.env.AXIS_EXPECT_DOCUMENTATION === '1';
 const runCronLifecycle = process.env.AXIS_CRON_LIFECYCLE === '1';
@@ -736,7 +737,10 @@ async function main() {
   }
 
   await requestJson(endpoint(platformUrl, '/nodics/backoffice/v0/bootstrap/public'), {
-    headers: { 'x-enterprise-code': enterpriseCode },
+    headers: {
+      'x-enterprise-code': enterpriseCode,
+      'x-nodics-client-contract-version': clientContractVersion,
+    },
   });
   console.log('PASS BackOffice public bootstrap');
 

@@ -1,4 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+  type Query,
+} from '@tanstack/react-query';
 import {
   Alert,
   Box,
@@ -21,8 +27,12 @@ import { WorkspaceContainer } from '../../app/shell/ShellPrimitives';
 import {
   selectModuleConnection,
   type AxisAuthenticatedBootstrap,
+  type AxisDocumentationSource,
   type AxisNavigationItem,
 } from '../../bootstrap/publicBootstrap';
+import {
+  createDocumentationPublicationClient,
+} from '../../documentation/api/documentationPublicationClient';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
   archiveProcessTrigger,
@@ -72,12 +82,36 @@ const operationsQueryKey = 'process-operations-summary';
 const versionsQueryKey = 'process-definition-versions';
 const instanceDetailQueryKey = 'process-instance-detail';
 type ProcessTaskDecision = Readonly<Record<string, unknown>>;
+type CmsPublicationTaskContext = Readonly<{
+  profileCode: string;
+  releaseStatus?: string;
+  releaseVersion: string;
+  requestedBy?: string;
+  siteCode: string;
+  sourceLabel: string;
+  publicationCode?: string;
+}>;
 
 function isCmsPublicationApprovalTask(task: ProcessHumanTask): boolean {
   return (
     task.nodeCode === 'publicationReview' &&
     (task.instanceCode?.startsWith('cmsPublicationApproval-') ?? false)
   );
+}
+
+function isActionableTask(task: ProcessHumanTask): boolean {
+  return ['OPEN', 'CLAIMED', 'ESCALATED'].includes(task.status);
+}
+
+function isCmsDocumentationSource(
+  source: AxisDocumentationSource,
+): source is Extract<AxisDocumentationSource, { readonly type: 'CMS' }> {
+  return source.type === 'CMS';
+}
+
+function shortCode(value: string | undefined, limit = 18): string {
+  if (!value) return 'unknown';
+  return value.length > limit ? `${value.slice(0, limit)}...` : value;
 }
 
 function createCmsPublicationApprovalDecision(): ProcessTaskDecision {
@@ -132,64 +166,6 @@ const processWorkspaces = Object.freeze([
     icon: 'schema',
     label: 'Designer',
     route: '/process/designer',
-  }),
-]);
-const publicationApprovalGuardrails = Object.freeze([
-  Object.freeze({
-    title: 'Publication context',
-    detail:
-      'Every approval task should show source package, target site or channel, manifest, Online impact, requester, and current pointer state before a decision.',
-    route: '/publishing/requests',
-    action: 'Open requests',
-  }),
-  Object.freeze({
-    title: 'Reject and resubmit',
-    detail:
-      'A rejection must keep Online unchanged, preserve the reason, and point the creator back to Staged changes before a new approval request is created.',
-    route: '/publishing/history',
-    action: 'Review history',
-  }),
-  Object.freeze({
-    title: 'Audit cross-link',
-    detail:
-      'Task code, workflow instance, publication request, approver, reason, and correlation id should be reconstructable from Publishing Audit.',
-    route: '/publishing/audit',
-    action: 'Inspect audit',
-  }),
-  Object.freeze({
-    title: 'Browser evidence',
-    detail:
-      'Approval closure is not complete until the target Nexus, Agora, Axis, or documentation journey is browser-verified and recorded.',
-    route: '/publishing/status',
-    action: 'Check Online',
-  }),
-  Object.freeze({
-    title: 'Actor separation',
-    detail:
-      'Creator, checker, approver, and emergency operator are separate responsibilities even while local development still uses a super user.',
-    route: '/publishing/configuration',
-    action: 'Review policy',
-  }),
-  Object.freeze({
-    title: 'SLA and escalation',
-    detail:
-      'Escalated or overdue approval tasks should be visible without bypassing approval, audit, or reason capture.',
-    route: '/process/tasks',
-    action: 'Stay in queue',
-  }),
-  Object.freeze({
-    title: 'Multi-approver policy',
-    detail:
-      'High-impact catalog, media, accelerator, and public-site changes should allow future multi-approver policy without changing the operator journey.',
-    route: '/publishing/dependencies',
-    action: 'Review dependencies',
-  }),
-  Object.freeze({
-    title: 'Emergency override',
-    detail:
-      'Emergency paths must be explicit, permissioned, reasoned, and audited; they should never become the normal publishing route.',
-    route: '/publishing/failures',
-    action: 'Open recovery',
   }),
 ]);
 const designerNodeTypes = Object.freeze([
@@ -709,7 +685,9 @@ function TaskInbox({
   onCancel,
   onClaim,
   onComplete,
+  publicationContexts,
   tasks,
+  title = 'Task inbox',
 }: {
   readonly assignee: string;
   readonly disabled: boolean;
@@ -718,46 +696,44 @@ function TaskInbox({
   readonly onCancel: (taskCode: string) => void;
   readonly onClaim: (taskCode: string) => void;
   readonly onComplete: (taskCode: string, decision?: ProcessTaskDecision) => void;
+  readonly publicationContexts: ReadonlyMap<string, CmsPublicationTaskContext>;
   readonly tasks: readonly ProcessHumanTask[];
+  readonly title?: string;
 }) {
+  const publicationTasks = tasks
+    .filter(isCmsPublicationApprovalTask)
+    .filter(isActionableTask);
+  const workflowTasks = tasks
+    .filter((task) => !isCmsPublicationApprovalTask(task))
+    .filter(isActionableTask);
+  const [reviewingPublicationTaskCode, setReviewingPublicationTaskCode] =
+    useState<string>();
+
   return (
     <Paper
       component="section"
       elevation={0}
-      sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
+      sx={{ border: 1, borderColor: 'divider', p: { xs: 2, md: 2.5 } }}
     >
       <Stack spacing={2}>
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-          <ShellIcon name="task" />
-          <Typography variant="h5">Task inbox</Typography>
-          <Chip label={`${String(tasks.length)} tasks`} variant="outlined" />
-        </Stack>
-        <Box
-          sx={{
-            display: 'grid',
-            gap: 1.5,
-            gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
-          }}
+        <Stack
+          direction={{ xs: 'column', md: 'row' }}
+          spacing={1}
+          sx={{ alignItems: { xs: 'flex-start', md: 'center' }, justifyContent: 'space-between' }}
         >
-          {publicationApprovalGuardrails.map((guardrail) => (
-            <Paper
-              component="article"
-              elevation={0}
-              key={guardrail.title}
-              sx={{ border: 1, borderColor: 'divider', p: 1.5 }}
-            >
-              <Stack spacing={1}>
-                <Typography variant="subtitle1">{guardrail.title}</Typography>
-                <Typography color="text.secondary" variant="body2">
-                  {guardrail.detail}
-                </Typography>
-                <Button href={guardrail.route} size="small" variant="outlined">
-                  {guardrail.action}
-                </Button>
-              </Stack>
-            </Paper>
-          ))}
-        </Box>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+            <ShellIcon name="task" />
+            <Typography variant="h5">{title}</Typography>
+          </Stack>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+            <Chip
+              color={publicationTasks.length ? 'warning' : 'default'}
+              label={`${String(publicationTasks.length)} publication approvals`}
+              variant={publicationTasks.length ? 'filled' : 'outlined'}
+            />
+            <Chip label={`${String(workflowTasks.length)} other tasks`} variant="outlined" />
+          </Stack>
+        </Stack>
         {tasks.length === 0 ? (
           <Alert severity="info">
             No human workflow tasks are waiting. Tasks appear here when a published
@@ -765,23 +741,229 @@ function TaskInbox({
           </Alert>
         ) : (
           <Stack spacing={1.5}>
-            <Alert severity="info" variant="outlined">
-              For CMS publication tasks, approve only when the target site, source
-              version, and expected Online impact are understood. Rejecting a
-              publication keeps Online unchanged and leaves the decision in the workflow
-              timeline.
-            </Alert>
-            <TextField
-              disabled={disabled}
-              label="Assign selected task to"
-              onChange={(event) => onAssigneeChange(event.target.value)}
-              placeholder="user, group, or queue code"
-              value={assignee}
-            />
-            {tasks.map((task) => {
-              const actionable = ['OPEN', 'CLAIMED', 'ESCALATED'].includes(task.status);
-              const cmsPublicationApprovalTask = isCmsPublicationApprovalTask(task);
-              return (
+            {publicationTasks.length ? (
+              <Stack spacing={1}>
+                <Typography variant="subtitle1">Documentation publication approvals</Typography>
+                {publicationTasks.map((task) => {
+                  const actionable = isActionableTask(task);
+                  const context = publicationContexts.get(task.instanceCode ?? '');
+                  const canDecide = actionable;
+                  return (
+                    <Paper
+                      component="article"
+                      elevation={0}
+                      key={task.code}
+                      sx={{
+                        border: 1,
+                        borderColor: 'divider',
+                        borderLeft: 3,
+                        borderLeftColor: 'warning.main',
+                        p: 1.5,
+                      }}
+                    >
+                      <Stack spacing={1.5}>
+                        <Box
+                          sx={{
+                            alignItems: { xs: 'stretch', lg: 'center' },
+                            display: 'grid',
+                            gap: 1.25,
+                            gridTemplateColumns: {
+                              xs: '1fr',
+                              lg: 'minmax(0, 1fr) auto',
+                            },
+                          }}
+                        >
+                          <Box sx={{ minWidth: 0 }}>
+                            <Stack
+                              direction="row"
+                              spacing={1}
+                              sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 1 }}
+                            >
+                              <Typography sx={{ fontWeight: 700 }} variant="h6">
+                                {context?.sourceLabel ?? 'Documentation publication'}
+                              </Typography>
+                              <Chip color="warning" label={task.status} size="small" />
+                            </Stack>
+                            <Typography color="text.secondary" variant="body2">
+                              {context
+                                ? `${context.profileCode} -> ${context.siteCode} · release ${context.releaseVersion}`
+                                : `Workflow ${shortCode(task.instanceCode)} · task ${shortCode(task.code)}`}
+                            </Typography>
+                            <Typography color="text.secondary" variant="body2">
+                              Requested by {context?.requestedBy ?? 'unknown'} · assigned to{' '}
+                              {task.assignee ?? 'unassigned'}
+                            </Typography>
+                          </Box>
+                          <Stack
+                            direction="row"
+                            spacing={1}
+                            sx={{
+                              alignItems: 'center',
+                              flexWrap: 'wrap',
+                              justifyContent: { xs: 'flex-start', lg: 'flex-end' },
+                            }}
+                          >
+                            <Button
+                              onClick={() =>
+                                setReviewingPublicationTaskCode((current) =>
+                                  current === task.code ? undefined : task.code,
+                                )
+                              }
+                              size="small"
+                              variant={
+                                reviewingPublicationTaskCode === task.code
+                                  ? 'contained'
+                                  : 'outlined'
+                              }
+                            >
+                              {reviewingPublicationTaskCode === task.code
+                                ? 'Hide review'
+                                : 'Review evidence'}
+                            </Button>
+                            <Button
+                              disabled={disabled || !canDecide}
+                              onClick={() =>
+                                onComplete(
+                                  task.code,
+                                  createCmsPublicationApprovalDecision(),
+                                )
+                              }
+                              size="small"
+                              startIcon={<ShellIcon fontSize="small" name="approve" />}
+                              variant="contained"
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              color="warning"
+                              disabled={disabled || !canDecide}
+                              onClick={() =>
+                                onComplete(
+                                  task.code,
+                                  createCmsPublicationRejectionDecision(),
+                                )
+                              }
+                              size="small"
+                              variant="outlined"
+                            >
+                              Reject
+                            </Button>
+                          </Stack>
+                        </Box>
+                        {reviewingPublicationTaskCode === task.code ? (
+                          <Box
+                            sx={{
+                              bgcolor: alpha(axisTokens.color.info, 0.04),
+                              border: 1,
+                              borderColor: 'divider',
+                              borderRadius: 1,
+                              p: 1.5,
+                            }}
+                          >
+                            <Stack spacing={1.5}>
+                              <Stack
+                                direction={{ xs: 'column', md: 'row' }}
+                                spacing={1}
+                                sx={{
+                                  alignItems: { xs: 'flex-start', md: 'center' },
+                                  justifyContent: 'space-between',
+                                }}
+                              >
+                                <Box>
+                                  <Typography sx={{ fontWeight: 700 }} variant="subtitle1">
+                                    Review before decision
+                                  </Typography>
+                                  <Typography color="text.secondary" variant="body2">
+                                    This is the staged documentation publication evidence
+                                    for the selected approval task.
+                                  </Typography>
+                                </Box>
+                                <Chip
+                                  label={
+                                    canDecide
+                                      ? 'Decision available'
+                                      : 'Task is not actionable'
+                                  }
+                                  size="small"
+                                  variant="outlined"
+                                />
+                              </Stack>
+                              <Box
+                                sx={{
+                                  display: 'grid',
+                                  gap: 1,
+                                  gridTemplateColumns: {
+                                    xs: '1fr',
+                                    md: 'repeat(3, minmax(0, 1fr))',
+                                  },
+                                }}
+                              >
+                                {[
+                                  ['Source', context?.sourceLabel],
+                                  ['Staged profile', context?.profileCode],
+                                  ['Target site', context?.siteCode],
+                                  ['Release version', context?.releaseVersion],
+                                  ['Release status', context?.releaseStatus],
+                                  ['Publication', context?.publicationCode],
+                                  ['Workflow', task.instanceCode],
+                                  ['Task', task.code],
+                                  ['Requester', context?.requestedBy ?? 'unknown'],
+                                ].map(([label, value]) => (
+                                  <Box key={label}>
+                                    <Typography
+                                      color="text.secondary"
+                                      sx={{ textTransform: 'uppercase' }}
+                                      variant="caption"
+                                    >
+                                      {label}
+                                    </Typography>
+                                    <Typography
+                                      sx={{ fontWeight: 600, overflowWrap: 'anywhere' }}
+                                      variant="body2"
+                                    >
+                                      {value ?? 'not available'}
+                                    </Typography>
+                                  </Box>
+                                ))}
+                              </Box>
+                              <Alert severity={canDecide ? 'info' : 'warning'}>
+                                {canDecide
+                                  ? 'Approve publishes the staged documentation release to Online. Reject keeps the current Online documentation unchanged and records the decision in Process.'
+                                  : 'This task is no longer waiting for a decision. Refresh the queue to load the latest Process state.'}
+                              </Alert>
+                            </Stack>
+                          </Box>
+                        ) : null}
+                      </Stack>
+                    </Paper>
+                  );
+                })}
+              </Stack>
+            ) : null}
+
+            {workflowTasks.length ? (
+              <Stack spacing={1.5}>
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  spacing={1.5}
+                  sx={{ alignItems: { xs: 'stretch', md: 'center' } }}
+                >
+                  <Typography sx={{ flex: '1 1 auto' }} variant="subtitle1">
+                    Other workflow tasks
+                  </Typography>
+                  <TextField
+                    disabled={disabled}
+                    label="Assign selected task to"
+                    onChange={(event) => onAssigneeChange(event.target.value)}
+                    placeholder="user, group, or queue code"
+                    size="small"
+                    sx={{ minWidth: { xs: '100%', md: 280 } }}
+                    value={assignee}
+                  />
+                </Stack>
+                {workflowTasks.map((task) => {
+                  const actionable = isActionableTask(task);
+                  return (
                 <Paper
                   component="article"
                   elevation={0}
@@ -807,14 +989,6 @@ function TaskInbox({
                         label={task.status}
                       />
                     </Stack>
-                    {cmsPublicationApprovalTask ? (
-                      <Alert severity="warning" variant="outlined">
-                        Publication approval task. Approve moves the prepared CMS
-                        baseline toward Online visibility; reject preserves the current
-                        Online state. After either decision, verify Publishing Status,
-                        History, Audit, and the browser page.
-                      </Alert>
-                    ) : null}
                     <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
                       <Button
                         disabled={disabled || !actionable || !assignee.trim()}
@@ -830,43 +1004,13 @@ function TaskInbox({
                       >
                         Claim
                       </Button>
-                      {cmsPublicationApprovalTask ? (
-                        <>
-                          <Button
-                            disabled={disabled || !actionable}
-                            onClick={() =>
-                              onComplete(
-                                task.code,
-                                createCmsPublicationApprovalDecision(),
-                              )
-                            }
-                            variant="contained"
-                          >
-                            Approve publication
-                          </Button>
-                          <Button
-                            color="warning"
-                            disabled={disabled || !actionable}
-                            onClick={() =>
-                              onComplete(
-                                task.code,
-                                createCmsPublicationRejectionDecision(),
-                              )
-                            }
-                            variant="outlined"
-                          >
-                            Reject publication
-                          </Button>
-                        </>
-                      ) : (
-                        <Button
-                          disabled={disabled || !actionable}
-                          onClick={() => onComplete(task.code)}
-                          variant="contained"
-                        >
-                          Complete
-                        </Button>
-                      )}
+                      <Button
+                        disabled={disabled || !actionable}
+                        onClick={() => onComplete(task.code)}
+                        variant="contained"
+                      >
+                        Complete
+                      </Button>
                       <Button
                         color="error"
                         disabled={disabled || !actionable}
@@ -878,8 +1022,10 @@ function TaskInbox({
                     </Stack>
                   </Stack>
                 </Paper>
-              );
-            })}
+                  );
+                })}
+              </Stack>
+            ) : null}
           </Stack>
         )}
       </Stack>
@@ -1457,9 +1603,13 @@ export function ProcessWorkflowRoutePage({
   runtime,
 }: ProcessWorkflowRoutePageProps) {
   const queryClient = useQueryClient();
-  const processConnection = selectModuleConnection(bootstrap, 'flowApi', {
+  const processConnection = selectModuleConnection(bootstrap, 'workflow', {
     server: 'processServer',
   });
+  const documentationConnection = selectModuleConnection(bootstrap, 'backoffice');
+  const documentationSources = bootstrap.documentationSources
+    .filter(isCmsDocumentationSource)
+    .filter((source) => source.initializationProfile);
   const currentPath =
     typeof window !== 'undefined' && window.location.pathname.startsWith('/process')
       ? window.location.pathname
@@ -1507,6 +1657,28 @@ export function ProcessWorkflowRoutePage({
       processConnection
         ? loadProcessOperationsSummary(processConnection, configuration)
         : Promise.resolve(emptyOperationsSummary),
+  });
+  const documentationPublicationQueries = useQueries({
+    queries: documentationSources.map((source) => ({
+      enabled: Boolean(documentationConnection && source.initializationProfile),
+      queryKey: [
+        'process-task-documentation-publication-context',
+        runtime.enterpriseCode,
+        source.initializationProfile ?? '',
+      ],
+      queryFn: () => {
+        if (!documentationConnection || !source.initializationProfile) {
+          throw new Error('Documentation publication context is unavailable');
+        }
+        return createDocumentationPublicationClient({
+          connection: documentationConnection,
+          enterpriseCode: runtime.enterpriseCode,
+          accessToken,
+          timeoutMs: runtime.requestTimeoutMs,
+          profileCode: source.initializationProfile,
+        }).getStatus();
+      },
+    })),
   });
 
   const invalidate = async () => {
@@ -1819,6 +1991,33 @@ export function ProcessWorkflowRoutePage({
   const activeWorkspace =
     processWorkspaces.find((workspace) => currentPath.startsWith(workspace.route)) ??
     defaultProcessWorkspace;
+  const documentationPublicationContexts = new Map<string, CmsPublicationTaskContext>();
+  documentationPublicationQueries.forEach((query, index) => {
+    const source = documentationSources[index];
+    const publication = query.data;
+    const workflowRef = publication?.publication?.workflowRef;
+    if (!source || !publication || !workflowRef) return;
+    documentationPublicationContexts.set(workflowRef, {
+      profileCode: publication.profileCode,
+      releaseVersion: publication.releaseVersion,
+      siteCode: publication.siteCode,
+      sourceLabel: source.label,
+      ...(publication.releaseStatus
+        ? { releaseStatus: publication.releaseStatus }
+        : {}),
+      ...(publication.publication?.requestedBy
+        ? { requestedBy: publication.publication.requestedBy }
+        : {}),
+      ...(publication.publication?.code
+        ? { publicationCode: publication.publication.code }
+        : {}),
+    });
+  });
+  const publicationApprovalTasks =
+    operations.data?.tasks.filter(isCmsPublicationApprovalTask) ?? [];
+  const actionablePublicationApprovalTasks =
+    publicationApprovalTasks.filter(isActionableTask);
+  const publicationTasksReadyForDecision = actionablePublicationApprovalTasks.length;
   const busy =
     createDraft.isPending ||
     updateDraft.isPending ||
@@ -1856,6 +2055,111 @@ export function ProcessWorkflowRoutePage({
     createTrigger.error ??
     activateTrigger.error ??
     archiveTrigger.error;
+
+  if (activeWorkspace.route === '/process/tasks') {
+    return (
+      <WorkspaceContainer>
+        <Stack spacing={3}>
+          <Paper
+            component="section"
+            elevation={0}
+            sx={{ border: 1, borderColor: 'divider', p: { xs: 2.5, md: 3 } }}
+          >
+            <Stack spacing={2}>
+              <Stack
+                direction={{ xs: 'column', md: 'row' }}
+                spacing={2}
+                sx={{
+                  alignItems: { xs: 'stretch', md: 'flex-start' },
+                  justifyContent: 'space-between',
+                }}
+              >
+                <WorkspaceHeading
+                  description="Review workflow tasks that are waiting for a business decision. Documentation publication approvals are shown first with their source context."
+                  help={navigation.help}
+                  eyebrow="Process & Automation"
+                  headingVariant="h3"
+                  title="Approval tasks"
+                />
+                <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+                  <Chip
+                    color={
+                      publicationTasksReadyForDecision > 0 ? 'warning' : 'default'
+                    }
+                    label={`${String(publicationTasksReadyForDecision)} ready for decision`}
+                    variant={
+                      publicationTasksReadyForDecision > 0 ? 'filled' : 'outlined'
+                    }
+                  />
+                  <Chip
+                    color={processConnection ? 'success' : 'warning'}
+                    label={
+                      processConnection ? processConnection.state : 'API unavailable'
+                    }
+                    variant={processConnection ? 'filled' : 'outlined'}
+                  />
+                </Stack>
+              </Stack>
+
+              {latestError instanceof Error ? (
+                <Alert severity="error">{latestError.message}</Alert>
+              ) : operations.isPending ? (
+                <Alert severity="info">Loading approval tasks from Process.</Alert>
+              ) : publicationApprovalTasks.length ? (
+                <Alert severity="warning">
+                  {`${String(publicationTasksReadyForDecision)} publication approval task${publicationTasksReadyForDecision === 1 ? '' : 's'} can be reviewed and decided from this page when the signed-in user has approval permission.`}
+                </Alert>
+              ) : (
+                <Alert severity="success">
+                  No documentation publication approval tasks are waiting.
+                </Alert>
+              )}
+            </Stack>
+          </Paper>
+
+          <TaskInbox
+            assignee={taskAssignee}
+            disabled={busy}
+            onAssigneeChange={setTaskAssignee}
+            onAssign={(taskCode) => assignTask.mutate(taskCode)}
+            onCancel={(taskCode) => cancelTask.mutate(taskCode)}
+            onClaim={(taskCode) => claimTask.mutate(taskCode)}
+            onComplete={(taskCode, decision) =>
+              completeTask.mutate(decision ? { decision, taskCode } : { taskCode })
+            }
+            publicationContexts={documentationPublicationContexts}
+            tasks={operations.data?.tasks ?? []}
+            title="Approval task queue"
+          />
+
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 3,
+              gridTemplateColumns: {
+                xs: '1fr',
+                xl: 'minmax(0, 1fr) minmax(0, 1fr)',
+              },
+            }}
+          >
+            <RuntimeInstanceList
+              disabled={busy}
+              instances={operations.data?.instances ?? []}
+              onCancel={(instanceCode) => cancelInstance.mutate(instanceCode)}
+              onSelect={(instanceCode) => setSelectedInstanceCode(instanceCode)}
+              selectedCode={selectedInstanceCode}
+            />
+            <RecoveryIncidentQueue
+              disabled={busy}
+              incidents={operations.data?.incidents ?? []}
+              onCompensate={(instanceCode) => compensateInstance.mutate(instanceCode)}
+              onRetry={(incident) => retryInstance.mutate(incident)}
+            />
+          </Box>
+        </Stack>
+      </WorkspaceContainer>
+    );
+  }
 
   return (
     <WorkspaceContainer>
@@ -2111,6 +2415,7 @@ export function ProcessWorkflowRoutePage({
             onComplete={(taskCode, decision) =>
               completeTask.mutate(decision ? { decision, taskCode } : { taskCode })
             }
+            publicationContexts={documentationPublicationContexts}
             tasks={operations.data?.tasks ?? []}
           />
         </Box>

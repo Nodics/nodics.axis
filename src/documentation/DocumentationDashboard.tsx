@@ -36,25 +36,77 @@ import {
   type AxisDocumentationCoverage,
   type AxisDocumentationSource,
 } from '../bootstrap/publicBootstrap';
+import {
+  completeProcessTask,
+  loadProcessTasks,
+} from '../operations/processWorkflow/api/processDefinitionClient';
 import type { AxisRuntimeConfig } from '../runtime/runtimeConfig';
 import { createDocumentationContentPackClient } from './api/documentationContentPackClient';
 import {
   createDocumentationPublicationClient,
+  type DocumentationPublicationReadiness,
   type DocumentationPublicationStatus,
 } from './api/documentationPublicationClient';
 
 interface DocumentationDashboardProps {
   readonly accessToken: string;
   readonly bootstrap: AxisAuthenticatedBootstrap;
+  readonly onPublicationStatusChange?:
+    | ((status: DocumentationPublicationStatus) => void | Promise<void>)
+    | undefined;
   readonly runtime: AxisRuntimeConfig;
 }
 
 const dashboardComponentGap = workspaceComponentGap;
 const dashboardContentGap = workspaceContentGap;
 const dashboardCardPadding = workspacePanelPadding;
-const dashboardCardSectionMinHeight = {
-  summary: 72,
-  metadata: 56,
+const dashboardPublicationRowGrid = {
+  xs: '1fr',
+  lg: '250px 260px minmax(0, 1fr)',
+} as const;
+const dashboardDocumentationSourceRowGrid = {
+  xs: '1fr',
+  md: 'minmax(260px, 340px) minmax(320px, 1fr)',
+  lg: 'minmax(300px, 380px) minmax(320px, 1fr) 220px',
+  xl: 'minmax(340px, 420px) minmax(360px, 1fr) 240px',
+} as const;
+const dashboardRadiusSmall = `${String(axisTokens.radius.small)}px`;
+const dashboardRadiusMedium = `${String(axisTokens.radius.medium)}px`;
+const dashboardRadiusPill = `${String(axisTokens.radius.pill)}px`;
+const approvalTasksRoute = '/process/tasks';
+const documentationImportAlreadyRunningMessage =
+  'Documentation update is already running. Axis will refresh status automatically.';
+const dashboardActionButtonSx = {
+  minHeight: 36,
+  minWidth: { xs: 0, sm: 108 },
+  px: 1.15,
+  whiteSpace: 'nowrap',
+} as const;
+const dashboardSecondaryActionButtonSx = {
+  ...dashboardActionButtonSx,
+  bgcolor: 'background.paper',
+  borderColor: 'divider',
+  color: 'text.primary',
+  '&:hover': {
+    bgcolor: alpha(axisTokens.color.signatureGold, 0.08),
+    borderColor: alpha(axisTokens.color.signatureGold, 0.55),
+  },
+} as const;
+const dashboardIconButtonSx = {
+  height: 36,
+  minWidth: 36,
+  p: 0.75,
+  width: 36,
+} as const;
+const dashboardStatusChipSx = {
+  maxWidth: '100%',
+  minWidth: { md: 190 },
+  justifyContent: 'flex-start',
+  '& .MuiChip-label': {
+    display: 'block',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
 } as const;
 const publicationQueryKey = (enterpriseCode: string, profileCode: string) =>
   ['documentation-publication', enterpriseCode, profileCode] as const;
@@ -93,6 +145,16 @@ function sourceSummary(source: AxisDocumentationSource): string {
   );
 }
 
+function documentationSourceDisplayLabel(source: AxisDocumentationSource): string {
+  const label = source.label.toLocaleLowerCase();
+  if (label.includes('framework')) return 'Framework docs';
+  if (label.includes('axis')) return 'Axis docs';
+  if (label.includes('kickoff')) return 'Kickoff docs';
+  return /docs|documentation/iu.test(source.label)
+    ? source.label
+    : `${source.label} docs`;
+}
+
 function availabilityLabel(
   source: AxisDocumentationSource,
   bootstrap: AxisAuthenticatedBootstrap,
@@ -115,113 +177,238 @@ function coverageColor(
   return statusColors[coverage.status];
 }
 
-function DocumentationSourceCard({
+function DocumentationSourceListItem({
   bootstrap,
+  isLast = false,
   source,
 }: {
   readonly bootstrap: AxisAuthenticatedBootstrap;
+  readonly isLast?: boolean;
   readonly source: AxisDocumentationSource;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const coverage = source.dashboard.coverage;
   const available = availabilityLabel(source, bootstrap);
   const color = coverageColor(coverage);
+  const detailId = `documentation-source-detail-${source.id}`;
   return (
-    <Paper
-      component="article"
-      elevation={0}
+    <Box
+      component="li"
       sx={{
-        border: 1,
+        borderBottom: isLast ? 0 : 1,
         borderColor: 'divider',
-        display: 'grid',
-        gap: 1.5,
-        gridTemplateRows: {
-          xs: 'auto auto auto auto auto',
-          lg: `auto minmax(${String(dashboardCardSectionMinHeight.summary)}px, auto) minmax(${String(dashboardCardSectionMinHeight.metadata)}px, auto) auto auto`,
-        },
-        minHeight: 230,
-        p: dashboardCardPadding,
+        display: 'block',
+        listStyle: 'none',
+        px: { xs: 1.25, md: 1.5 },
+        py: { xs: 1.25, md: 1.35 },
       }}
     >
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
+      <Stack spacing={expanded ? dashboardContentGap : 1}>
         <Box
-          aria-hidden
           sx={{
             alignItems: 'center',
-            bgcolor: alpha(axisTokens.color.signatureGold, 0.18),
-            borderRadius: axisTokens.radius.medium,
-            color: 'primary.main',
-            display: 'inline-flex',
-            flex: '0 0 auto',
-            height: 44,
-            justifyContent: 'center',
-            width: 44,
+            columnGap: { xs: 1, md: 2, xl: 3 },
+            display: 'grid',
+            gridTemplateColumns: dashboardDocumentationSourceRowGrid,
+            minHeight: { md: 68 },
+            rowGap: 1,
           }}
         >
-          <ShellIcon name={source.dashboard.icon ?? 'content'} />
-        </Box>
-        <Box sx={{ minWidth: 0 }}>
-          <Typography variant="h5">{source.label}</Typography>
-          <Typography color="text.secondary" variant="body2">
-            {sourceTypeLabel(source)}
-          </Typography>
-        </Box>
-      </Stack>
-
-      <Typography color="text.secondary">{sourceSummary(source)}</Typography>
-
-      <Stack spacing={1}>
-        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
-          <Chip label={source.type === 'OPENAPI' ? 'OpenAPI' : 'CMS'} size="small" />
-          <Chip
-            label={`Owner: ${source.ownerModule}`}
-            size="small"
-            variant="outlined"
-          />
-          <Chip label={available} size="small" variant="outlined" />
-        </Stack>
-
-        {source.dashboard.audiences.length ? (
-          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
-            {source.dashboard.audiences.map((audience) => (
-              <Chip key={audience} label={audience} size="small" variant="outlined" />
-            ))}
+          <Stack
+            direction="row"
+            spacing={1.25}
+            sx={{ alignItems: 'center', minWidth: 0 }}
+          >
+            <Box
+              aria-hidden
+              sx={{
+                alignItems: 'center',
+                bgcolor: alpha(axisTokens.color.signatureGold, 0.16),
+                borderRadius: dashboardRadiusSmall,
+                color: 'primary.main',
+                display: 'inline-flex',
+                flex: '0 0 auto',
+                height: 40,
+                justifyContent: 'center',
+                width: 40,
+              }}
+            >
+              <ShellIcon fontSize="small" name={source.dashboard.icon ?? 'content'} />
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography noWrap title={source.label} variant="h6">
+                {source.label}
+              </Typography>
+              <Typography color="text.secondary" noWrap variant="body2">
+                {sourceTypeLabel(source)}
+              </Typography>
+            </Box>
           </Stack>
-        ) : null}
-      </Stack>
 
-      <Box>
-        <Stack
-          direction="row"
-          spacing={1}
-          sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}
-        >
-          <Typography variant="subtitle2">{coverageLabel(coverage)}</Typography>
-          {coverage ? (
-            <Chip
-              color={statusColors[coverage.status]}
-              label={statusLabels[coverage.status]}
+          <Stack spacing={0.75} sx={{ minWidth: 0 }}>
+            <Stack
+              direction="row"
+              spacing={0}
+              sx={{
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 0.75,
+                minWidth: 0,
+              }}
+            >
+              <Chip
+                label={source.type === 'OPENAPI' ? 'OpenAPI' : 'CMS'}
+                size="small"
+              />
+              <Chip label={available} size="small" variant="outlined" />
+              {coverage ? (
+                <Chip
+                  color={statusColors[coverage.status]}
+                  label={statusLabels[coverage.status]}
+                  size="small"
+                />
+              ) : null}
+            </Stack>
+            <Typography color="text.secondary" variant="caption">
+              {coverageLabel(coverage)}
+            </Typography>
+          </Stack>
+
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{
+              alignItems: 'center',
+              gridColumn: { xs: '1', md: '2', lg: 'auto' },
+              justifyContent: { xs: 'flex-start', md: 'flex-end' },
+              justifySelf: { xs: 'start', md: 'end' },
+              minWidth: 0,
+            }}
+          >
+            <Button
+              component={RouterLink}
               size="small"
-            />
-          ) : null}
-        </Stack>
-        <LinearProgress
-          aria-label={`${source.label} documentation coverage`}
-          color={color}
-          value={coverage?.score ?? 0}
-          variant="determinate"
-          sx={{ borderRadius: axisTokens.radius.pill, height: 8 }}
-        />
-      </Box>
+              sx={{
+                ...dashboardActionButtonSx,
+                minWidth: { xs: 0, sm: 184, lg: 204 },
+              }}
+              to={source.route}
+              variant="contained"
+            >
+              Open {source.label}
+            </Button>
+            <Tooltip
+              arrow
+              title={`${expanded ? 'Hide' : 'Show'} ${source.label} overview details`}
+            >
+              <IconButton
+                aria-controls={detailId}
+                aria-expanded={expanded}
+                aria-label={`${expanded ? 'Hide' : 'Show'} ${source.label} overview details`}
+                onClick={() => setExpanded((current) => !current)}
+                size="small"
+                sx={dashboardIconButtonSx}
+              >
+                <ShellIcon
+                  fontSize="small"
+                  name={expanded ? 'chevron-up' : 'chevron-down'}
+                />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        </Box>
 
-      <Button component={RouterLink} to={source.route} variant="contained">
-        Open {source.label}
-      </Button>
-    </Paper>
+        <Collapse id={detailId} in={expanded} timeout="auto" unmountOnExit>
+          <Stack spacing={dashboardContentGap} sx={{ pt: 1 }}>
+            <Divider />
+            <Typography color="text.secondary" variant="body2">
+              {sourceSummary(source)}
+            </Typography>
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+              <Chip
+                label={`Owner: ${source.ownerModule}`}
+                size="small"
+                variant="outlined"
+              />
+              {source.dashboard.audiences.map((audience) => (
+                <Chip
+                  key={audience}
+                  label={audience}
+                  size="small"
+                  variant="outlined"
+                />
+              ))}
+            </Stack>
+            <Box>
+              <Stack
+                direction="row"
+                spacing={1}
+                sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}
+              >
+                <Typography variant="subtitle2">{coverageLabel(coverage)}</Typography>
+                {coverage ? (
+                  <Chip
+                    color={statusColors[coverage.status]}
+                    label={statusLabels[coverage.status]}
+                    size="small"
+                  />
+                ) : null}
+              </Stack>
+              <LinearProgress
+                aria-label={`${source.label} documentation coverage`}
+                color={color}
+                value={coverage?.score ?? 0}
+                variant="determinate"
+                sx={{ borderRadius: dashboardRadiusPill, height: 8 }}
+              />
+            </Box>
+          </Stack>
+        </Collapse>
+      </Stack>
+    </Box>
   );
 }
 
 function documentationReadinessLabel(value: string | undefined): string {
-  return value ? value.replaceAll('_', ' ') : 'checking';
+  switch (value) {
+    case 'CURRENT':
+      return 'current';
+    case 'UPDATE_AVAILABLE':
+      return 'update available';
+    case 'NOT_INSTALLED':
+      return 'not installed';
+    case 'IMPORTING':
+      return 'importing';
+    case 'INVALID_RELEASE':
+      return 'invalid release';
+    default:
+      return value ? value.replaceAll('_', ' ').toLocaleLowerCase() : 'checking';
+  }
+}
+
+function documentationPublicationReadinessLabel(
+  readiness: DocumentationPublicationReadiness | undefined,
+): string {
+  switch (readiness) {
+    case 'NOT_IMPORTED':
+      return 'Not initialized';
+    case 'IMPORTED':
+      return 'Approval needed';
+    case 'PUBLICATION_PENDING':
+      return 'Approval in progress';
+    case 'READY':
+      return 'Online ready';
+    case 'REJECTED':
+      return 'Rejected';
+    case 'FAILED':
+      return 'Failed';
+    case 'ROLLED_BACK':
+      return 'Rolled back';
+    case 'RETIRED':
+      return 'Retired';
+    default:
+      return 'Checking';
+  }
 }
 
 function publicationReadinessColor(
@@ -231,6 +418,23 @@ function publicationReadinessColor(
   if (readiness === 'READY') return 'success';
   if (readiness === 'PUBLICATION_PENDING' || readiness === 'IMPORTED') return 'warning';
   return 'default';
+}
+
+function isActionablePublicationTask(task: { readonly status: string }): boolean {
+  return ['OPEN', 'CLAIMED', 'ESCALATED'].includes(task.status);
+}
+
+function documentationApprovalDecision(
+  approved: boolean,
+  source: AxisDocumentationSource,
+) {
+  return Object.freeze({
+    approved,
+    outcome: approved ? 'approved-from-documentation-dashboard' : 'rejected-from-documentation-dashboard',
+    reason: approved
+      ? `${source.label} documentation publication approved from Documentation publication center`
+      : `${source.label} documentation publication rejected from Documentation publication center`,
+  });
 }
 
 function DetailValue({
@@ -263,6 +467,106 @@ function networkErrorLabel(
   return error;
 }
 
+function isDocumentationImportAlreadyRunning(error: string | undefined): boolean {
+  return Boolean(error && /documentation update is already running|import is already running/iu.test(error));
+}
+
+function documentationOperatorGuidance({
+  hasAdministrationConnection,
+  hasInitializationProfile,
+  packOperation,
+  packState,
+  publicationReadiness,
+  transientImportRunning,
+}: {
+  readonly hasAdministrationConnection: boolean;
+  readonly hasInitializationProfile: boolean;
+  readonly packOperation: string | undefined;
+  readonly packState: string | undefined;
+  readonly publicationReadiness: DocumentationPublicationReadiness | undefined;
+  readonly transientImportRunning: boolean;
+}): {
+  readonly body: string;
+  readonly severity: 'error' | 'info' | 'success' | 'warning';
+  readonly title: string;
+} {
+  if (!hasAdministrationConnection) {
+    return {
+      severity: 'error',
+      title: 'Connect Platform BackOffice',
+      body: 'Axis cannot manage this documentation pack until the Platform BackOffice connection is available.',
+    };
+  }
+  if (!hasInitializationProfile) {
+    return {
+      severity: 'error',
+      title: 'Configure the initialization profile',
+      body: 'This source needs an initialization profile before Axis can install or publish its documentation pack.',
+    };
+  }
+  if (transientImportRunning || packState === 'IMPORTING') {
+    return {
+      severity: 'info',
+      title: 'Update is running',
+      body: 'Axis has already started the Staged documentation update. Wait for the refresh to complete, then continue with approval.',
+    };
+  }
+  if (packOperation === 'IMPORT') {
+    return {
+      severity: 'info',
+      title: 'Install the pack to Staged',
+      body: 'Import the documentation pack into Staged so reviewers can inspect generated pages, navigation, and evidence.',
+    };
+  }
+  if (packOperation === 'UPDATE') {
+    return {
+      severity: 'info',
+      title: 'Update the Staged pack',
+      body: 'Refresh the Staged copy first, then request approval for the updated documentation release.',
+    };
+  }
+  if (publicationReadiness === 'IMPORTED') {
+    return {
+      severity: 'warning',
+      title: 'Request approval for Online',
+      body: 'Click Request approval. Axis will create a Process task where an admin or reviewer can approve publication without bypassing governance.',
+    };
+  }
+  if (publicationReadiness === 'PUBLICATION_PENDING') {
+    return {
+      severity: 'info',
+      title: 'Pending review',
+      body: 'A reviewer can inspect the publication evidence and approve or reject the Online release.',
+    };
+  }
+  if (publicationReadiness === 'READY') {
+    return {
+      severity: 'success',
+      title: 'Open the documentation',
+      body: 'This source is Online-ready. The documentation link is available for the configured audience.',
+    };
+  }
+  if (publicationReadiness === 'FAILED') {
+    return {
+      severity: 'error',
+      title: 'Review the failure and retry',
+      body: 'Open the details, inspect the publication evidence, resolve the issue, and retry the approval request.',
+    };
+  }
+  if (publicationReadiness === 'REJECTED') {
+    return {
+      severity: 'warning',
+      title: 'Resolve reviewer feedback',
+      body: 'The request was rejected. Update the Staged source and submit a new approval request when it is ready.',
+    };
+  }
+  return {
+    severity: 'info',
+    title: 'Refresh status',
+    body: 'Axis is checking the Staged and Online states. Refresh if the latest backend action is not visible yet.',
+  };
+}
+
 function HeaderMetric({
   label,
   value,
@@ -288,6 +592,118 @@ function HeaderMetric({
   );
 }
 
+function DocumentationApprovalGuide() {
+  const steps = Object.freeze([
+    'Staged ready',
+    'Request approval',
+    'Reviewer decision',
+    'Online unlocked',
+  ]);
+
+  return (
+    <Box
+      sx={{
+        bgcolor: alpha(axisTokens.color.signatureGold, 0.04),
+        border: 1,
+        borderColor: 'divider',
+        borderRadius: dashboardRadiusSmall,
+        p: { xs: 1.25, md: 1.5 },
+      }}
+    >
+      <Stack spacing={1.25}>
+        <Box
+          sx={{
+            alignItems: { xs: 'stretch', md: 'center' },
+            display: 'grid',
+            gap: 1,
+            gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) auto' },
+          }}
+        >
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle2">Publication flow</Typography>
+            <Typography color="text.secondary" variant="body2">
+              Staged documentation becomes visible only after governed review.
+            </Typography>
+          </Box>
+          <Button
+            component={RouterLink}
+            size="small"
+            startIcon={<ShellIcon fontSize="small" name="tasks" />}
+            sx={{
+              ...dashboardActionButtonSx,
+              bgcolor: axisTokens.color.charcoal[900],
+              color: 'common.white',
+              justifySelf: { xs: 'start', lg: 'end' },
+              minWidth: { xs: 0, sm: 128 },
+              '& .MuiButton-startIcon': {
+                color: axisTokens.color.signatureGold,
+              },
+              '&:hover': {
+                bgcolor: axisTokens.color.charcoal[700],
+              },
+            }}
+            to={approvalTasksRoute}
+            variant="contained"
+          >
+            Review queue
+          </Button>
+        </Box>
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 0.75,
+            gridTemplateColumns: {
+              xs: 'repeat(2, minmax(0, 1fr))',
+              md: 'repeat(4, minmax(0, 1fr))',
+            },
+            minWidth: 0,
+          }}
+        >
+          {steps.map((step, index) => (
+            <Box
+              key={step}
+              sx={{
+                alignItems: 'center',
+                bgcolor: 'background.paper',
+                border: 1,
+                borderColor: 'divider',
+                borderRadius: dashboardRadiusSmall,
+                display: 'flex',
+                gap: 0.75,
+                minHeight: 32,
+                minWidth: 0,
+                px: 0.9,
+              }}
+            >
+              <Typography
+                aria-hidden
+                sx={{
+                  alignItems: 'center',
+                  bgcolor: alpha(axisTokens.color.signatureGold, 0.18),
+                  borderRadius: dashboardRadiusPill,
+                  color: 'text.primary',
+                  display: 'inline-flex',
+                  flex: '0 0 auto',
+                  fontWeight: 700,
+                  height: 20,
+                  justifyContent: 'center',
+                  width: 20,
+                }}
+                variant="caption"
+              >
+                {String(index + 1)}
+              </Typography>
+              <Typography noWrap sx={{ fontWeight: 700 }} variant="caption">
+                {step}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+      </Stack>
+    </Box>
+  );
+}
+
 type CmsDocumentationSource = Extract<
   AxisDocumentationSource,
   { readonly type: 'CMS' }
@@ -302,17 +718,26 @@ function isCmsDocumentationSource(
 function CmsDocumentationReadinessCard({
   accessToken,
   bootstrap,
+  isLast = false,
+  onPublicationStatusChange,
   runtime,
   source,
 }: {
   readonly accessToken: string;
   readonly bootstrap: AxisAuthenticatedBootstrap;
+  readonly isLast?: boolean;
+  readonly onPublicationStatusChange?:
+    | ((status: DocumentationPublicationStatus) => void | Promise<void>)
+    | undefined;
   readonly runtime: AxisRuntimeConfig;
   readonly source: Extract<AxisDocumentationSource, { readonly type: 'CMS' }>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const queryClient = useQueryClient();
   const administrationConnection = selectModuleConnection(bootstrap, 'backoffice');
+  const processConnection = selectModuleConnection(bootstrap, 'workflow', {
+    server: 'processServer',
+  });
   const initializationProfile = source.initializationProfile;
   const canCheck = Boolean(administrationConnection && initializationProfile);
   const packClient =
@@ -357,8 +782,38 @@ function CmsDocumentationReadinessCard({
     refetchInterval: (query) =>
       query.state.data?.readiness === 'PUBLICATION_PENDING' ? 2_000 : false,
   });
+  const workflowRef = publication.data?.publication?.workflowRef;
+  const approvalTasks = useQuery({
+    queryKey: [
+      'documentation-publication-approval-tasks',
+      runtime.enterpriseCode,
+      workflowRef ?? '',
+    ],
+    queryFn: () => {
+      if (!processConnection || !workflowRef) {
+        throw new Error('The governed Process approval task is unavailable');
+      }
+      return loadProcessTasks(
+        processConnection,
+        {
+          accessToken,
+          enterpriseCode: runtime.enterpriseCode,
+          timeoutMs: runtime.requestTimeoutMs,
+        },
+        workflowRef,
+      );
+    },
+    enabled: Boolean(
+      processConnection &&
+        workflowRef &&
+        publication.data?.readiness === 'PUBLICATION_PENDING',
+    ),
+    refetchInterval: (query) =>
+      query.state.data?.some(isActionablePublicationTask) ? 2_000 : false,
+  });
+  const actionableApprovalTask = approvalTasks.data?.find(isActionablePublicationTask);
   const reconcile = async () => {
-    await Promise.all([pack.refetch(), publication.refetch()]);
+    await Promise.all([pack.refetch(), publication.refetch(), approvalTasks.refetch()]);
   };
   const packMutation = useMutation({
     mutationFn: () => {
@@ -371,6 +826,11 @@ function CmsDocumentationReadinessCard({
         nextStatus,
       );
       await publication.refetch();
+    },
+    onError: async (mutationError) => {
+      if (!isDocumentationImportAlreadyRunning(mutationError.message)) return;
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 1_500));
+      await reconcile();
     },
   });
   const publicationMutation = useMutation({
@@ -385,18 +845,68 @@ function CmsDocumentationReadinessCard({
         publicationQueryKey(runtime.enterpriseCode, initializationProfile ?? ''),
         nextStatus,
       );
-      await pack.refetch();
+      await Promise.all([
+        pack.refetch(),
+        onPublicationStatusChange?.(nextStatus),
+      ]);
+    },
+  });
+  const approvalMutation = useMutation({
+    mutationFn: async (approved: boolean) => {
+      if (!processConnection || !workflowRef) {
+        throw new Error('The governed Process approval task is unavailable');
+      }
+      const tasks = await loadProcessTasks(
+        processConnection,
+        {
+          accessToken,
+          enterpriseCode: runtime.enterpriseCode,
+          timeoutMs: runtime.requestTimeoutMs,
+        },
+        workflowRef,
+      );
+      const task = tasks.find(isActionablePublicationTask);
+      if (!task) throw new Error('No actionable Process approval task was found');
+      await completeProcessTask(
+        processConnection,
+        {
+          accessToken,
+          enterpriseCode: runtime.enterpriseCode,
+          timeoutMs: runtime.requestTimeoutMs,
+        },
+        task.code,
+        documentationApprovalDecision(approved, source),
+      );
+      if (!publicationClient) {
+        throw new Error('Documentation publication is unavailable');
+      }
+      return publicationClient.getStatus();
+    },
+    onSuccess: async (nextStatus) => {
+      queryClient.setQueryData(
+        publicationQueryKey(runtime.enterpriseCode, initializationProfile ?? ''),
+        nextStatus,
+      );
+      await Promise.all([
+        pack.refetch(),
+        approvalTasks.refetch(),
+        onPublicationStatusChange?.(nextStatus),
+      ]);
     },
   });
   const packOperation = pack.data?.allowedOperations[0];
+  const publicationReadiness = publication.data?.readiness;
   const canPublish =
     pack.data?.state === 'CURRENT' &&
-    publication.data?.allowedActions.includes('INITIALIZE');
+    publication.data?.allowedActions.includes('INITIALIZE') &&
+    publicationReadiness !== 'PUBLICATION_PENDING' &&
+    publicationReadiness !== 'READY';
   const busy =
     pack.isPending ||
     publication.isPending ||
     packMutation.isPending ||
-    publicationMutation.isPending;
+    publicationMutation.isPending ||
+    approvalMutation.isPending;
   const error =
     pack.error instanceof Error
       ? pack.error.message
@@ -406,113 +916,175 @@ function CmsDocumentationReadinessCard({
           ? packMutation.error.message
           : publicationMutation.error instanceof Error
             ? publicationMutation.error.message
-            : undefined;
+            : approvalTasks.error instanceof Error
+              ? approvalTasks.error.message
+              : approvalMutation.error instanceof Error
+                ? approvalMutation.error.message
+                : undefined;
   const hasBlockingConfiguration = !administrationConnection || !initializationProfile;
   const hasStatusData = Boolean(pack.data || publication.data);
   const rowError = networkErrorLabel(error, hasStatusData);
+  const transientImportRunning = isDocumentationImportAlreadyRunning(rowError);
   const rowStatus =
-    rowError ??
+    (transientImportRunning ? documentationImportAlreadyRunningMessage : rowError) ??
     (!administrationConnection
       ? 'Platform BackOffice is unavailable.'
       : !initializationProfile
         ? 'Initialization profile is not configured.'
-        : publication.data?.readiness === 'PUBLICATION_PENDING'
-          ? 'Waiting for approval or Online activation.'
-          : undefined);
+        : publication.data?.readiness === 'IMPORTED'
+          ? 'Imported to Staged; request approval for Online readiness.'
+          : publication.data?.readiness === 'PUBLICATION_PENDING'
+            ? 'Approval or Online activation is in progress.'
+            : undefined);
+  const operatorGuidance = documentationOperatorGuidance({
+    hasAdministrationConnection: Boolean(administrationConnection),
+    hasInitializationProfile: Boolean(initializationProfile),
+    packOperation,
+    packState: pack.data?.state,
+    publicationReadiness: publication.data?.readiness,
+    transientImportRunning,
+  });
+  const canOpenApprovalTasks =
+    publication.data?.readiness === 'PUBLICATION_PENDING';
+  const approvalTaskCount = approvalTasks.data?.length ?? 0;
+  const canDecideInline = Boolean(actionableApprovalTask);
+  const canModifyStaged = Boolean(packOperation && !canOpenApprovalTasks);
+  const pendingApprovalStatus = canOpenApprovalTasks
+    ? [
+        `Pending review`,
+        `requested by ${publication.data?.publication?.requestedBy ?? 'unknown'}`,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : undefined;
+  const packActionLabel =
+    packOperation === 'UPDATE' ? 'Update staged' : 'Install staged';
+  const packActionTooltip =
+    packOperation === 'UPDATE'
+      ? (pack.data?.presentation.updateAction ?? 'Update documentation')
+      : (pack.data?.presentation.importAction ?? 'Install documentation');
+  const rowStatusText = rowError ?? pendingApprovalStatus ?? rowStatus;
+  const rowStatusIsError = Boolean((rowError && !transientImportRunning) || hasBlockingConfiguration);
 
   return (
-    <Paper
+    <Box
       component="li"
-      elevation={0}
       sx={{
-        border: 1,
+        borderBottom: isLast ? 0 : 1,
         borderColor: 'divider',
         display: 'block',
         listStyle: 'none',
-        p: { xs: 1.5, md: 2 },
+        px: { xs: 1.25, md: 1.5 },
+        py: { xs: 1.25, md: 1.35 },
       }}
     >
       <Stack spacing={expanded ? dashboardContentGap : 1}>
-        <Stack
-          direction={{ xs: 'column', lg: 'row' }}
-          spacing={1.5}
-          sx={{ alignItems: { xs: 'stretch', lg: 'center' } }}
+        <Box
+          sx={{
+            alignItems: { xs: 'stretch', md: 'center' },
+            columnGap: 1.5,
+            display: 'grid',
+            gridTemplateColumns: dashboardPublicationRowGrid,
+            minHeight: { lg: 76 },
+            rowGap: 1,
+          }}
         >
-          <Box sx={{ minWidth: 0, flex: '1 1 260px' }}>
-            <Typography sx={{ overflowWrap: 'anywhere' }} variant="h6">
-              {source.label}
+          <Box sx={{ minWidth: 0 }}>
+            <Typography
+              noWrap
+              title={documentationSourceDisplayLabel(source)}
+              variant="h6"
+            >
+              {documentationSourceDisplayLabel(source)}
             </Typography>
             <Typography
               color="text.secondary"
-              sx={{ overflowWrap: 'anywhere' }}
+              noWrap
+              title={`${source.packCode} · ${initializationProfile ?? 'profile unavailable'}`}
               variant="body2"
             >
-              {source.packCode} · {initializationProfile ?? 'profile unavailable'}
+              Staged-to-Online release
             </Typography>
           </Box>
 
           <Stack
-            direction="row"
-            spacing={1}
+            spacing={0.75}
             sx={{
-              alignItems: 'center',
-              flex: '0 1 auto',
-              flexWrap: 'wrap',
-              gap: 1,
+              alignItems: 'flex-start',
+              minWidth: 0,
             }}
           >
-            <Chip
-              label={`Staged: ${documentationReadinessLabel(pack.data?.state)}`}
-              size="small"
-              variant="outlined"
-            />
-            <Chip
-              color={publicationReadinessColor(publication.data?.readiness)}
-              label={`Online: ${documentationReadinessLabel(publication.data?.readiness)}`}
-              size="small"
-            />
-            {rowStatus ? (
+            <Stack
+              direction="column"
+              spacing={0.75}
+              sx={{
+                alignItems: 'flex-start',
+                flexWrap: 'nowrap',
+                gap: 0.75,
+                minWidth: 0,
+              }}
+            >
               <Chip
-                color={error || hasBlockingConfiguration ? 'error' : 'info'}
-                label={rowStatus}
+                label={`Staged: ${documentationReadinessLabel(pack.data?.state)}`}
                 size="small"
-                sx={{
-                  maxWidth: { xs: '100%', md: 320 },
-                  '& .MuiChip-label': {
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  },
-                }}
-                title={error ? `Latest backend request failed: ${error}` : undefined}
+                sx={dashboardStatusChipSx}
                 variant="outlined"
               />
+              <Chip
+                color={publicationReadinessColor(publication.data?.readiness)}
+                label={`Online: ${documentationPublicationReadinessLabel(
+                  publication.data?.readiness,
+                ).toLocaleLowerCase()}`}
+                size="small"
+                sx={dashboardStatusChipSx}
+              />
+            </Stack>
+            {rowStatusText ? (
+              <Typography
+                color={rowStatusIsError ? 'error' : 'text.secondary'}
+                sx={{ overflowWrap: 'anywhere' }}
+                title={error ? `Latest backend request failed: ${error}` : undefined}
+                variant="caption"
+              >
+                {rowStatusText}
+              </Typography>
             ) : null}
           </Stack>
 
           <Stack
             direction="row"
-            spacing={1}
+            spacing={0}
             sx={{
               alignItems: 'center',
-              flex: '0 0 auto',
-              flexWrap: 'wrap',
+              flexWrap: 'nowrap',
               gap: 1,
+              gridColumn: { xs: '1', lg: 'auto' },
               justifyContent: { xs: 'flex-start', lg: 'flex-end' },
+              justifySelf: { lg: 'stretch' },
+              minWidth: 0,
+              overflowX: { xs: 'auto', lg: 'visible' },
+              pb: { xs: 0.25, lg: 0 },
+              width: '100%',
             }}
           >
-            {packOperation ? (
-              <Button
-                disabled={busy}
-                onClick={() => packMutation.mutate()}
-                size="small"
-                variant="contained"
-              >
-                {packMutation.isPending
-                  ? 'Installing...'
-                  : packOperation === 'UPDATE'
-                    ? pack.data?.presentation.updateAction
-                    : pack.data?.presentation.importAction}
-              </Button>
+            {canModifyStaged ? (
+              <Tooltip arrow title={packActionTooltip}>
+                <span>
+                  <Button
+                    disabled={busy}
+                    onClick={() => packMutation.mutate()}
+                    size="small"
+                    sx={
+                      canDecideInline || canPublish
+                        ? dashboardSecondaryActionButtonSx
+                        : dashboardActionButtonSx
+                    }
+                    variant={canDecideInline || canPublish ? 'outlined' : 'contained'}
+                  >
+                    {packMutation.isPending ? 'Working...' : packActionLabel}
+                  </Button>
+                </span>
+              </Tooltip>
             ) : null}
             {canPublish ? (
               <Tooltip
@@ -524,7 +1096,7 @@ function CmsDocumentationReadinessCard({
                 }
               >
                 <span>
-                  <IconButton
+                  <Button
                     aria-label={
                       publication.data?.readiness === 'FAILED'
                         ? 'Retry publication'
@@ -533,18 +1105,50 @@ function CmsDocumentationReadinessCard({
                     disabled={busy}
                     onClick={() => publicationMutation.mutate()}
                     size="small"
+                    startIcon={<ShellIcon fontSize="small" name="approve" />}
                     sx={{
+                      ...dashboardActionButtonSx,
                       bgcolor: alpha(axisTokens.color.signatureGold, 0.22),
                       color: 'primary.main',
                       '&:hover': {
                         bgcolor: alpha(axisTokens.color.signatureGold, 0.34),
                       },
                     }}
+                    variant="contained"
                   >
-                    <ShellIcon fontSize="small" name="approve" />
-                  </IconButton>
+                    {publication.data?.readiness === 'FAILED'
+                      ? 'Retry publication'
+                      : 'Request approval'}
+                  </Button>
                 </span>
               </Tooltip>
+            ) : null}
+            {canDecideInline ? (
+              <>
+                <Button
+                  disabled={busy}
+                  onClick={() => approvalMutation.mutate(true)}
+                  size="small"
+                  startIcon={<ShellIcon fontSize="small" name="approve" />}
+                  sx={dashboardActionButtonSx}
+                  variant="contained"
+                >
+                  Approve
+                </Button>
+                <Button
+                  color="warning"
+                  disabled={busy}
+                  onClick={() => approvalMutation.mutate(false)}
+                  size="small"
+                  sx={{
+                    ...dashboardActionButtonSx,
+                    minWidth: { xs: 0, sm: 92 },
+                  }}
+                  variant="outlined"
+                >
+                  Reject
+                </Button>
+              </>
             ) : null}
             <Tooltip arrow title="Refresh status">
               <span>
@@ -553,6 +1157,7 @@ function CmsDocumentationReadinessCard({
                   disabled={busy || !canCheck}
                   onClick={() => void reconcile()}
                   size="small"
+                  sx={dashboardIconButtonSx}
                 >
                   <ShellIcon fontSize="small" name="refresh" />
                 </IconButton>
@@ -568,6 +1173,7 @@ function CmsDocumentationReadinessCard({
                   aria-label={`${expanded ? 'Hide' : 'Show'} ${source.label} details`}
                   onClick={() => setExpanded((current) => !current)}
                   size="small"
+                  sx={dashboardIconButtonSx}
                 >
                   <ShellIcon
                     fontSize="small"
@@ -577,7 +1183,41 @@ function CmsDocumentationReadinessCard({
               </span>
             </Tooltip>
           </Stack>
-        </Stack>
+        </Box>
+
+        {!canOpenApprovalTasks ? (
+          <Box
+            sx={{
+              bgcolor:
+                operatorGuidance.severity === 'error'
+                  ? alpha(axisTokens.color.error, 0.06)
+                  : operatorGuidance.severity === 'success'
+                    ? alpha(axisTokens.color.success, 0.06)
+                    : operatorGuidance.severity === 'warning'
+                      ? alpha(axisTokens.color.warning, 0.06)
+                      : alpha(axisTokens.color.info, 0.05),
+              borderLeft: 3,
+              borderColor:
+                operatorGuidance.severity === 'error'
+                  ? axisTokens.color.error
+                  : operatorGuidance.severity === 'success'
+                    ? axisTokens.color.success
+                    : operatorGuidance.severity === 'warning'
+                      ? axisTokens.color.warning
+                      : axisTokens.color.info,
+              borderRadius: dashboardRadiusSmall,
+              px: 1.25,
+              py: 1,
+            }}
+          >
+            <Typography sx={{ fontWeight: 700 }} variant="body2">
+              Next step: {operatorGuidance.title}
+            </Typography>
+            <Typography color="text.secondary" variant="body2">
+              {operatorGuidance.body}
+            </Typography>
+          </Box>
+        ) : null}
 
         <Collapse in={expanded} timeout="auto" unmountOnExit>
           <Stack spacing={dashboardContentGap} sx={{ pt: 1 }}>
@@ -596,9 +1236,19 @@ function CmsDocumentationReadinessCard({
             {error ? (
               <Alert severity="error">Latest backend request failed: {error}</Alert>
             ) : null}
-            {publication.data?.readiness === 'PUBLICATION_PENDING' ? (
+            {publication.data?.readiness === 'IMPORTED' ? (
+              <Alert severity="warning">
+                The pack is installed in Staged. Create the approval request before
+                opening this documentation area for Online readers.
+              </Alert>
+            ) : publication.data?.readiness === 'PUBLICATION_PENDING' ? (
               <Alert severity="info">
-                Publication is waiting for approval or Online activation.
+                Review before approval: publication{' '}
+                {publication.data?.publication?.code ?? 'pending'}, workflow{' '}
+                {workflowRef ?? 'unavailable'}, requested by{' '}
+                {publication.data?.publication?.requestedBy ?? 'unknown'}.
+                {' '}Approve to move this pack Online, or reject to keep the
+                current Online version unchanged.
               </Alert>
             ) : null}
 
@@ -637,6 +1287,12 @@ function CmsDocumentationReadinessCard({
                 value={publication.data?.releaseVersion}
               />
               <DetailValue
+                label="Online readiness"
+                value={documentationPublicationReadinessLabel(
+                  publication.data?.readiness,
+                )}
+              />
+              <DetailValue
                 label="Release status"
                 value={publication.data?.releaseStatus}
               />
@@ -660,13 +1316,14 @@ function CmsDocumentationReadinessCard({
           </Stack>
         </Collapse>
       </Stack>
-    </Paper>
+    </Box>
   );
 }
 
 export function DocumentationDashboard({
   accessToken,
   bootstrap,
+  onPublicationStatusChange,
   runtime,
 }: DocumentationDashboardProps) {
   const sources = bootstrap.documentationSources;
@@ -706,12 +1363,35 @@ export function DocumentationDashboard({
   const readyCmsCount = publicationQueries.filter(
     (query) => query.data?.readiness === 'READY',
   ).length;
+  const pendingCmsCount = publicationQueries.filter(
+    (query) => query.data?.readiness === 'PUBLICATION_PENDING',
+  ).length;
+  const approvalNeededCmsCount = publicationQueries.filter(
+    (query) => query.data?.readiness === 'IMPORTED',
+  ).length;
+  const blockedCmsCount = publicationQueries.filter((query) =>
+    ['FAILED', 'REJECTED'].includes(query.data?.readiness ?? ''),
+  ).length;
   const publicationChecking = publicationQueries.some((query) => query.isPending);
   const documentationVisible =
     cmsSources.length === 0 ||
     (managedCmsSources.length === cmsSources.length &&
       managedCmsSources.length > 0 &&
       readyCmsCount === managedCmsSources.length);
+  const readyCmsProfiles = new Set(
+    publicationQueries
+      .map((query) =>
+        query.data?.readiness === 'READY' ? query.data.profileCode : undefined,
+      )
+      .filter((profileCode): profileCode is string => Boolean(profileCode)),
+  );
+  const visibleDocumentationSources = sources.filter((source) => {
+    if (source.type === 'OPENAPI') return true;
+    return Boolean(
+      source.initializationProfile &&
+        readyCmsProfiles.has(source.initializationProfile),
+    );
+  });
   const measured = sources.filter((source) => source.dashboard.coverage);
   const averageCoverage = measured.length
     ? Math.round(
@@ -721,6 +1401,16 @@ export function DocumentationDashboard({
         ) / measured.length,
       )
     : undefined;
+  const publicationSummary =
+    blockedCmsCount > 0
+      ? `${String(blockedCmsCount)} documentation source${blockedCmsCount === 1 ? '' : 's'} need attention before Online publication can continue.`
+      : pendingCmsCount > 0
+        ? `${String(pendingCmsCount)} documentation source${pendingCmsCount === 1 ? '' : 's'} waiting for reviewer approval.`
+        : approvalNeededCmsCount > 0
+          ? `${String(approvalNeededCmsCount)} documentation source${approvalNeededCmsCount === 1 ? '' : 's'} ready for approval request.`
+          : publicationChecking
+            ? 'Axis is checking documentation publication state.'
+            : 'Documentation links remain locked until every publishable source is Online-ready.';
 
   return (
     <Stack spacing={dashboardComponentGap}>
@@ -728,7 +1418,15 @@ export function DocumentationDashboard({
         <Paper
           component="section"
           elevation={0}
-          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+          sx={{
+            border: 1,
+            borderColor: 'divider',
+            boxSizing: 'border-box',
+            minWidth: 0,
+            overflow: 'hidden',
+            p: dashboardCardPadding,
+            width: '100%',
+          }}
         >
           <Stack spacing={dashboardContentGap}>
             <Box
@@ -741,21 +1439,22 @@ export function DocumentationDashboard({
             >
               <Box sx={{ minWidth: 0 }}>
                 <Typography sx={{ lineHeight: 1.15 }} variant="h4">
-                  Documentation initialization
+                  Documentation publication center
                 </Typography>
                 <Typography color="text.secondary" sx={{ mt: 0.75, maxWidth: 900 }}>
-                  Install documentation packs to Staged and publish them Online before
-                  product documentation links are opened.
+                  Prepare Staged documentation, route approval, and open Online CMS
+                  links when each publishable source is ready. API references are
+                  available directly from live runtime contracts.
                 </Typography>
               </Box>
               <Box
-                aria-label="Documentation initialization summary"
+                aria-label="Documentation publication summary"
                 sx={{
                   alignSelf: { xs: 'stretch', lg: 'start' },
                   bgcolor: alpha(axisTokens.color.signatureGold, 0.08),
                   border: 1,
                   borderColor: 'divider',
-                  borderRadius: axisTokens.radius.medium,
+                  borderRadius: dashboardRadiusMedium,
                   display: 'grid',
                   gridTemplateColumns: {
                     xs: 'repeat(2, minmax(0, 1fr))',
@@ -776,7 +1475,7 @@ export function DocumentationDashboard({
                 }}
               >
                 <HeaderMetric
-                  label="Online"
+                  label="Online-ready"
                   value={`${String(readyCmsCount)} / ${String(cmsSources.length)}`}
                 />
                 <HeaderMetric label="API sources" value={String(apiSources.length)} />
@@ -790,58 +1489,78 @@ export function DocumentationDashboard({
             </Box>
             {!documentationVisible ? (
               <Alert severity={publicationChecking ? 'info' : 'warning'}>
-                Framework, Swaggers, Axis, and Kickoff documentation areas stay locked
-                until the publishable documentation source is Online-ready.
+                {publicationSummary}
               </Alert>
             ) : (
               <Alert severity="success">
-                Documentation is Online-ready. The documentation areas below are now
-                available.
+                All documentation sources are Online-ready. The documentation areas
+                below are now available.
               </Alert>
             )}
-            <Stack
-              component="ul"
-              spacing={1.25}
+            <DocumentationApprovalGuide />
+            <Paper
+              component="section"
+              elevation={0}
               sx={{
-                listStyle: 'none',
-                m: 0,
-                p: 0,
+                border: 1,
+                borderColor: 'divider',
+                borderRadius: dashboardRadiusSmall,
+                boxSizing: 'border-box',
+                minWidth: 0,
+                overflow: 'hidden',
+                width: '100%',
               }}
             >
-              {cmsSources.map((source) => (
-                <CmsDocumentationReadinessCard
-                  accessToken={accessToken}
-                  bootstrap={bootstrap}
-                  key={source.id}
-                  runtime={runtime}
-                  source={source}
-                />
-              ))}
-            </Stack>
+              <Box
+                component="ul"
+                sx={{
+                  listStyle: 'none',
+                  m: 0,
+                  p: 0,
+                }}
+              >
+                {cmsSources.map((source, index) => (
+                  <CmsDocumentationReadinessCard
+                    accessToken={accessToken}
+                    bootstrap={bootstrap}
+                    isLast={index === cmsSources.length - 1}
+                    key={source.id}
+                    onPublicationStatusChange={onPublicationStatusChange}
+                    runtime={runtime}
+                    source={source}
+                  />
+                ))}
+              </Box>
+            </Paper>
           </Stack>
         </Paper>
       ) : null}
 
-      {documentationVisible ? (
-        <Box
+      {visibleDocumentationSources.length ? (
+        <Paper
           component="section"
+          elevation={0}
           sx={{
-            display: 'grid',
-            gap: dashboardComponentGap,
-            gridTemplateColumns: {
-              xs: '1fr',
-              lg: 'repeat(3, minmax(0, 1fr))',
-            },
+            border: 1,
+            borderColor: 'divider',
+            borderRadius: dashboardRadiusSmall,
+            boxSizing: 'border-box',
+            minWidth: 0,
+            overflow: 'hidden',
+            width: '100%',
           }}
         >
-          {sources.map((source) => (
-            <DocumentationSourceCard
-              bootstrap={bootstrap}
-              key={source.id}
-              source={source}
-            />
-          ))}
-        </Box>
+          <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0 }}>
+            {visibleDocumentationSources.map((source, index) => (
+              <DocumentationSourceListItem
+                bootstrap={bootstrap}
+                isLast={index === visibleDocumentationSources.length - 1}
+                key={source.id}
+                source={source}
+              />
+            ))}
+          </Box>
+        </Paper>
       ) : null}
     </Stack>
   );

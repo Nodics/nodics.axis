@@ -536,6 +536,97 @@ describe('Axis bootstrap clients', () => {
     ).rejects.toThrow(/workbench target schema is unsafe/i);
   });
 
+  it('preserves allowlisted documentation governance routes from navigation targets', async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            ...authenticatedData,
+            catalogue: {
+              cms: {
+                ...authenticatedData.catalogue.cms,
+                navigation: [
+                  {
+                    id: 'documentation-governance-readiness',
+                    label: 'Governance and Readiness',
+                    route: '/content/designer/documentation/governance',
+                    workbenchTarget: {
+                      moduleName: 'cms',
+                      schemaName: 'cmsDocumentationPublicationState',
+                      governanceService: 'DefaultCmsDocumentationGovernanceService',
+                      authoringModelRoute: '/documentation/governance/model',
+                      validationRoute: '/documentation/governance/validate',
+                      renderProjectionRoute:
+                        '/documentation/governance/render-projection',
+                      searchRoute: '/documentation/governance/search',
+                      publicationHandoffRoute:
+                        '/documentation/governance/publication-handoff',
+                      migrationPlanRoute: '/documentation/governance/migration-plan',
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    const result = await loadAuthenticatedBootstrap(
+      'https://backoffice.example.com',
+      1,
+      'employee-access',
+      10_000,
+      request,
+    );
+
+    expect(result.navigation[0]?.workbenchTarget).toMatchObject({
+      governanceService: 'DefaultCmsDocumentationGovernanceService',
+      validationRoute: '/documentation/governance/validate',
+      publicationHandoffRoute: '/documentation/governance/publication-handoff',
+    });
+  });
+
+  it('rejects unsafe documentation governance routes inside navigation targets', async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            ...authenticatedData,
+            catalogue: {
+              cms: {
+                ...authenticatedData.catalogue.cms,
+                navigation: [
+                  {
+                    id: 'documentation-governance-readiness',
+                    label: 'Governance and Readiness',
+                    route: '/content/designer/documentation/governance',
+                    workbenchTarget: {
+                      moduleName: 'cms',
+                      schemaName: 'cmsDocumentationPublicationState',
+                      validationRoute: 'https://evil.example/validate',
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(
+      loadAuthenticatedBootstrap(
+        'https://backoffice.example.com',
+        1,
+        'employee-access',
+        10_000,
+        request,
+      ),
+    ).rejects.toThrow(/application-relative route/i);
+  });
+
   it('rejects unsafe navigation help documentation targets', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(

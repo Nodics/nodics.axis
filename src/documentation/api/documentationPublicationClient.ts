@@ -24,6 +24,9 @@ export interface DocumentationPublicationStatus {
     code: string;
     state: string;
     revision: number;
+    requestedBy?: string;
+    targetVersion?: string;
+    workflowRef?: string;
     correlationId?: string;
   }>;
 }
@@ -92,6 +95,15 @@ function parse(value: unknown): DocumentationPublicationStatus {
             code: text(publication.code, 'Publication code'),
             state: text(publication.state, 'Publication state'),
             revision: Number(publication.revision),
+            ...(typeof publication.requestedBy === 'string'
+              ? { requestedBy: publication.requestedBy }
+              : {}),
+            ...(typeof publication.targetVersion === 'string'
+              ? { targetVersion: publication.targetVersion }
+              : {}),
+            ...(typeof publication.workflowRef === 'string'
+              ? { workflowRef: publication.workflowRef }
+              : {}),
             ...(typeof publication.correlationId === 'string'
               ? { correlationId: publication.correlationId }
               : {}),

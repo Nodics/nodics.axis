@@ -559,7 +559,7 @@ const publishingActionVisibilityRules = Object.freeze([
   Object.freeze({
     title: 'Approve and reject',
     detail:
-      'Show to approvers and enterprise admins only for actionable Process tasks; disable when the signed-in actor created the request unless emergency override is explicitly permissioned.',
+      'Show to approvers and enterprise admins only for actionable Process tasks; enable decisions by tenant scope, task state, and explicit approval permission.',
   }),
   Object.freeze({
     title: 'Rollback, restore, retire',
@@ -667,8 +667,6 @@ function workflowConnection(
   bootstrap: AxisAuthenticatedBootstrap,
 ): AxisModuleConnection | undefined {
   return (
-    selectModuleConnection(bootstrap, 'flowApi', { server: 'processServer' }) ??
-    selectModuleConnection(bootstrap, 'flowApi') ??
     selectModuleConnection(bootstrap, 'workflow', { server: 'processServer' }) ??
     selectModuleConnection(bootstrap, 'workflow')
   );

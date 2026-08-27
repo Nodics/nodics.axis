@@ -47,6 +47,13 @@ export interface AxisWorkbenchTarget {
   readonly moduleName: string;
   readonly schemaName: string;
   readonly mode?: 'create' | undefined;
+  readonly governanceService?: string | undefined;
+  readonly authoringModelRoute?: string | undefined;
+  readonly validationRoute?: string | undefined;
+  readonly renderProjectionRoute?: string | undefined;
+  readonly searchRoute?: string | undefined;
+  readonly publicationHandoffRoute?: string | undefined;
+  readonly migrationPlanRoute?: string | undefined;
 }
 
 export interface AxisWorkbenchPresentationQuickFilter {
@@ -500,6 +507,60 @@ function parseWorkbenchTarget(
   if (mode !== undefined && mode !== 'create') {
     throw new Error(`${moduleName} navigation workbench target mode is unsupported`);
   }
+  const governanceService = optionalText(
+    target.governanceService,
+    `${moduleName} navigation documentation governance service`,
+  );
+  if (
+    governanceService !== undefined &&
+    !/^[A-Za-z][A-Za-z0-9._-]{0,127}$/.test(governanceService)
+  ) {
+    throw new Error(
+      `${moduleName} navigation documentation governance service is unsafe`,
+    );
+  }
+  const authoringModelRoute =
+    target.authoringModelRoute === undefined
+      ? undefined
+      : relativeRoute(
+          target.authoringModelRoute,
+          `${moduleName} navigation documentation authoring model route`,
+        );
+  const validationRoute =
+    target.validationRoute === undefined
+      ? undefined
+      : relativeRoute(
+          target.validationRoute,
+          `${moduleName} navigation documentation validation route`,
+        );
+  const renderProjectionRoute =
+    target.renderProjectionRoute === undefined
+      ? undefined
+      : relativeRoute(
+          target.renderProjectionRoute,
+          `${moduleName} navigation documentation render projection route`,
+        );
+  const searchRoute =
+    target.searchRoute === undefined
+      ? undefined
+      : relativeRoute(
+          target.searchRoute,
+          `${moduleName} navigation documentation search route`,
+        );
+  const publicationHandoffRoute =
+    target.publicationHandoffRoute === undefined
+      ? undefined
+      : relativeRoute(
+          target.publicationHandoffRoute,
+          `${moduleName} navigation documentation publication handoff route`,
+        );
+  const migrationPlanRoute =
+    target.migrationPlanRoute === undefined
+      ? undefined
+      : relativeRoute(
+          target.migrationPlanRoute,
+          `${moduleName} navigation documentation migration plan route`,
+        );
   return Object.freeze({
     moduleName: text(
       target.moduleName,
@@ -507,6 +568,13 @@ function parseWorkbenchTarget(
     ),
     schemaName,
     ...(mode === undefined ? {} : { mode }),
+    ...(governanceService === undefined ? {} : { governanceService }),
+    ...(authoringModelRoute === undefined ? {} : { authoringModelRoute }),
+    ...(validationRoute === undefined ? {} : { validationRoute }),
+    ...(renderProjectionRoute === undefined ? {} : { renderProjectionRoute }),
+    ...(searchRoute === undefined ? {} : { searchRoute }),
+    ...(publicationHandoffRoute === undefined ? {} : { publicationHandoffRoute }),
+    ...(migrationPlanRoute === undefined ? {} : { migrationPlanRoute }),
   });
 }
 

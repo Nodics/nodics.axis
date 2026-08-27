@@ -452,6 +452,13 @@ export function DocumentationArticleRenderer({ component }: CmsComponentRenderer
   const title = stringProperty(component, 'title', 'Documentation');
   const category = stringProperty(component, 'category');
   const audience = stringList(arrayProperty(component, 'audience'), 20);
+  const visualRequirements = stringList(
+    arrayProperty(component, 'visualRequirements'),
+    20,
+  );
+  const maturityState = stringProperty(component, 'maturityState');
+  const accessMode = stringProperty(component, 'accessMode');
+  const lifecycleState = stringProperty(component, 'lifecycleState');
   const headings = arrayProperty(component, 'headings')
     .slice(0, 100)
     .flatMap((heading) => {
@@ -511,6 +518,13 @@ export function DocumentationArticleRenderer({ component }: CmsComponentRenderer
           {audience.map((item) => (
             <Chip key={item} label={item} size="small" variant="outlined" />
           ))}
+          {maturityState ? <Chip label={maturityState} size="small" /> : null}
+          {accessMode ? (
+            <Chip label={accessMode} size="small" variant="outlined" />
+          ) : null}
+          {lifecycleState ? (
+            <Chip label={lifecycleState} size="small" variant="outlined" />
+          ) : null}
         </Box>
         <Typography
           component="h1"
@@ -525,6 +539,32 @@ export function DocumentationArticleRenderer({ component }: CmsComponentRenderer
         </Typography>
       </Stack>
       <Divider />
+      {visualRequirements.length > 0 ? (
+        <Box
+          aria-label="Visual requirements"
+          sx={{
+            alignItems: 'center',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 1,
+          }}
+        >
+          <Typography
+            sx={{ fontWeight: axisTokens.typography.weight.bold }}
+            variant="body2"
+          >
+            Visual contract
+          </Typography>
+          {visualRequirements.map((requirement) => (
+            <Chip
+              key={requirement}
+              label={requirement}
+              size="small"
+              variant="outlined"
+            />
+          ))}
+        </Box>
+      ) : null}
       {headings.length > 0 ? (
         <Box
           component="nav"
