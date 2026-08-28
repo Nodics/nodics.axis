@@ -44,6 +44,7 @@ import {
   createApplicationInitializationClient,
   type ApplicationInitializationProfile,
   type ApplicationInitializationStatus,
+  type ApplicationPreparationStep,
 } from './api/applicationInitializationClient';
 
 interface SetupAcceleratorsRoutePageProps {
@@ -142,6 +143,34 @@ function preparationBlocked(
   status: ApplicationInitializationStatus | undefined,
 ): boolean {
   return status?.preparation?.status === 'BLOCKED';
+}
+
+function blockedPreparationStep(
+  status: ApplicationInitializationStatus | undefined,
+): ApplicationPreparationStep | undefined {
+  return status?.preparation?.steps.find((step) =>
+    ['NOT_REGISTERED', 'NOT_ACTIVE', 'RUNTIME_OFFLINE', 'UNAVAILABLE', 'FAILED'].includes(
+      step.status ?? '',
+    ),
+  );
+}
+
+function blockedActionSummary(
+  status: ApplicationInitializationStatus | undefined,
+): string {
+  const step = blockedPreparationStep(status);
+  if (!step) return 'Required setup needs repair before go-live.';
+  const label = step.description || step.label || step.kind || friendlyPackageLabel(step.code);
+  if (step.type === 'FUNCTIONAL_MODULE') {
+    return `Register and activate ${label} in Module Registry before go-live.`;
+  }
+  if (step.type === 'MEDIA_ASSET_MANIFEST') {
+    return `${step.kind || 'Media setup'} needs developer repair before go-live.`;
+  }
+  if (step.status === 'UNAVAILABLE') {
+    return `${step.kind || 'Setup data'} needs developer repair before go-live.`;
+  }
+  return `${step.kind || 'Setup data'} needs attention before go-live.`;
 }
 
 function setupActionLabel(
@@ -305,16 +334,7 @@ function nextActionText(
 ): string {
   if (!status) return 'Status unavailable';
   if (preparationBlocked(status)) {
-    const blockedStep = status.preparation?.steps.find((step) =>
-      ['NOT_REGISTERED', 'NOT_ACTIVE', 'RUNTIME_OFFLINE', 'UNAVAILABLE', 'FAILED'].includes(
-        step.status ?? '',
-      ),
-    );
-    if (blockedStep?.message) return blockedStep.message;
-    if (blockedStep?.type === 'FUNCTIONAL_MODULE') {
-      return `${blockedStep.label || blockedStep.kind} must be registered and active in Module Registry before this application can go live.`;
-    }
-    return 'Required setup must be repaired before this application can go live.';
+    return blockedActionSummary(status);
   }
   if (preparationNeedsAction(status)) {
     return 'Required setup data needs preparation.';
@@ -1207,6 +1227,18 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                                   : 'outlined'
                                               }
                                             />
+                                            {step.message ? (
+                                              <Typography
+                                                color="text.secondary"
+                                                sx={{
+                                                  gridColumn: { md: '1 / -1' },
+                                                  overflowWrap: 'anywhere',
+                                                }}
+                                                variant="caption"
+                                              >
+                                                {step.message}
+                                              </Typography>
+                                            ) : null}
                                           </Box>
                                         ))}
                                       </Stack>
