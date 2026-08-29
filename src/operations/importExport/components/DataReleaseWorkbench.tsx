@@ -5,8 +5,8 @@ import {
   Checkbox,
   Chip,
   CircularProgress,
-  Divider,
   FormControlLabel,
+  LinearProgress,
   Paper,
   Stack,
   Typography,
@@ -17,6 +17,7 @@ import { useState } from 'react';
 import { ShellIcon } from '../../../app/shell/ShellIcon';
 import type { DataRelease, DataReleaseType } from '../api/dataReleaseContracts';
 import {
+  compareDataReleases,
   isInstallableStatus,
   releaseDisabledReason,
   releaseKey,
@@ -54,10 +55,44 @@ interface DataReleaseWorkbenchProps {
   readonly onValidateSelected: () => void;
 }
 
+type ReleaseGroupTone = 'action' | 'warning' | 'success';
+
 function releaseActionGroup(release: DataRelease): 'available' | 'current' | 'repair' {
   if (isInstallableStatus(release.status)) return 'available';
   if (release.status === 'CURRENT') return 'current';
   return 'repair';
+}
+
+function releaseGroupIcon(groupId: string): string {
+  if (groupId === 'available') return 'import';
+  if (groupId === 'repair') return 'info';
+  return 'approve';
+}
+
+function releaseStatusChipColor(release: DataRelease) {
+  if (release.status === 'CURRENT') return 'success' as const;
+  if (release.status === 'INVALID_RELEASE') return 'error' as const;
+  if (release.status === 'FAILED') return 'warning' as const;
+  return 'default' as const;
+}
+
+function releaseGroupToneStyles(tone: ReleaseGroupTone) {
+  if (tone === 'warning') {
+    return {
+      palette: 'warning' as const,
+      severity: 'warning' as const,
+    };
+  }
+  if (tone === 'success') {
+    return {
+      palette: 'success' as const,
+      severity: 'success' as const,
+    };
+  }
+  return {
+    palette: 'primary' as const,
+    severity: 'info' as const,
+  };
 }
 
 function releaseSelectionLabel(release: DataRelease): string {
@@ -89,32 +124,36 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
   const groupedReleases = [
     {
       id: 'available',
-      heading: 'Available to install or update',
-      help: 'These releases need action and can be selected for validation or installation.',
-      releases: props.visibleReleases.filter(
-        (release) => releaseActionGroup(release) === 'available',
-      ),
-      tone: 'default',
+      heading: 'Needs action',
+      help: 'Install or update these releases before dependent business journeys run.',
+      releases: props.visibleReleases
+        .filter((release) => releaseActionGroup(release) === 'available')
+        .sort(compareDataReleases),
+      tone: 'action' as const,
     },
     {
       id: 'repair',
       heading: 'Requires repair',
       help: 'These releases are blocked by their manifest or runtime contract. Repair the owning module data release, rebuild, restart, and refresh this page.',
-      releases: props.visibleReleases.filter(
-        (release) => releaseActionGroup(release) === 'repair',
-      ),
-      tone: 'warning',
+      releases: props.visibleReleases
+        .filter((release) => releaseActionGroup(release) === 'repair')
+        .sort(compareDataReleases),
+      tone: 'warning' as const,
     },
     {
       id: 'current',
-      heading: 'Installed / already current',
+      heading: 'Already current',
       help: 'These releases are already installed at the available version and are shown for audit only.',
-      releases: props.visibleReleases.filter(
-        (release) => releaseActionGroup(release) === 'current',
-      ),
-      tone: 'default',
+      releases: props.visibleReleases
+        .filter((release) => releaseActionGroup(release) === 'current')
+        .sort(compareDataReleases),
+      tone: 'success' as const,
     },
   ].filter((group) => group.releases.length > 0);
+  const readinessPercent =
+    props.summary.total > 0
+      ? Math.round((props.summary.current / props.summary.total) * 100)
+      : 0;
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -132,46 +171,137 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
 
   return (
     <>
-      <Alert severity={props.releaseType === 'sample' ? 'warning' : 'info'}>
-        <strong>{typeCopy[props.releaseType].label}.</strong>{' '}
-        {typeCopy[props.releaseType].help} {typeCopy[props.releaseType].warning}
-      </Alert>
-
-      <Stack
-        direction={{ xs: 'column', sm: 'row' }}
-        sx={{ gap: 1 }}
-        aria-label="Data release summary"
+      <Paper
+        variant="outlined"
+        sx={(theme) => ({
+          bgcolor:
+            props.releaseType === 'sample'
+              ? alpha(theme.palette.warning.main, 0.06)
+              : alpha(theme.palette.primary.main, 0.045),
+          borderColor:
+            props.releaseType === 'sample'
+              ? alpha(theme.palette.warning.main, 0.28)
+              : alpha(theme.palette.primary.main, 0.16),
+          p: { xs: 1.5, md: 2 },
+        })}
       >
-        {(
-          [
-            ['Releases', props.summary.total],
-            ['Current', props.summary.current],
-            ['Needs action', props.summary.installable],
-            ['Selected', props.summary.selected],
-          ] satisfies ReadonlyArray<readonly [string, number]>
-        ).map(([label, value]) => (
-          <Paper
-            key={label}
-            elevation={0}
+        <Stack spacing={1.5}>
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
             sx={{
-              bgcolor: 'background.default',
-              border: 1,
-              borderColor: 'divider',
-              flex: 1,
-              minWidth: { sm: 130 },
-              px: 1.5,
-              py: 1.1,
+              alignItems: { md: 'center' },
+              gap: 1.5,
+              justifyContent: 'space-between',
             }}
           >
-            <Typography color="text.secondary" variant="caption">
-              {label}
-            </Typography>
-            <Typography component="p" variant="h5">
-              {value.toString()}
-            </Typography>
-          </Paper>
-        ))}
-      </Stack>
+            <Stack direction="row" sx={{ alignItems: 'center', gap: 1.25 }}>
+              <Box
+                aria-hidden="true"
+                sx={(theme) => ({
+                  alignItems: 'center',
+                  bgcolor: alpha(theme.palette.primary.main, 0.12),
+                  border: 1,
+                  borderColor: alpha(theme.palette.primary.main, 0.22),
+                  borderRadius: '8px',
+                  color: 'primary.main',
+                  display: 'inline-flex',
+                  flexShrink: 0,
+                  height: 44,
+                  justifyContent: 'center',
+                  width: 44,
+                })}
+              >
+                <ShellIcon name="import" />
+              </Box>
+              <Box>
+                <Typography component="h2" variant="h6">
+                  {typeCopy[props.releaseType].label}
+                </Typography>
+                <Typography color="text.secondary" sx={{ maxWidth: 980 }}>
+                  {typeCopy[props.releaseType].help}{' '}
+                  {typeCopy[props.releaseType].warning}
+                </Typography>
+              </Box>
+            </Stack>
+            <Chip
+              label={`${readinessPercent.toString()}% current`}
+              color={readinessPercent === 100 ? 'success' : 'default'}
+              variant={readinessPercent === 100 ? 'filled' : 'outlined'}
+            />
+          </Stack>
+          <LinearProgress
+            aria-label={`${typeCopy[props.releaseType].label} readiness`}
+            value={readinessPercent}
+            variant="determinate"
+            sx={(theme) => ({
+              bgcolor: alpha(theme.palette.primary.main, 0.12),
+              borderRadius: 999,
+              height: 6,
+            })}
+          />
+          <Box
+            aria-label="Data release summary"
+            sx={{
+              display: 'grid',
+              gap: 1,
+              gridTemplateColumns: {
+                xs: '1fr',
+                sm: 'repeat(2, minmax(0, 1fr))',
+                lg: 'repeat(4, minmax(0, 1fr))',
+              },
+            }}
+          >
+            {(
+              [
+                ['Releases', props.summary.total, 'folder'],
+                ['Current', props.summary.current, 'approve'],
+                ['Needs action', props.summary.installable, 'import'],
+                ['Selected', props.summary.selected, 'tasks'],
+              ] satisfies ReadonlyArray<readonly [string, number, string]>
+            ).map(([label, value, icon]) => (
+              <Box
+                key={label}
+                sx={(theme) => ({
+                  alignItems: 'center',
+                  bgcolor: alpha(theme.palette.background.paper, 0.72),
+                  border: 1,
+                  borderColor: alpha(theme.palette.divider, 0.9),
+                  borderRadius: '8px',
+                  display: 'flex',
+                  gap: 1,
+                  minHeight: 74,
+                  px: 1.25,
+                  py: 1,
+                })}
+              >
+                <Box
+                  aria-hidden="true"
+                  sx={(theme) => ({
+                    alignItems: 'center',
+                    bgcolor: alpha(theme.palette.primary.main, 0.09),
+                    borderRadius: '8px',
+                    color: 'primary.main',
+                    display: 'inline-flex',
+                    height: 38,
+                    justifyContent: 'center',
+                    width: 38,
+                  })}
+                >
+                  <ShellIcon fontSize="small" name={icon} />
+                </Box>
+                <Box>
+                  <Typography color="text.secondary" variant="caption">
+                    {label}
+                  </Typography>
+                  <Typography component="p" variant="h5">
+                    {value.toString()}
+                  </Typography>
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        </Stack>
+      </Paper>
 
       {!props.connectionAvailable ? (
         <Alert severity="error">Import service is unavailable.</Alert>
@@ -191,20 +321,27 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
       ) : null}
 
       {props.visibleReleases.length > 0 ? (
-        <Paper
-          variant="outlined"
-          sx={{
-            bgcolor: 'background.paper',
-            overflow: 'hidden',
-          }}
-        >
+        <Stack spacing={1.5}>
           {groupedReleases.map((group, groupIndex) => {
             const groupKey = `${props.releaseType}:${group.id}`;
             const groupPanelId = `${props.releaseType}-${group.id}-releases`;
             const collapsed = collapsedGroups.has(groupKey);
+            const toneStyles = releaseGroupToneStyles(group.tone);
             return (
-              <Box key={group.heading}>
-                {groupIndex > 0 ? <Divider /> : null}
+              <Paper
+                key={group.heading}
+                component="section"
+                variant="outlined"
+                sx={(theme) => ({
+                  bgcolor: 'background.paper',
+                  borderColor: alpha(theme.palette[toneStyles.palette].main, 0.28),
+                  boxShadow:
+                    groupIndex === 0
+                      ? `0 12px 34px ${alpha(theme.palette.common.black, 0.06)}`
+                      : `0 8px 24px ${alpha(theme.palette.common.black, 0.035)}`,
+                  overflow: 'hidden',
+                })}
+              >
                 <Box
                   aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${group.heading}`}
                   aria-controls={groupPanelId}
@@ -212,28 +349,24 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                   component="button"
                   type="button"
                   sx={(theme) => ({
-                    bgcolor:
-                      group.tone === 'warning'
-                        ? alpha(theme.palette.warning.main, 0.08)
-                        : 'background.default',
+                    bgcolor: alpha(theme.palette[toneStyles.palette].main, 0.055),
                     border: 0,
+                    borderLeft: 4,
+                    borderLeftColor: theme.palette[toneStyles.palette].main,
                     color: 'text.primary',
                     cursor: 'pointer',
                     display: 'block',
                     font: 'inherit',
-                    px: { xs: 1.25, md: 1.5 },
-                    py: 1,
+                    px: { xs: 1.25, md: 1.75 },
+                    py: { xs: 1.25, md: 1.5 },
                     textAlign: 'left',
                     width: '100%',
                     '&:focus-visible': {
-                      outline: `3px solid ${alpha(theme.palette.primary.main, 0.35)}`,
+                      outline: `3px solid ${alpha(theme.palette[toneStyles.palette].main, 0.32)}`,
                       outlineOffset: -3,
                     },
                     '&:hover': {
-                      bgcolor:
-                        group.tone === 'warning'
-                          ? alpha(theme.palette.warning.main, 0.12)
-                          : alpha(theme.palette.primary.main, 0.04),
+                      bgcolor: alpha(theme.palette[toneStyles.palette].main, 0.085),
                     },
                   })}
                   onClick={() => toggleGroup(groupKey)}
@@ -246,14 +379,48 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                       justifyContent: 'space-between',
                     }}
                   >
-                    <Box>
-                      <Typography component="h2" variant="subtitle1">
-                        {group.heading}
-                      </Typography>
-                      <Typography color="text.secondary" variant="body2">
-                        {group.help}
-                      </Typography>
-                    </Box>
+                    <Stack direction="row" sx={{ alignItems: 'center', gap: 1.25 }}>
+                      <Box
+                        aria-hidden="true"
+                        sx={(theme) => ({
+                          alignItems: 'center',
+                          bgcolor: alpha(theme.palette[toneStyles.palette].main, 0.12),
+                          border: 1,
+                          borderColor: alpha(
+                            theme.palette[toneStyles.palette].main,
+                            0.3,
+                          ),
+                          borderRadius: '8px',
+                          color: theme.palette[toneStyles.palette].main,
+                          display: 'inline-flex',
+                          flexShrink: 0,
+                          height: 44,
+                          justifyContent: 'center',
+                          width: 44,
+                        })}
+                      >
+                        <ShellIcon name={releaseGroupIcon(group.id)} />
+                      </Box>
+                      <Box>
+                        <Stack
+                          direction="row"
+                          sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 0.75 }}
+                        >
+                          <Typography component="h2" variant="subtitle1">
+                            {group.heading}
+                          </Typography>
+                          <Chip
+                            color={toneStyles.severity}
+                            label={`${group.releases.length} release(s)`}
+                            size="small"
+                            variant={group.tone === 'action' ? 'filled' : 'outlined'}
+                          />
+                        </Stack>
+                        <Typography color="text.secondary" variant="body2">
+                          {group.help}
+                        </Typography>
+                      </Box>
+                    </Stack>
                     <Stack
                       direction="row"
                       sx={{
@@ -262,23 +429,23 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                         gap: 0.75,
                       }}
                     >
-                      <Chip
-                        label={`${group.releases.length} release(s)`}
-                        size="small"
-                        variant="outlined"
-                      />
                       <Box
                         aria-hidden="true"
                         component="span"
                         sx={(theme) => ({
                           alignItems: 'center',
-                          bgcolor: alpha(theme.palette.primary.main, 0.08),
+                          bgcolor: alpha(theme.palette.background.paper, 0.86),
+                          border: 1,
+                          borderColor: alpha(
+                            theme.palette[toneStyles.palette].main,
+                            0.2,
+                          ),
                           borderRadius: '999px',
-                          color: 'primary.main',
+                          color: theme.palette[toneStyles.palette].main,
                           display: 'inline-flex',
-                          height: 32,
+                          height: 36,
                           justifyContent: 'center',
-                          width: 32,
+                          width: 36,
                         })}
                       >
                         <ShellIcon
@@ -290,8 +457,8 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                   </Stack>
                 </Box>
                 {!collapsed ? (
-                  <Box id={groupPanelId}>
-                    {group.releases.map((release, index) => {
+                  <Stack id={groupPanelId} spacing={1} sx={{ p: { xs: 1, md: 1.25 } }}>
+                    {group.releases.map((release) => {
                       const disabledReason = releaseDisabledReason(release);
                       const installedMatchesAvailable =
                         release.installedVersion === release.version;
@@ -303,19 +470,29 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                         <Box
                           key={releaseKey(release)}
                           sx={(theme) => ({
+                            border: 1,
+                            borderColor: checked
+                              ? alpha(theme.palette.primary.main, 0.28)
+                              : alpha(theme.palette.divider, 0.82),
+                            borderRadius: '8px',
                             bgcolor: checked
                               ? alpha(theme.palette.primary.main, 0.06)
                               : 'background.paper',
+                            boxShadow: checked
+                              ? `0 10px 24px ${alpha(theme.palette.primary.main, 0.08)}`
+                              : 'none',
                             transition:
-                              'background-color 160ms ease, box-shadow 160ms ease',
+                              'background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease',
                             '&:hover': {
+                              borderColor: checked
+                                ? alpha(theme.palette.primary.main, 0.38)
+                                : alpha(theme.palette.primary.main, 0.18),
                               bgcolor: checked
                                 ? alpha(theme.palette.primary.main, 0.08)
                                 : 'background.default',
                             },
                           })}
                         >
-                          {index > 0 ? <Divider /> : null}
                           <Stack
                             direction={{ xs: 'column', sm: 'row' }}
                             sx={{
@@ -325,7 +502,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                               py: { xs: 1.2, md: 1.35 },
                             }}
                           >
-                            <Box sx={{ pt: { sm: 0.25 } }}>
+                            <Box sx={{ flexShrink: 0 }}>
                               <Checkbox
                                 checked={checked}
                                 disabled={!selectable}
@@ -349,14 +526,10 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                                 <Chip
                                   label={release.status.replaceAll('_', ' ')}
                                   size="small"
-                                  sx={{
-                                    bgcolor:
-                                      release.status === 'CURRENT'
-                                        ? 'success.light'
-                                        : release.status === 'INVALID_RELEASE'
-                                          ? 'error.light'
-                                          : 'background.default',
-                                  }}
+                                  color={releaseStatusChipColor(release)}
+                                  variant={
+                                    release.status === 'CURRENT' ? 'filled' : 'outlined'
+                                  }
                                 />
                               </Stack>
                               <Typography color="text.secondary" sx={{ maxWidth: 900 }}>
@@ -372,6 +545,18 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                                       ? `Version ${release.version}`
                                       : `Available ${release.version}`
                                   }
+                                  size="small"
+                                  variant="outlined"
+                                />
+                                {release.destinationRole ? (
+                                  <Chip
+                                    label={`Target ${release.destinationRole}`}
+                                    size="small"
+                                    variant="outlined"
+                                  />
+                                ) : null}
+                                <Chip
+                                  label={release.moduleName}
                                   size="small"
                                   variant="outlined"
                                 />
@@ -394,12 +579,12 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                         </Box>
                       );
                     })}
-                  </Box>
+                  </Stack>
                 ) : null}
-              </Box>
+              </Paper>
             );
           })}
-        </Paper>
+        </Stack>
       ) : null}
 
       <Paper
@@ -409,13 +594,13 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
         sx={(theme) => ({
           bgcolor: alpha(theme.palette.background.paper, 0.96),
           border: 1,
-          borderColor: 'divider',
+          borderColor: alpha(theme.palette.primary.main, 0.18),
           bottom: 0,
-          boxShadow: theme.shadows[4],
+          boxShadow: `0 -10px 32px ${alpha(theme.palette.common.black, 0.08)}`,
           mt: 2,
           position: 'sticky',
-          px: { xs: 1.25, md: 1.5 },
-          py: 1.25,
+          px: { xs: 1.25, md: 1.75 },
+          py: 1.35,
           zIndex: theme.zIndex.appBar - 1,
         })}
       >
@@ -434,31 +619,46 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
               justifyContent: 'space-between',
             }}
           >
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={allVisibleSelected}
-                  disabled={props.operationIsPending || selectableReleaseCount === 0}
-                  indeterminate={someVisibleSelected}
-                  slotProps={{
-                    input: {
-                      'aria-label': 'Select all actionable releases',
-                    },
-                  }}
-                  onChange={() => {
-                    if (allVisibleSelected || someVisibleSelected) {
-                      props.onDeselectVisible();
-                    } else {
-                      props.onSelectVisible();
-                    }
-                  }}
-                />
-              }
-              label={`${selectedVisibleCount} of ${selectableReleaseCount} actionable release(s) selected`}
-            />
+            <Stack
+              direction="row"
+              sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 1 }}
+            >
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={allVisibleSelected}
+                    disabled={props.operationIsPending || selectableReleaseCount === 0}
+                    indeterminate={someVisibleSelected}
+                    slotProps={{
+                      input: {
+                        'aria-label': 'Select all actionable releases',
+                      },
+                    }}
+                    onChange={() => {
+                      if (allVisibleSelected || someVisibleSelected) {
+                        props.onDeselectVisible();
+                      } else {
+                        props.onSelectVisible();
+                      }
+                    }}
+                  />
+                }
+                label={`${selectedVisibleCount} of ${selectableReleaseCount} actionable release(s) selected`}
+              />
+              <Chip
+                label={
+                  selectableReleaseCount === 0
+                    ? 'No action required'
+                    : `${selectableReleaseCount.toString()} actionable`
+                }
+                color={selectableReleaseCount === 0 ? 'success' : 'default'}
+                variant="outlined"
+              />
+            </Stack>
             <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ gap: 1.5 }}>
               <Button
                 disabled={props.operationIsPending || props.selectedReleaseCount === 0}
+                startIcon={<ShellIcon fontSize="small" name="visible" />}
                 onClick={props.onValidateSelected}
                 variant="outlined"
               >
@@ -468,6 +668,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                 disabled={
                   props.operationIsPending || props.executableReleaseCount === 0
                 }
+                startIcon={<ShellIcon fontSize="small" name="download" />}
                 onClick={props.onInstallSelected}
                 variant="contained"
               >

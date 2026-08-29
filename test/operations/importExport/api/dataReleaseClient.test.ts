@@ -5,6 +5,7 @@ import {
   installDataReleases,
   installMediaImport,
   loadDataReleases,
+  loadInitializationProfiles,
   loadImportHistory,
   loadImportHistoryForMediaCode,
   downloadDataExportMedia,
@@ -89,6 +90,35 @@ describe('data release client', () => {
     );
   });
 
+  it('preserves backend-owned guided initialization module index', async () => {
+    const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(
+      response({
+        data: [
+          {
+            profileCode: 'localPlatformFoundation',
+            label: 'Local Platform foundation',
+            description: 'Install the Local Platform foundation.',
+            completionMessage: 'The Local Platform foundation is ready.',
+            moduleIndex: '60.99',
+            destinationRole: 'PLATFORM',
+            status: 'ACTION_REQUIRED',
+            blocked: false,
+            steps: [{ order: 1, dataType: 'init', releases: [] }],
+          },
+        ],
+      }),
+    );
+
+    const result = await loadInitializationProfiles(
+      connection,
+      configuration,
+      fetchImplementation,
+    );
+
+    expect(result[0]?.moduleIndex).toBe('60.99');
+    expect(result[0]?.profileCode).toBe('localPlatformFoundation');
+  });
+
   it('sends the same immutable selection to preflight and typed execution', async () => {
     const fetchImplementation = vi.fn<typeof fetch>().mockImplementation(() =>
       Promise.resolve(
@@ -118,6 +148,29 @@ describe('data release client', () => {
       '/nodics/import/v0/core/install',
     );
     expect(fetchImplementation.mock.calls[1]?.[1]?.body).toBe(JSON.stringify(plan));
+  });
+
+  it('allows long-running governed data release mutations to finish', async () => {
+    const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(
+      response({
+        data: {
+          dataType: 'sample',
+          tenant: 'default',
+          releases: [release],
+        },
+      }),
+    );
+    const timerSpy = vi.spyOn(globalThis, 'setTimeout');
+    const plan = {
+      dataType: 'sample' as const,
+      modules: ['nexus.web'],
+      expectedReleases: { 'nexus.web:nexusCorporateSite': '0.0.7' },
+    };
+
+    await installDataReleases(connection, configuration, plan, fetchImplementation);
+
+    expect(timerSpy).toHaveBeenCalledWith(expect.any(Function), 180_000);
+    timerSpy.mockRestore();
   });
 
   it('rejects incompatible catalogue states and returns bounded authorization errors', async () => {

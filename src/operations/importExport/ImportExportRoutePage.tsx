@@ -26,6 +26,7 @@ import type {
   DataReleaseOperationResult,
   DataReleasePlan,
   DataReleaseType,
+  InitializationProfile,
 } from './api/dataReleaseContracts';
 import { DataReleaseWorkbench } from './components/DataReleaseWorkbench';
 import { GuidedInitializationWorkspace } from './components/GuidedInitializationWorkspace';
@@ -34,6 +35,7 @@ import { FileImportWorkspace } from './components/FileImportWorkspace';
 import { ImportExportHistoryPanel } from './components/ImportExportHistoryPanel';
 import {
   areaCopy,
+  compareModuleIndex,
   historySearchText,
   importExportAreas,
   isInstallableStatus,
@@ -257,6 +259,83 @@ async function loadDataReleasesByDestination(
   return Object.freeze([]);
 }
 
+function initializationProfileKey(profile: InitializationProfile): string {
+  return `${profile.destinationRole ?? 'DEFAULT'}:${profile.profileCode}`;
+}
+
+function compareInitializationProfiles(
+  left: InitializationProfile,
+  right: InitializationProfile,
+): number {
+  const byModuleIndex = compareModuleIndex(left.moduleIndex, right.moduleIndex);
+  if (byModuleIndex !== 0) return byModuleIndex;
+  const byLabel = left.label.localeCompare(right.label);
+  if (byLabel !== 0) return byLabel;
+  return initializationProfileKey(left).localeCompare(initializationProfileKey(right));
+}
+
+interface InitializationProfileOperationRequest {
+  readonly profileKey: string;
+  readonly profileCode: string;
+  readonly destinationRole?: string | undefined;
+  readonly mode: 'validate' | 'install';
+}
+
+function profileOperationErrorMessage(
+  error: unknown,
+  profile: InitializationProfile | undefined,
+  request: InitializationProfileOperationRequest,
+): string {
+  const message =
+    error instanceof Error && error.message.trim()
+      ? error.message.trim()
+      : 'Initialization profile operation failed';
+  const label = profile?.label ?? request.profileCode;
+  const target = request.destinationRole
+    ? ` on ${request.destinationRole} runtime`
+    : '';
+  if (/Initialization profile is unavailable|Operation not found/iu.test(message)) {
+    return `${label} cannot be started${target} because the backend profile is no longer available. Refresh guided setup; if it remains unavailable, check the target import runtime initialization profile configuration.`;
+  }
+  return message;
+}
+
+async function loadInitializationProfilesByDestination(
+  connections: readonly AxisModuleConnection[],
+  configuration: DataReleaseClientConfiguration,
+): Promise<readonly InitializationProfile[]> {
+  const values = await Promise.allSettled(
+    connections.map((connection) =>
+      loadInitializationProfiles(connection, configuration),
+    ),
+  );
+  const fulfilledValues = values.reduce<InitializationProfile[][]>((items, value) => {
+    if (value.status === 'fulfilled') items.push([...value.value]);
+    return items;
+  }, []);
+  if (fulfilledValues.length > 0) {
+    return Object.freeze(
+      Array.from(
+        new Map(
+          fulfilledValues
+            .flat()
+            .map((profile) => [initializationProfileKey(profile), profile]),
+        ).values(),
+      ).sort(compareInitializationProfiles),
+    );
+  }
+  const firstActionableRejection = values.find(
+    (value): value is PromiseRejectedResult =>
+      value.status === 'rejected' && !isDisabledDataImportCategory(value.reason),
+  );
+  if (firstActionableRejection?.reason) {
+    throw firstActionableRejection.reason instanceof Error
+      ? firstActionableRejection.reason
+      : new Error('Initialization profiles are unavailable');
+  }
+  return Object.freeze([]);
+}
+
 async function executeDataReleaseOperationByDestination(
   bootstrap: AxisAuthenticatedBootstrap,
   runtime: AxisRuntimeConfig,
@@ -352,10 +431,14 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
   const profiles = useQuery({
     queryKey: ['initialization-profiles', props.runtime.enterpriseCode],
     queryFn: () => {
-      if (!connection) throw new Error('Import service is unavailable');
-      return loadInitializationProfiles(connection, configuration);
+      if (catalogueConnections.length === 0)
+        throw new Error('Import service is unavailable');
+      return loadInitializationProfilesByDestination(
+        catalogueConnections,
+        configuration,
+      );
     },
-    enabled: Boolean(connection),
+    enabled: catalogueConnections.length > 0,
   });
   const history = useQuery({
     queryKey: ['import-export-history', props.runtime.enterpriseCode, historyFilter],
@@ -442,14 +525,30 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
     },
   });
   const profileOperation = useMutation({
-    mutationFn: (request: { profileCode: string; mode: 'validate' | 'install' }) => {
-      if (!connection) throw new Error('Import service is unavailable');
-      return runInitializationProfile(
-        connection,
-        configuration,
-        request.profileCode,
-        request.mode,
+    mutationFn: async (request: InitializationProfileOperationRequest) => {
+      const profile = (profiles.data ?? []).find(
+        (item) => initializationProfileKey(item) === request.profileKey,
       );
+      const destinationRole = request.destinationRole ?? profile?.destinationRole;
+      const profileConnection = destinationRole
+        ? selectReleaseOperationConnection(
+            props.bootstrap,
+            props.runtime,
+            'import',
+            destinationRole,
+          )
+        : connection;
+      if (!profileConnection) throw new Error('Import service is unavailable');
+      try {
+        return await runInitializationProfile(
+          profileConnection,
+          configuration,
+          request.profileCode,
+          request.mode,
+        );
+      } catch (error) {
+        throw new Error(profileOperationErrorMessage(error, profile, request));
+      }
     },
     onSuccess: async () => {
       await Promise.all([
@@ -479,6 +578,7 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
     replaceAreaInLocation(next);
     setSelected(new Set());
     operation.reset();
+    profileOperation.reset();
   };
 
   return (
@@ -548,19 +648,47 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
             <GuidedInitializationWorkspace
               errorMessage={profiles.error?.message}
               isLoading={profiles.isLoading}
-              operationError={profileOperation.error?.message}
-              operationPending={profileOperation.isPending}
+              operationError={
+                profileOperation.isError && profileOperation.variables
+                  ? {
+                      profileKey: profileOperation.variables.profileKey,
+                      message:
+                        profileOperation.error?.message ??
+                        'Initialization profile operation failed',
+                    }
+                  : undefined
+              }
+              operationPendingKey={
+                profileOperation.isPending
+                  ? profileOperation.variables?.profileKey
+                  : undefined
+              }
+              operationPendingMode={
+                profileOperation.isPending
+                  ? profileOperation.variables?.mode
+                  : undefined
+              }
               profiles={profiles.data ?? []}
               successMessage={
-                profileOperation.data?.mode === 'INSTALL'
-                  ? profileOperation.data.profile.completionMessage
-                  : profileOperation.data
-                    ? 'The backend validated the immutable initialization plan. No data was changed.'
-                    : undefined
+                profileOperation.isSuccess && profileOperation.variables
+                  ? {
+                      profileKey: profileOperation.variables.profileKey,
+                      message:
+                        profileOperation.data?.mode === 'INSTALL'
+                          ? profileOperation.data.profile.completionMessage
+                          : 'The backend validated the immutable initialization plan. No data was changed.',
+                    }
+                  : undefined
               }
-              onRun={(profileCode, mode) =>
-                profileOperation.mutate({ profileCode, mode })
+              onRun={(profile, mode) =>
+                profileOperation.mutate({
+                  profileKey: initializationProfileKey(profile),
+                  profileCode: profile.profileCode,
+                  destinationRole: profile.destinationRole,
+                  mode,
+                })
               }
+              onOpenArea={changeArea}
             />
           ) : area === 'exports' ? (
             <ExportWorkspace

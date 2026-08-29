@@ -48,6 +48,7 @@ import { PromotionsBuilderRoutePage } from '../operations/promotions/PromotionsB
 import { LocalizationOperationsRoutePage } from '../operations/localization/LocalizationOperationsRoutePage';
 import { CustomerEngagementRoutePage } from '../operations/customerEngagement/CustomerEngagementRoutePage';
 import { SetupAcceleratorsRoutePage } from '../operations/setupAccelerators/SetupAcceleratorsRoutePage';
+import { AxisDashboardRoutePage } from '../dashboard/AxisDashboardRoutePage';
 import { useIdleScreenLock } from '../auth/useIdleScreenLock';
 import { AxisInitializationWorkspace } from '../initialization/AxisInitializationWorkspace';
 import { BundledLoginPage } from '../initialization/BundledLoginPage';
@@ -76,6 +77,15 @@ import { LoadingScreen } from './LoadingScreen';
 import { ModuleWorkspacePlaceholder } from './ModuleWorkspacePlaceholder';
 import { RecoveryScreen } from './RecoveryScreen';
 import { AppShell } from './shell/AppShell';
+
+const axisDashboardRoute = '/dashboard';
+const axisInitializationRoute = '/initialize-axis';
+const documentationDesignerRoute = '/docs/designer';
+const legacyDocumentationDesignerRoute = '/content/designer/documentation';
+
+function documentationDesignerRedirect(path: string): string {
+  return `${documentationDesignerRoute}${path.slice(legacyDocumentationDesignerRoute.length)}`;
+}
 
 function normalizeRoutePath(path: string): string {
   return path.replace(/\/$/, '') || '/';
@@ -124,7 +134,8 @@ function documentationSourceNavigationItem(
     order: 200 + source.order,
     moduleName: 'axisDocumentation',
     category: 'documentation',
-    icon: source.dashboard.icon ?? (source.type === 'OPENAPI' ? 'reference' : 'content'),
+    icon:
+      source.dashboard.icon ?? (source.type === 'OPENAPI' ? 'reference' : 'content'),
     availability: 'UP',
     perspectives: ['business', 'developer', 'operations'],
     contexts: ['documentation'],
@@ -138,7 +149,11 @@ function documentationSourceNavigationItem(
 
 function safeReturnPath(value: string | null | undefined): string | undefined {
   if (!value || !value.startsWith('/') || value.startsWith('//')) return undefined;
-  if (['/login', '/forgot-password', '/lock-screen'].includes(value)) {
+  if (
+    ['/login', '/forgot-password', '/lock-screen', axisInitializationRoute].includes(
+      value,
+    )
+  ) {
     return undefined;
   }
   return value;
@@ -208,7 +223,7 @@ export function App() {
     useState<AxisAuthenticatedBootstrap>();
   const [employeePolicy, setEmployeePolicy] = useState<AxisEmployeePolicy>();
   const [locked, setLocked] = useState(false);
-  const [lockedReturnPath, setLockedReturnPath] = useState('/dashboard');
+  const [lockedReturnPath, setLockedReturnPath] = useState(axisDashboardRoute);
   const [authenticationError, setAuthenticationError] = useState<string>();
   const [initializationStatus, setInitializationStatus] =
     useState<AxisInitializationStatus>();
@@ -296,7 +311,7 @@ export function App() {
     const returnPath = ['/login', '/forgot-password', '/lock-screen'].includes(
       location.pathname,
     )
-      ? '/dashboard'
+      ? axisDashboardRoute
       : location.pathname;
     setLockedReturnPath(returnPath);
     persistScreenLock(returnPath);
@@ -441,9 +456,9 @@ export function App() {
       .map((source) => ({
         enabled: Boolean(
           session &&
-            !locked &&
-            authenticatedBootstrap &&
-            documentationAdministrationConnection,
+          !locked &&
+          authenticatedBootstrap &&
+          documentationAdministrationConnection,
         ),
         queryKey: documentationPublicationQueryKey(
           runtime.enterpriseCode,
@@ -498,7 +513,7 @@ export function App() {
         if (source.type === 'OPENAPI') return true;
         return Boolean(
           source.initializationProfile &&
-            onlineDocumentationProfiles.has(source.initializationProfile),
+          onlineDocumentationProfiles.has(source.initializationProfile),
         );
       })
       .map(documentationSourceNavigationItem);
@@ -1200,13 +1215,19 @@ export function App() {
         )
       : sessionFallback;
 
-  if (
+  const initializationRequired = Boolean(
     session &&
     authenticatedBootstrap &&
-    initializationStatus?.readiness !== 'READY'
-  ) {
-    if (!initializationStatus && !initializationError) return <LoadingScreen />;
-    return (
+    (initializationStatus || initializationError) &&
+    initializationStatus?.readiness !== 'READY',
+  );
+  const initializationLoading = Boolean(
+    session && authenticatedBootstrap && !initializationStatus && !initializationError,
+  );
+  const initializationElement =
+    !initializationStatus && !initializationError ? (
+      <LoadingScreen />
+    ) : (
       <AxisInitializationWorkspace
         busy={initializationBusy}
         error={initializationError}
@@ -1216,6 +1237,18 @@ export function App() {
         onRefresh={() => void refreshInitialization()}
         status={initializationStatus}
       />
+    );
+
+  if (initializationLoading) return <LoadingScreen />;
+
+  if (initializationRequired) {
+    return (
+      <AxisLocalizationBoundary value={localization}>
+        <Routes>
+          <Route path={axisInitializationRoute} element={initializationElement} />
+          <Route path="*" element={<Navigate replace to={axisInitializationRoute} />} />
+        </Routes>
+      </AxisLocalizationBoundary>
     );
   }
 
@@ -1261,10 +1294,26 @@ export function App() {
         />
         <Route path="/forgot-password" element={page('/forgot-password')} />
         <Route
-          path="/dashboard"
+          path={axisInitializationRoute}
+          element={
+            session && !locked ? (
+              <Navigate replace to={composition.defaultAuthenticatedPage} />
+            ) : (
+              <Navigate replace to={composition.defaultPublicPage} />
+            )
+          }
+        />
+        <Route
+          path={axisDashboardRoute}
           element={
             session && !locked && authenticatedBootstrap ? (
-              authenticatedShell(page('/dashboard', session.accessToken))
+              authenticatedShell(
+                <AxisDashboardRoutePage
+                  accessToken={session.accessToken}
+                  bootstrap={authenticatedBootstrap}
+                  runtime={runtime}
+                />,
+              )
             ) : (
               <Navigate
                 replace
@@ -1629,12 +1678,30 @@ export function App() {
         />
         <Route path="/content" element={contentDashboardElement} />
         <Route
-          path="/content/designer/documentation"
+          path={documentationDesignerRoute}
           element={documentationManagementElement}
         />
         <Route
-          path="/content/designer/documentation/*"
+          path={`${documentationDesignerRoute}/*`}
           element={documentationManagementElement}
+        />
+        <Route
+          path={legacyDocumentationDesignerRoute}
+          element={
+            <Navigate
+              replace
+              to={`${documentationDesignerRedirect(location.pathname)}${location.search}${location.hash}`}
+            />
+          }
+        />
+        <Route
+          path={`${legacyDocumentationDesignerRoute}/*`}
+          element={
+            <Navigate
+              replace
+              to={`${documentationDesignerRedirect(location.pathname)}${location.search}${location.hash}`}
+            />
+          }
         />
         <Route path="/content/designer" element={contentDesignerElement} />
         <Route path="/content/*" element={cmsWorkbenchElement} />
@@ -1659,6 +1726,7 @@ export function App() {
                   !item.route.startsWith('/compliance-management') &&
                   !item.route.startsWith('/notifications') &&
                   !item.route.startsWith('/content') &&
+                  !item.route.startsWith(documentationDesignerRoute) &&
                   !item.route.startsWith('/docs') &&
                   !item.route.startsWith('/engagement') &&
                   !item.route.startsWith('/media') &&
@@ -1675,7 +1743,8 @@ export function App() {
                     '/setup-accelerators',
                     '/operations/module-health',
                     '/operations/imports-exports',
-                    '/dashboard',
+                    axisDashboardRoute,
+                    axisInitializationRoute,
                     '/login',
                     '/forgot-password',
                     '/lock-screen',

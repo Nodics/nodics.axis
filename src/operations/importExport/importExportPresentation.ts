@@ -94,6 +94,31 @@ export function releaseKey(release: DataRelease): string {
   );
 }
 
+export function compareModuleIndex(
+  left: string | undefined,
+  right: string | undefined,
+): number {
+  if (!left && !right) return 0;
+  if (!left) return 1;
+  if (!right) return -1;
+  const leftParts = left.split('.').map((value) => Number(value) || 0);
+  const rightParts = right.split('.').map((value) => Number(value) || 0);
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return left.localeCompare(right);
+}
+
+export function compareDataReleases(left: DataRelease, right: DataRelease): number {
+  const byModuleIndex = compareModuleIndex(left.moduleIndex, right.moduleIndex);
+  if (byModuleIndex !== 0) return byModuleIndex;
+  const byDisplayName = left.displayName.localeCompare(right.displayName);
+  if (byDisplayName !== 0) return byDisplayName;
+  return releaseKey(left).localeCompare(releaseKey(right));
+}
+
 export function isInstallableStatus(status: DataReleaseStatus): boolean {
   return (
     status === 'NOT_INSTALLED' || status === 'UPDATE_AVAILABLE' || status === 'FAILED'

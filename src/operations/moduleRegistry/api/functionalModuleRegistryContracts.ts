@@ -14,6 +14,7 @@ export interface FunctionalModuleRegistration {
   readonly functionalModule: string;
   readonly displayName: string;
   readonly registeredVersion?: string | undefined;
+  readonly moduleIndex?: string | undefined;
   readonly registrationState: FunctionalModuleRegistrationState;
   readonly enabled: boolean;
   readonly required: boolean;
@@ -61,11 +62,22 @@ export interface FunctionalModuleActivationData {
     readonly registered: boolean;
     readonly protectedModule: boolean;
     readonly dependencies: readonly string[];
+    readonly dependencyStates: readonly FunctionalModuleDependencyState[];
+    readonly missingDependencies: readonly string[];
     readonly blockedReasons: readonly string[];
   }>;
   readonly packages: readonly FunctionalModuleActivationPackage[];
   readonly receipts: readonly FunctionalModuleActivationReceipt[];
   readonly nextActions: readonly string[];
+}
+
+export interface FunctionalModuleDependencyState {
+  readonly functionalModule: string;
+  readonly displayName: string;
+  readonly registrationState: string;
+  readonly enabled: boolean;
+  readonly runtimeState: string;
+  readonly satisfied: boolean;
 }
 
 function record(value: unknown, name: string): Record<string, unknown> {
@@ -103,6 +115,10 @@ function stringList(value: unknown, name: string): readonly string[] {
     throw new Error(`${name} must be a string list`);
   }
   return Object.freeze([...new Set(value as string[])]);
+}
+
+function optionalStringList(value: unknown, name: string): readonly string[] {
+  return value === undefined || value === null ? Object.freeze([]) : stringList(value, name);
 }
 
 function optionalString(value: unknown): string {
@@ -157,6 +173,21 @@ function parseActivationReceipt(
   });
 }
 
+function parseDependencyState(
+  value: unknown,
+  name: string,
+): FunctionalModuleDependencyState {
+  const item = record(value, name);
+  return Object.freeze({
+    functionalModule: text(item.functionalModule, `${name} functional module`),
+    displayName: text(item.displayName, `${name} display name`),
+    registrationState: text(item.registrationState, `${name} registration state`),
+    enabled: boolean(item.enabled, `${name} enabled flag`),
+    runtimeState: text(item.runtimeState, `${name} runtime state`),
+    satisfied: boolean(item.satisfied, `${name} satisfied flag`),
+  });
+}
+
 function parseActivationData(value: unknown): FunctionalModuleActivationData {
   const item = record(value, 'Functional-module activation data');
   const preflight = record(item.preflight, 'Functional-module activation preflight');
@@ -172,8 +203,22 @@ function parseActivationData(value: unknown): FunctionalModuleActivationData {
         preflight.protectedModule,
         'Activation protected-module flag',
       ),
-      dependencies: stringList(preflight.dependencies, 'Activation dependencies'),
-      blockedReasons: stringList(
+      dependencies: optionalStringList(preflight.dependencies, 'Activation dependencies'),
+      dependencyStates: Object.freeze(
+        Array.isArray(preflight.dependencyStates)
+          ? preflight.dependencyStates.map((dependency, index) =>
+              parseDependencyState(
+                dependency,
+                `Activation dependency ${String(index)}`,
+              ),
+            )
+          : [],
+      ),
+      missingDependencies: optionalStringList(
+        preflight.missingDependencies,
+        'Activation missing dependencies',
+      ),
+      blockedReasons: optionalStringList(
         preflight.blockedReasons,
         'Activation blocked reasons',
       ),
@@ -224,6 +269,7 @@ export function parseFunctionalModuleRegistration(
       item.registeredVersion,
       `${functionalModule} version`,
     ),
+    moduleIndex: optionalText(item.moduleIndex, `${functionalModule} module index`),
     registrationState: registrationState(item.registrationState),
     enabled: boolean(item.enabled, `${functionalModule} enabled flag`),
     required: boolean(item.required, `${functionalModule} required flag`),

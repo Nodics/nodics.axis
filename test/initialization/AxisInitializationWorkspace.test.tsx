@@ -110,6 +110,11 @@ describe('bundled Axis initialization experience', () => {
     expect(screen.queryByRole('button', { name: 'Initialize and submit' })).toBeNull();
     expect(screen.getByText(/governed Process approval/)).toBeVisible();
     expect(screen.getByText('38 records')).toBeVisible();
+    const publicationSummary = screen.getByRole('button', {
+      name: 'Expand publication review summary',
+    });
+    expect(publicationSummary).toHaveAttribute('aria-expanded', 'false');
+    await user.click(publicationSummary);
     expect(screen.getByText(/After approval:/)).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Refresh status' }));
     expect(onRefresh).toHaveBeenCalledOnce();
@@ -122,7 +127,8 @@ describe('bundled Axis initialization experience', () => {
     expect(
       screen.getByText(/Immutable release checksum: axis-release-checksum/),
     ).toBeVisible();
-    expect(screen.getByText(/Workflow: axis-approval-1/)).toBeVisible();
+    expect(screen.getByText('Workflow')).toBeVisible();
+    expect(screen.getByText('axis-approval-1')).toBeVisible();
     expect(screen.getByText(/Submitted by admin/)).toBeVisible();
     expect(screen.getByText('Pages: 10')).toBeVisible();
     expect(
@@ -132,6 +138,61 @@ describe('bundled Axis initialization experience', () => {
     expect(screen.getByText('Open the full Axis workspace')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Approve and publish' }));
     expect(onApprove).toHaveBeenCalledOnce();
+  });
+
+  it('renders first-run setup as expandable guidance cards', async () => {
+    const user = userEvent.setup();
+    render(
+      <AxisInitializationWorkspace
+        busy={false}
+        onApprove={vi.fn()}
+        onInitiate={vi.fn()}
+        onLogout={vi.fn()}
+        onRefresh={vi.fn()}
+        status={{
+          baselineCode: 'axis',
+          releaseCode: 'axis:axisBaseline',
+          releaseVersion: '0.0.0',
+          releaseStatus: 'NOT_INSTALLED',
+          readiness: 'NOT_IMPORTED',
+        }}
+      />,
+    );
+
+    expect(screen.getByText('First-run setup')).toBeVisible();
+    expect(screen.getByText('5 steps')).toBeVisible();
+    expect(screen.queryByText('Temporary recovery login')).toBeNull();
+    expect(
+      screen.queryByText(/Use the temporary recovery login only until/),
+    ).toBeNull();
+
+    const firstRunSetup = screen.getByRole('button', {
+      name: 'Expand First-run setup',
+    });
+    expect(firstRunSetup).toHaveAttribute('aria-expanded', 'false');
+    await user.click(firstRunSetup);
+
+    expect(screen.getByText('Temporary recovery login')).toBeVisible();
+    expect(firstRunSetup).toHaveAttribute('aria-expanded', 'true');
+
+    const bootstrapStep = screen.getByRole('button', {
+      name: 'Expand setup step 1 Bootstrap access',
+    });
+    expect(bootstrapStep).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(bootstrapStep);
+
+    expect(
+      screen.getByText(/Use the temporary recovery login only until/),
+    ).toBeVisible();
+    expect(bootstrapStep).toHaveAttribute('aria-expanded', 'true');
+
+    await user.click(bootstrapStep);
+
+    expect(
+      screen.queryByText(/Use the temporary recovery login only until/),
+    ).toBeNull();
+    expect(bootstrapStep).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('shows import progress without offering duplicate initialization', () => {

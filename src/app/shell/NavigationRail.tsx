@@ -684,13 +684,22 @@ function activeItemAncestorKeys(
 }
 
 function routeMatches(activePath: string, route: string): boolean {
-  const normalizedActivePath = normalizedRoute(activePath);
-  const normalizedItemRoute = normalizedRoute(route);
+  const normalizedActivePath = canonicalNavigationRoute(normalizedRoute(activePath));
+  const normalizedItemRoute = canonicalNavigationRoute(normalizedRoute(route));
   return (
     normalizedActivePath === normalizedItemRoute ||
     (normalizedItemRoute !== '/' &&
       normalizedActivePath.startsWith(`${normalizedItemRoute}/`))
   );
+}
+
+function canonicalNavigationRoute(route: string): string {
+  const legacyDocumentationDesignerRoute = '/content/designer/documentation';
+  if (route === legacyDocumentationDesignerRoute) return '/docs/designer';
+  if (route.startsWith(`${legacyDocumentationDesignerRoute}/`)) {
+    return `/docs/designer${route.slice(legacyDocumentationDesignerRoute.length)}`;
+  }
+  return route;
 }
 
 function normalizedRoute(route: string): string {

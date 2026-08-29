@@ -19,6 +19,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 
@@ -83,9 +84,19 @@ function formatTime(value: string | undefined): string {
 function sortedModules(
   modules: readonly FunctionalModuleRegistration[],
 ): readonly FunctionalModuleRegistration[] {
-  return [...modules].sort((left, right) =>
-    left.functionalModule.localeCompare(right.functionalModule),
-  );
+  return [...modules].sort((left, right) => {
+    const leftIndex = Number(left.moduleIndex);
+    const rightIndex = Number(right.moduleIndex);
+    if (Number.isFinite(leftIndex) && Number.isFinite(rightIndex)) {
+      return (
+        leftIndex - rightIndex ||
+        left.functionalModule.localeCompare(right.functionalModule)
+      );
+    }
+    if (Number.isFinite(leftIndex)) return -1;
+    if (Number.isFinite(rightIndex)) return 1;
+    return left.functionalModule.localeCompare(right.functionalModule);
+  });
 }
 
 const registryQueryRoot = ['functional-module-registry'] as const;
@@ -103,6 +114,9 @@ interface ModuleVisibilitySummary {
 }
 
 function moduleReadiness(module: FunctionalModuleRegistration): ModuleReadiness {
+  if ((module.activationData?.preflight.missingDependencies.length ?? 0) > 0) {
+    return 'Blocked';
+  }
   if (module.registrationState !== 'REGISTERED') return 'Ready to activate';
   if (!module.enabled && module.runtimeState !== 'ACTIVE') return 'Blocked';
   if (module.enabled && module.runtimeState === 'DEGRADED')
@@ -121,13 +135,19 @@ function readinessColor(
 }
 
 function activationMode(module: FunctionalModuleRegistration): string {
-  if (module.required) return 'Protected framework module';
-  if (module.registrationState === 'AVAILABLE') return 'Register before activation';
-  if (module.enabled) return 'Activated for Axis presentation';
-  if (module.activationData?.packages.length === 0) {
-    return 'Activate capabilities; no required data import is declared';
+  if (module.required) return 'Protected foundation module';
+  const missing = module.activationData?.preflight.dependencyStates.filter(
+    (dependency) => !dependency.satisfied,
+  );
+  if (missing && missing.length > 0) {
+    return `Waiting for ${missing.map((item) => item.displayName).join(', ')}`;
   }
-  return 'Activate capabilities; required data imports through nImport first';
+  if (module.registrationState === 'AVAILABLE') return 'Register before activation';
+  if (module.enabled) return 'Active in Axis';
+  if (module.activationData?.packages.length === 0) {
+    return 'Ready to activate; no required data import';
+  }
+  return 'Activate after required data is ready';
 }
 
 function moduleOwnsNavigationItem(
@@ -335,13 +355,7 @@ function ActivationDataPanel({
     (pack) => !pack.required && pack.classification !== 'REQUIRED',
   );
   return (
-    <Stack spacing={1}>
-      <Alert severity="info" variant="outlined">
-        Module activation data is classified before execution: init data prepares
-        framework/runtime prerequisites, core data is required for the module to run,
-        and sample data stays user-triggered so it never becomes a production dependency
-        by accident.
-      </Alert>
+    <Stack spacing={1.5}>
       <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
         <Chip label={`Execution: ${activationData.executionMode}`} size="small" />
         <Chip label={`Readiness: ${activationData.readiness}`} size="small" />
@@ -374,7 +388,7 @@ function ActivationDataPanel({
       {activationData.packages.length > 0 ? (
         <Stack spacing={1}>
           <Typography color="text.secondary" variant="caption">
-            Activation package preview
+            Data packages
           </Typography>
           <Grid container spacing={1}>
             {[
@@ -422,7 +436,7 @@ function ActivationDataPanel({
       {activationData.receipts.length > 0 ? (
         <Stack spacing={1}>
           <Typography color="text.secondary" variant="caption">
-            Activation data receipts
+            Data receipts
           </Typography>
           {activationData.receipts.map((receipt) => (
             <Alert key={receipt.receiptKey} severity={receiptSeverity(receipt.status)}>
@@ -452,6 +466,71 @@ function ActivationDataPanel({
   );
 }
 
+function RegistryMetric({
+  label,
+  tone = 'default',
+  value,
+}: {
+  readonly label: string;
+  readonly tone?: 'default' | 'success' | 'warning' | 'error' | 'info';
+  readonly value: string;
+}) {
+  const toneColor = {
+    default: 'text.primary',
+    error: 'error.main',
+    info: 'info.main',
+    success: 'success.main',
+    warning: 'warning.main',
+  }[tone];
+  return (
+    <Box
+      sx={{
+        bgcolor: (theme) =>
+          tone === 'default'
+            ? alpha(theme.palette.background.default, 0.54)
+            : alpha(theme.palette[tone].main, 0.055),
+        border: '1px solid',
+        borderColor: (theme) =>
+          tone === 'default'
+            ? alpha(theme.palette.divider, 0.78)
+            : alpha(theme.palette[tone].main, 0.22),
+        borderRadius: 1,
+        display: 'flex',
+        flexDirection: { xs: 'column', sm: 'row' },
+        gap: { xs: 0.25, sm: 1 },
+        justifyContent: 'space-between',
+        alignItems: { xs: 'flex-start', sm: 'center' },
+        boxShadow: (theme) => `inset 0 1px 0 ${alpha(theme.palette.common.white, 0.56)}`,
+        minHeight: 48,
+        minWidth: 112,
+        px: 1.25,
+        py: 0.65,
+      }}
+    >
+      <Typography
+        color="text.secondary"
+        sx={{ display: 'block', fontSize: '0.76rem', lineHeight: 1.15 }}
+        variant="caption"
+      >
+        {label}
+      </Typography>
+      <Typography
+        color={toneColor}
+        sx={{
+          fontSize: '1.05rem',
+          fontWeight: 800,
+          lineHeight: 1.15,
+          textAlign: { sm: 'right' },
+          whiteSpace: 'nowrap',
+        }}
+        variant="h6"
+      >
+        {value}
+      </Typography>
+    </Box>
+  );
+}
+
 function ModuleCard({
   disabled,
   module,
@@ -466,8 +545,13 @@ function ModuleCard({
   const [technicalExpanded, setTechnicalExpanded] = useState(false);
   const isRegistered = module.registrationState === 'REGISTERED';
   const canRegister = module.registrationState === 'AVAILABLE';
+  const missingDependencyCount =
+    module.activationData?.preflight.missingDependencies.length ?? 0;
   const canActivate =
-    isRegistered && !module.enabled && module.runtimeState === 'ACTIVE';
+    isRegistered &&
+    !module.enabled &&
+    module.runtimeState === 'ACTIVE' &&
+    missingDependencyCount === 0;
   const canDeactivate = isRegistered && module.enabled && !module.required;
   const canDeregister = isRegistered && !module.required;
   const pending = Boolean(pendingAction);
@@ -483,7 +567,8 @@ function ModuleCard({
     activationData?.packages.filter(
       (pack) => pack.dataType === 'sample' || pack.trigger === 'USER',
     ).length ?? 0;
-  const blockedReasonCount = activationData?.preflight.blockedReasons.length ?? 0;
+  const blockedReasonCount =
+    Math.max(activationData?.preflight.blockedReasons.length ?? 0, missingDependencyCount);
   const visibleTechnicalModules = technicalExpanded
     ? module.technicalModules
     : module.technicalModules.slice(0, 8);
@@ -494,6 +579,13 @@ function ModuleCard({
     /[^A-Za-z0-9_-]/gu,
     '-',
   )}`;
+  const routeTotal =
+    visibility.activeRoutes + visibility.hiddenRoutes + visibility.unavailableRoutes;
+  const dataPackageCount = activationData?.packages.length ?? 0;
+  const serverSummary =
+    module.observedServers.length > 0
+      ? `${String(module.observedServers.length)} runtime`
+      : 'No runtime';
   const primaryAction = canRegister
     ? 'register'
     : canActivate
@@ -501,11 +593,26 @@ function ModuleCard({
       : !module.enabled
         ? 'preview'
         : undefined;
+  const primaryActionLabel =
+    primaryAction === 'register'
+      ? pendingAction === 'register'
+        ? 'Registering...'
+        : 'Register'
+      : primaryAction === 'activate'
+        ? pendingAction === 'activate'
+          ? 'Activating...'
+          : 'Activate'
+        : primaryAction === 'preview'
+          ? pendingAction === 'preview'
+            ? 'Previewing...'
+            : 'Preview'
+          : undefined;
 
   return (
     <Card
       variant="outlined"
       sx={{
+        borderRadius: 1,
         borderColor:
           readiness === 'Blocked'
             ? 'error.light'
@@ -514,38 +621,104 @@ function ModuleCard({
               : readiness === 'Active'
                 ? 'success.light'
                 : 'divider',
+        boxShadow: (theme) =>
+          expanded
+            ? `0 18px 44px ${alpha(theme.palette.text.primary, 0.08)}`
+            : `0 8px 22px ${alpha(theme.palette.text.primary, 0.04)}`,
+        overflow: 'hidden',
+        position: 'relative',
+        transition: (theme) =>
+          theme.transitions.create(['border-color', 'box-shadow', 'transform'], {
+            duration: theme.transitions.duration.short,
+          }),
+        '&:before': {
+          bgcolor:
+            readiness === 'Blocked'
+              ? 'error.main'
+              : readiness === 'Active with warnings'
+                ? 'warning.main'
+                : readiness === 'Active'
+                  ? 'success.main'
+                  : 'info.main',
+          content: '""',
+          height: '100%',
+          left: 0,
+          position: 'absolute',
+          top: 0,
+          width: 4,
+        },
+        '&:hover': {
+          boxShadow: (theme) => `0 20px 48px ${alpha(theme.palette.text.primary, 0.1)}`,
+          transform: 'translateY(-1px)',
+        },
       }}
     >
-      <CardContent>
-        <Stack spacing={expanded ? 2 : 0}>
+      <CardContent
+        sx={{
+          '&:last-child': { pb: 1.5 },
+          pb: 1.5,
+          pl: 2.5,
+          pr: 2,
+          pt: 1.5,
+        }}
+      >
+        <Stack spacing={1.25}>
           <Stack
-            direction={{ xs: 'column', sm: 'row' }}
-            spacing={1}
-            sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
+            direction={{ xs: 'column', lg: 'row' }}
+            spacing={1.25}
+            sx={{ alignItems: { lg: 'center' }, justifyContent: 'space-between' }}
           >
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Stack
-                direction={{ xs: 'column', md: 'row' }}
-                spacing={1}
-                sx={{ alignItems: { md: 'center' }, minWidth: 0 }}
+            <Stack
+              direction="row"
+              spacing={1.25}
+              sx={{ alignItems: 'center', flex: 1, minWidth: 0 }}
+            >
+              <Box
+                sx={{
+                  alignItems: 'center',
+                  bgcolor: (theme) => alpha(theme.palette.primary.main, 0.12),
+                  border: '1px solid',
+                  borderColor: (theme) => alpha(theme.palette.primary.main, 0.36),
+                  borderRadius: 1,
+                  color: 'primary.main',
+                  display: 'flex',
+                  flexShrink: 0,
+                  height: 36,
+                  justifyContent: 'center',
+                  width: 36,
+                }}
               >
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography component="h3" noWrap variant="subtitle1">
-                    {module.displayName}
-                  </Typography>
-                  <Typography color="text.secondary" noWrap variant="caption">
-                    {module.functionalModule}
-                    {module.registeredVersion ? ` · v${module.registeredVersion}` : ''}
-                  </Typography>
-                </Box>
+                <ShellIcon fontSize="small" name="registry" />
+              </Box>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography
+                  component="h3"
+                  sx={{ fontSize: '1.08rem', fontWeight: 800, lineHeight: 1.2 }}
+                  variant="h6"
+                >
+                  {module.displayName}
+                </Typography>
+                <Typography
+                  color="text.secondary"
+                  sx={{ fontSize: '0.86rem', lineHeight: 1.25, mt: 0.25 }}
+                  variant="body2"
+                >
+                  {activationMode(module)}
+                </Typography>
                 <Stack
                   direction="row"
-                  spacing={0.75}
-                  sx={{ flexWrap: 'wrap', rowGap: 0.75 }}
+                  spacing={0.6}
+                  sx={{
+                    flexWrap: 'wrap',
+                    mt: 0.75,
+                    rowGap: 0.6,
+                    '& .MuiChip-root': { height: 24 },
+                    '& .MuiChip-label': { px: 1 },
+                  }}
                 >
                   <Chip
-                    color={stateColor(module.registrationState)}
-                    label={module.registrationState}
+                    color={readinessColor(readiness)}
+                    label={readiness}
                     size="small"
                   />
                   <Chip
@@ -558,11 +731,6 @@ function ModuleCard({
                     color={module.enabled ? 'success' : stateColor('DISABLED')}
                     label={module.enabled ? 'Enabled' : 'Disabled'}
                     size="small"
-                  />
-                  <Chip
-                    color={readinessColor(readiness)}
-                    label={readiness}
-                    size="small"
                     variant="outlined"
                   />
                   <Chip
@@ -570,42 +738,44 @@ function ModuleCard({
                     size="small"
                     variant="outlined"
                   />
+                  {module.registeredVersion ? (
+                    <Chip
+                      label={`v${module.registeredVersion}`}
+                      size="small"
+                      variant="outlined"
+                    />
+                  ) : null}
                 </Stack>
-              </Stack>
-            </Box>
+              </Box>
+            </Stack>
             <Stack
               direction="row"
               spacing={1}
-              sx={{ flexShrink: 0, flexWrap: 'wrap', rowGap: 1 }}
+              sx={{
+                flexShrink: 0,
+                flexWrap: 'wrap',
+                justifyContent: { xs: 'flex-start', lg: 'flex-end' },
+                rowGap: 1,
+              }}
             >
-              {primaryAction === 'register' ? (
+              {primaryAction && primaryActionLabel ? (
                 <Button
-                  disabled={disabled || pending}
-                  onClick={() => onAction(module, 'register')}
+                  disabled={
+                    disabled ||
+                    pending ||
+                    (primaryAction === 'preview' && !isRegistered)
+                  }
+                  onClick={() => onAction(module, primaryAction)}
                   size="small"
-                  variant="contained"
+                  startIcon={
+                    <ShellIcon
+                      fontSize="small"
+                      name={primaryAction === 'preview' ? 'visible' : 'approve'}
+                    />
+                  }
+                  variant={primaryAction === 'preview' ? 'outlined' : 'contained'}
                 >
-                  {pendingAction === 'register' ? 'Registering...' : 'Register'}
-                </Button>
-              ) : null}
-              {primaryAction === 'preview' ? (
-                <Button
-                  disabled={disabled || pending || !isRegistered}
-                  onClick={() => onAction(module, 'preview')}
-                  size="small"
-                  variant="outlined"
-                >
-                  {pendingAction === 'preview' ? 'Previewing...' : 'Preview'}
-                </Button>
-              ) : null}
-              {primaryAction === 'activate' ? (
-                <Button
-                  disabled={disabled || pending}
-                  onClick={() => onAction(module, 'activate')}
-                  size="small"
-                  variant="contained"
-                >
-                  {pendingAction === 'activate' ? 'Activating...' : 'Activate'}
+                  {primaryActionLabel}
                 </Button>
               ) : null}
               <Tooltip title={expanded ? 'Hide details' : 'Show details'}>
@@ -626,14 +796,62 @@ function ModuleCard({
             </Stack>
           </Stack>
 
+          <Grid container spacing={0.9}>
+            <Grid size={{ xs: 6, md: 3 }}>
+              <RegistryMetric
+                label="Routes"
+                tone={visibility.unavailableRoutes > 0 ? 'error' : 'success'}
+                value={`${String(visibility.activeRoutes)}/${String(routeTotal)}`}
+              />
+            </Grid>
+            <Grid size={{ xs: 6, md: 3 }}>
+              <RegistryMetric
+                label="Data"
+                tone={
+                  blockedReasonCount > 0
+                    ? 'error'
+                    : dataPackageCount > 0
+                      ? 'info'
+                      : 'default'
+                }
+                value={
+                  blockedReasonCount > 0
+                    ? `${String(blockedReasonCount)} blocked`
+                    : `${String(dataPackageCount)} pack`
+                }
+              />
+            </Grid>
+            <Grid size={{ xs: 6, md: 3 }}>
+              <RegistryMetric
+                label="Servers"
+                tone={module.runtimeState === 'ACTIVE' ? 'success' : 'warning'}
+                value={serverSummary}
+              />
+            </Grid>
+            <Grid size={{ xs: 6, md: 3 }}>
+              <RegistryMetric
+                label="Catalogue"
+                value={`r${String(module.catalogueRevision)}`}
+              />
+            </Grid>
+          </Grid>
+
           <Collapse id={detailId} in={expanded} timeout="auto" unmountOnExit>
-            <Stack spacing={2} sx={{ pt: 2 }}>
+            <Stack
+              spacing={2}
+              sx={{
+                borderTop: '1px solid',
+                borderColor: 'divider',
+                mt: 0.5,
+                pt: 2,
+              }}
+            >
               <Grid container spacing={2}>
                 <Grid size={{ xs: 12, md: 4 }}>
                   <Typography color="text.secondary" variant="caption">
-                    Revision
+                    Registry identity
                   </Typography>
-                  <Typography>{module.catalogueRevision}</Typography>
+                  <Typography>{module.functionalModule}</Typography>
                 </Grid>
                 <Grid size={{ xs: 12, md: 4 }}>
                   <Typography color="text.secondary" variant="caption">
@@ -653,9 +871,9 @@ function ModuleCard({
                 </Grid>
                 <Grid size={{ xs: 12, md: 4 }}>
                   <Typography color="text.secondary" variant="caption">
-                    Activation mode
+                    Registration
                   </Typography>
-                  <Typography>{activationMode(module)}</Typography>
+                  <Typography>{module.registrationState}</Typography>
                 </Grid>
                 <Grid size={{ xs: 12, md: 4 }}>
                   <Typography color="text.secondary" variant="caption">
@@ -676,33 +894,6 @@ function ModuleCard({
                   </Typography>
                 </Grid>
               </Grid>
-
-              <Box>
-                <Typography color="text.secondary" sx={{ mb: 1 }} variant="caption">
-                  Technical modules
-                </Typography>
-                <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                  {visibleTechnicalModules.map((technicalModule) => (
-                    <Chip
-                      key={technicalModule}
-                      label={technicalModule}
-                      size="small"
-                      variant="outlined"
-                    />
-                  ))}
-                  {module.technicalModules.length > 8 ? (
-                    <Button
-                      onClick={() => setTechnicalExpanded((value) => !value)}
-                      size="small"
-                      variant="text"
-                    >
-                      {technicalExpanded
-                        ? 'Show fewer'
-                        : `Show ${String(remainingTechnicalModules)} more`}
-                    </Button>
-                  ) : null}
-                </Stack>
-              </Box>
 
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
                 <Chip
@@ -749,12 +940,51 @@ function ModuleCard({
                 />
               </Stack>
 
+              {module.technicalModules.length > 0 ? (
+                <Box>
+                  <Typography color="text.secondary" sx={{ mb: 1 }} variant="caption">
+                    Technical modules
+                  </Typography>
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                    {visibleTechnicalModules.map((technicalModule) => (
+                      <Chip
+                        key={technicalModule}
+                        label={technicalModule}
+                        size="small"
+                        variant="outlined"
+                      />
+                    ))}
+                    {module.technicalModules.length > 8 ? (
+                      <Button
+                        onClick={() => setTechnicalExpanded((value) => !value)}
+                        size="small"
+                        variant="text"
+                      >
+                        {technicalExpanded
+                          ? 'Show fewer'
+                          : `Show ${String(remainingTechnicalModules)} more`}
+                      </Button>
+                    ) : null}
+                  </Stack>
+                </Box>
+              ) : null}
+
               <ActivationDataPanel activationData={activationData} />
 
               <Alert
-                severity={canActivate ? 'warning' : module.enabled ? 'success' : 'info'}
+                severity={
+                  missingDependencyCount > 0
+                    ? 'warning'
+                    : canActivate
+                      ? 'warning'
+                      : module.enabled
+                        ? 'success'
+                        : 'info'
+                }
               >
-                {canActivate
+                {missingDependencyCount > 0
+                  ? `Activation is waiting for ${String(missingDependencyCount)} required module dependency.`
+                  : canActivate
                   ? activationData?.packages.length === 0
                     ? 'No required data package is declared.'
                     : 'Activation imports required data before enabling Axis capabilities.'
@@ -1052,6 +1282,16 @@ export function FunctionalModuleRegistryRoutePage(
       ),
     [available, props.bootstrap.navigation, registered],
   );
+  const blockedRegistered = registered.filter(
+    (module) => moduleReadiness(module) === 'Blocked',
+  ).length;
+  const warningRegistered = registered.filter(
+    (module) => moduleReadiness(module) === 'Active with warnings',
+  ).length;
+  const activeRouteTotal = Array.from(moduleVisibility.values()).reduce(
+    (total, visibility) => total + visibility.activeRoutes,
+    0,
+  );
   const requestModuleAction = (
     module: FunctionalModuleRegistration,
     action: ModuleAction,
@@ -1086,97 +1326,12 @@ export function FunctionalModuleRegistryRoutePage(
   return (
     <WorkspaceContainer>
       <WorkspaceHeading
-        description={`Project ${configuration.projectCode} functional-module lifecycle is governed by BackOffice.`}
+        description={`Project ${configuration.projectCode} module lifecycle from BackOffice authority.`}
         help={props.routeNavigation?.help}
         title="Module Registry"
       />
 
       <Stack spacing={3}>
-        <Alert severity="info">
-          Axis only shows modules reported by BackOffice for this project. Runtime
-          availability comes from live module registration; registration state is
-          persisted by BackOffice.
-        </Alert>
-        <Card variant="outlined">
-          <CardContent>
-            <Stack spacing={2}>
-              <Box>
-                <Typography component="h2" variant="h5">
-                  Activation journey
-                </Typography>
-                <Typography color="text.secondary" variant="body2">
-                  Use this page as the operator control point for module registration,
-                  capability activation, bootstrap refresh, and the required-data
-                  receipt workflow backed by nImport data-release execution.
-                </Typography>
-              </Box>
-              <Grid container spacing={1}>
-                {[
-                  'Check runtime availability',
-                  'Register optional module',
-                  'Preview capabilities and technical modules',
-                  'Import required data through nImport receipts',
-                  'Activate Axis presentation',
-                  'Refresh navigation from backend bootstrap',
-                  'Optional sample data: user-triggered only',
-                ].map((step, index) => (
-                  <Grid key={step} size={{ xs: 12, md: 6, lg: 4 }}>
-                    <Chip
-                      label={`${String(index + 1)}. ${step}`}
-                      sx={{ justifyContent: 'flex-start', width: '100%' }}
-                      variant="outlined"
-                    />
-                  </Grid>
-                ))}
-              </Grid>
-              <Box>
-                <Button
-                  onClick={() => {
-                    void navigate('/setup-accelerators');
-                  }}
-                  size="small"
-                  variant="outlined"
-                >
-                  Continue to Setup & Accelerators
-                </Button>
-              </Box>
-            </Stack>
-          </CardContent>
-        </Card>
-        <Card variant="outlined">
-          <CardContent>
-            <Stack spacing={2}>
-              <Box>
-                <Typography component="h2" variant="h5">
-                  Safety and visibility contract
-                </Typography>
-                <Typography color="text.secondary" variant="body2">
-                  Module activation changes operator reachability only after BackOffice
-                  accepts the lifecycle action and Axis refreshes the authenticated
-                  bootstrap. Deactivation and deregistration are protected by an
-                  explicit confirmation because they can remove menu groups, workbench
-                  cards, and project-specific capability entry points.
-                </Typography>
-              </Box>
-              <Grid container spacing={1}>
-                {[
-                  'Required modules stay protected',
-                  'Required/core data imports during activation',
-                  'Sample data stays user-triggered',
-                  'Navigation refresh proves visibility',
-                  'Unavailable runtime blocks activation',
-                  'Deactivation hides capability entry points',
-                ].map((rule) => (
-                  <Grid key={rule} size={{ xs: 12, md: 6, lg: 4 }}>
-                    <Alert severity="info" sx={{ height: '100%' }}>
-                      {rule}
-                    </Alert>
-                  </Grid>
-                ))}
-              </Grid>
-            </Stack>
-          </CardContent>
-        </Card>
         {lifecycle.isError ? (
           <Alert severity="error">
             {lifecycle.variables
@@ -1213,61 +1368,103 @@ export function FunctionalModuleRegistryRoutePage(
         ) : loadError ? (
           <Alert severity="error">{loadError.message}</Alert>
         ) : (
-          <Stack spacing={4}>
-            <Card variant="outlined">
-              <CardContent>
+          <Stack spacing={2}>
+            <Card
+              variant="outlined"
+              sx={{ borderRadius: 1, overflow: 'hidden' }}
+            >
+              <CardContent
+                sx={{
+                  '&:last-child': { pb: 1.5 },
+                  background: (theme) =>
+                    `linear-gradient(135deg, ${alpha(
+                      theme.palette.primary.main,
+                      theme.palette.mode === 'light' ? 0.14 : 0.2,
+                    )} 0%, ${alpha(theme.palette.background.paper, 0)} 62%)`,
+                  borderRadius: 1,
+                  pb: 1.5,
+                  px: 2,
+                  pt: 1.5,
+                }}
+              >
                 <Stack
                   direction={{ xs: 'column', md: 'row' }}
-                  spacing={2}
+                  spacing={1.25}
                   sx={{
                     alignItems: { md: 'center' },
                     justifyContent: 'space-between',
                   }}
                 >
                   <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography component="h2" variant="h5">
-                      Project module lifecycle
+                    <Typography
+                      component="h2"
+                      sx={{ fontSize: '1.18rem', fontWeight: 800, lineHeight: 1.2 }}
+                      variant="h6"
+                    >
+                      Registry control center
                     </Typography>
-                    <Typography color="text.secondary" variant="body2">
-                      Register makes an observed optional module part of the project
-                      catalogue. Activation imports required data through existing
-                      nImport receipts before Axis presents the module capability.
-                      Optional sample-data opt-in remains separate and user-triggered.
-                      Deregister returns an optional module to the available list.
+                    <Typography
+                      color="text.secondary"
+                      sx={{ fontSize: '0.86rem', lineHeight: 1.25, mt: 0.25 }}
+                      variant="body2"
+                    >
+                      Register available capabilities, activate what this project needs,
+                      and keep Axis navigation current.
                     </Typography>
                   </Box>
-                  <Box
-                    aria-label="Module lifecycle summary"
-                    sx={{
-                      alignSelf: { md: 'center' },
-                      display: 'grid',
-                      flexShrink: 0,
-                      gap: 1,
-                      gridTemplateColumns: {
-                        xs: 'repeat(2, minmax(0, max-content))',
-                        md: 'repeat(4, max-content)',
-                      },
-                      justifyContent: { xs: 'start', md: 'end' },
+                  <Button
+                    onClick={() => {
+                      void navigate('/setup-accelerators');
                     }}
+                    size="small"
+                    startIcon={<ShellIcon fontSize="small" name="automation" />}
+                    sx={{ flexShrink: 0, minHeight: 34 }}
+                    variant="outlined"
                   >
-                    <Chip
-                      color="success"
-                      label={`${String(enabledRegistered)} enabled`}
-                    />
-                    <Chip
-                      label={`${String(requiredRegistered)} required`}
-                      variant="outlined"
-                    />
-                    <Chip
-                      label={`${String(optionalRegistered)} optional`}
-                      variant="outlined"
-                    />
-                    <Chip
-                      color="warning"
-                      label={`${String(available.length)} waiting`}
-                    />
-                  </Box>
+                    Setup & Accelerators
+                  </Button>
                 </Stack>
+                <Grid container spacing={1} sx={{ mt: 1.25 }}>
+                  <Grid size={{ xs: 6, md: 2.4 }}>
+                    <RegistryMetric
+                      label="Enabled"
+                      tone="success"
+                      value={String(enabledRegistered)}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 6, md: 2.4 }}>
+                    <RegistryMetric
+                      label="Required"
+                      value={String(requiredRegistered)}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 6, md: 2.4 }}>
+                    <RegistryMetric
+                      label="Optional"
+                      value={String(optionalRegistered)}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 6, md: 2.4 }}>
+                    <RegistryMetric
+                      label="Available"
+                      tone={available.length > 0 ? 'warning' : 'success'}
+                      value={String(available.length)}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 6, md: 2.4 }}>
+                    <RegistryMetric
+                      label="Visible routes"
+                      tone={activeRouteTotal > 0 ? 'info' : 'default'}
+                      value={String(activeRouteTotal)}
+                    />
+                  </Grid>
+                </Grid>
+                {blockedRegistered > 0 || warningRegistered > 0 ? (
+                  <Alert severity="warning" sx={{ mt: 2 }}>
+                    {String(blockedRegistered)} blocked and {String(warningRegistered)}{' '}
+                    warning module(s) need attention.
+                  </Alert>
+                ) : null}
               </CardContent>
             </Card>
 
@@ -1282,8 +1479,7 @@ export function FunctionalModuleRegistryRoutePage(
                     Required modules
                   </Typography>
                   <Typography color="text.secondary" variant="body2">
-                    Framework prerequisites that are automatically registered and cannot
-                    be deactivated or deregistered.
+                    Protected foundation modules for this project.
                   </Typography>
                 </Box>
                 <Chip label={`${String(required.length)} required`} />
@@ -1343,10 +1539,7 @@ export function FunctionalModuleRegistryRoutePage(
                     Optional registered modules
                   </Typography>
                   <Typography color="text.secondary" variant="body2">
-                    Modules selected for this project. Activation controls whether Axis
-                    presents their business capabilities. Required activation data
-                    imports through nImport before the module is enabled. Optional
-                    sample-data import remains a separate user-triggered journey.
+                    Project capabilities selected for operators.
                   </Typography>
                 </Box>
                 <Chip label={`${String(optional.length)} optional registered`} />
@@ -1406,8 +1599,7 @@ export function FunctionalModuleRegistryRoutePage(
                     Available to register
                   </Typography>
                   <Typography color="text.secondary" variant="body2">
-                    Live optional functional modules observed by runtime servers but not
-                    yet registered into the project.
+                    Runtime-observed capabilities not yet added to this project.
                   </Typography>
                 </Box>
                 <Chip label={`${available.length} available`} />

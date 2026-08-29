@@ -179,51 +179,13 @@ const GROUP_ID_ALIASES: Readonly<Record<string, ShellNavigationGroupDefinition>>
     'other-backlogs': BUSINESS_GROUPS.otherBacklogs,
   });
 
-const dashboard: ShellNavigationItem = Object.freeze({
-  id: 'dashboard',
-  label: 'Runtime Dashboard',
-  route: '/system-integrations',
-  order: 0,
-  moduleName: 'axis',
-  category: 'platform',
-  icon: 'dashboard',
-  availability: 'UP',
-  perspectives: ['operations'],
-  contexts: [],
-  featureState: 'ACTIVE',
-  depth: 0,
-  hasChildren: false,
-  local: true,
-});
-
-function isRuntimeDashboardDuplicate(item: AxisNavigationItem): boolean {
-  const label = item.label.trim().toLowerCase();
-  const route = item.route.replace(/\/$/, '') || '/';
-  return (
-    item.id === dashboard.id ||
-    (label === 'dashboard' &&
-      item.category === 'platform' &&
-      (route === dashboard.route || route.startsWith(`${dashboard.route}/`)))
-  );
-}
-
 export function composeShellNavigation(
   navigation: readonly AxisNavigationItem[],
 ): readonly ShellNavigationGroup[] {
-  const hasBackendDashboard = navigation.some(
-    (item) => item.route === dashboard.route || item.id === 'system-integrations',
-  );
   const groups = new Map<string, ShellNavigationGroup>();
-  groups.set(BUSINESS_GROUPS.systemIntegrations.id, {
-    ...BUSINESS_GROUPS.systemIntegrations,
-    items: hasBackendDashboard ? [] : [dashboard],
-  });
   const shellItems = navigation
     .filter(
-      (item) =>
-        !isRuntimeDashboardDuplicate(item) &&
-        item.featureState !== 'HIDDEN' &&
-        item.featureState !== 'DISABLED',
+      (item) => item.featureState !== 'HIDDEN' && item.featureState !== 'DISABLED',
     )
     .map<ShellNavigationItem>((item) => ({
       ...item,

@@ -533,7 +533,7 @@ function documentationOperatorGuidance({
     return {
       severity: 'warning',
       title: 'Request approval for Online',
-      body: 'Click Request approval. Axis will create a Process task where an admin or reviewer can approve publication without bypassing governance.',
+      body: 'Click Request Online approval. Axis will create a governed Process task for reviewer decision and Online publication.',
     };
   }
   if (publicationReadiness === 'PUBLICATION_PENDING') {
@@ -936,7 +936,7 @@ function CmsDocumentationReadinessCard({
       : !initializationProfile
         ? 'Initialization profile is not configured.'
         : publication.data?.readiness === 'IMPORTED'
-          ? 'Imported to Staged; request approval for Online readiness.'
+          ? 'Next: request Online approval so reviewers can publish this Staged pack.'
           : publication.data?.readiness === 'PUBLICATION_PENDING'
             ? 'Approval or Online activation is in progress.'
             : undefined);
@@ -1087,7 +1087,7 @@ function CmsDocumentationReadinessCard({
                 aria-label={
                   publication.data?.readiness === 'FAILED'
                     ? 'Retry publication'
-                    : 'Publish / request approval'
+                    : 'Request Online approval'
                 }
                 disabled={busy}
                 onClick={() => publicationMutation.mutate()}
@@ -1095,17 +1095,27 @@ function CmsDocumentationReadinessCard({
                 startIcon={<ShellIcon fontSize="small" name="approve" />}
                 sx={{
                   ...dashboardActionButtonSx,
-                  bgcolor: alpha(axisTokens.color.signatureGold, 0.22),
-                  color: 'primary.main',
+                  bgcolor: axisTokens.color.signatureGold,
+                  boxShadow: (theme) =>
+                    `0 8px 18px ${alpha(theme.palette.primary.main, 0.18)}`,
+                  color: 'text.primary',
+                  fontWeight: 800,
                   '&:hover': {
-                    bgcolor: alpha(axisTokens.color.signatureGold, 0.34),
+                    bgcolor: alpha(axisTokens.color.signatureGold, 0.86),
+                    boxShadow: (theme) =>
+                      `0 10px 22px ${alpha(theme.palette.primary.main, 0.22)}`,
+                  },
+                  '&.Mui-disabled': {
+                    bgcolor: 'action.disabledBackground',
+                    boxShadow: 'none',
+                    color: 'text.disabled',
                   },
                 }}
                 variant="contained"
               >
                 {publication.data?.readiness === 'FAILED'
                   ? 'Retry publication'
-                  : 'Request approval'}
+                  : 'Request Online approval'}
               </Button>
             ) : null}
             {canDecideInline ? (

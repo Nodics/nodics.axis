@@ -16,6 +16,7 @@ export interface DataRelease {
   readonly sectionCode?: string;
   readonly moduleName: string;
   readonly displayName: string;
+  readonly moduleIndex?: string;
   readonly parentModule?: string;
   readonly canonicalIdentity: string;
   readonly dataType: DataReleaseType;
@@ -62,6 +63,7 @@ export interface InitializationProfile {
   readonly label: string;
   readonly description: string;
   readonly completionMessage: string;
+  readonly moduleIndex?: string;
   readonly destinationRole?: string;
   readonly status: InitializationProfileStatus;
   readonly blocked: boolean;

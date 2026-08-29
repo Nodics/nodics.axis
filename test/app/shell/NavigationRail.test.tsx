@@ -137,4 +137,70 @@ describe('Axis navigation rail', () => {
     ).toBeVisible();
     expect(screen.queryByText('Module Registry')).not.toBeInTheDocument();
   });
+
+  it('selects Documentation Designer on the designer route even with stale navigation metadata', () => {
+    const groups: readonly ShellNavigationGroup[] = [
+      {
+        id: 'documentation',
+        label: 'Documentation',
+        order: 1600,
+        items: [
+          {
+            id: 'documentation-dashboard',
+            label: 'Dashboard',
+            route: '/docs',
+            order: 105,
+            moduleName: 'backoffice',
+            category: 'platform',
+            icon: 'content',
+            availability: 'UP',
+            perspectives: ['operations'],
+            contexts: [],
+            featureState: 'ACTIVE',
+            depth: 0,
+            hasChildren: false,
+            local: false,
+          },
+          {
+            id: 'documentation-management',
+            label: 'Documentation Designer',
+            route: '/content/designer/documentation',
+            order: 107,
+            moduleName: 'backoffice',
+            category: 'platform',
+            icon: 'cms',
+            availability: 'UP',
+            perspectives: ['operations'],
+            contexts: [],
+            featureState: 'ACTIVE',
+            depth: 0,
+            hasChildren: false,
+            local: false,
+          },
+        ],
+      },
+    ];
+
+    render(
+      <AxisThemeProvider>
+        <NavigationRail
+          activePath="/docs/designer"
+          compact={false}
+          favourites={new Set()}
+          groups={groups}
+          query=""
+          onNavigate={vi.fn()}
+          onQueryChange={vi.fn()}
+          onToggleFavourite={vi.fn()}
+        />
+      </AxisThemeProvider>,
+    );
+
+    expect(screen.getByRole('button', { name: 'Dashboard' })).not.toHaveClass(
+      'Mui-selected',
+    );
+    expect(screen.getByRole('button', { name: 'Documentation Designer' })).toHaveClass(
+      'Mui-selected',
+    );
+  });
 });

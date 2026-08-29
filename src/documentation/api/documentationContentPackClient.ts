@@ -159,7 +159,6 @@ async function responseFailure(response: Response): Promise<Error> {
       ) {
         return new Error(immutableReleaseConflictMessage);
       }
-      if (message.trim()) return new Error(message.trim());
     } catch {
       const bounded = bodyText.trim().slice(0, 500);
       if (/already running/iu.test(bounded)) {
@@ -168,7 +167,6 @@ async function responseFailure(response: Response): Promise<Error> {
       if (/version change|new release version|checksum|content changed/iu.test(bounded)) {
         return new Error(immutableReleaseConflictMessage);
       }
-      return new Error(bounded);
     }
   }
   return new Error(`Documentation service returned HTTP ${String(response.status)}`);

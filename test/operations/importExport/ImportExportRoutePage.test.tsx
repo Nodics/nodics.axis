@@ -245,7 +245,8 @@ describe('ImportExportRoutePage', () => {
       label: 'Local WCMS foundation',
       description: 'Install the Local content foundation.',
       completionMessage: 'The Staged content foundation is ready.',
-      destinationRole: 'STAGED',
+      moduleIndex: '50.99',
+      destinationRole: 'WCMS_STAGED',
       status: 'ACTION_REQUIRED',
       blocked: false,
       steps: [{ order: 1, dataType: 'init', releases: [pendingRelease] }],
@@ -267,7 +268,7 @@ describe('ImportExportRoutePage', () => {
     renderPage();
 
     expect(await screen.findByText('Local WCMS foundation')).toBeVisible();
-    expect(screen.getByText('Target STAGED')).toBeVisible();
+    expect(screen.getByText('Target WCMS_STAGED')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Validate plan' }));
     expect(
       await screen.findByText(/backend validated the immutable initialization plan/iu),
@@ -277,7 +278,295 @@ describe('ImportExportRoutePage', () => {
         '/initialization-profiles/localWcmsFoundation/validate',
       ),
     );
+    expect(call ? fetchInputUrl(call[0]) : '').toMatch(
+      /^http:\/\/localhost:4312\/nodics\/import/u,
+    );
     expect(call?.[1]?.method).toBe('POST');
+  });
+
+  it('runs the selected guided profile against its destination runtime when profile codes repeat', async () => {
+    const pendingRelease = {
+      ...currentRelease,
+      dataType: 'init',
+      status: 'NOT_INSTALLED',
+      installedVersion: undefined,
+    };
+    const stagedProfile = {
+      profileCode: 'localFoundation',
+      label: 'Local WCMS staged setup',
+      description: 'Install the Local content foundation.',
+      completionMessage: 'The Staged content foundation is ready.',
+      moduleIndex: '50.99',
+      destinationRole: 'WCMS_STAGED',
+      status: 'ACTION_REQUIRED',
+      blocked: false,
+      steps: [{ order: 1, dataType: 'init', releases: [pendingRelease] }],
+    };
+    const processProfile = {
+      ...stagedProfile,
+      label: 'Local process setup',
+      description: 'Install the Local process foundation.',
+      completionMessage: 'The Process foundation is ready.',
+      moduleIndex: '85.99',
+      destinationRole: 'PROCESS',
+    };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.endsWith('/initialization-profiles'))
+        return Promise.resolve(jsonResponse([stagedProfile, processProfile]));
+      if (url.endsWith('/initialization-profiles/localFoundation/validate')) {
+        return Promise.resolve(
+          jsonResponse({
+            profileCode: processProfile.profileCode,
+            mode: 'VALIDATE',
+            profile: processProfile,
+          }),
+        );
+      }
+      if (url.endsWith('/init') || url.endsWith('/core') || url.endsWith('/sample'))
+        return Promise.resolve(jsonResponse([]));
+      return Promise.resolve(jsonResponse([]));
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText('Local WCMS staged setup')).toBeVisible();
+    expect(screen.getByText('Local process setup')).toBeVisible();
+    const validateButtons = screen.getAllByRole('button', { name: 'Validate plan' });
+    expect(validateButtons).toHaveLength(2);
+    await user.click(validateButtons[1] as HTMLElement);
+
+    expect(
+      await screen.findByText(/backend validated the immutable initialization plan/iu),
+    ).toBeVisible();
+    const validateCalls = fetchMock.mock.calls.filter(([input]) =>
+      fetchInputUrl(input).endsWith(
+        '/initialization-profiles/localFoundation/validate',
+      ),
+    );
+    expect(validateCalls.map(([input]) => fetchInputUrl(input as RequestInfo))).toEqual(
+      [
+        'http://localhost:4330/nodics/import/v0/initialization-profiles/localFoundation/validate',
+      ],
+    );
+  });
+
+  it('shows guided profile operation feedback only on the selected profile card', async () => {
+    const pendingRelease = {
+      ...currentRelease,
+      dataType: 'init',
+      status: 'NOT_INSTALLED',
+      installedVersion: undefined,
+    };
+    const stagedProfile = {
+      profileCode: 'sharedFoundation',
+      label: 'Local WCMS staged setup',
+      description: 'Install the Local content foundation.',
+      completionMessage: 'The Staged content foundation is ready.',
+      moduleIndex: '50.99',
+      destinationRole: 'WCMS_STAGED',
+      status: 'ACTION_REQUIRED',
+      blocked: false,
+      steps: [{ order: 1, dataType: 'init', releases: [pendingRelease] }],
+    };
+    const processProfile = {
+      ...stagedProfile,
+      label: 'Local process setup',
+      description: 'Install the Local process foundation.',
+      completionMessage: 'The Process foundation is ready.',
+      moduleIndex: '85.99',
+      destinationRole: 'PROCESS',
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.endsWith('/initialization-profiles'))
+        return Promise.resolve(jsonResponse([stagedProfile, processProfile]));
+      if (url.endsWith('/initialization-profiles/sharedFoundation/install')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              message: 'Operation not found: Initialization profile is unavailable',
+            }),
+            { status: 404, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      if (url.endsWith('/init') || url.endsWith('/core') || url.endsWith('/sample'))
+        return Promise.resolve(jsonResponse([]));
+      return Promise.resolve(jsonResponse([]));
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText('Local WCMS staged setup')).toBeVisible();
+    const initializeButtons = screen.getAllByRole('button', {
+      name: 'Validate and initialize',
+    });
+    expect(initializeButtons).toHaveLength(2);
+    await user.click(initializeButtons[1] as HTMLElement);
+
+    expect(
+      await screen.findByText(/Local process setup cannot be started on PROCESS/u),
+    ).toBeVisible();
+    expect(
+      screen.queryByText(/Local WCMS staged setup cannot be started/u),
+    ).not.toBeInTheDocument();
+  });
+
+  it('groups guided setup profiles by required action before current profiles', async () => {
+    const pendingRelease = {
+      ...currentRelease,
+      dataType: 'init',
+      status: 'NOT_INSTALLED',
+      installedVersion: undefined,
+    };
+    const currentReleaseStep = {
+      ...pendingRelease,
+      status: 'CURRENT',
+      installedVersion: '1.0.0',
+    };
+    const currentProfile = {
+      profileCode: 'localWcmsFoundation',
+      label: 'Local WCMS foundation',
+      description: 'Install the Local content foundation.',
+      completionMessage: 'The Staged content foundation is ready.',
+      moduleIndex: '50.99',
+      destinationRole: 'WCMS_STAGED',
+      status: 'CURRENT',
+      blocked: false,
+      steps: [{ order: 1, dataType: 'init', releases: [currentReleaseStep] }],
+    };
+    const actionProfile = {
+      profileCode: 'localCommerceFoundation',
+      label: 'Local Commerce foundation',
+      description: 'Install the Local commerce foundation.',
+      completionMessage: 'The Commerce foundation is ready.',
+      moduleIndex: '70.99',
+      destinationRole: 'COMMERCE',
+      status: 'ACTION_REQUIRED',
+      blocked: false,
+      steps: [{ order: 1, dataType: 'core', releases: [pendingRelease] }],
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.endsWith('/initialization-profiles')) {
+        return Promise.resolve(jsonResponse([currentProfile, actionProfile]));
+      }
+      if (url.endsWith('/init') || url.endsWith('/core') || url.endsWith('/sample'))
+        return Promise.resolve(jsonResponse([]));
+      return Promise.resolve(jsonResponse([]));
+    });
+
+    renderPage();
+
+    const needsActionHeading = await screen.findByRole('heading', {
+      name: 'Needs action',
+    });
+    const currentHeading = screen.getByRole('heading', { name: 'Already current' });
+    const actionProfileHeading = screen.getByRole('heading', {
+      name: 'Local Commerce foundation',
+    });
+    const currentProfileHeading = screen.getByRole('heading', {
+      name: 'Local WCMS foundation',
+    });
+
+    expect(needsActionHeading.compareDocumentPosition(currentHeading)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(actionProfileHeading.compareDocumentPosition(currentProfileHeading)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(screen.getAllByText('1 profile')).toHaveLength(2);
+  });
+
+  it('orders guided action profiles by backend setup sequence', async () => {
+    const pendingRelease = {
+      ...currentRelease,
+      dataType: 'core',
+      status: 'NOT_INSTALLED',
+      installedVersion: undefined,
+    };
+    const commerceProfile = {
+      profileCode: 'localCommerceFoundation',
+      label: 'Local Commerce foundation',
+      description: 'Install the Local commerce foundation.',
+      completionMessage: 'The Commerce foundation is ready.',
+      moduleIndex: '70.99',
+      destinationRole: 'COMMERCE',
+      status: 'ACTION_REQUIRED',
+      blocked: false,
+      steps: [{ order: 1, dataType: 'core', releases: [pendingRelease] }],
+    };
+    const platformProfile = {
+      profileCode: 'localPlatformFoundation',
+      label: 'Local Platform foundation',
+      description: 'Install the Local platform foundation.',
+      completionMessage: 'The Platform foundation is ready.',
+      moduleIndex: '60.99',
+      destinationRole: 'PLATFORM',
+      status: 'ACTION_REQUIRED',
+      blocked: false,
+      steps: [{ order: 1, dataType: 'init', releases: [pendingRelease] }],
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.endsWith('/initialization-profiles')) {
+        return Promise.resolve(jsonResponse([commerceProfile, platformProfile]));
+      }
+      if (url.endsWith('/init') || url.endsWith('/core') || url.endsWith('/sample'))
+        return Promise.resolve(jsonResponse([]));
+      return Promise.resolve(jsonResponse([]));
+    });
+
+    renderPage();
+
+    const platformHeading = await screen.findByRole('heading', {
+      name: 'Local Platform foundation',
+    });
+    const commerceHeading = screen.getByRole('heading', {
+      name: 'Local Commerce foundation',
+    });
+
+    expect(platformHeading.compareDocumentPosition(commerceHeading)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it('keeps guided setup useful when no initialization profiles are exposed', async () => {
+    const initRelease = {
+      ...currentRelease,
+      dataType: 'init',
+      status: 'NOT_INSTALLED',
+      installedVersion: undefined,
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.endsWith('/initialization-profiles')) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      if (url.endsWith('/init')) return Promise.resolve(jsonResponse([initRelease]));
+      if (url.endsWith('/core') || url.endsWith('/sample')) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      return Promise.resolve(jsonResponse([]));
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+
+    expect(
+      await screen.findByText('No guided setup profile is available'),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/You can still review and install available release data/iu),
+    ).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Initialization data' }));
+
+    expect(window.location.search).toBe('?area=init');
+    expect(
+      await screen.findByRole('region', { name: 'Initialization data action footer' }),
+    ).toBeVisible();
   });
 
   it('shows a guided installation failure and allows a successful retry', async () => {
@@ -292,7 +581,7 @@ describe('ImportExportRoutePage', () => {
       label: 'Local WCMS foundation',
       description: 'Install the Local content foundation.',
       completionMessage: 'The Staged content foundation is ready.',
-      destinationRole: 'STAGED',
+      destinationRole: 'WCMS_STAGED',
       status: 'ACTION_REQUIRED',
       blocked: false,
       steps: [{ order: 1, dataType: 'init', releases: [pendingRelease] }],
@@ -372,10 +661,10 @@ describe('ImportExportRoutePage', () => {
     expect(screen.getByText('Version 1.0.0')).toBeVisible();
     expect(screen.queryByText('Available 1.0.0')).not.toBeInTheDocument();
     expect(screen.queryByText('Installed 1.0.0')).not.toBeInTheDocument();
-    expect(screen.getByText('Installed / already current')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Already current' })).toBeVisible();
     expect(screen.queryByText('Collapse')).not.toBeInTheDocument();
     const currentGroupToggle = screen.getByRole('button', {
-      name: /Installed \/ already current/iu,
+      name: /Already current/iu,
     });
     expect(currentGroupToggle).toHaveAttribute('aria-expanded', 'true');
     await user.click(currentGroupToggle);
@@ -421,11 +710,11 @@ describe('ImportExportRoutePage', () => {
     renderPage();
     await user.click(await screen.findByRole('tab', { name: 'Core data' }));
 
-    expect(await screen.findByText('Available to install or update')).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Needs action' })).toBeVisible();
     expect(await screen.findByText('Available 1.1.0')).toBeVisible();
     expect(screen.getByText('Installed 1.0.0')).toBeVisible();
     const availableGroupToggle = screen.getByRole('button', {
-      name: /Available to install or update/iu,
+      name: /Needs action/iu,
     });
     expect(availableGroupToggle).toHaveAttribute('aria-expanded', 'true');
     await user.click(availableGroupToggle);
@@ -436,6 +725,55 @@ describe('ImportExportRoutePage', () => {
     expect(availableGroupToggle).toHaveAttribute('aria-expanded', 'true');
     expect(await screen.findByText('Available 1.1.0')).toBeVisible();
     expect(screen.getByText('Installed 1.0.0')).toBeVisible();
+  });
+
+  it('orders data release tab action groups by backend module sequence', async () => {
+    const commerceRelease = {
+      ...currentRelease,
+      releaseCode: 'commerce:core',
+      moduleName: 'commerce',
+      displayName: 'Local Commerce foundation',
+      moduleIndex: '70.99',
+      dataType: 'core',
+      status: 'NOT_INSTALLED',
+      installedVersion: undefined,
+    };
+    const platformRelease = {
+      ...currentRelease,
+      releaseCode: 'platform:core',
+      moduleName: 'platform',
+      displayName: 'Local Platform foundation',
+      moduleIndex: '60.99',
+      dataType: 'core',
+      status: 'NOT_INSTALLED',
+      installedVersion: undefined,
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.endsWith('/core')) {
+        return Promise.resolve(jsonResponse([commerceRelease, platformRelease]));
+      }
+      if (url.endsWith('/init') || url.endsWith('/sample')) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      return Promise.resolve(jsonResponse([]));
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(await screen.findByRole('tab', { name: 'Core data' }));
+
+    expect(await screen.findByRole('heading', { name: 'Needs action' })).toBeVisible();
+    const platformHeading = screen.getByRole('heading', {
+      name: 'Local Platform foundation',
+    });
+    const commerceHeading = screen.getByRole('heading', {
+      name: 'Local Commerce foundation',
+    });
+
+    expect(platformHeading.compareDocumentPosition(commerceHeading)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
   });
 
   it('shows selected data release operation errors inside the action footer', async () => {
@@ -569,7 +907,9 @@ describe('ImportExportRoutePage', () => {
     renderPage();
     await user.click(await screen.findByRole('tab', { name: 'Initialization data' }));
 
-    expect(await screen.findByText('Installed / already current')).toBeVisible();
+    expect(
+      await screen.findByRole('heading', { name: 'Already current' }),
+    ).toBeVisible();
     expect(screen.getByText('Catalog Framework')).toBeVisible();
     expect(screen.getByText('Version 1.0.3')).toBeVisible();
     expect(
@@ -578,7 +918,7 @@ describe('ImportExportRoutePage', () => {
       }),
     ).toBeDisabled();
     expect(
-      screen.queryByText('Available to install or update'),
+      screen.queryByRole('heading', { name: 'Needs action' }),
     ).not.toBeInTheDocument();
     expect(
       fetchMock.mock.calls.some(
@@ -797,7 +1137,7 @@ describe('ImportExportRoutePage', () => {
     expect(
       screen.getByRole('region', { name: 'Initialization data action footer' }),
     ).toBeVisible();
-    expect(screen.getByText('Available to install or update')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Needs action' })).toBeVisible();
     await user.click(
       screen.getByRole('checkbox', { name: 'Select all actionable releases' }),
     );
@@ -815,7 +1155,7 @@ describe('ImportExportRoutePage', () => {
     expect(
       await screen.findByRole('region', { name: 'Core data action footer' }),
     ).toBeVisible();
-    expect(screen.getByText('Available to install or update')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Needs action' })).toBeVisible();
     await user.click(
       await screen.findByRole('checkbox', {
         name: 'Select all actionable releases',
@@ -833,7 +1173,7 @@ describe('ImportExportRoutePage', () => {
     expect(
       await screen.findByRole('region', { name: 'Sample data action footer' }),
     ).toBeVisible();
-    expect(screen.getByText('Available to install or update')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Needs action' })).toBeVisible();
     await user.click(
       await screen.findByRole('checkbox', {
         name: 'Select all actionable releases',

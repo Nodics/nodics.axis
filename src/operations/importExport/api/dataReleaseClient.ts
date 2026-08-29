@@ -101,6 +101,7 @@ function parseRelease(value: unknown): DataRelease {
   const optionalValues = {
     releaseCode: optionalText(source.releaseCode),
     sectionCode: optionalText(source.sectionCode),
+    moduleIndex: optionalText(source.moduleIndex),
     destinationRole: optionalText(source.destinationRole),
     invalidReason: optionalText(source.invalidReason),
     parentModule: optionalText(source.parentModule),
@@ -133,6 +134,7 @@ function parseInitializationProfile(value: unknown): InitializationProfile {
   if (!Array.isArray(source.steps))
     throw new Error('Initialization profile steps are invalid');
   const destinationRole = optionalText(source.destinationRole);
+  const moduleIndex = optionalText(source.moduleIndex);
   return Object.freeze({
     profileCode: text(source.profileCode, 'Initialization profile code'),
     label: text(source.label, 'Initialization profile label'),
@@ -141,6 +143,7 @@ function parseInitializationProfile(value: unknown): InitializationProfile {
       source.completionMessage,
       'Initialization profile completion message',
     ),
+    ...(moduleIndex ? { moduleIndex } : {}),
     ...(destinationRole ? { destinationRole } : {}),
     status,
     blocked: source.blocked === true,
@@ -362,6 +365,16 @@ const exportServiceErrorContext: ServiceErrorContext = Object.freeze({
   unauthorizedMessage: 'You are not authorized to perform this export operation.',
 });
 
+function requestTimeoutMs(
+  configuration: DataReleaseClientConfiguration,
+  options: RequestInit,
+): number {
+  const method = String(options.method ?? 'GET').toUpperCase();
+  return method === 'GET'
+    ? configuration.timeoutMs
+    : Math.max(configuration.timeoutMs, 180_000);
+}
+
 async function safeError(
   response: Response,
   context: ServiceErrorContext = importServiceErrorContext,
@@ -397,9 +410,10 @@ async function request(
   if (!['http:', 'https:'].includes(endpoint.protocol))
     throw new Error(`${context.serviceName} endpoint is invalid`);
   const controller = new AbortController();
+  const effectiveTimeoutMs = requestTimeoutMs(configuration, options);
   const timeout = globalThis.setTimeout(
     () => controller.abort(),
-    configuration.timeoutMs,
+    effectiveTimeoutMs,
   );
   try {
     const response = await fetchImplementation(

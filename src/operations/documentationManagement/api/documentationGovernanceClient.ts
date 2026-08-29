@@ -295,20 +295,17 @@ function parseAuthoringModel(value: unknown): DocumentationAuthoringModel {
     rendererAuthority: text(source.rendererAuthority, 'axis-runtime-renderers'),
     publicationAuthority: text(source.publicationAuthority, 'nPublish'),
     workspace: Object.freeze({
-      route: routePath(
-        text(workspace.route, '/content/designer/documentation'),
-        'workspace route',
-      ),
+      route: routePath(text(workspace.route, '/docs/designer'), 'workspace route'),
       landing: routePath(
-        text(workspace.landing, '/content/designer/documentation/dashboard'),
+        text(workspace.landing, '/docs/designer/dashboard'),
         'workspace landing',
       ),
       previewRoute: routePath(
-        text(workspace.previewRoute, '/content/designer/documentation/preview'),
+        text(workspace.previewRoute, '/docs/designer/preview'),
         'workspace preview route',
       ),
       searchRoute: routePath(
-        text(workspace.searchRoute, '/content/designer/documentation/search'),
+        text(workspace.searchRoute, '/docs/designer/search'),
         'workspace search route',
       ),
       expandableNavigation: workspace.expandableNavigation === true,

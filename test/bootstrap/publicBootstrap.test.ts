@@ -549,7 +549,7 @@ describe('Axis bootstrap clients', () => {
                   {
                     id: 'documentation-governance-readiness',
                     label: 'Governance and Readiness',
-                    route: '/content/designer/documentation/governance',
+                    route: '/docs/designer/governance',
                     workbenchTarget: {
                       moduleName: 'cms',
                       schemaName: 'cmsDocumentationPublicationState',
@@ -600,7 +600,7 @@ describe('Axis bootstrap clients', () => {
                   {
                     id: 'documentation-governance-readiness',
                     label: 'Governance and Readiness',
-                    route: '/content/designer/documentation/governance',
+                    route: '/docs/designer/governance',
                     workbenchTarget: {
                       moduleName: 'cms',
                       schemaName: 'cmsDocumentationPublicationState',

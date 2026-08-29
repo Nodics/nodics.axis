@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { composeShellNavigation } from '../../../src/app/shell/shellNavigation';
 
 describe('Axis shell navigation composition', () => {
-  it('keeps the local runtime dashboard and groups backend capabilities by business area', () => {
+  it('does not synthesize a local dashboard and groups backend capabilities by business area', () => {
     const groups = composeShellNavigation([
       {
         id: 'cms',
@@ -28,14 +28,10 @@ describe('Axis shell navigation composition', () => {
     ]);
 
     expect(groups.map((group) => group.label)).toEqual([
-      'System & Integrations',
       'Content & Experience',
       'Products & Merchandising',
     ]);
-    expect(groups[0]?.items[0]).toEqual(
-      expect.objectContaining({ label: 'Runtime Dashboard', local: true }),
-    );
-    expect(groups[2]?.items[0]).toEqual(
+    expect(groups[1]?.items[0]).toEqual(
       expect.objectContaining({ label: 'Pricing', availability: 'DEGRADED' }),
     );
   });
@@ -43,10 +39,21 @@ describe('Axis shell navigation composition', () => {
   it('uses backend-owned groups and places children directly after their parent', () => {
     const groups = composeShellNavigation([
       {
-        id: 'platform-dashboard',
+        id: 'system-integrations',
+        label: 'System Workspace',
+        route: '/system-integrations',
+        order: 5,
+        moduleName: 'backoffice',
+        category: 'platform',
+        icon: 'operations',
+        availability: 'UP',
+      },
+      {
+        id: 'dashboard',
+        parentId: 'system-integrations',
         label: 'Dashboard',
-        route: '/system-integrations/dashboard',
-        order: 0,
+        route: '/dashboard',
+        order: 900,
         moduleName: 'backoffice',
         category: 'platform',
         icon: 'dashboard',
@@ -77,11 +84,58 @@ describe('Axis shell navigation composition', () => {
 
     const operations = groups.find((entry) => entry.id === 'system-integrations');
     expect(operations?.items.map((item) => [item.id, item.depth])).toEqual([
-      ['dashboard', 0],
+      ['system-integrations', 0],
+      ['dashboard', 1],
       ['administration', 0],
       ['registry', 1],
     ]);
-    expect(operations?.items[1]?.hasChildren).toBe(true);
+    expect(operations?.items[2]?.hasChildren).toBe(true);
+  });
+
+  it('renders the backend-owned dashboard under System Workspace without marking it local', () => {
+    const groups = composeShellNavigation([
+      {
+        id: 'system-integrations',
+        label: 'System Workspace',
+        route: '/system-integrations',
+        order: 90,
+        moduleName: 'backoffice',
+        category: 'platform',
+        icon: 'operations',
+        availability: 'UP',
+      },
+      {
+        id: 'dashboard',
+        parentId: 'system-integrations',
+        label: 'Dashboard',
+        route: '/dashboard',
+        order: 900,
+        moduleName: 'backoffice',
+        category: 'platform',
+        icon: 'dashboard',
+        availability: 'UP',
+      },
+      {
+        id: 'overall-runtime-status',
+        parentId: 'system-integrations',
+        label: 'Overall Runtime Status',
+        route: '/system-integrations',
+        order: 901,
+        moduleName: 'backoffice',
+        category: 'platform',
+        icon: 'operations',
+        availability: 'UP',
+      },
+    ]);
+
+    const operations = groups.find((entry) => entry.id === 'system-integrations');
+    expect(
+      operations?.items.map((item) => [item.id, item.route, item.depth, item.local]),
+    ).toEqual([
+      ['system-integrations', '/system-integrations', 0, false],
+      ['dashboard', '/dashboard', 1, false],
+      ['overall-runtime-status', '/system-integrations', 1, false],
+    ]);
   });
 
   it('keeps the documentation dashboard visible in its backend-owned group', () => {
@@ -122,12 +176,8 @@ describe('Axis shell navigation composition', () => {
       },
     ]);
 
-    expect(groups.map((group) => group.id)).toEqual([
-      'system-integrations',
-      'content',
-      'documentation',
-    ]);
-    expect(groups[2]).toEqual(
+    expect(groups.map((group) => group.id)).toEqual(['content', 'documentation']);
+    expect(groups[1]).toEqual(
       expect.objectContaining({
         id: 'documentation',
         label: 'Documentation',
@@ -177,11 +227,10 @@ describe('Axis shell navigation composition', () => {
       },
     ]);
 
-    const system = groups.find((entry) => entry.id === 'system-integrations');
     const content = groups.find((entry) => entry.id === 'content');
     const process = groups.find((entry) => entry.id === 'process-and-automations');
 
-    expect(system?.items.map((item) => item.id)).toEqual(['dashboard']);
+    expect(groups.find((entry) => entry.id === 'system-integrations')).toBeUndefined();
     expect(content?.items.map((item) => [item.id, item.depth])).toEqual([
       ['wcms', 0],
       ['renderer-mappings', 1],
@@ -325,11 +374,7 @@ describe('Axis shell navigation composition', () => {
       },
     ]);
 
-    expect(
-      groups
-        .filter((group) => group.items.some((item) => item.id !== 'dashboard'))
-        .map((group) => [group.id, group.label]),
-    ).toEqual([
+    expect(groups.map((group) => [group.id, group.label])).toEqual([
       ['organization', 'Customer Experience'],
       ['search-discovery', 'Search & Discovery'],
       ['publishing', 'Publishing'],

@@ -503,6 +503,110 @@ describe('employee login journey', () => {
     document.cookie = 'nodics_axis_csrf=; Max-Age=0; Path=/';
   });
 
+  it('keeps first-run initialization on its own route instead of rendering it at dashboard', async () => {
+    window.history.pushState({}, '', '/dashboard');
+    document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
+    const request = vi.fn<typeof fetch>().mockImplementation((input, options) => {
+      const url = fetchInputUrl(input);
+      if (url.includes('/bootstrap/public')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(publicBootstrap), { status: 200 }),
+        );
+      }
+      if (url.includes('/employee/browser/restore')) {
+        expect(new Headers(options?.headers).get('X-CSRF-Token')).toBe('refresh-csrf');
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              result: {
+                authToken: 'restored-initialization-access',
+                loginId: 'operator',
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes('/axis/initialization')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              code: 'SUC_BOF_00017',
+              data: {
+                baselineCode: 'axis',
+                releaseCode: 'axis:axisBaseline',
+                releaseVersion: '0.0.0',
+                releaseStatus: 'NOT_INSTALLED',
+                readiness: 'NOT_IMPORTED',
+                allowedActions: ['INITIALIZE'],
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes('/bootstrap')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: {
+                modules: {
+                  backoffice: [
+                    {
+                      moduleName: 'backoffice',
+                      instanceId: 'platform-1',
+                      environment: 'kickoffLocal',
+                      clientCallable: true,
+                      endpoint: 'https://platform.example.com/nodics/backoffice',
+                      state: 'UP',
+                    },
+                  ],
+                },
+                catalogue: {
+                  backoffice: {
+                    enabled: true,
+                    category: 'platform',
+                    icon: 'dashboard',
+                    requiredPermissions: ['axis.dashboard.view'],
+                    compatibility: { status: 'COMPATIBLE' },
+                    navigation: [],
+                  },
+                },
+                availability: {
+                  backoffice: { state: 'UP' },
+                },
+                axisPolicy: {
+                  contractVersion: 0,
+                  screenLockEnabled: true,
+                  idleTimeoutSeconds: 900,
+                  recentNavigationLimit: 12,
+                  revision: 0,
+                  source: 'DEFAULT',
+                },
+                documentationSources: [],
+                tenantCode: 'default',
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 404 }));
+    });
+    vi.stubGlobal('fetch', request);
+
+    render(
+      <AppProviders runtimeConfig={runtimeConfig}>
+        <App />
+      </AppProviders>,
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Initialize Axis' }),
+    ).toBeVisible();
+    await waitFor(() => expect(window.location.pathname).toBe('/initialize-axis'));
+  });
+
   it('restores an authenticated documentation deep link in a fresh browser tab', async () => {
     window.history.pushState(
       {},
@@ -2030,7 +2134,7 @@ describe('employee login journey', () => {
     await user.type(screen.getByLabelText(/Password/), 'secret');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
-    expect(await screen.findByText('Authenticated employee workspace')).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Axis Assistant' }));
     expect(
       await screen.findByRole('heading', { name: 'How can I help?' }),
@@ -2289,7 +2393,7 @@ describe('employee login journey', () => {
     await user.type(screen.getByLabelText(/Password/), 'secret');
     await user.click(screen.getByRole('button', { name: 'Unlock' }));
 
-    expect(await screen.findByText('Authenticated employee workspace')).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeVisible();
     expect(window.sessionStorage.getItem('nodics-axis-screen-lock-v1')).toBeNull();
   });
 });
