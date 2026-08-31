@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -239,6 +239,7 @@ const cmsDocumentationPages = Array.from({ length: 127 }, (_item, index) => {
     technicalModule: 'documentation',
     targetPage: `nodicsDocsPageGeneratedTopic${String(number)}`,
     targetRoute: `nodicsDocsRouteGeneratedTopic${String(number)}`,
+    articleComponent: `nodicsDocsComponentGeneratedTopic${String(number)}`,
     sourcePath: `docs/pages/framework/${slug}.md`,
     audience: ['business', 'architect', 'developer', 'operator'],
     active: true,
@@ -264,18 +265,130 @@ const cmsDocumentationRoutes = cmsDocumentationPages.map((page, index) => {
   };
 });
 
+const cmsDocumentationComponents = cmsDocumentationPages.map((page, index) => ({
+  code: page.articleComponent,
+  typeCode: 'nodicsDocumentationArticleComponentType',
+  renderer: 'documentation.component.article',
+  accessMode: 'PUBLIC',
+  properties: {
+    title: page.title,
+    route: cmsDocumentationRoutes[index]?.path,
+    sectionTitle: 'Framework generated content',
+    summary: page.summary,
+    audience: page.audience,
+    blocks: [
+      {
+        kind: 'paragraph',
+        text: `Detailed component body for ${page.title}.`,
+      },
+      {
+        kind: 'heading',
+        level: 2,
+        text: 'Implementation notes',
+      },
+      {
+        kind: 'code',
+        language: 'javascript',
+        text: 'const framework = "nodics";',
+      },
+    ],
+  },
+  active: true,
+}));
+
+const cmsDocumentationNodes = [
+  {
+    code: 'nodicsDocsNodeRoot',
+    product: 'nodicsDocumentationProduct',
+    navigation: 'nodicsDocumentationNavigation',
+    nodeLevel: 'SECTION',
+    nodeType: 'CONTAINER',
+    nodeTitle: 'Nodics Documentation',
+    nodeSummary: 'Root documentation node.',
+    nodeOrder: 10,
+    accessMode: 'PUBLIC',
+    active: true,
+  },
+  {
+    code: 'nodicsDocsNodeSecFramework',
+    product: 'nodicsDocumentationProduct',
+    navigation: 'nodicsDocumentationNavigation',
+    parentNode: 'nodicsDocsNodeRoot',
+    nodeLevel: 'SECTION',
+    nodeType: 'CONTAINER',
+    nodeTitle: 'Framework generated content',
+    nodeSummary: 'Framework generated content section.',
+    nodeOrder: 20,
+    accessMode: 'PUBLIC',
+    active: true,
+  },
+  {
+    code: 'nodicsDocsNodeSecRuntime',
+    product: 'nodicsDocumentationProduct',
+    navigation: 'nodicsDocumentationNavigation',
+    parentNode: 'nodicsDocsNodeRoot',
+    nodeLevel: 'SECTION',
+    nodeType: 'CONTAINER',
+    nodeTitle: 'Runtime and Operations',
+    nodeSummary: 'Runtime and operational documentation section.',
+    nodeOrder: 30,
+    accessMode: 'PUBLIC',
+    active: true,
+  },
+  ...cmsDocumentationPages.map((page, index) => {
+    const number = index + 1;
+    return {
+      code: `nodicsDocsNodeTopic${String(number)}`,
+      product: 'nodicsDocumentationProduct',
+      navigation: 'nodicsDocumentationNavigation',
+      parentNode:
+        number === 126 ? 'nodicsDocsNodeSecRuntime' : 'nodicsDocsNodeSecFramework',
+      nodeLevel: 'TOPIC',
+      nodeType: 'PAGE',
+      nodeTitle: page.title,
+      nodeSummary: page.summary,
+      targetDocumentationPage: page.code,
+      targetPage: page.targetPage,
+      targetRoute: page.targetRoute,
+      nodeOrder: number * 10,
+      accessMode: 'PUBLIC',
+      nodeAudience: page.audience,
+      active: true,
+    };
+  }),
+];
+
 function documentationDesignerFetch() {
   return vi.fn<typeof fetch>().mockImplementation((input, options) => {
     const path = new URL(requestUrl(input)).pathname;
     if (path.endsWith('/model')) return Promise.resolve(response(authoringModel()));
     if (path.endsWith('/cmsDocumentationPage/capabilities')) {
       return Promise.resolve(
-        response(documentationWorkbenchSchema('cmsDocumentationPage', 'Documentation Page')),
+        response(
+          documentationWorkbenchSchema('cmsDocumentationPage', 'Documentation Page'),
+        ),
       );
     }
     if (path.endsWith('/cmsPageRoute/capabilities')) {
       return Promise.resolve(
         response(documentationWorkbenchSchema('cmsPageRoute', 'Page Route')),
+      );
+    }
+    if (path.endsWith('/cmsComponent/capabilities')) {
+      return Promise.resolve(
+        response(documentationWorkbenchSchema('cmsComponent', 'CMS Component')),
+      );
+    }
+    if (path.endsWith('/cmsPage/capabilities')) {
+      return Promise.resolve(
+        response(documentationWorkbenchSchema('cmsPage', 'CMS Page')),
+      );
+    }
+    if (path.endsWith('/cmsDocumentationNode/capabilities')) {
+      return Promise.resolve(
+        response(
+          documentationWorkbenchSchema('cmsDocumentationNode', 'Documentation Node'),
+        ),
       );
     }
     if (path.endsWith('/cmsDocumentationPage/safe-search')) {
@@ -311,6 +424,62 @@ function documentationDesignerFetch() {
           sort: { field: 'title', direction: 'ASC' },
         }),
       );
+    }
+    if (path.endsWith('/cmsComponent/safe-search')) {
+      const query = requestJsonBody(options).query as
+        | { readonly pageNumber?: number; readonly pageSize?: number }
+        | undefined;
+      const pageNumber = query?.pageNumber ?? 1;
+      const pageSize = query?.pageSize ?? 50;
+      const start = (pageNumber - 1) * pageSize;
+      return Promise.resolve(
+        response({
+          records: cmsDocumentationComponents.slice(start, start + pageSize),
+          totalCount: cmsDocumentationComponents.length,
+          pageNumber,
+          pageSize,
+          sort: { field: 'title', direction: 'ASC' },
+        }),
+      );
+    }
+    if (path.endsWith('/cmsDocumentationNode/safe-search')) {
+      const query = requestJsonBody(options).query as
+        | { readonly pageNumber?: number; readonly pageSize?: number }
+        | undefined;
+      const pageNumber = query?.pageNumber ?? 1;
+      const pageSize = query?.pageSize ?? 50;
+      const start = (pageNumber - 1) * pageSize;
+      return Promise.resolve(
+        response({
+          records: cmsDocumentationNodes.slice(start, start + pageSize),
+          totalCount: cmsDocumentationNodes.length,
+          pageNumber,
+          pageSize,
+          sort: { field: 'title', direction: 'ASC' },
+        }),
+      );
+    }
+    if (path.endsWith('/cmsComponent') && options?.method === 'PATCH') {
+      return Promise.resolve(response({ models: [cmsDocumentationComponents[0]] }));
+    }
+    if (path.endsWith('/cmsDocumentationPage') && options?.method === 'PATCH') {
+      return Promise.resolve(response({ models: [cmsDocumentationPages[0]] }));
+    }
+    if (path.endsWith('/cmsPageRoute') && options?.method === 'PATCH') {
+      return Promise.resolve(response({ models: [cmsDocumentationRoutes[0]] }));
+    }
+    if (path.endsWith('/cmsDocumentationNode') && options?.method === 'PATCH') {
+      return Promise.resolve(response({ models: [cmsDocumentationNodes[2]] }));
+    }
+    if (
+      (path.endsWith('/cmsComponent') ||
+        path.endsWith('/cmsDocumentationPage') ||
+        path.endsWith('/cmsPageRoute') ||
+        path.endsWith('/cmsPage') ||
+        path.endsWith('/cmsDocumentationNode')) &&
+      options?.method === 'PUT'
+    ) {
+      return Promise.resolve(response(requestJsonBody(options)));
     }
     return Promise.resolve(response(authoringModel()));
   });
@@ -410,8 +579,8 @@ describe('DocumentationManagementRoutePage', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders the backend-driven documentation management dashboard', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(authoringModel()));
+  it('renders the page editor directly at the base documentation designer route', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(documentationDesignerFetch());
     const user = userEvent.setup();
 
     renderPage();
@@ -426,31 +595,22 @@ describe('DocumentationManagementRoutePage', () => {
     expect(screen.getByRole('option', { name: 'Framework' })).toBeVisible();
     expect(screen.queryByRole('option', { name: 'Swaggers' })).toBeNull();
     await user.keyboard('{Escape}');
-    expect(screen.getByText('Create or update a page')).toBeVisible();
-    expect(screen.getByText('Place it in navigation')).toBeVisible();
-    expect(screen.getAllByText('Preview staged content')).toHaveLength(1);
-    expect(screen.getAllByText('Publish when ready')).toHaveLength(1);
-    expect(screen.getByText('Publish when ready')).toBeVisible();
+    expect(
+      await screen.findByRole('heading', {
+        name: 'Edit the staged documentation in the same reader layout.',
+      }),
+    ).toBeVisible();
+    expect(screen.getByText('Staged documentation preview')).toBeVisible();
+    expect(screen.getByRole('button', { name: /New page/i })).toBeVisible();
+    expect(await screen.findByText('127 staged pages')).toBeVisible();
+    expect(screen.getByLabelText('Search pages')).toBeVisible();
+    expect(screen.queryByText('Create or update a page')).toBeNull();
+    expect(screen.queryByText('Place it in navigation')).toBeNull();
     expect(screen.getByText('Publishes to Nexus')).toBeVisible();
     expect(screen.queryByText('Designer Tools')).toBeNull();
     expect(screen.queryByText('Selected area')).toBeNull();
     expect(screen.queryByText('Reader audience')).toBeNull();
     expect(screen.queryByLabelText('Documentation designer views')).toBeNull();
-    expect(
-      screen
-        .getAllByRole('link', { name: /Open preview/i })
-        .some((link) => link.getAttribute('href') === '/docs/designer/preview'),
-    ).toBe(true);
-    expect(
-      screen
-        .getAllByRole('link', { name: /Open publishing/i })
-        .some((link) => link.getAttribute('href') === '/docs/designer/publication'),
-    ).toBe(true);
-    expect(
-      screen
-        .getAllByRole('link', { name: /Open links/i })
-        .some((link) => link.getAttribute('href') === '/docs/designer/navigation'),
-    ).toBe(true);
   });
 
   it('opens a business-facing page editor instead of the raw schema workbench', async () => {
@@ -460,16 +620,26 @@ describe('DocumentationManagementRoutePage', () => {
     renderPage('/docs/designer/pages');
 
     await screen.findByRole('heading', {
-      name: 'Select a page, edit content, preview it.',
+      name: 'Edit the staged documentation in the same reader layout.',
     });
-    expect(screen.getByText('Create new page')).toBeVisible();
-    expect(await screen.findByText('127 pages')).toBeVisible();
+    expect(screen.getByText('Staged documentation preview')).toBeVisible();
+    expect(screen.getByRole('button', { name: /New page/i })).toBeVisible();
+    expect(await screen.findByText('127 staged pages')).toBeVisible();
     expect(screen.getByLabelText('Search pages')).toBeVisible();
     await user.type(screen.getByLabelText('Search pages'), 'runtime server');
-    expect(await screen.findByText('1 of 127')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: /Runtime Server Composition/i }));
+    expect(
+      await screen.findByRole('button', { name: /Collapse Runtime and Operations/i }),
+    ).toBeVisible();
+    expect(await screen.findByText('Runtime Server Composition')).toBeVisible();
+    await user.click(screen.getByRole('link', { name: /Runtime Server Composition/i }));
     expect(screen.queryByText('Framework author journey')).toBeNull();
-    expect(screen.getByLabelText('Page title')).toHaveValue('Runtime Server Composition');
+    expect(
+      screen.getByRole('heading', { name: 'Runtime Server Composition' }),
+    ).toBeVisible();
+    await user.click(screen.getByRole('button', { name: /Edit page/i }));
+    expect(screen.getByLabelText('Page title')).toHaveValue(
+      'Runtime Server Composition',
+    );
     expect(screen.getByLabelText('Page content')).toBeVisible();
     expect(screen.getAllByText('Live preview').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /Insert link/i })).toBeVisible();
@@ -489,10 +659,11 @@ describe('DocumentationManagementRoutePage', () => {
     );
     await user.click(screen.getByRole('button', { name: /Insert image/i }));
 
-    expect(screen.getByRole('link', { name: 'Nodics site' })).toHaveAttribute(
-      'href',
-      'https://nodics.ai',
-    );
+    expect(
+      screen
+        .getAllByRole('link', { name: 'Nodics site' })
+        .some((link) => link.getAttribute('href') === 'https://nodics.ai'),
+    ).toBe(true);
     expect(
       screen
         .getAllByRole('img', { name: 'Nodics architecture' })
@@ -502,41 +673,155 @@ describe('DocumentationManagementRoutePage', () => {
         ),
     ).toBe(true);
 
-    await user.click(screen.getByRole('button', { name: /Save staged draft/i }));
+    await user.click(screen.getByRole('button', { name: /Save staged/i }));
+    expect(await screen.findByText(/saved to Staged documentation/i)).toBeVisible();
+    const requests = vi.mocked(globalThis.fetch).mock.calls;
     expect(
-      await screen.findByText(/saved as a staged documentation draft/i),
-    ).toBeVisible();
-    expect(screen.getByRole('link', { name: /Link to navigation/i })).toHaveAttribute(
-      'href',
-      '/docs/designer/navigation',
-    );
+      requests.some(
+        ([input, options]) =>
+          requestUrl(input).endsWith('/cmsComponent') && options?.method === 'PATCH',
+      ),
+    ).toBe(true);
+    expect(
+      requests.some(
+        ([input, options]) =>
+          requestUrl(input).endsWith('/cmsDocumentationPage') &&
+          options?.method === 'PATCH',
+      ),
+    ).toBe(true);
+    expect(screen.getByRole('button', { name: /Link navigation/i })).toBeVisible();
   });
 
-  it('opens a business-facing navigation editor with a reader path preview', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(authoringModel()));
+  it('opens navigation editing in the same documentation designer window', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(documentationDesignerFetch());
     const user = userEvent.setup();
 
     renderPage('/docs/designer/navigation');
 
     await screen.findByRole('heading', {
-      name: 'Choose where the documentation page appears.',
+      name: 'Edit the staged documentation in the same reader layout.',
     });
-    expect(screen.getByText('Add navigation link')).toBeVisible();
-    expect(screen.getByLabelText('Page')).toBeVisible();
-    expect(screen.getByLabelText('Link label')).toBeVisible();
-    expect(screen.getByText('Reader navigation preview')).toBeVisible();
+    expect(screen.getByText('Navigation placement')).toBeVisible();
+    expect(await screen.findByText('127 staged pages')).toBeVisible();
+    expect(screen.getByLabelText('Search pages')).toBeVisible();
+    expect(screen.getByLabelText('Navigation label')).toBeVisible();
+    expect(screen.getByRole('combobox', { name: /Place under/i })).toBeVisible();
+    expect(screen.getByText('Reader path preview')).toBeVisible();
     expect(screen.queryByTestId('workbench-schema-navigation-pane')).toBeNull();
 
-    await user.clear(screen.getByLabelText('Link label'));
-    await user.type(screen.getByLabelText('Link label'), 'Business overview');
-    await user.click(screen.getByRole('button', { name: /Save navigation link/i }));
+    await user.type(screen.getByLabelText('Search pages'), 'runtime server');
     expect(
-      await screen.findByText(/Business overview saved to staged navigation/i),
+      await screen.findByRole('button', { name: /Collapse Runtime and Operations/i }),
     ).toBeVisible();
+    expect(await screen.findByText('Runtime Server Composition')).toBeVisible();
+    await user.click(screen.getByRole('link', { name: /Runtime Server Composition/i }));
+    expect(screen.getByLabelText('Navigation label')).toHaveValue(
+      'Runtime Server Composition',
+    );
+    const placeUnder = screen.getByRole('combobox', { name: /Place under/i });
+    await user.click(placeUnder);
+    expect(screen.getByRole('option', { name: /Top level/i })).toBeVisible();
     expect(
-      screen
-        .getAllByRole('link', { name: /Preview staged content/i })
-        .some((link) => link.getAttribute('href') === '/docs/designer/preview'),
+      within(screen.getByRole('listbox')).getByText('Framework generated content'),
+    ).toBeVisible();
+    await user.clear(placeUnder);
+    await user.type(placeUnder, 'topic 1');
+    const parentListbox = screen.getByRole('listbox');
+    const topicParentOption = within(parentListbox)
+      .getByText('Generated documentation topic 1')
+      .closest('[role="option"]');
+    expect(topicParentOption).not.toBeNull();
+    await user.click(topicParentOption!);
+    await user.clear(screen.getByLabelText('Navigation label'));
+    await user.type(screen.getByLabelText('Navigation label'), 'Business overview');
+    await user.click(screen.getByRole('button', { name: /Save navigation/i }));
+    expect(
+      await screen.findByText(/Business overview saved to Staged navigation/i),
+    ).toBeVisible();
+    await user.click(screen.getByRole('button', { name: /Back to page editing/i }));
+    expect(screen.getByLabelText('Page title')).toHaveValue(
+      'Runtime Server Composition',
+    );
+    expect(screen.getByLabelText('Page content')).toBeVisible();
+    const requests = vi.mocked(globalThis.fetch).mock.calls;
+    expect(
+      requests.some(
+        ([input, options]) =>
+          requestUrl(input).endsWith('/cmsDocumentationNode') &&
+          options?.method === 'PATCH',
+      ),
+    ).toBe(true);
+    const navigationPatch = requests.find(
+      ([input, options]) =>
+        requestUrl(input).endsWith('/cmsDocumentationNode') &&
+        options?.method === 'PATCH',
+    );
+    expect(requestJsonBody(navigationPatch?.[1]).model).toMatchObject({
+      nodeTitle: 'Business overview',
+      parentNode: 'nodicsDocsNodeTopic1',
+    });
+    expect(screen.queryByLabelText('Documentation designer views')).toBeNull();
+  });
+
+  it('creates a new documentation page with rich content and staged CMS records', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(documentationDesignerFetch());
+    const user = userEvent.setup();
+
+    renderPage('/docs/designer/pages');
+
+    await screen.findByRole('heading', {
+      name: 'Edit the staged documentation in the same reader layout.',
+    });
+    await user.click(screen.getByRole('button', { name: /New page/i }));
+    await user.clear(screen.getByLabelText('Page title'));
+    await user.type(screen.getByLabelText('Page title'), 'Customer launch checklist');
+    await user.clear(screen.getByLabelText('Page URL'));
+    await user.type(
+      screen.getByLabelText('Page URL'),
+      '/docs/framework/customer-launch-checklist',
+    );
+    await user.clear(screen.getByLabelText('Reader summary'));
+    await user.type(
+      screen.getByLabelText('Reader summary'),
+      'Launch checklist for business owners preparing Nodics documentation.',
+    );
+    await user.clear(screen.getByLabelText('Link text'));
+    await user.type(screen.getByLabelText('Link text'), 'Launch evidence');
+    await user.clear(screen.getByLabelText('Link URL'));
+    await user.type(screen.getByLabelText('Link URL'), 'https://nodics.ai/docs');
+    await user.click(screen.getByRole('button', { name: /Insert link/i }));
+    await user.click(screen.getByRole('button', { name: /Save staged/i }));
+
+    expect(
+      await screen.findByText(
+        /Customer launch checklist saved to Staged documentation/i,
+      ),
+    ).toBeVisible();
+    const requests = vi.mocked(globalThis.fetch).mock.calls;
+    expect(
+      requests.some(
+        ([input, options]) =>
+          requestUrl(input).endsWith('/cmsComponent') && options?.method === 'PUT',
+      ),
+    ).toBe(true);
+    expect(
+      requests.some(
+        ([input, options]) =>
+          requestUrl(input).endsWith('/cmsDocumentationPage') &&
+          options?.method === 'PUT',
+      ),
+    ).toBe(true);
+    expect(
+      requests.some(
+        ([input, options]) =>
+          requestUrl(input).endsWith('/cmsPage') && options?.method === 'PUT',
+      ),
+    ).toBe(true);
+    expect(
+      requests.some(
+        ([input, options]) =>
+          requestUrl(input).endsWith('/cmsPageRoute') && options?.method === 'PUT',
+      ),
     ).toBe(true);
   });
 
@@ -570,10 +855,7 @@ describe('DocumentationManagementRoutePage', () => {
     await screen.findByRole('heading', {
       name: 'Review staged documentation before it goes Online',
     });
-    expect(screen.getByLabelText('Documentation designer views')).toBeVisible();
-    expect(
-      screen.getByRole('link', { name: /Preview Staged Content/i }),
-    ).toHaveAttribute('aria-current', 'page');
+    expect(screen.queryByLabelText('Documentation designer views')).toBeNull();
     expect(
       screen.getByText(/does not use the public Online documentation route/i),
     ).toBeVisible();

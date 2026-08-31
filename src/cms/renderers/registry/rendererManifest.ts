@@ -114,6 +114,10 @@ export const CMS_RENDERER_MANIFEST = Object.freeze({
     kind: 'component',
     contractVersions: Object.freeze([0, 1, 2]),
   },
+  'cms.component.rich-text': {
+    kind: 'component',
+    contractVersions: Object.freeze([0]),
+  },
 } satisfies Readonly<Record<string, CmsRendererManifestEntry>>);
 
 export type CmsRendererKey = keyof typeof CMS_RENDERER_MANIFEST;

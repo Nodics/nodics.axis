@@ -34,6 +34,18 @@ const iconPaths: Readonly<Record<string, string>> = Object.freeze({
   folder: 'M3 5h7l2 2h9v12H3V5Zm2 4v8h14V9H5Zm0-2h5.17l-2-2H5v2Z',
   format:
     'M4 4h16v4H4V4Zm2 2v1h12V6H6Zm-2 5h7v9H4v-9Zm2 2v5h3v-5H6Zm7-2h7v2h-7v-2Zm0 4h7v2h-7v-2Zm0 4h5v2h-5v-2Z',
+  'format-bold':
+    'M6 4h7.25a4.25 4.25 0 0 1 2.86 7.39A4.75 4.75 0 0 1 13.75 20H6V4Zm3 6.5h4.1a1.75 1.75 0 1 0 0-3.5H9v3.5Zm0 6.5h4.55a2 2 0 1 0 0-4H9v4Z',
+  'format-code':
+    'm8.7 16.3-5-5 5-5 1.4 1.4-3.58 3.6 3.58 3.6-1.4 1.4Zm6.6 0-1.4-1.4 3.58-3.6-3.58-3.6 1.4-1.4 5 5-5 5ZM12.7 4l1.9.62L11.3 20l-1.9-.62L12.7 4Z',
+  'format-italic': 'M10 4h9v2h-3.25l-3.5 12H15v2H6v-2h3.25l3.5-12H10V4Z',
+  'format-list':
+    'M7 5h14v2H7V5Zm0 6h14v2H7v-2Zm0 6h14v2H7v-2ZM3 5h2v2H3V5Zm0 6h2v2H3v-2Zm0 6h2v2H3v-2Z',
+  'format-quote':
+    'M4 5h7v7H7.8A4.2 4.2 0 0 0 12 16.2V19a7 7 0 0 1-8-7V5Zm10 0h7v7h-3.2A4.2 4.2 0 0 0 22 16.2V19a7 7 0 0 1-8-7V5Z',
+  'format-table':
+    'M4 5h16v14H4V5Zm2 2v3h4V7H6Zm6 0v3h6V7h-6Zm6 5h-6v5h6v-5Zm-8 5v-5H6v5h4Z',
+  'format-underline': 'M7 4h2v7a3 3 0 1 0 6 0V4h2v7a5 5 0 1 1-10 0V4Zm-1 15h12v2H6v-2Z',
   gallery:
     'M4 5h13v10H4V5Zm2 2v5.17l2.5-2.5 2 2L13.17 9 15 10.83V7H6Zm-1 10h14V8h2v11H5v-2Z',
   menu: 'M3 6h18v2H3V6Zm0 5h18v2H3v-2Zm0 5h18v2H3v-2Z',
@@ -64,6 +76,8 @@ const iconPaths: Readonly<Record<string, string>> = Object.freeze({
   schema:
     'M12 2 3 6.5v11L12 22l9-4.5v-11L12 2Zm0 2.24 5.36 2.68L12 9.6 6.64 6.92 12 4.24ZM5 8.54l6 3v7.94l-6-3V8.54Zm8 10.94v-7.94l6-3v7.94l-6 3Zm-5-5.72 2 1v2.24l-2-1v-2.24Zm6-1 2-1v2.24l-2 1v-2.24Z',
   tasks: 'M5 3h14v18H5V3Zm2 2v14h10V5H7Zm2 3h6v2H9V8Zm0 4h6v2H9v-2Zm0 4h4v2H9v-2Z',
+  undo: 'M8 7V3L2 9l6 6v-4h7a4 4 0 0 1 0 8h-4v2h4a6 6 0 0 0 0-12H8V7Z',
+  redo: 'M16 7V3l6 6-6 6v-4H9a4 4 0 0 0 0 8h4v2H9A6 6 0 0 1 9 9h7V7Z',
   visible:
     'M12 5c5 0 8.73 3.11 11 7.5C20.73 16.89 17 20 12 20S3.27 16.89 1 12.5C3.27 8.11 7 5 12 5Zm0 2c-3.87 0-6.82 2.26-8.72 5.5C5.18 15.74 8.13 18 12 18s6.82-2.26 8.72-5.5C18.82 9.26 15.87 7 12 7Zm0 2a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Zm0 2a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z',
   store:

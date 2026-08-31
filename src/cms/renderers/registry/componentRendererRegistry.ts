@@ -68,6 +68,11 @@ export const COMPONENT_RENDERER_REGISTRY = Object.freeze({
       default: module.MediaManagementWorkspaceRenderer,
     })),
   ),
+  'cms.component.rich-text': lazy(() =>
+    import('../../richText/CmsRichTextRenderer').then((module) => ({
+      default: module.CmsRichTextRenderer,
+    })),
+  ),
   'documentation.component.article': lazy(() =>
     import('../components/documentation/DocumentationArticleRenderer').then(
       (module) => ({

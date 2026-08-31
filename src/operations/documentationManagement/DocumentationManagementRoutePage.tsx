@@ -1,5 +1,6 @@
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Chip,
@@ -13,8 +14,7 @@ import {
   alpha,
 } from '@mui/material';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Link as RouterLink } from 'react-router';
+import { useEffect, useMemo, useState } from 'react';
 
 import { axisTokens } from '../../app/axisTheme';
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
@@ -30,8 +30,10 @@ import { selectModuleConnection } from '../../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import { WorkbenchRoutePage } from '../../workbench/WorkbenchRoutePage';
 import {
+  createWorkbenchRecord,
   loadGeneratedSchemaCapabilities,
   loadWorkbenchRecords,
+  updateWorkbenchRecord,
   type WorkbenchClientConfiguration,
 } from '../../workbench/api/workbenchClient';
 import type {
@@ -42,6 +44,19 @@ import {
   resolveWorkbenchRecordSort,
   schemaWithValidQueryCapabilities,
 } from '../../workbench/workbenchRouteModel';
+import type { CmsComponentContract, CmsPageContract } from '../../cms/cmsContract';
+import { CmsRichTextEditor } from '../../cms/richText/CmsRichTextEditor';
+import {
+  cmsRichTextComponentProperties,
+  cmsRichTextDocumentToText,
+  documentationBlocksToCmsRichTextDocument,
+  normalizeCmsRichTextProperties,
+  textToCmsRichTextDocument,
+  type CmsRichTextDocument,
+} from '../../cms/richText/cmsRichTextContract';
+import { DocumentationArticleRenderer } from '../../cms/renderers/components/documentation/DocumentationArticleRenderer';
+import { DocumentationNavigationRenderer } from '../../cms/renderers/components/documentation/DocumentationNavigationRenderer';
+import { DocumentationArticleTemplateRenderer } from '../../cms/renderers/templates/DocumentationArticleTemplateRenderer';
 import {
   createDocumentationGovernanceClient,
   defaultDocumentationGovernanceRoutes,
@@ -52,7 +67,6 @@ import {
 } from './api/documentationGovernanceClient';
 
 type DocumentationManagementTab =
-  | 'dashboard'
   | 'navigation'
   | 'pages'
   | 'dashboards'
@@ -91,6 +105,7 @@ type AxisCmsDocumentationSource = Extract<
 >;
 
 type DocumentationContentMode = 'text' | 'html';
+type DocumentationDesignerMode = 'preview' | 'edit' | 'navigation';
 
 interface DocumentationDraftPage {
   readonly id: string;
@@ -99,8 +114,16 @@ interface DocumentationDraftPage {
   readonly summary: string;
   readonly body: string;
   readonly contentMode: DocumentationContentMode;
+  readonly contentJson?: CmsRichTextDocument | undefined;
   readonly audience: string;
   readonly section: string;
+  readonly articleComponentId?: string | undefined;
+  readonly originalComponentRecord?: WorkbenchRecord | undefined;
+  readonly originalPageRecord?: WorkbenchRecord | undefined;
+  readonly originalRouteRecord?: WorkbenchRecord | undefined;
+  readonly targetPageCode?: string | undefined;
+  readonly targetRouteCode?: string | undefined;
+  readonly isNew?: boolean | undefined;
 }
 
 interface DocumentationDraftLink {
@@ -108,16 +131,42 @@ interface DocumentationDraftLink {
   readonly pageId: string;
   readonly label: string;
   readonly parentLabel: string;
+  readonly parentOrder?: number | undefined;
   readonly order: string;
   readonly visibility: string;
+  readonly navigationCode?: string | undefined;
+  readonly nodeLevel?: string | undefined;
+  readonly nodeType?: string | undefined;
+  readonly originalNodeRecord?: WorkbenchRecord | undefined;
+  readonly parentNodeCode?: string | undefined;
 }
+
+type DocumentationNavigationParentKind = 'root' | 'section' | 'page' | 'new';
+
+interface DocumentationNavigationParentOption {
+  readonly value: string;
+  readonly label: string;
+  readonly title: string;
+  readonly description: string;
+  readonly parentLabel: string;
+  readonly parentNodeCode?: string | undefined;
+  readonly order?: number | undefined;
+  readonly depth: number;
+  readonly kind: DocumentationNavigationParentKind;
+  readonly searchText: string;
+}
+
+const navigationRootParentValue = '__documentation_root__';
+const navigationNewParentValue = '__documentation_new_parent__';
+const navigationNewParentPrefix = '__new_parent__:';
 
 const fallbackTabs: readonly DocumentationWorkspaceTab[] = Object.freeze([
   Object.freeze({
-    id: 'dashboard',
-    label: 'Dashboard',
-    icon: 'dashboard',
+    id: 'pages',
+    label: 'Pages and Topic Content',
+    icon: 'content',
     route: '/docs/designer',
+    schemaName: 'cmsDocumentationPage',
     order: 0,
   }),
   Object.freeze({
@@ -127,14 +176,6 @@ const fallbackTabs: readonly DocumentationWorkspaceTab[] = Object.freeze([
     route: '/docs/designer/navigation',
     schemaName: 'cmsDocumentationNode',
     order: 10,
-  }),
-  Object.freeze({
-    id: 'pages',
-    label: 'Pages and Topic Content',
-    icon: 'content',
-    route: '/docs/designer/pages',
-    schemaName: 'cmsDocumentationPage',
-    order: 20,
   }),
   Object.freeze({
     id: 'dashboards',
@@ -201,7 +242,7 @@ const fallbackModel: DocumentationAuthoringModel = Object.freeze({
   publicationAuthority: 'nPublish',
   workspace: Object.freeze({
     route: '/docs/designer',
-    landing: '/docs/designer/dashboard',
+    landing: '/docs/designer',
     previewRoute: '/docs/designer/preview',
     searchRoute: '/docs/designer/search',
     expandableNavigation: true,
@@ -284,7 +325,7 @@ function pathTab(path: string): DocumentationManagementTab {
   if (path.includes('/search')) return 'search';
   if (path.includes('/source-evidence')) return 'sourceEvidence';
   if (path.includes('/governance')) return 'governance';
-  return 'dashboard';
+  return 'pages';
 }
 
 function routesFromNavigation(
@@ -394,47 +435,6 @@ function editableDocumentationSources(
         (left, right) =>
           left.order - right.order || left.label.localeCompare(right.label),
       ),
-  );
-}
-
-function WorkspaceTabs({
-  active,
-  tabs,
-}: {
-  readonly active: DocumentationManagementTab;
-  readonly tabs: readonly DocumentationWorkspaceTab[];
-}) {
-  return (
-    <Paper
-      component="nav"
-      elevation={0}
-      sx={{
-        border: 1,
-        borderColor: 'divider',
-        borderRadius: `${String(axisTokens.radius.small)}px`,
-        display: 'flex',
-        gap: 1,
-        minWidth: 0,
-        overflowX: 'auto',
-        p: 1,
-      }}
-      aria-label="Documentation designer views"
-    >
-      {tabs.map((tab) => (
-        <Button
-          aria-current={active === tab.id ? 'page' : undefined}
-          component={RouterLink}
-          key={tab.id}
-          size="small"
-          startIcon={<ShellIcon fontSize="small" name={tab.icon} />}
-          sx={{ flex: '0 0 auto', minHeight: 36, whiteSpace: 'nowrap' }}
-          to={tab.route}
-          variant={active === tab.id ? 'contained' : 'text'}
-        >
-          {tab.label}
-        </Button>
-      ))}
-    </Paper>
   );
 }
 
@@ -710,15 +710,18 @@ function GovernancePanel({
 }
 
 function previewRecordTitle(record: Readonly<Record<string, unknown>>): string {
-  return String(
-    record.title ??
-      record.nodeTitle ??
-      record.label ??
-      record.name ??
-      record.code ??
-      record.targetCode ??
-      'Untitled item',
+  const title = [
+    record.title,
+    record.nodeTitle,
+    record.label,
+    record.name,
+    record.code,
+    record.targetCode,
+  ].find(
+    (value): value is string | number =>
+      (typeof value === 'string' && value.trim() !== '') || typeof value === 'number',
   );
+  return title === undefined ? 'Untitled item' : String(title);
 }
 
 function ProjectionSummary({
@@ -1111,8 +1114,15 @@ function documentationDraftPages(
   return Object.freeze(pages.map((page) => ({ ...page })));
 }
 
-const documentationPageSchemaRef = Object.freeze({ schemaName: 'cmsDocumentationPage' });
+const documentationPageSchemaRef = Object.freeze({
+  schemaName: 'cmsDocumentationPage',
+});
 const documentationRouteSchemaRef = Object.freeze({ schemaName: 'cmsPageRoute' });
+const documentationComponentSchemaRef = Object.freeze({ schemaName: 'cmsComponent' });
+const documentationCmsPageSchemaRef = Object.freeze({ schemaName: 'cmsPage' });
+const documentationNodeSchemaRef = Object.freeze({
+  schemaName: 'cmsDocumentationNode',
+});
 const documentationRecordReadLimit = 1_000;
 
 function documentationWorkbenchConnection(
@@ -1138,12 +1148,32 @@ function recordText(record: WorkbenchRecord, field: string): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function recordNumber(record: WorkbenchRecord, field: string): number | undefined {
+  const value = record[field];
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string' || value.trim() === '') return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function recordTextList(record: WorkbenchRecord, field: string): readonly string[] {
   const value = record[field];
   if (!Array.isArray(value)) return Object.freeze([]);
   return Object.freeze(
-    value.filter((item): item is string => typeof item === 'string' && item.trim() !== ''),
+    value.filter(
+      (item): item is string => typeof item === 'string' && item.trim() !== '',
+    ),
   );
+}
+
+function recordObject(
+  record: WorkbenchRecord | undefined,
+  field: string,
+): Readonly<Record<string, unknown>> {
+  const value = record?.[field];
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? Object.freeze({ ...(value as Record<string, unknown>) })
+    : Object.freeze({});
 }
 
 function sentenceCaseLabel(value: string): string {
@@ -1176,6 +1206,401 @@ function documentationRecordBody(record: WorkbenchRecord, title: string): string
     sourcePath ? `### Source evidence\n\n${sourcePath}` : '',
   ].filter((section) => section.trim() !== '');
   return sections.join('\n\n');
+}
+
+function pageRichTextDocument(page: DocumentationDraftPage): CmsRichTextDocument {
+  return page.contentJson ?? textToCmsRichTextDocument(page.body);
+}
+
+function documentationDesignerComponent(
+  code: string,
+  renderer: string,
+  slot: string,
+  index: number,
+  properties: Readonly<Record<string, unknown>>,
+): CmsComponentContract {
+  return Object.freeze({
+    code,
+    typeCode: code,
+    renderer,
+    rendererContractVersion: 2,
+    rendererChannels: Object.freeze(['web']),
+    rendererDeprecated: false,
+    properties: Object.freeze({ ...properties }),
+    slot,
+    index,
+    components: Object.freeze([]),
+  });
+}
+
+function documentationDesignerPageContract(
+  page: DocumentationDraftPage,
+): CmsPageContract {
+  return Object.freeze({
+    code: page.targetPageCode ?? page.id,
+    name: page.title,
+    typeCode: 'nodicsDocumentationArticlePageType',
+    template: 'nodicsDocumentationArticleTemplate',
+    renderer: 'documentation.page.article',
+    rendererContractVersion: 2,
+    rendererChannels: Object.freeze(['web']),
+    rendererDeprecated: false,
+    templateContract: Object.freeze({
+      code: 'nodicsDocumentationArticleTemplate',
+      renderer: 'documentation.template.article',
+      contractVersion: 2,
+    }),
+    components: Object.freeze([]),
+  });
+}
+
+function documentationSectionOrder(section: string): number {
+  const normalized = section.trim().toLowerCase();
+  let score = 0;
+  for (const character of normalized) {
+    score = (score * 31 + character.charCodeAt(0)) % 997;
+  }
+  return score + 100;
+}
+
+function documentationDesignerNavigationComponent(
+  pages: readonly DocumentationDraftPage[],
+  links: readonly DocumentationDraftLink[],
+  selectedSource: AxisCmsDocumentationSource | undefined,
+): CmsComponentContract {
+  const pageById = new Map(pages.map((page) => [page.id, page]));
+  const linkedPageIds = new Set<string>();
+  const parentOrderByLabel = new Map<string, number>();
+  links.forEach((link, index) => {
+    const parentLabel = link.parentLabel || 'Wiki home';
+    const currentOrder = parentOrderByLabel.get(parentLabel);
+    const nextOrder = link.parentOrder ?? (index + 1) * 10;
+    parentOrderByLabel.set(
+      parentLabel,
+      currentOrder === undefined ? nextOrder : Math.min(currentOrder, nextOrder),
+    );
+  });
+  const linkedItems = links.flatMap((link, index) => {
+    const page = pageById.get(link.pageId);
+    if (!page) return [];
+    linkedPageIds.add(page.id);
+    const parentLabel = link.parentLabel || page.section || 'Wiki home';
+    return [
+      {
+        title: link.label || page.title,
+        route: page.slug,
+        sectionTitle: parentLabel,
+        sectionOrder:
+          parentOrderByLabel.get(parentLabel) ?? documentationSectionOrder(parentLabel),
+        order: Number(link.order) || (index + 1) * 10,
+        audience: documentationAudienceValues(page.audience),
+        searchText: [
+          link.label,
+          parentLabel,
+          page.title,
+          page.slug,
+          page.section,
+          page.summary,
+          page.audience,
+          link.visibility,
+        ].join(' '),
+      },
+    ];
+  });
+  const unlinkedItems = pages.flatMap((page, index) =>
+    linkedPageIds.has(page.id)
+      ? []
+      : [
+          {
+            title: page.title,
+            route: page.slug,
+            sectionTitle: 'Unlinked staged pages',
+            sectionOrder: 9000,
+            order: (index + 1) * 10,
+            audience: documentationAudienceValues(page.audience),
+            searchText: [
+              page.title,
+              page.slug,
+              page.section,
+              page.summary,
+              page.audience,
+              'unlinked staged pages',
+            ].join(' '),
+          },
+        ],
+  );
+  return documentationDesignerComponent(
+    'documentationDesignerNavigation',
+    'documentation.component.navigation',
+    'navigation',
+    5,
+    {
+      title: selectedSource?.label ?? 'Documentation',
+      searchLabel: 'Search pages',
+      searchPlaceholder: 'Search documentation pages',
+      emptyMessage: 'No staged documentation pages match this search.',
+      items: [...linkedItems, ...unlinkedItems],
+    },
+  );
+}
+
+function documentationNavigationParentOptions({
+  currentLink,
+  links,
+  pages,
+  selectedSource,
+}: {
+  readonly currentLink: DocumentationDraftLink;
+  readonly links: readonly DocumentationDraftLink[];
+  readonly pages: readonly DocumentationDraftPage[];
+  readonly selectedSource: AxisCmsDocumentationSource | undefined;
+}): readonly DocumentationNavigationParentOption[] {
+  const rootLabel = `${selectedSource?.label ?? 'Documentation'} root`;
+  const pageById = new Map(pages.map((page) => [page.id, page]));
+  const sectionOptions = new Map<
+    string,
+    DocumentationNavigationParentOption & { readonly sortKey: number }
+  >();
+  const pageOptions = new Map<
+    string,
+    DocumentationNavigationParentOption & {
+      readonly parentKey: string;
+      readonly sortKey: number;
+    }
+  >();
+  links.forEach((link) => {
+    if (link.parentNodeCode && link.parentLabel) {
+      const sectionOrder =
+        link.parentOrder ?? documentationSectionOrder(link.parentLabel);
+      sectionOptions.set(
+        `section:${link.parentNodeCode}`,
+        Object.freeze({
+          value: `section:${link.parentNodeCode}`,
+          label: link.parentLabel,
+          title: link.parentLabel,
+          description: 'Topic in the current documentation navigation.',
+          parentLabel: link.parentLabel,
+          parentNodeCode: link.parentNodeCode,
+          order: sectionOrder,
+          depth: 1,
+          kind: 'section',
+          searchText: `${link.parentLabel} existing navigation parent section topic ${rootLabel}`,
+          sortKey: sectionOrder,
+        }),
+      );
+    }
+    if (link.id !== currentLink.id && link.pageId !== currentLink.pageId) {
+      const page = pageById.get(link.pageId);
+      const pageNodeCode =
+        recordText(link.originalNodeRecord ?? {}, 'code') || link.id || page?.id;
+      if (pageNodeCode) {
+        const parentLabel = link.parentLabel || page?.section || 'Wiki home';
+        const parentOrder =
+          link.parentOrder ?? documentationSectionOrder(parentLabel || 'Wiki home');
+        const pageOrder = Number(link.order) || 100;
+        const parentKey = link.parentNodeCode
+          ? `section:${link.parentNodeCode}`
+          : navigationRootParentValue;
+        const title = link.label || page?.title || pageNodeCode;
+        const pathLabel =
+          parentKey === navigationRootParentValue ? title : `${parentLabel} / ${title}`;
+        pageOptions.set(
+          `page:${pageNodeCode}`,
+          Object.freeze({
+            value: `page:${pageNodeCode}`,
+            label: pathLabel,
+            title,
+            description: page?.slug || `Child page under ${parentLabel}`,
+            parentLabel: title,
+            parentNodeCode: pageNodeCode,
+            order: pageOrder,
+            depth: parentKey === navigationRootParentValue ? 1 : 2,
+            kind: 'page',
+            searchText: [
+              link.label,
+              pathLabel,
+              page?.title,
+              page?.slug,
+              parentLabel,
+              page?.summary,
+              'existing page link',
+            ].join(' '),
+            parentKey,
+            sortKey: 100_000 + parentOrder * 1_000 + pageOrder,
+          }),
+        );
+      }
+    }
+  });
+  const pagesByParent = new Map<
+    string,
+    Array<
+      DocumentationNavigationParentOption & {
+        readonly parentKey: string;
+        readonly sortKey: number;
+      }
+    >
+  >();
+  pageOptions.forEach((option) => {
+    const parentPages = pagesByParent.get(option.parentKey) ?? [];
+    parentPages.push(option);
+    pagesByParent.set(option.parentKey, parentPages);
+  });
+  const orderedOptions: Array<
+    DocumentationNavigationParentOption & { readonly sortKey?: number }
+  > = [
+    Object.freeze({
+      value: navigationRootParentValue,
+      label: `Top level (${rootLabel})`,
+      title: 'Top level',
+      description: 'Place beside first-level documentation topics.',
+      parentLabel: rootLabel,
+      parentNodeCode: '',
+      order: 0,
+      depth: 0,
+      kind: 'root' as const,
+      searchText: `top level root ${rootLabel}`,
+      sortKey: 0,
+    }),
+  ];
+  const pushPages = (parentKey: string) => {
+    const childPages = pagesByParent.get(parentKey) ?? [];
+    childPages
+      .sort(
+        (left, right) =>
+          left.sortKey - right.sortKey || left.title.localeCompare(right.title),
+      )
+      .forEach((option) => orderedOptions.push(option));
+  };
+  pushPages(navigationRootParentValue);
+  [...sectionOptions.values()]
+    .sort(
+      (left, right) =>
+        left.sortKey - right.sortKey || left.title.localeCompare(right.title),
+    )
+    .forEach((section) => {
+      orderedOptions.push(section);
+      pushPages(section.value);
+    });
+  [...pageOptions.values()]
+    .filter((option) => !orderedOptions.some((item) => item.value === option.value))
+    .sort(
+      (left, right) =>
+        left.sortKey - right.sortKey || left.title.localeCompare(right.title),
+    )
+    .forEach((option) => orderedOptions.push(option));
+  orderedOptions.push(
+    Object.freeze({
+      value: navigationNewParentValue,
+      label: 'Create new parent topic',
+      title: 'Create new parent topic',
+      description: 'Create a new top-level topic and place this page under it.',
+      parentLabel: 'New topic',
+      parentNodeCode: navigationNewParentValue,
+      order: 100,
+      depth: 0,
+      kind: 'new' as const,
+      searchText: 'create new parent topic',
+      sortKey: 1_000_000,
+    }),
+  );
+  return Object.freeze(
+    orderedOptions.map((option) =>
+      Object.freeze({
+        value: option.value,
+        label: option.label,
+        title: option.title,
+        description: option.description,
+        parentLabel: option.parentLabel,
+        parentNodeCode: option.parentNodeCode,
+        order: option.order,
+        depth: option.depth,
+        kind: option.kind,
+        searchText: option.searchText,
+      }),
+    ),
+  );
+}
+
+function selectedNavigationParentValue(
+  link: DocumentationDraftLink,
+  options: readonly DocumentationNavigationParentOption[],
+): string {
+  if (link.parentNodeCode?.startsWith(navigationNewParentPrefix)) {
+    return navigationNewParentValue;
+  }
+  if (link.parentNodeCode) {
+    const existing = options.find(
+      (option) => option.parentNodeCode === link.parentNodeCode,
+    );
+    if (existing) return existing.value;
+  }
+  return navigationRootParentValue;
+}
+
+function navigationPathSegments(
+  link: DocumentationDraftLink,
+  selectedSource: AxisCmsDocumentationSource | undefined,
+): readonly string[] {
+  const rootLabel = `${selectedSource?.label ?? 'Documentation'} root`;
+  const parentLabel = link.parentLabel.trim();
+  return Object.freeze(
+    [
+      'Wiki home',
+      parentLabel && parentLabel !== rootLabel ? parentLabel : '',
+      link.label,
+    ]
+      .map((item) => item.trim())
+      .filter(Boolean),
+  );
+}
+
+function documentationDesignerHeadingAnchor(value: string): string {
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/gu, '-')
+      .replace(/^-+|-+$/gu, '')
+      .slice(0, 80) || 'section'
+  );
+}
+
+function documentationDesignerArticleComponent(
+  page: DocumentationDraftPage,
+): CmsComponentContract {
+  const richText = cmsRichTextComponentProperties(pageRichTextDocument(page));
+  const headings = richText.blocks.flatMap((block) => {
+    if (block.kind !== 'heading') return [];
+    const text = typeof block.text === 'string' ? block.text : '';
+    const level = typeof block.level === 'number' ? block.level : 2;
+    if (!text || level <= 1) return [];
+    return [
+      {
+        anchor: documentationDesignerHeadingAnchor(text),
+        level,
+        text,
+      },
+    ];
+  });
+  return documentationDesignerComponent(
+    page.articleComponentId ?? `${page.id}-article`,
+    'documentation.component.article',
+    'article',
+    10,
+    {
+      title: page.title,
+      category: page.section,
+      summary: page.summary,
+      route: page.slug,
+      audience: documentationAudienceValues(page.audience),
+      lifecycleState: page.isNew ? 'NEW STAGED DRAFT' : 'STAGED DRAFT',
+      maturityState: page.isNew ? 'Drafting' : 'Editable preview',
+      accessMode: 'PUBLIC',
+      headings,
+      visualRequirements: Object.freeze(['staged preview']),
+      blocks: richText.blocks,
+    },
+  );
 }
 
 async function loadAllDocumentationRecords(
@@ -1235,7 +1660,7 @@ async function loadDocumentationDraftPagesFromCms(
 ): Promise<readonly DocumentationDraftPage[]> {
   const connection = documentationWorkbenchConnection(bootstrap, selectedSource);
   if (!connection) return Object.freeze([]);
-  const [pageSchema, routeSchema] = await Promise.all([
+  const [pageSchema, routeSchema, componentSchema] = await Promise.all([
     loadGeneratedSchemaCapabilities(
       connection,
       documentationPageSchemaRef,
@@ -1248,10 +1673,17 @@ async function loadDocumentationDraftPagesFromCms(
       configuration,
       fetch,
     ).then(schemaWithValidQueryCapabilities),
+    loadGeneratedSchemaCapabilities(
+      connection,
+      documentationComponentSchemaRef,
+      configuration,
+      fetch,
+    ).then(schemaWithValidQueryCapabilities),
   ]);
-  const [pageRecords, routeRecords] = await Promise.all([
+  const [pageRecords, routeRecords, componentRecords] = await Promise.all([
     loadAllDocumentationRecords(connection, pageSchema, configuration, signal),
     loadAllDocumentationRecords(connection, routeSchema, configuration, signal),
+    loadAllDocumentationRecords(connection, componentSchema, configuration, signal),
   ]);
   const expectedProduct = documentationSourceProductCode(selectedSource);
   const matchingProductExists =
@@ -1270,6 +1702,11 @@ async function loadDocumentationDraftPagesFromCms(
     if (code) routeByCode.set(code, path);
     if (page) routeByPage.set(page, path);
   });
+  const componentByCode = new Map<string, WorkbenchRecord>();
+  componentRecords.forEach((record) => {
+    const code = recordText(record, 'code');
+    if (code) componentByCode.set(code, record);
+  });
   const pages = records
     .map((record): DocumentationDraftPage | undefined => {
       const id = recordText(record, 'code') || recordText(record, 'documentId');
@@ -1277,6 +1714,14 @@ async function loadDocumentationDraftPagesFromCms(
       if (!id || !title) return undefined;
       const targetRoute = recordText(record, 'targetRoute');
       const targetPage = recordText(record, 'targetPage');
+      const articleComponentId = recordText(record, 'articleComponent');
+      const articleComponent = componentByCode.get(articleComponentId);
+      const articleProperties = recordObject(articleComponent, 'properties');
+      const fallbackBody = documentationRecordBody(record, title);
+      const contentJson = documentationBlocksToCmsRichTextDocument(
+        articleProperties.blocks,
+        fallbackBody,
+      );
       const audience = recordTextList(record, 'audience')
         .map(sentenceCaseLabel)
         .join(', ');
@@ -1291,10 +1736,22 @@ async function loadDocumentationDraftPagesFromCms(
         title,
         slug,
         section: documentationRecordSection(record, selectedSource),
-        summary: recordText(record, 'summary') || 'Documentation page ready for editing.',
-        body: documentationRecordBody(record, title),
+        summary:
+          recordText(record, 'summary') || 'Documentation page ready for editing.',
+        body: cmsRichTextDocumentToText(contentJson) || fallbackBody,
         contentMode: 'text',
+        contentJson,
         audience: audience || 'Business, architect, developer, operator',
+        articleComponentId,
+        originalComponentRecord: articleComponent,
+        originalPageRecord: record,
+        originalRouteRecord: routeRecords.find(
+          (route) =>
+            recordText(route, 'code') === targetRoute ||
+            recordText(route, 'page') === targetPage,
+        ),
+        targetPageCode: targetPage,
+        targetRouteCode: targetRoute,
       };
     })
     .filter((page): page is DocumentationDraftPage => Boolean(page));
@@ -1372,25 +1829,329 @@ function documentationDraftLinks(
       pageId: page.id,
       label: page.title,
       parentLabel: index === 0 ? 'Wiki home' : (pages[0]?.title ?? 'Wiki home'),
+      parentOrder: index === 0 ? 0 : 10,
       order: String((index + 1) * 10),
       visibility: index === 0 ? 'Public' : 'Axis + Nexus',
     })),
   );
 }
 
+function navigationVisibilityLabel(accessMode: string): string {
+  const normalized = accessMode.trim().toUpperCase();
+  if (normalized === 'AUTHENTICATED') return 'Internal Axis';
+  if (normalized === 'ROLE_BASED' || normalized === 'GROUP_BASED')
+    return 'Permission limited';
+  return normalized === 'PUBLIC' ? 'Axis + Nexus' : 'Public';
+}
+
+function visibilityAccessMode(visibility: string): string {
+  const normalized = visibility.trim().toLowerCase();
+  if (normalized.includes('internal')) return 'AUTHENTICATED';
+  if (normalized.includes('permission')) return 'ROLE_BASED';
+  return 'PUBLIC';
+}
+
+function documentationNavigationCode(
+  source: AxisCmsDocumentationSource | undefined,
+  originalNode: WorkbenchRecord | undefined,
+): string {
+  return (
+    recordText(originalNode ?? {}, 'navigation') ||
+    (source?.packCode
+      ? `${source.packCode}Navigation`
+      : 'nodicsDocumentationNavigation')
+  );
+}
+
+function findPageForNavigationNode(
+  node: WorkbenchRecord,
+  pages: readonly DocumentationDraftPage[],
+): DocumentationDraftPage | undefined {
+  const targetDocumentationPage = recordText(node, 'targetDocumentationPage');
+  const targetPage = recordText(node, 'targetPage');
+  const targetRoute = recordText(node, 'targetRoute');
+  return pages.find(
+    (page) =>
+      recordText(page.originalPageRecord ?? {}, 'code') === targetDocumentationPage ||
+      page.id === targetDocumentationPage ||
+      page.targetPageCode === targetPage ||
+      page.targetRouteCode === targetRoute,
+  );
+}
+
+async function loadDocumentationDraftLinksFromCms(
+  bootstrap: AxisAuthenticatedBootstrap,
+  selectedSource: AxisCmsDocumentationSource | undefined,
+  configuration: WorkbenchClientConfiguration,
+  pages: readonly DocumentationDraftPage[],
+  signal: AbortSignal | undefined,
+): Promise<readonly DocumentationDraftLink[]> {
+  const connection = documentationWorkbenchConnection(bootstrap, selectedSource);
+  if (!connection) return Object.freeze([]);
+  const nodeSchema = await loadGeneratedSchemaCapabilities(
+    connection,
+    documentationNodeSchemaRef,
+    configuration,
+    fetch,
+  ).then(schemaWithValidQueryCapabilities);
+  const nodeRecords = await loadAllDocumentationRecords(
+    connection,
+    nodeSchema,
+    configuration,
+    signal,
+  );
+  const expectedProduct = documentationSourceProductCode(selectedSource);
+  const matchingProductExists =
+    expectedProduct !== undefined &&
+    nodeRecords.some((record) => recordText(record, 'product') === expectedProduct);
+  const records = matchingProductExists
+    ? nodeRecords.filter((record) => recordText(record, 'product') === expectedProduct)
+    : nodeRecords;
+  const nodeByCode = new Map<string, WorkbenchRecord>();
+  records.forEach((record) => {
+    const code = recordText(record, 'code');
+    if (code) nodeByCode.set(code, record);
+  });
+  const links = records
+    .map((record): DocumentationDraftLink | undefined => {
+      const page = findPageForNavigationNode(record, pages);
+      if (!page) return undefined;
+      const parentNodeCode = recordText(record, 'parentNode');
+      const parentNode = parentNodeCode ? nodeByCode.get(parentNodeCode) : undefined;
+      const parentNodeType = recordText(parentNode ?? {}, 'nodeType');
+      const parentNodeTitle =
+        parentNodeType === 'PAGE' || parentNodeType === 'PAGE_LINK'
+          ? ''
+          : recordText(parentNode ?? {}, 'nodeTitle');
+      const parentNodeOrder =
+        parentNode === undefined ? undefined : recordNumber(parentNode, 'nodeOrder');
+      const code = recordText(record, 'code');
+      const label = recordText(record, 'nodeTitle') || page.title;
+      return {
+        id: code || `${page.id}-link`,
+        pageId: page.id,
+        label,
+        parentLabel:
+          parentNodeTitle ||
+          page.section ||
+          (parentNodeCode ? sentenceCaseLabel(parentNodeCode) : 'Wiki home'),
+        parentOrder: parentNodeOrder,
+        order: String(recordNumber(record, 'nodeOrder') ?? 100),
+        visibility: navigationVisibilityLabel(recordText(record, 'accessMode')),
+        navigationCode: recordText(record, 'navigation'),
+        nodeLevel: recordText(record, 'nodeLevel'),
+        nodeType: recordText(record, 'nodeType'),
+        originalNodeRecord: record,
+        parentNodeCode,
+      };
+    })
+    .filter((link): link is DocumentationDraftLink => Boolean(link));
+  return Object.freeze(
+    links.sort(
+      (left, right) =>
+        Number(left.order) - Number(right.order) ||
+        left.label.localeCompare(right.label),
+    ),
+  );
+}
+
+function useDocumentationDraftLinkSource({
+  accessToken,
+  bootstrap,
+  pages,
+  runtime,
+  selectedSource,
+}: {
+  readonly accessToken: string;
+  readonly bootstrap: AxisAuthenticatedBootstrap;
+  readonly pages: readonly DocumentationDraftPage[];
+  readonly runtime: AxisRuntimeConfig;
+  readonly selectedSource: AxisCmsDocumentationSource | undefined;
+}): {
+  readonly isLoading: boolean;
+  readonly links: readonly DocumentationDraftLink[];
+  readonly sourceError: Error | null;
+} {
+  const fallbackLinks = useMemo(() => documentationDraftLinks(pages), [pages]);
+  const configuration = useMemo<WorkbenchClientConfiguration>(
+    () => ({
+      accessToken,
+      enterpriseCode: runtime.enterpriseCode,
+      timeoutMs: runtime.requestTimeoutMs,
+    }),
+    [accessToken, runtime.enterpriseCode, runtime.requestTimeoutMs],
+  );
+  const cmsLinks = useQuery({
+    enabled:
+      Boolean(documentationWorkbenchConnection(bootstrap, selectedSource)) &&
+      pages.length > 0,
+    queryKey: [
+      'documentation-designer',
+      'cms-navigation-links',
+      runtime.enterpriseCode,
+      selectedSource?.id ?? 'framework',
+      selectedSource?.packCode ?? '',
+      pages.map((page) => page.id).join('|'),
+      connectionKey(documentationWorkbenchConnection(bootstrap, selectedSource)),
+    ],
+    queryFn: ({ signal }) =>
+      loadDocumentationDraftLinksFromCms(
+        bootstrap,
+        selectedSource,
+        configuration,
+        pages,
+        signal,
+      ),
+  });
+  const links =
+    cmsLinks.data && cmsLinks.data.length > 0 ? cmsLinks.data : fallbackLinks;
+  return {
+    isLoading: cmsLinks.isLoading,
+    links,
+    sourceError: cmsLinks.error instanceof Error ? cmsLinks.error : null,
+  };
+}
+
+interface PersistDocumentationDraftLinkInput {
+  readonly bootstrap: AxisAuthenticatedBootstrap;
+  readonly configuration: WorkbenchClientConfiguration;
+  readonly link: DocumentationDraftLink;
+  readonly pages: readonly DocumentationDraftPage[];
+  readonly selectedSource: AxisCmsDocumentationSource | undefined;
+}
+
+async function saveDocumentationDraftLink({
+  bootstrap,
+  configuration,
+  link,
+  pages,
+  selectedSource,
+}: PersistDocumentationDraftLinkInput): Promise<void> {
+  const connection = documentationWorkbenchConnection(bootstrap, selectedSource);
+  if (!connection) throw new Error('Documentation staged connection is unavailable');
+  const nodeSchema = await loadGeneratedSchemaCapabilities(
+    connection,
+    documentationNodeSchemaRef,
+    configuration,
+    fetch,
+  );
+  const page = pages.find((item) => item.id === link.pageId);
+  if (!page) throw new Error('Select a documentation page before saving the link');
+  const codeSegment = documentationCodeSegment(link.id || `${link.label}-${page.slug}`);
+  const nodeCode =
+    recordText(link.originalNodeRecord ?? {}, 'code') || `cmsDocsNode${codeSegment}`;
+  const productCode =
+    recordText(link.originalNodeRecord ?? {}, 'product') ||
+    documentationSourceProductCode(selectedSource) ||
+    `${selectedSource?.id ?? 'documentation'}Product`;
+  const requestedParentNodeCode = link.parentNodeCode?.trim() ?? '';
+  const parentNodeCode = requestedParentNodeCode.startsWith(navigationNewParentPrefix)
+    ? `cmsDocsNode${documentationCodeSegment(link.parentLabel || 'Topic')}`
+    : requestedParentNodeCode;
+  if (requestedParentNodeCode.startsWith(navigationNewParentPrefix)) {
+    await createWorkbenchRecord(
+      connection,
+      nodeSchema,
+      {
+        code: parentNodeCode,
+        product: productCode,
+        navigation: documentationNavigationCode(
+          selectedSource,
+          link.originalNodeRecord,
+        ),
+        nodeLevel: 'SECTION',
+        nodeType: 'CONTAINER',
+        nodeTitle: link.parentLabel || 'New topic',
+        nodeSummary: `Navigation topic for ${page.title}.`,
+        nodeOrder: link.parentOrder ?? documentationSectionOrder(link.parentLabel),
+        expandable: true,
+        expandedByDefault: true,
+        nodeIcon: 'folder',
+        accessMode: visibilityAccessMode(link.visibility),
+        allowedRoles: [],
+        allowedGroups: [],
+        allowedPermissions: [],
+        lifecycleState: 'STAGED',
+        maturityState: 'IMPLEMENTED',
+        locale: recordText(link.originalNodeRecord ?? {}, 'locale') || 'en',
+        channel: recordText(link.originalNodeRecord ?? {}, 'channel') || 'web',
+        active: true,
+      },
+      configuration,
+      fetch,
+    );
+  }
+  const model = {
+    ...(link.originalNodeRecord ?? {}),
+    code: nodeCode,
+    product: productCode,
+    navigation: documentationNavigationCode(selectedSource, link.originalNodeRecord),
+    parentNode: parentNodeCode || undefined,
+    nodeLevel:
+      link.nodeLevel ||
+      recordText(link.originalNodeRecord ?? {}, 'nodeLevel') ||
+      'TOPIC',
+    nodeType:
+      link.nodeType || recordText(link.originalNodeRecord ?? {}, 'nodeType') || 'PAGE',
+    nodeTitle: link.label,
+    nodeSummary: page.summary,
+    nodeContentArea: {
+      ...recordObject(link.originalNodeRecord, 'nodeContentArea'),
+      route: page.slug,
+    },
+    targetDocumentationPage:
+      recordText(page.originalPageRecord ?? {}, 'code') || page.id,
+    targetPage:
+      page.targetPageCode || recordText(page.originalPageRecord ?? {}, 'targetPage'),
+    targetRoute:
+      page.targetRouteCode || recordText(page.originalPageRecord ?? {}, 'targetRoute'),
+    nodeOrder: Number(link.order) || 100,
+    expandable: false,
+    expandedByDefault: false,
+    nodeIcon: recordText(link.originalNodeRecord ?? {}, 'nodeIcon') || 'file-text',
+    nodeAudience: documentationAudienceValues(page.audience),
+    accessMode: visibilityAccessMode(link.visibility),
+    allowedRoles: link.originalNodeRecord?.allowedRoles ?? [],
+    allowedGroups: link.originalNodeRecord?.allowedGroups ?? [],
+    allowedPermissions: link.originalNodeRecord?.allowedPermissions ?? [],
+    lifecycleState: 'STAGED',
+    maturityState:
+      recordText(link.originalNodeRecord ?? {}, 'maturityState') || 'IMPLEMENTED',
+    locale: recordText(link.originalNodeRecord ?? {}, 'locale') || 'en',
+    channel: recordText(link.originalNodeRecord ?? {}, 'channel') || 'web',
+    active: true,
+  };
+  if (link.originalNodeRecord) {
+    await updateWorkbenchRecord(
+      connection,
+      nodeSchema,
+      link.originalNodeRecord,
+      model,
+      configuration,
+      fetch,
+    );
+  } else {
+    await createWorkbenchRecord(connection, nodeSchema, model, configuration, fetch);
+  }
+}
+
 function emptyDocumentationPage(
   source: AxisCmsDocumentationSource | undefined,
 ): DocumentationDraftPage {
   const prefix = (source?.id ?? 'framework').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+  const body =
+    'Write the page content here. Add business context, decisions, steps, examples, notes, links, images, or code snippets when needed.';
   return {
     id: `${prefix}-new-page`,
     title: 'New documentation page',
     slug: `/docs/${prefix}/new-page`,
     summary: 'Short reader-facing summary for this page.',
-    body: 'Write the page content here. Add business context, decisions, steps, examples, notes, or HTML when needed.',
+    body,
     contentMode: 'text',
+    contentJson: textToCmsRichTextDocument(body),
     audience: 'Business, architect, developer, operator',
     section: source?.label ?? 'Documentation',
+    isNew: true,
   };
 }
 
@@ -1401,188 +2162,223 @@ function updatePageDraft(
   return { ...page, ...changes };
 }
 
-function htmlAttribute(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('"', '&quot;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
+function documentationCodeSegment(value: string): string {
+  const normalized = value
+    .replace(/^\/docs\/?/u, '')
+    .replace(/[^A-Za-z0-9]+/gu, ' ')
+    .trim()
+    .replace(/\b\w/g, (character) => character.toUpperCase())
+    .replace(/\s+/gu, '');
+  return normalized || 'NewPage';
 }
 
-function inlinePreviewParts(text: string, keyPrefix: string): ReactNode[] {
-  const parts: ReactNode[] = [];
-  const pattern = /!\[([^\]]*)\]\(([^)]+)\)|\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(text))) {
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-    if (match[1] !== undefined && match[2] !== undefined) {
-      parts.push(
-        <Box
-          alt={match[1] || 'Documentation image'}
-          component="img"
-          key={`${keyPrefix}:image:${String(match.index)}`}
-          src={match[2]}
-          sx={{
-            border: 1,
-            borderColor: 'divider',
-            borderRadius: `${String(axisTokens.radius.small)}px`,
-            display: 'block',
-            maxHeight: 280,
-            maxWidth: '100%',
-            objectFit: 'cover',
-            my: 1.5,
-          }}
-        />,
-      );
-    } else if (match[3] !== undefined && match[4] !== undefined) {
-      parts.push(
-        <Box
-          component="a"
-          href={match[4]}
-          key={`${keyPrefix}:link:${String(match.index)}`}
-          rel="noreferrer"
-          sx={{ color: 'primary.main', fontWeight: 700 }}
-          target="_blank"
-        >
-          {match[3]}
-        </Box>,
-      );
-    } else if (match[5] !== undefined) {
-      parts.push(
-        <Box
-          component="strong"
-          key={`${keyPrefix}:bold:${String(match.index)}`}
-          sx={{ color: 'text.primary' }}
-        >
-          {match[5]}
-        </Box>,
-      );
-    }
-    lastIndex = pattern.lastIndex;
-  }
-
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
-  }
-  return parts;
-}
-
-function TextPreviewBlock({
-  index,
-  section,
-}: {
-  readonly index: number;
-  readonly section: string;
-}) {
-  const lines = section.split('\n').map((line) => line.trim());
-  if (section.startsWith('## ')) {
-    return (
-      <Typography component="h3" sx={{ lineHeight: 1.25 }} variant="h6">
-        {inlinePreviewParts(section.replace(/^##\s+/, ''), `heading:${String(index)}`)}
-      </Typography>
-    );
-  }
-  if (lines.every((line) => line.startsWith('- '))) {
-    return (
-      <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
-        {lines.map((line, lineIndex) => (
-          <Typography
-            color="text.secondary"
-            component="li"
-            key={`${line}:${String(lineIndex)}`}
-            sx={{ lineHeight: 1.65 }}
-          >
-            {inlinePreviewParts(
-              line.replace(/^-\s+/, ''),
-              `list:${String(index)}:${String(lineIndex)}`,
-            )}
-          </Typography>
-        ))}
-      </Box>
-    );
-  }
-  if (section.startsWith('> ')) {
-    return (
-      <Box
-        component="blockquote"
-        sx={{
-          borderLeft: 3,
-          borderColor: 'primary.main',
-          color: 'text.secondary',
-          m: 0,
-          pl: 2,
-        }}
-      >
-        <Typography sx={{ lineHeight: 1.65 }}>
-          {inlinePreviewParts(section.replace(/^>\s+/, ''), `quote:${String(index)}`)}
-        </Typography>
-      </Box>
-    );
-  }
-  return (
-    <Typography
-      color={index === 0 ? 'text.primary' : 'text.secondary'}
-      sx={{ lineHeight: 1.65 }}
-    >
-      {inlinePreviewParts(section, `paragraph:${String(index)}`)}
-    </Typography>
+function documentationAudienceValues(value: string): readonly string[] {
+  return Object.freeze(
+    value
+      .split(',')
+      .map((item) => item.trim().toLowerCase().replace(/\s+/gu, '-'))
+      .filter(Boolean),
   );
 }
 
-function RichContentPreview({
-  mode,
-  value,
-}: {
-  readonly mode: DocumentationContentMode;
-  readonly value: string;
-}) {
-  if (mode === 'html') {
-    return (
-      <Box
-        component="iframe"
-        sandbox=""
-        srcDoc={`<!doctype html><html><head><style>body{font:16px/1.65 system-ui,-apple-system,Segoe UI,sans-serif;color:#25282d;margin:0;padding:20px}h1,h2,h3{line-height:1.2}a{color:#b99000}</style></head><body>${value}</body></html>`}
-        sx={{
-          bgcolor: 'background.paper',
-          border: 0,
-          borderRadius: `${String(axisTokens.radius.small)}px`,
-          minHeight: 300,
-          width: '100%',
-        }}
-        title="Documentation HTML preview"
-      />
+interface PersistDocumentationDraftInput {
+  readonly bootstrap: AxisAuthenticatedBootstrap;
+  readonly configuration: WorkbenchClientConfiguration;
+  readonly page: DocumentationDraftPage;
+  readonly selectedSource: AxisCmsDocumentationSource | undefined;
+}
+
+async function saveDocumentationDraftPage({
+  bootstrap,
+  configuration,
+  page,
+  selectedSource,
+}: PersistDocumentationDraftInput): Promise<void> {
+  const connection = documentationWorkbenchConnection(bootstrap, selectedSource);
+  if (!connection) throw new Error('Documentation staged connection is unavailable');
+  const [componentSchema, documentationPageSchema, routeSchema, cmsPageSchema] =
+    await Promise.all([
+      loadGeneratedSchemaCapabilities(
+        connection,
+        documentationComponentSchemaRef,
+        configuration,
+        fetch,
+      ),
+      loadGeneratedSchemaCapabilities(
+        connection,
+        documentationPageSchemaRef,
+        configuration,
+        fetch,
+      ),
+      loadGeneratedSchemaCapabilities(
+        connection,
+        documentationRouteSchemaRef,
+        configuration,
+        fetch,
+      ),
+      loadGeneratedSchemaCapabilities(
+        connection,
+        documentationCmsPageSchemaRef,
+        configuration,
+        fetch,
+      ),
+    ]);
+  const richText = cmsRichTextComponentProperties(pageRichTextDocument(page));
+  const audience = documentationAudienceValues(page.audience);
+  const codeSegment = documentationCodeSegment(page.id || page.slug || page.title);
+  const componentCode = page.articleComponentId || `cmsRichTextComponent${codeSegment}`;
+  const routeCode = page.targetRouteCode || `cmsRichTextRoute${codeSegment}`;
+  const cmsPageCode = page.targetPageCode || `cmsRichTextPage${codeSegment}`;
+  const productCode =
+    recordText(page.originalPageRecord ?? {}, 'product') ||
+    documentationSourceProductCode(selectedSource) ||
+    `${selectedSource?.id ?? 'documentation'}Product`;
+  const baseProperties = recordObject(page.originalComponentRecord, 'properties');
+  const componentProperties = normalizeCmsRichTextProperties({
+    ...baseProperties,
+    ...richText,
+    title: page.title,
+    route: page.slug,
+    summary: page.summary,
+    audience,
+    sectionTitle: page.section,
+    groupTitle: page.section,
+    lifecycleState: 'STAGED',
+  });
+  const componentModel = {
+    ...(page.originalComponentRecord ?? {}),
+    code: componentCode,
+    typeCode:
+      recordText(page.originalComponentRecord ?? {}, 'typeCode') ||
+      'cmsRichTextComponent',
+    renderer:
+      recordText(page.originalComponentRecord ?? {}, 'renderer') ||
+      'cms.component.rich-text',
+    accessMode:
+      recordText(page.originalComponentRecord ?? {}, 'accessMode') || 'PUBLIC',
+    properties: {
+      ...baseProperties,
+      ...componentProperties,
+      title: page.title,
+      route: page.slug,
+      summary: page.summary,
+      audience,
+      sectionTitle: page.section,
+      groupTitle: page.section,
+      lifecycleState: 'STAGED',
+    },
+    active: true,
+  };
+  if (page.originalComponentRecord) {
+    await updateWorkbenchRecord(
+      connection,
+      componentSchema,
+      page.originalComponentRecord,
+      componentModel,
+      configuration,
+      fetch,
+    );
+  } else {
+    await createWorkbenchRecord(
+      connection,
+      componentSchema,
+      componentModel,
+      configuration,
+      fetch,
     );
   }
-
-  return (
-    <Stack
-      spacing={1.5}
-      sx={{
-        bgcolor: 'background.paper',
-        border: 1,
-        borderColor: 'divider',
-        borderRadius: `${String(axisTokens.radius.small)}px`,
-        minHeight: 300,
-        p: 2.5,
-      }}
-    >
-      {value
-        .split(/\n{2,}/)
-        .map((section) => section.trim())
-        .filter(Boolean)
-        .map((section, index) => (
-          <TextPreviewBlock
-            index={index}
-            key={`${section.slice(0, 24)}:${String(index)}`}
-            section={section}
-          />
-        ))}
-    </Stack>
-  );
+  const pageModel = {
+    ...(page.originalPageRecord ?? {}),
+    code:
+      recordText(page.originalPageRecord ?? {}, 'code') ||
+      `cmsRichTextDocumentation${codeSegment}`,
+    product: productCode,
+    documentId: page.id,
+    title: page.title,
+    summary: page.summary,
+    targetPage: cmsPageCode,
+    targetRoute: routeCode,
+    articleComponent: componentCode,
+    template:
+      recordText(page.originalPageRecord ?? {}, 'template') ||
+      'nodicsDocumentationArticleTemplate',
+    audience,
+    lifecycleState: 'STAGED',
+    active: true,
+  };
+  if (page.originalPageRecord) {
+    await updateWorkbenchRecord(
+      connection,
+      documentationPageSchema,
+      page.originalPageRecord,
+      pageModel,
+      configuration,
+      fetch,
+    );
+  } else {
+    await createWorkbenchRecord(
+      connection,
+      documentationPageSchema,
+      pageModel,
+      configuration,
+      fetch,
+    );
+    await createWorkbenchRecord(
+      connection,
+      cmsPageSchema,
+      {
+        code: cmsPageCode,
+        name: page.title,
+        cmsSite: selectedSource?.site ? [selectedSource.site] : [],
+        typeCode: 'nodicsDocumentationArticlePageType',
+        template: 'nodicsDocumentationArticleTemplate',
+        renderer: 'documentation.page.article',
+        cmsComponents: [
+          {
+            active: true,
+            index: 5,
+            slot: 'navigation',
+            target: 'nodicsDocumentationNavigation',
+          },
+          { active: true, index: 10, slot: 'article', target: componentCode },
+        ],
+        active: true,
+      },
+      configuration,
+      fetch,
+    );
+  }
+  const routeModel = {
+    ...(page.originalRouteRecord ?? {}),
+    code: routeCode,
+    site: selectedSource?.site ?? 'nodicsDocumentationSite',
+    path: page.slug,
+    locale: 'en',
+    channel: 'web',
+    page: cmsPageCode,
+    routeType: 'PAGE',
+    deliveryState: 'STAGED',
+    accessMode: 'PUBLIC',
+    active: true,
+  };
+  if (page.originalRouteRecord) {
+    await updateWorkbenchRecord(
+      connection,
+      routeSchema,
+      page.originalRouteRecord,
+      routeModel,
+      configuration,
+      fetch,
+    );
+  } else {
+    await createWorkbenchRecord(
+      connection,
+      routeSchema,
+      routeModel,
+      configuration,
+      fetch,
+    );
+  }
 }
 
 function DocumentationContentEditor({
@@ -1592,128 +2388,8 @@ function DocumentationContentEditor({
   readonly draft: DocumentationDraftPage;
   readonly onChange: (next: DocumentationDraftPage) => void;
 }) {
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const [linkText, setLinkText] = useState('Read more');
-  const [linkUrl, setLinkUrl] = useState('https://nodics.ai');
-  const [imageAlt, setImageAlt] = useState('Documentation image');
-  const [imageUrl, setImageUrl] = useState('');
-
-  const selectedText = () => {
-    const input = textareaRef.current;
-    if (!input) return '';
-    return draft.body.slice(input.selectionStart, input.selectionEnd);
-  };
-
-  const insertAtCursor = (value: string) => {
-    const input = textareaRef.current;
-    const start = input?.selectionStart ?? draft.body.length;
-    const end = input?.selectionEnd ?? draft.body.length;
-    const nextBody = `${draft.body.slice(0, start)}${value}${draft.body.slice(end)}`;
-    onChange(updatePageDraft(draft, { body: nextBody }));
-    window.requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(
-        start + value.length,
-        start + value.length,
-      );
-    });
-  };
-
-  const wrapSelection = (before: string, after = '', placeholder = 'Text') => {
-    const input = textareaRef.current;
-    const start = input?.selectionStart ?? draft.body.length;
-    const end = input?.selectionEnd ?? draft.body.length;
-    const current = draft.body.slice(start, end) || placeholder;
-    const value = `${before}${current}${after}`;
-    const nextBody = `${draft.body.slice(0, start)}${value}${draft.body.slice(end)}`;
-    onChange(updatePageDraft(draft, { body: nextBody }));
-    window.requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(
-        start + before.length,
-        start + before.length + current.length,
-      );
-    });
-  };
-
-  const insertLink = () => {
-    const text = selectedText() || linkText || 'Link';
-    const url = linkUrl || 'https://';
-    insertAtCursor(
-      draft.contentMode === 'html'
-        ? `<a href="${htmlAttribute(url)}">${htmlAttribute(text)}</a>`
-        : `[${text}](${url})`,
-    );
-  };
-
-  const insertImage = () => {
-    const alt = imageAlt || 'Documentation image';
-    const url = imageUrl || 'https://';
-    insertAtCursor(
-      draft.contentMode === 'html'
-        ? `<img src="${htmlAttribute(url)}" alt="${htmlAttribute(alt)}" />`
-        : `![${alt}](${url})`,
-    );
-  };
-
-  const modeButton = (mode: DocumentationContentMode, label: string) => (
-    <Button
-      size="small"
-      variant={draft.contentMode === mode ? 'contained' : 'outlined'}
-      onClick={() => onChange(updatePageDraft(draft, { contentMode: mode }))}
-    >
-      {label}
-    </Button>
-  );
-
   return (
     <Stack spacing={2}>
-      <Box
-        sx={{
-          display: 'grid',
-          gap: 1.5,
-          gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-        }}
-      >
-        <TextField
-          label="Page title"
-          size="small"
-          value={draft.title}
-          onChange={(event) =>
-            onChange(updatePageDraft(draft, { title: event.target.value }))
-          }
-        />
-        <TextField
-          label="Page URL"
-          size="small"
-          value={draft.slug}
-          onChange={(event) =>
-            onChange(updatePageDraft(draft, { slug: event.target.value }))
-          }
-        />
-      </Box>
-      <TextField
-        label="Reader summary"
-        multiline
-        minRows={2}
-        size="small"
-        value={draft.summary}
-        onChange={(event) =>
-          onChange(updatePageDraft(draft, { summary: event.target.value }))
-        }
-      />
-      <TextField
-        label="Audience"
-        size="small"
-        value={draft.audience}
-        onChange={(event) =>
-          onChange(updatePageDraft(draft, { audience: event.target.value }))
-        }
-      />
-      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-        {modeButton('text', 'Text')}
-        {modeButton('html', 'HTML')}
-      </Stack>
       <Paper
         elevation={0}
         sx={{
@@ -1721,383 +2397,73 @@ function DocumentationContentEditor({
           border: 1,
           borderColor: 'divider',
           borderRadius: `${String(axisTokens.radius.small)}px`,
-          p: 1.5,
+          p: 1.25,
         }}
       >
-        <Stack spacing={1.5}>
-          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-            <Button
-              size="small"
-              startIcon={<ShellIcon name="format" />}
-              variant="outlined"
-              onClick={() =>
-                draft.contentMode === 'html'
-                  ? wrapSelection('<h2>', '</h2>', 'Section heading')
-                  : wrapSelection('## ', '', 'Section heading')
-              }
-            >
-              Heading
-            </Button>
-            <Button
-              size="small"
-              sx={{ fontWeight: 800 }}
-              variant="outlined"
-              onClick={() =>
-                draft.contentMode === 'html'
-                  ? wrapSelection('<strong>', '</strong>', 'Important text')
-                  : wrapSelection('**', '**', 'Important text')
-              }
-            >
-              Bold
-            </Button>
-            <Button
-              size="small"
-              startIcon={<ShellIcon name="list-tree" />}
-              variant="outlined"
-              onClick={() =>
-                insertAtCursor(
-                  draft.contentMode === 'html'
-                    ? '<ul><li>First point</li><li>Second point</li></ul>'
-                    : '- First point\n- Second point',
-                )
-              }
-            >
-              List
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() =>
-                draft.contentMode === 'html'
-                  ? wrapSelection('<blockquote>', '</blockquote>', 'Important note')
-                  : wrapSelection('> ', '', 'Important note')
-              }
-            >
-              Quote
-            </Button>
+        <Stack spacing={1.25}>
+          <Stack
+            direction={{ xs: 'column', sm: 'row' }}
+            spacing={1}
+            sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
+          >
+            <Typography variant="subtitle2">Page details</Typography>
+            <Typography color="text.secondary" variant="caption">
+              Reader metadata saved with the staged page
+            </Typography>
           </Stack>
           <Box
             sx={{
               display: 'grid',
               gap: 1,
-              gridTemplateColumns: { xs: '1fr', md: '1fr 1.4fr auto' },
+              gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
             }}
           >
             <TextField
-              label="Link text"
+              label="Page title"
               size="small"
-              value={linkText}
-              onChange={(event) => setLinkText(event.target.value)}
+              value={draft.title}
+              onChange={(event) =>
+                onChange(updatePageDraft(draft, { title: event.target.value }))
+              }
             />
             <TextField
-              label="Link URL"
+              label="Page URL"
               size="small"
-              value={linkUrl}
-              onChange={(event) => setLinkUrl(event.target.value)}
+              value={draft.slug}
+              onChange={(event) =>
+                onChange(updatePageDraft(draft, { slug: event.target.value }))
+              }
             />
-            <Button
-              startIcon={<ShellIcon name="reference" />}
-              variant="outlined"
-              onClick={insertLink}
-            >
-              Insert link
-            </Button>
           </Box>
-          <Box
-            sx={{
-              display: 'grid',
-              gap: 1,
-              gridTemplateColumns: { xs: '1fr', md: '1fr 1.4fr auto' },
-            }}
-          >
-            <TextField
-              label="Image alt text"
-              size="small"
-              value={imageAlt}
-              onChange={(event) => setImageAlt(event.target.value)}
-            />
-            <TextField
-              label="Image URL"
-              size="small"
-              value={imageUrl}
-              onChange={(event) => setImageUrl(event.target.value)}
-            />
-            <Button
-              disabled={!imageUrl.trim()}
-              startIcon={<ShellIcon name="media" />}
-              variant="outlined"
-              onClick={insertImage}
-            >
-              Insert image
-            </Button>
-          </Box>
-          <Paper
-            elevation={0}
-            sx={{
-              bgcolor: alpha(axisTokens.color.charcoal[900], 0.025),
-              border: 1,
-              borderColor: 'divider',
-              borderRadius: `${String(axisTokens.radius.small)}px`,
-              minHeight: 96,
-              overflow: 'hidden',
-              p: 1.25,
-            }}
-          >
-            <Stack
-              direction={{ xs: 'column', sm: 'row' }}
-              spacing={1.5}
-              sx={{ alignItems: { sm: 'center' } }}
-            >
-              {imageUrl.trim() ? (
-                <Box
-                  alt={imageAlt || 'Selected documentation image'}
-                  component="img"
-                  src={imageUrl}
-                  sx={{
-                    bgcolor: 'background.paper',
-                    border: 1,
-                    borderColor: 'divider',
-                    borderRadius: `${String(axisTokens.radius.small)}px`,
-                    height: 74,
-                    objectFit: 'cover',
-                    width: 112,
-                  }}
-                />
-              ) : (
-                <Box
-                  sx={{
-                    alignItems: 'center',
-                    bgcolor: 'background.paper',
-                    border: 1,
-                    borderColor: 'divider',
-                    borderRadius: `${String(axisTokens.radius.small)}px`,
-                    color: 'text.secondary',
-                    display: 'flex',
-                    height: 74,
-                    justifyContent: 'center',
-                    width: 112,
-                  }}
-                >
-                  <ShellIcon name="media" />
-                </Box>
-              )}
-              <Box sx={{ minWidth: 0 }}>
-                <Typography variant="subtitle2">Image preview</Typography>
-                <Typography color="text.secondary" variant="body2">
-                  {imageUrl.trim()
-                    ? 'This image will be inserted at the cursor and rendered in the page preview.'
-                    : 'Paste an image URL to view it before inserting it into the page.'}
-                </Typography>
-              </Box>
-            </Stack>
-          </Paper>
+          <TextField
+            label="Reader summary"
+            multiline
+            minRows={1}
+            size="small"
+            value={draft.summary}
+            onChange={(event) =>
+              onChange(updatePageDraft(draft, { summary: event.target.value }))
+            }
+          />
+          <TextField
+            label="Audience"
+            size="small"
+            value={draft.audience}
+            onChange={(event) =>
+              onChange(updatePageDraft(draft, { audience: event.target.value }))
+            }
+          />
         </Stack>
       </Paper>
-      <Box
-        sx={{
-          display: 'grid',
-          gap: 2,
-          gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' },
-        }}
-      >
-        <TextField
-          label={draft.contentMode === 'html' ? 'HTML content' : 'Page content'}
-          inputRef={textareaRef}
-          multiline
-          minRows={11}
-          size="small"
-          value={draft.body}
-          onChange={(event) =>
-            onChange(updatePageDraft(draft, { body: event.target.value }))
-          }
-          sx={{
-            '& textarea': {
-              fontFamily:
-                draft.contentMode === 'html'
-                  ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
-                  : undefined,
-              lineHeight: 1.65,
-            },
-          }}
-        />
-        <Box>
-          <Typography color="text.secondary" sx={{ mb: 1 }} variant="overline">
-            Live preview
-          </Typography>
-          <RichContentPreview mode={draft.contentMode} value={draft.body} />
-        </Box>
-      </Box>
+      <CmsRichTextEditor
+        label="Page content"
+        placeholder="Write the page content. Add links, images, lists, code snippets, tables, and notes."
+        value={pageRichTextDocument(draft)}
+        onChange={(contentJson, body) =>
+          onChange(updatePageDraft(draft, { body, contentJson, contentMode: 'text' }))
+        }
+      />
     </Stack>
-  );
-}
-
-function PageSelectionRail({
-  pages,
-  selectedPageId,
-  onCreate,
-  onSelect,
-}: {
-  readonly pages: readonly DocumentationDraftPage[];
-  readonly selectedPageId: string;
-  readonly onCreate: () => void;
-  readonly onSelect: (pageId: string) => void;
-}) {
-  const [pageSearch, setPageSearch] = useState('');
-  const normalizedSearch = pageSearch.trim().toLowerCase();
-  const filteredPages = useMemo(
-    () =>
-      normalizedSearch
-        ? pages.filter((page) =>
-            [
-              page.title,
-              page.slug,
-              page.section,
-              page.summary,
-              page.audience,
-            ]
-              .join(' ')
-              .toLowerCase()
-              .includes(normalizedSearch),
-          )
-        : pages,
-    [normalizedSearch, pages],
-  );
-  const countLabel =
-    filteredPages.length === pages.length
-      ? `${String(pages.length)} pages`
-      : `${String(filteredPages.length)} of ${String(pages.length)}`;
-
-  useEffect(() => {
-    if (!normalizedSearch || filteredPages.length === 0) return;
-    if (filteredPages.some((page) => page.id === selectedPageId)) return;
-    const firstMatch = filteredPages[0];
-    if (firstMatch) onSelect(firstMatch.id);
-  }, [filteredPages, normalizedSearch, onSelect, selectedPageId]);
-
-  return (
-    <Paper
-      component="aside"
-      elevation={0}
-      sx={{
-        border: 1,
-        borderColor: 'divider',
-        borderRadius: `${String(axisTokens.radius.small)}px`,
-        p: 1.5,
-      }}
-    >
-      <Stack spacing={1.25}>
-        <Button
-          startIcon={<ShellIcon name="add" />}
-          sx={{ justifyContent: 'flex-start' }}
-          variant="contained"
-          onClick={() => {
-            setPageSearch('');
-            onCreate();
-          }}
-        >
-          Create new page
-        </Button>
-        <TextField
-          fullWidth
-          label="Search pages"
-          placeholder="Find by title, route, topic, or audience"
-          size="small"
-          value={pageSearch}
-          onChange={(event) => setPageSearch(event.target.value)}
-        />
-        <Stack
-          direction="row"
-          spacing={1}
-          sx={{ alignItems: 'center', justifyContent: 'space-between' }}
-        >
-          <Typography color="text.secondary" variant="overline">
-            Existing pages
-          </Typography>
-          <Chip label={countLabel} size="small" />
-        </Stack>
-        <Stack
-          spacing={1}
-          sx={{
-            maxHeight: { xs: 360, lg: 640 },
-            overflowY: 'auto',
-            pr: 0.5,
-          }}
-        >
-          {filteredPages.map((page) => (
-            <Button
-              key={page.id}
-              sx={{
-                alignItems: 'flex-start',
-                borderColor:
-                  page.id === selectedPageId
-                    ? undefined
-                    : alpha(axisTokens.color.charcoal[900], 0.16),
-                color: page.id === selectedPageId ? undefined : 'text.primary',
-                justifyContent: 'flex-start',
-                minHeight: 76,
-                p: 1.25,
-                textAlign: 'left',
-                width: '100%',
-                '&:hover': {
-                  borderColor: alpha(axisTokens.color.signatureGold, 0.55),
-                  bgcolor: alpha(axisTokens.color.signatureGold, 0.08),
-                },
-              }}
-              variant={page.id === selectedPageId ? 'contained' : 'outlined'}
-              onClick={() => onSelect(page.id)}
-            >
-              <Box sx={{ minWidth: 0 }}>
-                <Typography component="span" sx={{ display: 'block' }} variant="body2">
-                  {page.title}
-                </Typography>
-                <Typography
-                  color={page.id === selectedPageId ? 'inherit' : 'text.secondary'}
-                  component="span"
-                  sx={{
-                    display: 'block',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                  variant="caption"
-                >
-                  {page.section}
-                </Typography>
-                <Typography
-                  color={page.id === selectedPageId ? 'inherit' : 'text.secondary'}
-                  component="span"
-                  sx={{
-                    display: 'block',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                  variant="caption"
-                >
-                  {page.slug}
-                </Typography>
-              </Box>
-            </Button>
-          ))}
-          {filteredPages.length === 0 ? (
-            <Paper
-              elevation={0}
-              sx={{
-                bgcolor: alpha(axisTokens.color.signatureGold, 0.06),
-                border: 1,
-                borderColor: alpha(axisTokens.color.signatureGold, 0.22),
-                p: 1.5,
-              }}
-            >
-              <Typography variant="body2">No documentation pages match this search.</Typography>
-              <Typography color="text.secondary" sx={{ mt: 0.5 }} variant="caption">
-                Try a page title, route, module name, or audience.
-              </Typography>
-            </Paper>
-          ) : null}
-        </Stack>
-      </Stack>
-    </Paper>
   );
 }
 
@@ -2108,55 +2474,698 @@ function SelectedPageSummary({ page }: { readonly page: DocumentationDraftPage }
       sx={{
         bgcolor: 'background.paper',
         border: 1,
-        borderColor: alpha(axisTokens.color.signatureGold, 0.35),
+        borderColor: 'divider',
         borderRadius: `${String(axisTokens.radius.small)}px`,
-        p: 1.5,
+        p: 1.25,
       }}
     >
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
-        <Box
+      <Stack
+        direction={{ xs: 'column', md: 'row' }}
+        spacing={1}
+        sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between' }}
+      >
+        <Stack direction="row" spacing={1} sx={{ minWidth: 0 }}>
+          <Box
+            sx={{
+              alignItems: 'center',
+              bgcolor: alpha(axisTokens.color.charcoal[900], 0.035),
+              border: 1,
+              borderColor: 'divider',
+              borderRadius: `${String(axisTokens.radius.small)}px`,
+              color: 'text.secondary',
+              display: 'flex',
+              flex: '0 0 auto',
+              height: 32,
+              justifyContent: 'center',
+              width: 32,
+            }}
+          >
+            <ShellIcon fontSize="small" name="content" />
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography color="text.secondary" variant="overline">
+              {page.isNew ? 'New staged page' : 'Editing staged page'}
+            </Typography>
+            <Typography
+              sx={{
+                lineHeight: 1.25,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: { md: 'nowrap' },
+              }}
+              variant="h6"
+            >
+              {page.title}
+            </Typography>
+            <Typography
+              color="text.secondary"
+              sx={{
+                mt: 0.25,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: { md: 'nowrap' },
+              }}
+              variant="caption"
+            >
+              {page.slug}
+            </Typography>
+          </Box>
+        </Stack>
+        <Stack
+          direction="row"
+          spacing={0.75}
           sx={{
-            alignItems: 'center',
-            bgcolor: alpha(axisTokens.color.signatureGold, 0.18),
-            borderRadius: `${String(axisTokens.radius.small)}px`,
-            color: 'primary.main',
-            display: 'flex',
-            height: 42,
-            justifyContent: 'center',
-            width: 42,
+            flex: '0 0 auto',
+            flexWrap: 'wrap',
+            justifyContent: { md: 'flex-end' },
           }}
         >
-          <ShellIcon name="content" />
-        </Box>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography color="text.secondary" variant="overline">
-            Editing existing page
-          </Typography>
-          <Typography sx={{ lineHeight: 1.2 }} variant="h6">
-            {page.title}
-          </Typography>
-          <Typography color="text.secondary" sx={{ mt: 0.5 }} variant="body2">
-            {page.summary}
-          </Typography>
-          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mt: 1 }}>
-            <Chip label={page.slug} size="small" />
-            <Chip label={page.section} size="small" />
-            <Chip label={page.audience} size="small" />
-          </Stack>
-        </Box>
+          <Chip label={page.section} size="small" />
+        </Stack>
       </Stack>
     </Paper>
+  );
+}
+
+function PageAuthoringProgress({ isNew }: { readonly isNew: boolean }) {
+  const steps = [
+    isNew ? 'Draft page' : 'Select page',
+    'Edit content',
+    'Preview',
+    'Save to Staged',
+    'Link in navigation',
+  ];
+
+  return (
+    <Stack
+      direction="row"
+      spacing={0.75}
+      sx={{
+        alignItems: 'center',
+        flexWrap: 'wrap',
+      }}
+    >
+      {steps.map((step, index) => (
+        <Chip
+          key={step}
+          label={`${String(index + 1)}. ${step}`}
+          size="small"
+          sx={{
+            bgcolor:
+              index < 3
+                ? alpha(axisTokens.color.signatureGold, 0.1)
+                : alpha(axisTokens.color.charcoal[900], 0.05),
+            color: 'text.primary',
+            fontWeight: axisTokens.typography.weight.semibold,
+          }}
+        />
+      ))}
+    </Stack>
+  );
+}
+
+function DocumentationDesignerNavigationSlot({
+  activePathname,
+  component,
+  onCreate,
+  onManageNavigation,
+  onSelectRoute,
+  pageCount,
+}: {
+  readonly activePathname: string;
+  readonly component: CmsComponentContract;
+  readonly onCreate: () => void;
+  readonly onManageNavigation: () => void;
+  readonly onSelectRoute: (route: string) => void;
+  readonly pageCount: number;
+}) {
+  return (
+    <Stack spacing={1.5}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+        <Button
+          size="small"
+          startIcon={<ShellIcon name="add" />}
+          variant="contained"
+          onClick={onCreate}
+        >
+          New page
+        </Button>
+        <Button
+          size="small"
+          startIcon={<ShellIcon name="list-tree" />}
+          variant="outlined"
+          onClick={onManageNavigation}
+        >
+          Navigation
+        </Button>
+      </Stack>
+      <Chip
+        label={`${String(pageCount)} staged pages`}
+        size="small"
+        sx={{
+          alignSelf: 'flex-start',
+          bgcolor: alpha(axisTokens.color.charcoal[900], 0.05),
+          fontWeight: axisTokens.typography.weight.semibold,
+        }}
+      />
+      <DocumentationNavigationRenderer
+        activePathname={activePathname}
+        component={component}
+        onNavigate={onSelectRoute}
+      />
+    </Stack>
+  );
+}
+
+function DocumentationDesignerArticleActions({
+  isNew,
+  mode,
+  onEdit,
+  onManageNavigation,
+  onPreview,
+  onSave,
+  saving,
+}: {
+  readonly isNew: boolean;
+  readonly mode: DocumentationDesignerMode;
+  readonly onEdit: () => void;
+  readonly onManageNavigation: () => void;
+  readonly onPreview: () => void;
+  readonly onSave: () => void;
+  readonly saving: boolean;
+}) {
+  const editing = mode === 'edit';
+  const navigation = mode === 'navigation';
+  const modeTitle = navigation
+    ? 'Editing navigation placement'
+    : editing
+      ? 'Editing staged documentation'
+      : 'Staged documentation preview';
+  const modeDescription = navigation
+    ? 'Place this page in the reader navigation, then save it to Staged.'
+    : editing
+      ? 'Update the reader page, then save it to Staged.'
+      : 'Preview exactly how this staged page reads before publishing.';
+  return (
+    <Paper
+      elevation={0}
+      sx={{
+        bgcolor: alpha(axisTokens.color.charcoal[900], 0.025),
+        border: 1,
+        borderColor: 'divider',
+        borderRadius: `${String(axisTokens.radius.small)}px`,
+        mb: 2,
+        px: 1.25,
+        py: 1,
+      }}
+    >
+      <Stack
+        direction={{ xs: 'column', md: 'row' }}
+        spacing={1}
+        sx={{
+          alignItems: { md: 'center' },
+          justifyContent: 'space-between',
+        }}
+      >
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+          <ShellIcon
+            color="primary"
+            name={navigation ? 'list-tree' : editing ? 'edit' : 'visible'}
+          />
+          <Box>
+            <Typography variant="subtitle2">{modeTitle}</Typography>
+            <Typography color="text.secondary" variant="caption">
+              {modeDescription}
+            </Typography>
+          </Box>
+        </Stack>
+        <Stack
+          direction="row"
+          spacing={0.75}
+          sx={{ flexWrap: 'wrap', justifyContent: { md: 'flex-end' } }}
+        >
+          {navigation ? (
+            <>
+              <Button size="small" variant="outlined" onClick={onPreview}>
+                Preview page
+              </Button>
+              <Button size="small" variant="contained" onClick={onEdit}>
+                Back to page editing
+              </Button>
+            </>
+          ) : null}
+          {!navigation && editing ? (
+            <Button size="small" variant="outlined" onClick={onPreview}>
+              Preview
+            </Button>
+          ) : null}
+          {!navigation && !editing ? (
+            <Button size="small" variant="contained" onClick={onEdit}>
+              Edit page
+            </Button>
+          ) : null}
+          {!navigation ? (
+            <>
+              <Button
+                size="small"
+                startIcon={<ShellIcon name="list-tree" />}
+                variant="text"
+                onClick={onManageNavigation}
+              >
+                Link navigation
+              </Button>
+              <Button
+                disabled={saving}
+                size="small"
+                startIcon={<ShellIcon name="approve" />}
+                variant={editing || isNew ? 'contained' : 'outlined'}
+                onClick={onSave}
+              >
+                {saving ? 'Saving' : 'Save staged'}
+              </Button>
+            </>
+          ) : null}
+        </Stack>
+      </Stack>
+    </Paper>
+  );
+}
+
+function DocumentationDesignerNavigationEditor({
+  link,
+  onChange,
+  onPreviewPage,
+  onSave,
+  page,
+  parentOptions,
+  saveError,
+  saveMessage,
+  selectedSource,
+  saving,
+}: {
+  readonly link: DocumentationDraftLink;
+  readonly onChange: (changes: Partial<DocumentationDraftLink>) => void;
+  readonly onPreviewPage: () => void;
+  readonly onSave: () => void;
+  readonly page: DocumentationDraftPage;
+  readonly parentOptions: readonly DocumentationNavigationParentOption[];
+  readonly saveError: Error | null;
+  readonly saveMessage: string | undefined;
+  readonly selectedSource: AxisCmsDocumentationSource | undefined;
+  readonly saving: boolean;
+}) {
+  const selectedParentValue = selectedNavigationParentValue(link, parentOptions);
+  const selectedParentOption =
+    parentOptions.find((option) => option.value === selectedParentValue) ??
+    parentOptions[0] ??
+    null;
+  const creatingParent = selectedParentValue === navigationNewParentValue;
+  const pathSegments = navigationPathSegments(link, selectedSource);
+  const handleParentSelection = (value: string) => {
+    const option = parentOptions.find((item) => item.value === value);
+    if (!option) return;
+    if (option.kind === 'new') {
+      const parentLabel =
+        link.parentLabel &&
+        link.parentLabel !== `${selectedSource?.label ?? 'Documentation'} root`
+          ? link.parentLabel
+          : 'New topic';
+      onChange({
+        parentLabel,
+        parentNodeCode: `${navigationNewParentPrefix}${documentationCodeSegment(
+          parentLabel,
+        )}`,
+        parentOrder: documentationSectionOrder(parentLabel),
+      });
+      return;
+    }
+    onChange({
+      parentLabel: option.parentLabel,
+      parentNodeCode: option.parentNodeCode,
+      parentOrder: option.order,
+    });
+  };
+  const handleNewParentLabel = (parentLabel: string) => {
+    onChange({
+      parentLabel,
+      parentNodeCode: `${navigationNewParentPrefix}${documentationCodeSegment(
+        parentLabel,
+      )}`,
+      parentOrder: documentationSectionOrder(parentLabel),
+    });
+  };
+
+  return (
+    <Stack spacing={1.5}>
+      {saveMessage ? <Alert severity="success">{saveMessage}</Alert> : null}
+      {saveError ? <Alert severity="error">{saveError.message}</Alert> : null}
+      <Paper
+        elevation={0}
+        sx={{
+          bgcolor: 'background.paper',
+          border: 1,
+          borderColor: 'divider',
+          borderRadius: `${String(axisTokens.radius.small)}px`,
+          overflow: 'hidden',
+        }}
+      >
+        <Box
+          sx={{
+            bgcolor: alpha(axisTokens.color.signatureGold, 0.055),
+            borderBottom: 1,
+            borderColor: 'divider',
+            p: { xs: 1.5, lg: 2 },
+          }}
+        >
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            spacing={1.25}
+            sx={{ alignItems: { md: 'flex-start' }, justifyContent: 'space-between' }}
+          >
+            <Stack direction="row" spacing={1.25} sx={{ minWidth: 0 }}>
+              <Box
+                sx={{
+                  alignItems: 'center',
+                  bgcolor: alpha(axisTokens.color.signatureGold, 0.18),
+                  borderRadius: `${String(axisTokens.radius.small)}px`,
+                  color: 'primary.main',
+                  display: 'flex',
+                  flex: '0 0 auto',
+                  height: 36,
+                  justifyContent: 'center',
+                  width: 36,
+                }}
+              >
+                <ShellIcon fontSize="small" name="list-tree" />
+              </Box>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography color="text.secondary" variant="overline">
+                  Navigation placement
+                </Typography>
+                <Typography sx={{ lineHeight: 1.22 }} variant="h6">
+                  Place this page where readers expect it.
+                </Typography>
+                <Typography color="text.secondary" sx={{ mt: 0.5 }} variant="body2">
+                  Move this link to the top level, below a section, or under another
+                  page without leaving the editor.
+                </Typography>
+              </Box>
+            </Stack>
+            <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
+              <Chip label={page.section} size="small" />
+              <Chip label={link.visibility} size="small" variant="outlined" />
+            </Stack>
+          </Stack>
+        </Box>
+        <Box sx={{ p: { xs: 1.5, lg: 2 } }}>
+          <Stack spacing={1.5}>
+            <Paper
+              elevation={0}
+              sx={{
+                bgcolor: alpha(axisTokens.color.charcoal[900], 0.02),
+                border: 1,
+                borderColor: 'divider',
+                borderRadius: `${String(axisTokens.radius.small)}px`,
+                p: 1.5,
+              }}
+            >
+              <Typography color="text.secondary" variant="overline">
+                Selected page
+              </Typography>
+              <Typography sx={{ lineHeight: 1.25 }} variant="subtitle1">
+                {page.title}
+              </Typography>
+              <Typography color="text.secondary" variant="body2">
+                {page.slug}
+              </Typography>
+            </Paper>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 1.25,
+                gridTemplateColumns: { xs: '1fr', md: '1.3fr 1fr' },
+              }}
+            >
+              <TextField
+                label="Navigation label"
+                size="small"
+                value={link.label}
+                onChange={(event) => onChange({ label: event.target.value })}
+              />
+              <Autocomplete
+                filterOptions={(options, state) => {
+                  const query = state.inputValue.trim().toLocaleLowerCase();
+                  if (!query) return options;
+                  return options.filter((option) =>
+                    [option.label, option.title, option.description, option.searchText]
+                      .join(' ')
+                      .toLocaleLowerCase()
+                      .includes(query),
+                  );
+                }}
+                getOptionLabel={(option) => option.label}
+                isOptionEqualToValue={(option, value) => option.value === value.value}
+                options={parentOptions}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Place under"
+                    placeholder="Search hierarchy"
+                    size="small"
+                  />
+                )}
+                renderOption={(props, option) => {
+                  const { key, ...optionProps } = props;
+                  return (
+                    <Box
+                      component="li"
+                      key={key}
+                      {...optionProps}
+                      sx={{
+                        alignItems: 'flex-start !important',
+                        borderLeft:
+                          option.depth > 0 ? '1px solid' : '1px solid transparent',
+                        borderLeftColor:
+                          option.depth > 0
+                            ? alpha(axisTokens.color.charcoal[900], 0.12)
+                            : 'transparent',
+                        ml: `${String(option.depth * 1.4)}rem !important`,
+                        pl: '0.9rem !important',
+                      }}
+                    >
+                      <Stack spacing={0.25}>
+                        <Typography variant="body2">{option.title}</Typography>
+                        <Typography color="text.secondary" variant="caption">
+                          {option.label === option.title
+                            ? option.description
+                            : option.label}
+                        </Typography>
+                      </Stack>
+                    </Box>
+                  );
+                }}
+                size="small"
+                value={selectedParentOption}
+                onChange={(_event, option) => {
+                  if (option) handleParentSelection(option.value);
+                }}
+              />
+              {creatingParent ? (
+                <TextField
+                  label="New parent topic"
+                  size="small"
+                  value={link.parentLabel}
+                  onChange={(event) => handleNewParentLabel(event.target.value)}
+                />
+              ) : null}
+              <TextField
+                helperText="Lower numbers appear first under the selected parent."
+                label="Sibling order"
+                size="small"
+                value={link.order}
+                onChange={(event) => onChange({ order: event.target.value })}
+              />
+              <TextField
+                label="Visibility"
+                select
+                size="small"
+                value={link.visibility}
+                onChange={(event) => onChange({ visibility: event.target.value })}
+              >
+                {['Public', 'Axis + Nexus', 'Internal Axis', 'Permission limited'].map(
+                  (visibility) => (
+                    <MenuItem key={visibility} value={visibility}>
+                      {visibility}
+                    </MenuItem>
+                  ),
+                )}
+              </TextField>
+            </Box>
+            <Paper
+              elevation={0}
+              sx={{
+                bgcolor: alpha(axisTokens.color.signatureGold, 0.06),
+                border: 1,
+                borderColor: alpha(axisTokens.color.signatureGold, 0.24),
+                borderRadius: `${String(axisTokens.radius.small)}px`,
+                p: 1.5,
+              }}
+            >
+              <Typography color="text.secondary" variant="overline">
+                Reader path preview
+              </Typography>
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={1}
+                sx={{
+                  alignItems: { sm: 'center' },
+                  flexWrap: 'wrap',
+                  mt: 0.75,
+                }}
+              >
+                {pathSegments.map((item, index) => (
+                  <Stack
+                    direction="row"
+                    key={`${item}:${String(index)}`}
+                    spacing={1}
+                    sx={{ alignItems: 'center' }}
+                  >
+                    {index > 0 ? (
+                      <ShellIcon
+                        color="disabled"
+                        fontSize="small"
+                        name="chevron-right"
+                      />
+                    ) : null}
+                    <Chip
+                      label={item || 'Untitled'}
+                      size="small"
+                      sx={{
+                        bgcolor:
+                          index === 2
+                            ? alpha(axisTokens.color.signatureGold, 0.18)
+                            : 'background.paper',
+                        fontWeight: axisTokens.typography.weight.semibold,
+                      }}
+                    />
+                  </Stack>
+                ))}
+              </Stack>
+            </Paper>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              sx={{ justifyContent: 'flex-end' }}
+            >
+              <Button
+                size="small"
+                startIcon={<ShellIcon name="visible" />}
+                variant="outlined"
+                onClick={onPreviewPage}
+              >
+                Back to preview
+              </Button>
+              <Button
+                disabled={saving}
+                size="small"
+                startIcon={<ShellIcon name="approve" />}
+                variant="contained"
+                onClick={onSave}
+              >
+                {saving ? 'Saving navigation' : 'Save navigation'}
+              </Button>
+            </Stack>
+          </Stack>
+        </Box>
+      </Paper>
+    </Stack>
+  );
+}
+
+function DocumentationDesignerArticleSlot({
+  articleComponent,
+  link,
+  linkSaveError,
+  linkSaveMessage,
+  linkSaving,
+  mode,
+  onChange,
+  onEdit,
+  onManageNavigation,
+  onNavigationChange,
+  onNavigationSave,
+  onPreview,
+  onSave,
+  page,
+  parentOptions,
+  selectedSource,
+  saving,
+}: {
+  readonly articleComponent: CmsComponentContract;
+  readonly link: DocumentationDraftLink;
+  readonly linkSaveError: Error | null;
+  readonly linkSaveMessage: string | undefined;
+  readonly linkSaving: boolean;
+  readonly mode: DocumentationDesignerMode;
+  readonly onChange: (next: DocumentationDraftPage) => void;
+  readonly onEdit: () => void;
+  readonly onManageNavigation: () => void;
+  readonly onNavigationChange: (changes: Partial<DocumentationDraftLink>) => void;
+  readonly onNavigationSave: () => void;
+  readonly onPreview: () => void;
+  readonly onSave: () => void;
+  readonly page: DocumentationDraftPage;
+  readonly parentOptions: readonly DocumentationNavigationParentOption[];
+  readonly selectedSource: AxisCmsDocumentationSource | undefined;
+  readonly saving: boolean;
+}) {
+  const editing = mode === 'edit';
+  return (
+    <Stack spacing={0}>
+      <DocumentationDesignerArticleActions
+        isNew={Boolean(page.isNew)}
+        mode={mode}
+        saving={saving}
+        onEdit={onEdit}
+        onManageNavigation={onManageNavigation}
+        onPreview={onPreview}
+        onSave={onSave}
+      />
+      {mode === 'navigation' ? (
+        <DocumentationDesignerNavigationEditor
+          link={link}
+          page={page}
+          parentOptions={parentOptions}
+          saveError={linkSaveError}
+          saveMessage={linkSaveMessage}
+          selectedSource={selectedSource}
+          saving={linkSaving}
+          onChange={onNavigationChange}
+          onPreviewPage={onPreview}
+          onSave={onNavigationSave}
+        />
+      ) : editing ? (
+        <Stack spacing={1.5}>
+          <SelectedPageSummary page={page} />
+          <DocumentationContentEditor draft={page} onChange={onChange} />
+        </Stack>
+      ) : (
+        <DocumentationArticleRenderer component={articleComponent} />
+      )}
+    </Stack>
   );
 }
 
 function DocumentationPageDesignerPanel({
   accessToken,
   bootstrap,
+  initialMode = 'preview',
   runtime,
   selectedSource,
 }: {
   readonly accessToken: string;
   readonly bootstrap: AxisAuthenticatedBootstrap;
+  readonly initialMode?: DocumentationDesignerMode | undefined;
   readonly runtime: AxisRuntimeConfig;
   readonly selectedSource: AxisCmsDocumentationSource | undefined;
 }) {
@@ -2170,23 +3179,116 @@ function DocumentationPageDesignerPanel({
     pageSource.pages,
   );
   const [selectedPageId, setSelectedPageId] = useState(pages[0]?.id ?? '');
+  const linkSource = useDocumentationDraftLinkSource({
+    accessToken,
+    bootstrap,
+    pages,
+    runtime,
+    selectedSource,
+  });
+  const [links, setLinks] = useState<readonly DocumentationDraftLink[]>(
+    linkSource.links,
+  );
+  const [mode, setMode] = useState<DocumentationDesignerMode>(initialMode);
   const [saveMessage, setSaveMessage] = useState<string>();
+  const [linkSaveMessage, setLinkSaveMessage] = useState<string>();
+  const configuration = useMemo<WorkbenchClientConfiguration>(
+    () => ({
+      accessToken,
+      enterpriseCode: runtime.enterpriseCode,
+      timeoutMs: runtime.requestTimeoutMs,
+    }),
+    [accessToken, runtime.enterpriseCode, runtime.requestTimeoutMs],
+  );
+  const savePage = useMutation({
+    mutationFn: (page: DocumentationDraftPage) =>
+      saveDocumentationDraftPage({
+        bootstrap,
+        configuration,
+        page,
+        selectedSource,
+      }),
+    onSuccess: (_result, page) => {
+      setSaveMessage(`${page.title} saved to Staged documentation.`);
+      setPages((current) =>
+        current.map((item) => (item.id === page.id ? { ...item, isNew: false } : item)),
+      );
+      setMode('preview');
+    },
+  });
+  const saveLink = useMutation({
+    mutationFn: (link: DocumentationDraftLink) =>
+      saveDocumentationDraftLink({
+        bootstrap,
+        configuration,
+        link,
+        pages,
+        selectedSource,
+      }),
+    onSuccess: (_result, link) => {
+      setLinkSaveMessage(`${link.label} saved to Staged navigation.`);
+    },
+  });
 
   useEffect(() => {
-    setPages(pageSource.pages);
-    setSelectedPageId((current) =>
-      pageSource.pages.some((page) => page.id === current)
-        ? current
-        : (pageSource.pages[0]?.id ?? ''),
-    );
-    setSaveMessage(undefined);
-  }, [pageSource.pages]);
+    queueMicrotask(() => {
+      setPages(pageSource.pages);
+      setSelectedPageId((current) =>
+        pageSource.pages.some((page) => page.id === current)
+          ? current
+          : (pageSource.pages[0]?.id ?? ''),
+      );
+      setMode(initialMode);
+      setSaveMessage(undefined);
+      setLinkSaveMessage(undefined);
+    });
+  }, [initialMode, pageSource.pages]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      setLinks(linkSource.links);
+      setLinkSaveMessage(undefined);
+    });
+  }, [linkSource.links]);
 
   const selectedPage = pages.find((page) => page.id === selectedPageId) ?? pages[0];
+  const selectedNavigationLink = selectedPage
+    ? (links.find((link) => link.pageId === selectedPage.id) ?? {
+        id: `${selectedPage.id}-new-link`,
+        pageId: selectedPage.id,
+        label: selectedPage.title,
+        parentLabel: selectedPage.section || 'Wiki home',
+        parentOrder: documentationSectionOrder(selectedPage.section || 'Wiki home'),
+        order: '100',
+        visibility: 'Axis + Nexus',
+      })
+    : undefined;
+  const parentOptions =
+    selectedNavigationLink && selectedPage
+      ? documentationNavigationParentOptions({
+          currentLink: selectedNavigationLink,
+          links,
+          pages,
+          selectedSource,
+        })
+      : Object.freeze([]);
 
   const updateSelectedPage = (next: DocumentationDraftPage) => {
     setPages((current) => current.map((page) => (page.id === next.id ? next : page)));
     setSaveMessage(undefined);
+    savePage.reset();
+  };
+
+  const updateSelectedNavigationLink = (changes: Partial<DocumentationDraftLink>) => {
+    if (!selectedNavigationLink) return;
+    const next = { ...selectedNavigationLink, ...changes };
+    setLinks((current) =>
+      current.some((link) => link.id === next.id)
+        ? current.map((link) => (link.id === next.id ? next : link))
+        : [next, ...current],
+    );
+    setLinkSaveMessage(undefined);
+    saveLink.reset();
   };
 
   const createNewPage = () => {
@@ -2195,10 +3297,25 @@ function DocumentationPageDesignerPanel({
       current.some((page) => page.id === next.id) ? current : [next, ...current],
     );
     setSelectedPageId(next.id);
+    setMode('edit');
     setSaveMessage(undefined);
+    setLinkSaveMessage(undefined);
+    savePage.reset();
+    saveLink.reset();
   };
 
-  if (!selectedPage) {
+  const selectPageRoute = (route: string) => {
+    const next = pages.find((page) => page.slug === route);
+    if (!next) return;
+    setSelectedPageId(next.id);
+    setMode((current) => (current === 'navigation' ? 'navigation' : 'preview'));
+    setSaveMessage(undefined);
+    setLinkSaveMessage(undefined);
+    savePage.reset();
+    saveLink.reset();
+  };
+
+  if (!selectedPage || !selectedNavigationLink) {
     return (
       <Alert severity="info">
         Select a documentation area before creating the first page.
@@ -2206,452 +3323,96 @@ function DocumentationPageDesignerPanel({
     );
   }
 
-  return (
-    <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', p: 2 }}>
-      <Stack spacing={2.5}>
-        <Stack
-          direction={{ xs: 'column', lg: 'row' }}
-          spacing={2}
-          sx={{ alignItems: { lg: 'center' } }}
-        >
-          <Box sx={{ flex: 1 }}>
-            <Typography color="text.secondary" variant="overline">
-              Page authoring
-            </Typography>
-            <Typography variant="h5">
-              Select a page, edit content, preview it.
-            </Typography>
-            <Typography color="text.secondary" sx={{ mt: 0.75 }}>
-              This is the business-facing editor. Authors should not need to know the
-              underlying CMS schema before writing or updating documentation.
-            </Typography>
-          </Box>
-          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-            <Chip icon={<ShellIcon name="content" />} label="Staged draft" />
-            <Chip icon={<ShellIcon name="visible" />} label="Live preview" />
-          </Stack>
-        </Stack>
-        {pageSource.isLoading ? (
-          <LinearProgress aria-label="Loading documentation pages" />
-        ) : null}
-        {pageSource.sourceError ? (
-          <Alert severity="info">
-            Axis could not load the live CMS page catalogue, so it is showing the
-            built-in documentation seed list.
-          </Alert>
-        ) : null}
-        {saveMessage ? <Alert severity="success">{saveMessage}</Alert> : null}
-        <Box
-          sx={{
-            display: 'grid',
-            gap: 2,
-            gridTemplateColumns: { xs: '1fr', lg: '300px minmax(0, 1fr)' },
-          }}
-        >
-          <PageSelectionRail
-            pages={pages}
-            selectedPageId={selectedPage.id}
-            onCreate={createNewPage}
-            onSelect={setSelectedPageId}
-          />
-          <Paper
-            elevation={0}
-            sx={{
-              bgcolor: alpha(axisTokens.color.signatureGold, 0.04),
-              border: 1,
-              borderColor: alpha(axisTokens.color.signatureGold, 0.25),
-              borderRadius: `${String(axisTokens.radius.small)}px`,
-              p: 2,
-            }}
-          >
-            <Stack spacing={2}>
-              <SelectedPageSummary page={selectedPage} />
-              <DocumentationContentEditor
-                draft={selectedPage}
-                onChange={updateSelectedPage}
-              />
-              <Stack
-                direction={{ xs: 'column', sm: 'row' }}
-                spacing={1}
-                sx={{ justifyContent: 'flex-end' }}
-              >
-                <Button
-                  component={RouterLink}
-                  startIcon={<ShellIcon name="list-tree" />}
-                  to="/docs/designer/navigation"
-                  variant="outlined"
-                >
-                  Link to navigation
-                </Button>
-                <Button
-                  startIcon={<ShellIcon name="approve" />}
-                  variant="contained"
-                  onClick={() =>
-                    setSaveMessage(
-                      `${selectedPage.title} saved as a staged documentation draft.`,
-                    )
-                  }
-                >
-                  Save staged draft
-                </Button>
-              </Stack>
-            </Stack>
-          </Paper>
-        </Box>
-      </Stack>
-    </Paper>
-  );
-}
-
-function DocumentationNavigationDesignerPanel({
-  accessToken,
-  bootstrap,
-  runtime,
-  selectedSource,
-}: {
-  readonly accessToken: string;
-  readonly bootstrap: AxisAuthenticatedBootstrap;
-  readonly runtime: AxisRuntimeConfig;
-  readonly selectedSource: AxisCmsDocumentationSource | undefined;
-}) {
-  const pageSource = useDocumentationDraftPageSource({
-    accessToken,
-    bootstrap,
-    runtime,
+  const designerPage = documentationDesignerPageContract(selectedPage);
+  const navigationComponent = documentationDesignerNavigationComponent(
+    pages,
+    links,
     selectedSource,
-  });
-  const pages = pageSource.pages;
-  const [links, setLinks] = useState<readonly DocumentationDraftLink[]>(() =>
-    documentationDraftLinks(pages),
   );
-  const [selectedLinkId, setSelectedLinkId] = useState(links[0]?.id ?? '');
-  const [saveMessage, setSaveMessage] = useState<string>();
-  const selectedLink = links.find((link) => link.id === selectedLinkId) ?? links[0];
-
-  useEffect(() => {
-    const nextLinks = documentationDraftLinks(pageSource.pages);
-    setLinks(nextLinks);
-    setSelectedLinkId((current) =>
-      nextLinks.some((link) => link.id === current)
-        ? current
-        : (nextLinks[0]?.id ?? ''),
-    );
-    setSaveMessage(undefined);
-  }, [pageSource.pages]);
-
-  const updateSelectedLink = (changes: Partial<DocumentationDraftLink>) => {
-    if (!selectedLink) return;
-    setLinks((current) =>
-      current.map((link) =>
-        link.id === selectedLink.id ? { ...link, ...changes } : link,
-      ),
-    );
-    setSaveMessage(undefined);
-  };
-
-  const createLink = () => {
-    const firstPage = pages[0];
-    if (!firstPage) return;
-    const next: DocumentationDraftLink = {
-      id: `${firstPage.id}-new-link`,
-      pageId: firstPage.id,
-      label: 'New navigation link',
-      parentLabel: 'Wiki home',
-      order: '90',
-      visibility: 'Axis + Nexus',
-    };
-    setLinks((current) =>
-      current.some((link) => link.id === next.id) ? current : [next, ...current],
-    );
-    setSelectedLinkId(next.id);
-    setSaveMessage(undefined);
-  };
-
-  if (!selectedLink) {
-    return (
-      <Alert severity="info">Create a page before linking it to navigation.</Alert>
-    );
-  }
-
-  const selectedPage =
-    pages.find((page) => page.id === selectedLink.pageId) ?? pages[0];
+  const articleComponent = documentationDesignerArticleComponent(selectedPage);
 
   return (
-    <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', p: 2 }}>
-      <Stack spacing={2.5}>
+    <Stack spacing={1.5}>
+      <Paper
+        elevation={0}
+        sx={{
+          bgcolor: alpha(axisTokens.color.charcoal[900], 0.025),
+          border: 1,
+          borderColor: 'divider',
+          borderRadius: `${String(axisTokens.radius.small)}px`,
+          px: { xs: 1.5, lg: 2 },
+          py: 1.25,
+        }}
+      >
         <Stack
           direction={{ xs: 'column', lg: 'row' }}
-          spacing={2}
-          sx={{ alignItems: { lg: 'center' } }}
+          spacing={1.25}
+          sx={{ alignItems: { lg: 'center' }, justifyContent: 'space-between' }}
         >
-          <Box sx={{ flex: 1 }}>
+          <Box sx={{ minWidth: 0 }}>
             <Typography color="text.secondary" variant="overline">
-              Navigation linking
+              Documentation Designer
             </Typography>
-            <Typography variant="h5">
-              Choose where the documentation page appears.
-            </Typography>
-            <Typography color="text.secondary" sx={{ mt: 0.75 }}>
-              Authors can select a page, choose its parent topic, update the label,
-              preview the reader path, and save the staged navigation link.
+            <Typography sx={{ lineHeight: 1.2 }} variant="h6">
+              Edit the staged documentation in the same reader layout.
             </Typography>
           </Box>
-          <Button
-            component={RouterLink}
-            startIcon={<ShellIcon name="content" />}
-            to="/docs/designer/pages"
-            variant="outlined"
-          >
-            Back to pages
-          </Button>
+          <PageAuthoringProgress isNew={Boolean(selectedPage.isNew)} />
         </Stack>
-        {pageSource.isLoading ? (
-          <LinearProgress aria-label="Loading documentation navigation pages" />
-        ) : null}
-        {pageSource.sourceError ? (
-          <Alert severity="info">
-            Axis could not load the live CMS page catalogue, so navigation is using the
-            built-in documentation seed list.
-          </Alert>
-        ) : null}
-        {saveMessage ? <Alert severity="success">{saveMessage}</Alert> : null}
-        <Box
-          sx={{
-            display: 'grid',
-            gap: 2,
-            gridTemplateColumns: { xs: '1fr', lg: '320px minmax(0, 1fr)' },
-          }}
-        >
-          <Paper
-            component="aside"
-            elevation={0}
-            sx={{ border: 1, borderColor: 'divider', p: 1.5 }}
-          >
-            <Stack spacing={1.25}>
-              <Button
-                startIcon={<ShellIcon name="add" />}
-                sx={{ justifyContent: 'flex-start' }}
-                variant="contained"
-                onClick={createLink}
-              >
-                Add navigation link
-              </Button>
-              <Typography color="text.secondary" variant="overline">
-                Existing navigation
-              </Typography>
-              {links.map((link) => (
-                <Button
-                  key={link.id}
-                  sx={{
-                    alignItems: 'flex-start',
-                    justifyContent: 'flex-start',
-                    p: 1.25,
-                    textAlign: 'left',
-                  }}
-                  variant={link.id === selectedLink.id ? 'contained' : 'outlined'}
-                  onClick={() => setSelectedLinkId(link.id)}
-                >
-                  <Box>
-                    <Typography component="span" sx={{ display: 'block' }}>
-                      {link.label}
-                    </Typography>
-                    <Typography
-                      color={link.id === selectedLink.id ? 'inherit' : 'text.secondary'}
-                      component="span"
-                      sx={{ display: 'block' }}
-                      variant="caption"
-                    >
-                      {link.parentLabel}
-                    </Typography>
-                  </Box>
-                </Button>
-              ))}
-            </Stack>
-          </Paper>
-          <Paper
-            elevation={0}
-            sx={{
-              bgcolor: alpha(axisTokens.color.signatureGold, 0.04),
-              border: 1,
-              borderColor: alpha(axisTokens.color.signatureGold, 0.25),
-              borderRadius: `${String(axisTokens.radius.small)}px`,
-              p: 2,
-            }}
-          >
-            <Stack spacing={2}>
-              <Paper
-                elevation={0}
-                sx={{
-                  bgcolor: 'background.paper',
-                  border: 1,
-                  borderColor: alpha(axisTokens.color.signatureGold, 0.35),
-                  borderRadius: `${String(axisTokens.radius.small)}px`,
-                  p: 1.5,
-                }}
-              >
-                <Stack
-                  direction={{ xs: 'column', md: 'row' }}
-                  spacing={1.5}
-                  sx={{ alignItems: { md: 'flex-start' } }}
-                >
-                  <Box
-                    sx={{
-                      alignItems: 'center',
-                      bgcolor: alpha(axisTokens.color.signatureGold, 0.18),
-                      borderRadius: `${String(axisTokens.radius.small)}px`,
-                      color: 'primary.main',
-                      display: 'flex',
-                      height: 42,
-                      justifyContent: 'center',
-                      width: 42,
-                    }}
-                  >
-                    <ShellIcon name="list-tree" />
-                  </Box>
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography color="text.secondary" variant="overline">
-                      Editing existing link
-                    </Typography>
-                    <Typography sx={{ lineHeight: 1.2 }} variant="h6">
-                      {selectedLink.label}
-                    </Typography>
-                    <Typography color="text.secondary" sx={{ mt: 0.5 }} variant="body2">
-                      Appears under {selectedLink.parentLabel} and opens{' '}
-                      {selectedPage?.title ?? 'the selected page'}.
-                    </Typography>
-                  </Box>
-                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                    <Chip label={selectedLink.visibility} size="small" />
-                    <Chip label={`Order ${selectedLink.order}`} size="small" />
-                  </Stack>
-                </Stack>
-              </Paper>
-              <Box
-                sx={{
-                  display: 'grid',
-                  gap: 1.5,
-                  gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-                }}
-              >
-                <TextField
-                  label="Page"
-                  select
-                  value={selectedLink.pageId}
-                  onChange={(event) =>
-                    updateSelectedLink({ pageId: event.target.value })
-                  }
-                >
-                  {pages.map((page) => (
-                    <MenuItem key={page.id} value={page.id}>
-                      {page.title}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  label="Link label"
-                  value={selectedLink.label}
-                  onChange={(event) =>
-                    updateSelectedLink({ label: event.target.value })
-                  }
-                />
-                <TextField
-                  label="Parent topic"
-                  value={selectedLink.parentLabel}
-                  onChange={(event) =>
-                    updateSelectedLink({ parentLabel: event.target.value })
-                  }
-                />
-                <TextField
-                  label="Display order"
-                  value={selectedLink.order}
-                  onChange={(event) =>
-                    updateSelectedLink({ order: event.target.value })
-                  }
-                />
-                <TextField
-                  label="Visibility"
-                  select
-                  value={selectedLink.visibility}
-                  onChange={(event) =>
-                    updateSelectedLink({ visibility: event.target.value })
-                  }
-                >
-                  {[
-                    'Public',
-                    'Axis + Nexus',
-                    'Internal Axis',
-                    'Permission limited',
-                  ].map((visibility) => (
-                    <MenuItem key={visibility} value={visibility}>
-                      {visibility}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Box>
-              <Paper
-                elevation={0}
-                sx={{
-                  bgcolor: 'background.paper',
-                  border: 1,
-                  borderColor: 'divider',
-                  borderRadius: `${String(axisTokens.radius.small)}px`,
-                  p: 2,
-                }}
-              >
-                <Typography color="text.secondary" variant="overline">
-                  Reader navigation preview
-                </Typography>
-                <Stack spacing={1} sx={{ mt: 1 }}>
-                  <Typography variant="body2">Wiki home</Typography>
-                  <Box sx={{ borderLeft: 2, borderColor: 'primary.main', pl: 2 }}>
-                    <Typography variant="body2">{selectedLink.parentLabel}</Typography>
-                    <Box
-                      sx={{
-                        bgcolor: alpha(axisTokens.color.signatureGold, 0.14),
-                        border: 1,
-                        borderColor: alpha(axisTokens.color.signatureGold, 0.35),
-                        borderRadius: `${String(axisTokens.radius.small)}px`,
-                        mt: 1,
-                        p: 1.25,
-                      }}
-                    >
-                      <Typography variant="subtitle2">{selectedLink.label}</Typography>
-                      <Typography color="text.secondary" variant="caption">
-                        {selectedPage?.slug ?? '/docs'} · {selectedLink.visibility} ·
-                        order {selectedLink.order}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Stack>
-              </Paper>
-              <Stack
-                direction={{ xs: 'column', sm: 'row' }}
-                spacing={1}
-                sx={{ justifyContent: 'flex-end' }}
-              >
-                <Button
-                  component={RouterLink}
-                  startIcon={<ShellIcon name="visible" />}
-                  to="/docs/designer/preview"
-                  variant="outlined"
-                >
-                  Preview staged content
-                </Button>
-                <Button
-                  startIcon={<ShellIcon name="approve" />}
-                  variant="contained"
-                  onClick={() =>
-                    setSaveMessage(`${selectedLink.label} saved to staged navigation.`)
-                  }
-                >
-                  Save navigation link
-                </Button>
-              </Stack>
-            </Stack>
-          </Paper>
-        </Box>
-      </Stack>
-    </Paper>
+      </Paper>
+      {pageSource.isLoading ? (
+        <LinearProgress aria-label="Loading documentation pages" />
+      ) : null}
+      {pageSource.sourceError ? (
+        <Alert severity="info">
+          Axis could not load the live CMS page catalogue, so it is showing the built-in
+          documentation seed list.
+        </Alert>
+      ) : null}
+      {saveMessage ? <Alert severity="success">{saveMessage}</Alert> : null}
+      {savePage.error instanceof Error ? (
+        <Alert severity="error">{savePage.error.message}</Alert>
+      ) : null}
+      <DocumentationArticleTemplateRenderer
+        embedded
+        page={designerPage}
+        slots={{
+          navigation: (
+            <DocumentationDesignerNavigationSlot
+              activePathname={selectedPage.slug}
+              component={navigationComponent}
+              pageCount={pages.length}
+              onCreate={createNewPage}
+              onManageNavigation={() => setMode('navigation')}
+              onSelectRoute={selectPageRoute}
+            />
+          ),
+          article: (
+            <DocumentationDesignerArticleSlot
+              articleComponent={articleComponent}
+              link={selectedNavigationLink}
+              linkSaveError={saveLink.error instanceof Error ? saveLink.error : null}
+              linkSaveMessage={linkSaveMessage}
+              linkSaving={saveLink.isPending}
+              mode={mode}
+              page={selectedPage}
+              parentOptions={parentOptions}
+              selectedSource={selectedSource}
+              saving={savePage.isPending}
+              onChange={updateSelectedPage}
+              onEdit={() => setMode('edit')}
+              onManageNavigation={() => setMode('navigation')}
+              onNavigationChange={updateSelectedNavigationLink}
+              onNavigationSave={() =>
+                selectedNavigationLink ? saveLink.mutate(selectedNavigationLink) : null
+              }
+              onPreview={() => setMode('preview')}
+              onSave={() => savePage.mutate(selectedPage)}
+            />
+          ),
+        }}
+      />
+    </Stack>
   );
 }
 
@@ -2929,243 +3690,6 @@ function PreviewPanel({
   );
 }
 
-function DashboardPanel({
-  selectedSource,
-  tabs,
-}: {
-  readonly selectedSource: AxisDocumentationSource | undefined;
-  readonly tabs: readonly DocumentationWorkspaceTab[];
-}) {
-  const tabRoute = (id: DocumentationManagementTab) =>
-    tabs.find((tab) => tab.id === id)?.route ?? '/docs/designer';
-  const primaryActions = [
-    {
-      step: '01',
-      title: 'Create or update a page',
-      body: 'Write the page title, summary, content sections, media, and reader tags.',
-      outcome: 'Draft content',
-      icon: 'content',
-      route: tabRoute('pages'),
-      action: 'Open pages',
-    },
-    {
-      step: '02',
-      title: 'Place it in navigation',
-      body: 'Choose the section, parent topic, link label, and order readers will see.',
-      outcome: 'Reader link',
-      icon: 'list-tree',
-      route: tabRoute('navigation'),
-      action: 'Open links',
-    },
-    {
-      step: '03',
-      title: 'Set visibility',
-      body: 'Decide whether the page is public, internal to Axis, or permission-limited.',
-      outcome: 'Audience rules',
-      icon: 'visible',
-      route: tabRoute('access'),
-      action: 'Open access',
-    },
-    {
-      step: '04',
-      title: 'Preview staged content',
-      body: 'Review staged pages and links before they become Online documentation.',
-      outcome: 'Staged review',
-      icon: 'visible',
-      route: tabRoute('preview'),
-      action: 'Open preview',
-    },
-    {
-      step: '05',
-      title: 'Publish when ready',
-      body: 'Review the change, submit for approval, and make it visible to readers.',
-      outcome: 'Axis + Nexus',
-      icon: 'workflow',
-      route: tabRoute('publication'),
-      action: 'Open publishing',
-    },
-  ] as const;
-  return (
-    <Paper
-      component="section"
-      elevation={0}
-      sx={{
-        bgcolor: alpha(axisTokens.color.signatureGold, 0.08),
-        border: 1,
-        borderColor: alpha(axisTokens.color.signatureGold, 0.35),
-        borderRadius: `${String(axisTokens.radius.medium)}px`,
-        overflow: 'hidden',
-        p: { xs: 2, md: 3 },
-      }}
-    >
-      <Stack spacing={2.5}>
-        <Stack
-          direction={{ xs: 'column', lg: 'row' }}
-          spacing={2}
-          sx={{ alignItems: { lg: 'center' } }}
-        >
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography color="text.secondary" variant="overline">
-              Current workspace
-            </Typography>
-            <Typography sx={{ lineHeight: 1.05 }} variant="h4">
-              Create, update, preview, and publish documentation.
-            </Typography>
-            <Typography color="text.secondary" sx={{ mt: 1, maxWidth: 820 }}>
-              Select the documentation area, edit the page, place the link, preview the
-              reader experience, then publish so the approved content is visible in Axis
-              and Nexus.
-            </Typography>
-          </Box>
-          <Stack
-            direction="row"
-            spacing={1}
-            sx={{ flexWrap: 'wrap', justifyContent: { lg: 'flex-end' } }}
-          >
-            <Chip
-              icon={<ShellIcon name="content" />}
-              label={selectedSource?.label ?? 'Documentation area'}
-            />
-            <Chip icon={<ShellIcon name="visible" />} label="Axis preview" />
-            <Chip icon={<ShellIcon name="storefront" />} label="Nexus ready" />
-          </Stack>
-        </Stack>
-        <Box
-          sx={{
-            display: 'grid',
-            gap: 1.25,
-            gridTemplateColumns: {
-              xs: '1fr',
-              md: 'repeat(2, minmax(0, 1fr))',
-              lg: 'repeat(6, minmax(0, 1fr))',
-            },
-            position: 'relative',
-          }}
-        >
-          {primaryActions.map((item, index) => (
-            <Paper
-              component="article"
-              elevation={0}
-              key={item.title}
-              sx={{
-                background:
-                  index === primaryActions.length - 1
-                    ? `linear-gradient(180deg, ${alpha(
-                        axisTokens.color.signatureGold,
-                        0.2,
-                      )} 0%, ${alpha(axisTokens.color.signatureGold, 0.07)} 100%)`
-                    : `linear-gradient(180deg, ${alpha(
-                        axisTokens.color.charcoal[900],
-                        0.025,
-                      )} 0%, ${alpha(axisTokens.color.signatureGold, 0.045)} 100%)`,
-                border: 1,
-                borderColor:
-                  index === primaryActions.length - 1
-                    ? alpha(axisTokens.color.signatureGold, 0.55)
-                    : alpha(axisTokens.color.charcoal[900], 0.1),
-                borderRadius: `${String(axisTokens.radius.small)}px`,
-                boxShadow:
-                  index === primaryActions.length - 1
-                    ? `0 18px 42px ${alpha(axisTokens.color.signatureGold, 0.16)}`
-                    : `0 12px 32px ${alpha(axisTokens.color.charcoal[900], 0.06)}`,
-                display: 'flex',
-                flexDirection: 'column',
-                gridColumn: {
-                  xs: 'auto',
-                  md: index === primaryActions.length - 1 ? '1 / -1' : 'auto',
-                  lg: index < 3 ? 'span 2' : 'span 3',
-                },
-                minHeight: 238,
-                overflow: 'hidden',
-                p: 1.75,
-                position: 'relative',
-                transition: 'transform 160ms ease, box-shadow 160ms ease',
-                '&:hover': {
-                  boxShadow: `0 20px 44px ${alpha(
-                    axisTokens.color.charcoal[900],
-                    0.12,
-                  )}`,
-                  transform: 'translateY(-2px)',
-                },
-              }}
-            >
-              <Box
-                sx={{
-                  bgcolor: alpha(axisTokens.color.signatureGold, 0.16),
-                  borderBottomLeftRadius: `${String(axisTokens.radius.small)}px`,
-                  color: 'text.secondary',
-                  fontSize: 12,
-                  fontWeight: 800,
-                  letterSpacing: 0,
-                  px: 1.25,
-                  py: 0.75,
-                  position: 'absolute',
-                  right: 0,
-                  top: 0,
-                }}
-              >
-                {item.step}
-              </Box>
-              <Stack spacing={1.25} sx={{ flex: 1, pr: 1 }}>
-                <Box
-                  sx={{
-                    alignItems: 'center',
-                    bgcolor: 'background.paper',
-                    border: 1,
-                    borderColor: alpha(axisTokens.color.signatureGold, 0.45),
-                    borderRadius: 999,
-                    boxShadow: `0 8px 18px ${alpha(
-                      axisTokens.color.signatureGold,
-                      0.16,
-                    )}`,
-                    display: 'inline-flex',
-                    height: 42,
-                    justifyContent: 'center',
-                    width: 42,
-                  }}
-                >
-                  <ShellIcon color="primary" name={item.icon} />
-                </Box>
-                <Chip
-                  label={item.outcome}
-                  size="small"
-                  sx={{
-                    alignSelf: 'flex-start',
-                    bgcolor: 'background.paper',
-                    borderColor: alpha(axisTokens.color.signatureGold, 0.35),
-                    fontWeight: 700,
-                  }}
-                  variant="outlined"
-                />
-                <Typography sx={{ lineHeight: 1.15 }} variant="subtitle1">
-                  {item.title}
-                </Typography>
-                <Typography color="text.secondary" variant="body2">
-                  {item.body}
-                </Typography>
-              </Stack>
-              <Button
-                component={RouterLink}
-                endIcon={<ShellIcon name="chevron-right" />}
-                sx={{
-                  alignSelf: 'stretch',
-                  justifyContent: 'space-between',
-                  mt: 2,
-                  px: 1.5,
-                }}
-                to={item.route}
-                variant={index === primaryActions.length - 1 ? 'contained' : 'outlined'}
-              >
-                {item.action}
-              </Button>
-            </Paper>
-          ))}
-        </Box>
-      </Stack>
-    </Paper>
-  );
-}
-
 /**
  * Renders the Axis documentation management workspace. Axis owns the browser
  * composition and state; CMS owns documentation records and governance APIs.
@@ -3241,7 +3765,7 @@ export function DocumentationManagementRoutePage(
   const selectedTab = tabs.find((tab) => tab.id === activeTab) ?? tabs[0]!;
   const showWorkbench =
     selectedTab.schemaName &&
-    !['dashboard', 'governance', 'pages', 'navigation'].includes(selectedTab.id);
+    !['governance', 'pages', 'navigation'].includes(selectedTab.id);
   const routeNavigation = routeNavigationForTab(props.navigation, selectedTab);
 
   return (
@@ -3309,12 +3833,7 @@ export function DocumentationManagementRoutePage(
           </Stack>
         </Stack>
       </Paper>
-      {activeTab === 'dashboard' ? null : (
-        <WorkspaceTabs active={activeTab} tabs={tabs} />
-      )}
-      {activeTab === 'dashboard' ? (
-        <DashboardPanel selectedSource={selectedSource} tabs={tabs} />
-      ) : activeTab === 'pages' ? (
+      {activeTab === 'pages' ? (
         <DocumentationPageDesignerPanel
           accessToken={props.accessToken}
           bootstrap={props.bootstrap}
@@ -3322,9 +3841,10 @@ export function DocumentationManagementRoutePage(
           selectedSource={selectedSource}
         />
       ) : activeTab === 'navigation' ? (
-        <DocumentationNavigationDesignerPanel
+        <DocumentationPageDesignerPanel
           accessToken={props.accessToken}
           bootstrap={props.bootstrap}
+          initialMode="navigation"
           runtime={props.runtime}
           selectedSource={selectedSource}
         />

@@ -14,6 +14,7 @@ import {
   Typography,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
+import type { MouseEvent } from 'react';
 import { useMemo, useState } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router';
 
@@ -107,13 +108,22 @@ function sortedDocumentationItems(
 }
 
 function DocumentationPageLink({
+  activePathname,
   item,
   locationPathname,
+  onNavigate,
 }: {
+  readonly activePathname?: string | undefined;
   readonly item: DocumentationNavigationItem;
   readonly locationPathname: string;
+  readonly onNavigate?: ((route: string) => void) | undefined;
 }) {
-  const selected = locationPathname === item.route;
+  const selected = (activePathname ?? locationPathname) === item.route;
+  const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!onNavigate) return;
+    event.preventDefault();
+    onNavigate(item.route);
+  };
 
   return (
     <ListItemButton
@@ -135,6 +145,7 @@ function DocumentationPageLink({
         },
       }}
       to={item.route}
+      onClick={handleClick}
     >
       <ListItemText
         primary={item.title}
@@ -158,8 +169,13 @@ function DocumentationPageLink({
 }
 
 export function DocumentationNavigationRenderer({
+  activePathname,
   component,
-}: CmsComponentRendererProps) {
+  onNavigate,
+}: CmsComponentRendererProps & {
+  readonly activePathname?: string | undefined;
+  readonly onNavigate?: ((route: string) => void) | undefined;
+}) {
   const location = useLocation();
   const [query, setQuery] = useState('');
   const [audience, setAudience] = useState('');
@@ -213,8 +229,7 @@ export function DocumentationNavigationRenderer({
     return result;
   }, new Map<string, { order: number; items: DocumentationNavigationItem[] }>());
   const sortedGroups = [...grouped.entries()].sort(
-    (left, right) =>
-      left[1].order - right[1].order || left[0].localeCompare(right[0]),
+    (left, right) => left[1].order - right[1].order || left[0].localeCompare(right[0]),
   );
   const titleAsSection = humanize(title).toLocaleLowerCase();
   const shouldUseTitleAsOnlyGroup =
@@ -299,61 +314,65 @@ export function DocumentationNavigationRenderer({
         <List dense disablePadding sx={{ py: 0.25 }}>
           {sortedDocumentationItems(sortedGroups[0]?.[1].items ?? []).map((item) => (
             <DocumentationPageLink
+              activePathname={activePathname}
               item={item}
               key={item.route}
               locationPathname={location.pathname}
+              onNavigate={onNavigate}
             />
           ))}
         </List>
       ) : (
         <Stack spacing={0.5}>
           {sortedGroups.map(([section, sectionEntry]) => (
-              <Box component="section" key={section}>
-                <ListItemButton
-                  aria-expanded={shouldExpand(section)}
-                  aria-label={`${shouldExpand(section) ? 'Collapse' : 'Expand'} ${section}`}
-                  dense
-                  onClick={() => toggleExpanded(section)}
-                  sx={{
-                    alignItems: 'center',
-                    borderRadius: 1,
-                    minHeight: 44,
-                    px: 1,
-                    py: 0.75,
-                  }}
-                >
-                  <ShellIcon
-                    color="action"
-                    fontSize="small"
-                    name={shouldExpand(section) ? 'chevron-down' : 'chevron-right'}
-                  />
-                  <ListItemText
-                    primary={section}
-                    slotProps={{
-                      primary: {
-                        sx: {
-                          fontWeight: 800,
-                          lineHeight: 1.25,
-                          ml: 1,
-                        },
-                        title: section,
+            <Box component="section" key={section}>
+              <ListItemButton
+                aria-expanded={shouldExpand(section)}
+                aria-label={`${shouldExpand(section) ? 'Collapse' : 'Expand'} ${section}`}
+                dense
+                onClick={() => toggleExpanded(section)}
+                sx={{
+                  alignItems: 'center',
+                  borderRadius: 1,
+                  minHeight: 44,
+                  px: 1,
+                  py: 0.75,
+                }}
+              >
+                <ShellIcon
+                  color="action"
+                  fontSize="small"
+                  name={shouldExpand(section) ? 'chevron-down' : 'chevron-right'}
+                />
+                <ListItemText
+                  primary={section}
+                  slotProps={{
+                    primary: {
+                      sx: {
+                        fontWeight: 800,
+                        lineHeight: 1.25,
+                        ml: 1,
                       },
-                    }}
-                  />
-                </ListItemButton>
-                <Collapse in={shouldExpand(section)} timeout="auto" unmountOnExit>
-                  <List dense disablePadding sx={{ pl: 3.5, pr: 0.5, py: 0.5 }}>
-                    {sortedDocumentationItems(sectionEntry.items).map((item) => (
-                      <DocumentationPageLink
-                        item={item}
-                        key={item.route}
-                        locationPathname={location.pathname}
-                      />
-                    ))}
-                  </List>
-                </Collapse>
-              </Box>
-            ))}
+                      title: section,
+                    },
+                  }}
+                />
+              </ListItemButton>
+              <Collapse in={shouldExpand(section)} timeout="auto" unmountOnExit>
+                <List dense disablePadding sx={{ pl: 3.5, pr: 0.5, py: 0.5 }}>
+                  {sortedDocumentationItems(sectionEntry.items).map((item) => (
+                    <DocumentationPageLink
+                      activePathname={activePathname}
+                      item={item}
+                      key={item.route}
+                      locationPathname={location.pathname}
+                      onNavigate={onNavigate}
+                    />
+                  ))}
+                </List>
+              </Collapse>
+            </Box>
+          ))}
         </Stack>
       )}
       {location.pathname !== '/docs' ? (
