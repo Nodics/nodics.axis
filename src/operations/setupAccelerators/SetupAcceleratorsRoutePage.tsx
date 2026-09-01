@@ -109,9 +109,9 @@ function statusRefreshesAutomatically(
 ): boolean {
   return Boolean(
     status?.readiness === 'PUBLICATION_PENDING' ||
-      status?.readiness === 'IMPORTING' ||
-      status?.readiness === 'IMPORTED' ||
-      status?.releaseStatus === 'IMPORTING',
+    status?.readiness === 'IMPORTING' ||
+    status?.readiness === 'IMPORTED' ||
+    status?.releaseStatus === 'IMPORTING',
   );
 }
 
@@ -121,12 +121,12 @@ function suppressStaleOperationError(
 ): boolean {
   return Boolean(
     message &&
-      /still running|timed out/iu.test(message) &&
-      (status?.readiness === 'PUBLICATION_PENDING' ||
-        status?.readiness === 'IMPORTING' ||
-        status?.readiness === 'READY' ||
-        status?.releaseStatus === 'CURRENT' ||
-        status?.releaseStatus === 'IMPORTING'),
+    /still running|timed out/iu.test(message) &&
+    (status?.readiness === 'PUBLICATION_PENDING' ||
+      status?.readiness === 'IMPORTING' ||
+      status?.readiness === 'READY' ||
+      status?.releaseStatus === 'CURRENT' ||
+      status?.releaseStatus === 'IMPORTING'),
   );
 }
 
@@ -135,7 +135,7 @@ function preparationNeedsAction(
 ): boolean {
   return Boolean(
     status?.preparation &&
-      !['CURRENT', 'RUNNING', 'BLOCKED'].includes(status.preparation.status),
+    !['CURRENT', 'RUNNING', 'BLOCKED'].includes(status.preparation.status),
   );
 }
 
@@ -149,9 +149,13 @@ function blockedPreparationStep(
   status: ApplicationInitializationStatus | undefined,
 ): ApplicationPreparationStep | undefined {
   return status?.preparation?.steps.find((step) =>
-    ['NOT_REGISTERED', 'NOT_ACTIVE', 'RUNTIME_OFFLINE', 'UNAVAILABLE', 'FAILED'].includes(
-      step.status ?? '',
-    ),
+    [
+      'NOT_REGISTERED',
+      'NOT_ACTIVE',
+      'RUNTIME_OFFLINE',
+      'UNAVAILABLE',
+      'FAILED',
+    ].includes(step.status ?? ''),
   );
 }
 
@@ -160,7 +164,8 @@ function blockedActionSummary(
 ): string {
   const step = blockedPreparationStep(status);
   if (!step) return 'Required setup needs repair before go-live.';
-  const label = step.description || step.label || step.kind || friendlyPackageLabel(step.code);
+  const label =
+    step.description || step.label || step.kind || friendlyPackageLabel(step.code);
   if (step.type === 'FUNCTIONAL_MODULE') {
     return `Register and activate ${label} in Module Registry before go-live.`;
   }
@@ -173,9 +178,7 @@ function blockedActionSummary(
   return `${step.kind || 'Setup data'} needs attention before go-live.`;
 }
 
-function setupActionLabel(
-  status: ApplicationInitializationStatus | undefined,
-): string {
+function setupActionLabel(status: ApplicationInitializationStatus | undefined): string {
   if (!status) return 'Initialize';
   if (status.readiness === 'READY' && preparationNeedsAction(status)) {
     return 'Prepare setup';
@@ -225,7 +228,9 @@ function releaseStatusLabel(status: string | undefined): string {
   if (status === 'NOT_INSTALLED') return 'Staged not installed';
   if (status === 'IMPORTING') return 'Staged importing';
   if (status === 'INVALID_RELEASE') return 'Staged invalid release';
-  return status ? `Staged ${status.replaceAll('_', ' ').toLowerCase()}` : 'Staged checking';
+  return status
+    ? `Staged ${status.replaceAll('_', ' ').toLowerCase()}`
+    : 'Staged checking';
 }
 
 function releaseStatusColor(
@@ -329,9 +334,7 @@ function isCustomizationProfile(profile: ApplicationInitializationProfile): bool
   );
 }
 
-function nextActionText(
-  status: ApplicationInitializationStatus | undefined,
-): string {
+function nextActionText(status: ApplicationInitializationStatus | undefined): string {
   if (!status) return 'Status unavailable';
   if (preparationBlocked(status)) {
     return blockedActionSummary(status);
@@ -660,8 +663,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
         'Business applications such as Nexus, Agora, partner storefronts, and future accelerators.',
       items: filteredStatuses.filter(
         (item) =>
-          item.profile.kind === 'PROJECT' &&
-          !isCustomizationProfile(item.profile),
+          item.profile.kind === 'PROJECT' && !isCustomizationProfile(item.profile),
       ),
     },
     {
@@ -669,9 +671,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
       title: 'Customer customizations',
       description:
         'Optional project-layer overlays that change an already initialized site or accelerator.',
-      items: filteredStatuses.filter(
-        (item) => isCustomizationProfile(item.profile),
-      ),
+      items: filteredStatuses.filter((item) => isCustomizationProfile(item.profile)),
     },
     {
       key: 'documentation',
@@ -743,11 +743,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                   label="Pending approval"
                   value={pendingCount}
                 />
-                <SetupMetric
-                  color="info"
-                  label="Need attention"
-                  value={actionCount}
-                />
+                <SetupMetric color="info" label="Need attention" value={actionCount} />
               </Box>
               <Stack
                 direction={{ xs: 'column', sm: 'row' }}
@@ -820,7 +816,11 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                         py: 1,
                       }}
                     >
-                      <Typography component="h3" sx={{ fontWeight: 800 }} variant="subtitle1">
+                      <Typography
+                        component="h3"
+                        sx={{ fontWeight: 800 }}
+                        variant="subtitle1"
+                      >
                         {group.title}
                       </Typography>
                       <Typography
@@ -841,7 +841,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                         const canInitialize =
                           Boolean(
                             status?.allowedActions.includes('INITIALIZE') ||
-                              preparationNeedsAction(status),
+                            preparationNeedsAction(status),
                           ) &&
                           !preparationBlocked(status) &&
                           status?.releaseStatus !== 'INVALID_RELEASE' &&
@@ -853,6 +853,20 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                           !suppressStaleOperationError(status, mutation.error.message)
                             ? mutation.error.message
                             : undefined;
+                        const approvalActionsVisible = Boolean(
+                          status && canApprove(status),
+                        );
+                        const lifecycleActionCount = [
+                          status?.allowedActions.includes('ROLLBACK'),
+                          status?.allowedActions.includes('RETIRE'),
+                        ].filter(Boolean).length;
+                        const actionColumns = approvalActionsVisible
+                          ? '148px 128px 112px 40px 40px'
+                          : lifecycleActionCount > 1
+                            ? '148px 112px 112px 40px 40px'
+                            : lifecycleActionCount > 0
+                              ? '148px 112px 40px 40px'
+                              : '148px 40px 40px';
                         return (
                           <Box key={profile.code} sx={{ px: 2, py: 1.5 }}>
                             <Box
@@ -862,8 +876,8 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                 gap: { xs: 1.25, md: 2 },
                                 gridTemplateColumns: {
                                   xs: '1fr',
-                                  md: 'minmax(280px, 0.95fr) minmax(300px, 1fr) minmax(360px, auto)',
-                                  xl: 'minmax(360px, 1fr) minmax(360px, 0.95fr) minmax(390px, auto)',
+                                  md: 'minmax(260px, 0.9fr) minmax(300px, 1fr) minmax(460px, auto)',
+                                  xl: 'minmax(340px, 1fr) minmax(360px, 0.95fr) minmax(480px, auto)',
                                 },
                                 minHeight: 72,
                               }}
@@ -898,7 +912,10 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                   {profileErrorMessage(profile, query.error.message)}
                                 </Alert>
                               ) : status ? (
-                                <Stack spacing={0.75} sx={{ alignItems: 'stretch', minWidth: 0 }}>
+                                <Stack
+                                  spacing={0.75}
+                                  sx={{ alignItems: 'stretch', minWidth: 0 }}
+                                >
                                   <Box
                                     sx={{
                                       alignItems: 'center',
@@ -917,10 +934,6 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                       label={releaseStatusLabel(status.releaseStatus)}
                                       variant="outlined"
                                     />
-                                    <SetupStatusChip
-                                      label={conciseReleaseLabel(profile, status)}
-                                      variant="outlined"
-                                    />
                                   </Box>
                                   <Typography
                                     color={
@@ -930,6 +943,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                         ? 'error'
                                         : 'text.secondary'
                                     }
+                                    sx={{ maxWidth: 480 }}
                                     variant="body2"
                                   >
                                     {nextActionText(status)}
@@ -940,24 +954,25 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                   Profile status is unavailable.
                                 </Alert>
                               )}
-                              <Stack
-                                direction="row"
-                                spacing={0}
+                              <Box
                                 sx={{
                                   alignItems: 'center',
                                   alignSelf: 'center',
-                                  flexWrap: 'nowrap',
+                                  display: { xs: 'flex', md: 'grid' },
+                                  flexWrap: { xs: 'wrap', md: 'nowrap' },
                                   gap: 1,
+                                  gridTemplateColumns: {
+                                    md: actionColumns,
+                                  },
                                   justifyContent: { xs: 'flex-start', md: 'flex-end' },
                                   justifySelf: { md: 'end' },
                                   minWidth: 0,
-                                  overflowX: { xs: 'auto', md: 'visible' },
                                   pb: { xs: 0.25, md: 0 },
                                   pt: 0.25,
                                   width: { xs: '100%', md: 'auto' },
                                 }}
                               >
-                                {canInitialize && status ? (
+                                {status && canInitialize ? (
                                   <Button
                                     disabled={pending}
                                     onClick={() =>
@@ -968,7 +983,12 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                       })
                                     }
                                     size="small"
-                                    sx={{ minHeight: 40, minWidth: 132, whiteSpace: 'nowrap' }}
+                                    sx={{
+                                      minHeight: 40,
+                                      minWidth: 132,
+                                      whiteSpace: 'nowrap',
+                                      width: '100%',
+                                    }}
                                     variant="contained"
                                   >
                                     {pending &&
@@ -976,19 +996,32 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                       ? 'Working...'
                                       : setupActionLabel(status)}
                                   </Button>
-                                ) : null}
-                                {status && preparationBlocked(status) ? (
+                                ) : status && preparationBlocked(status) ? (
                                   <Button
                                     disabled={pending}
                                     onClick={() => navigate('/registry')}
                                     size="small"
-                                    sx={{ minHeight: 40, minWidth: 148, whiteSpace: 'nowrap' }}
+                                    sx={{
+                                      minHeight: 40,
+                                      minWidth: 148,
+                                      whiteSpace: 'nowrap',
+                                      width: '100%',
+                                    }}
                                     variant="outlined"
                                   >
                                     Module Registry
                                   </Button>
-                                ) : null}
-                                {status && canApprove(status) ? (
+                                ) : (
+                                  <Box
+                                    aria-hidden="true"
+                                    sx={{
+                                      display: { xs: 'none', md: 'block' },
+                                      visibility: 'hidden',
+                                      width: 148,
+                                    }}
+                                  />
+                                )}
+                                {approvalActionsVisible && status ? (
                                   <Button
                                     disabled={pending}
                                     onClick={() =>
@@ -999,8 +1032,15 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                       })
                                     }
                                     size="small"
-                                    startIcon={<ShellIcon fontSize="small" name="approve" />}
-                                    sx={{ minHeight: 40, minWidth: 116, whiteSpace: 'nowrap' }}
+                                    startIcon={
+                                      <ShellIcon fontSize="small" name="approve" />
+                                    }
+                                    sx={{
+                                      minHeight: 40,
+                                      minWidth: 116,
+                                      whiteSpace: 'nowrap',
+                                      width: '100%',
+                                    }}
                                     variant="contained"
                                   >
                                     {pending &&
@@ -1008,8 +1048,17 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                       ? 'Approving...'
                                       : 'Approve'}
                                   </Button>
+                                ) : approvalActionsVisible ? (
+                                  <Box
+                                    aria-hidden="true"
+                                    sx={{
+                                      display: { xs: 'none', md: 'block' },
+                                      visibility: 'hidden',
+                                      width: 128,
+                                    }}
+                                  />
                                 ) : null}
-                                {status && canApprove(status) ? (
+                                {approvalActionsVisible && status ? (
                                   <Button
                                     color="warning"
                                     disabled={pending}
@@ -1021,7 +1070,12 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                       })
                                     }
                                     size="small"
-                                    sx={{ minHeight: 40, minWidth: 96, whiteSpace: 'nowrap' }}
+                                    sx={{
+                                      minHeight: 40,
+                                      minWidth: 96,
+                                      whiteSpace: 'nowrap',
+                                      width: '100%',
+                                    }}
                                     variant="outlined"
                                   >
                                     {pending &&
@@ -1029,6 +1083,15 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                       ? 'Rejecting...'
                                       : 'Reject'}
                                   </Button>
+                                ) : approvalActionsVisible ? (
+                                  <Box
+                                    aria-hidden="true"
+                                    sx={{
+                                      display: { xs: 'none', md: 'block' },
+                                      visibility: 'hidden',
+                                      width: 112,
+                                    }}
+                                  />
                                 ) : null}
                                 {status?.allowedActions.includes('ROLLBACK') ? (
                                   <Button
@@ -1045,7 +1108,12 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                       });
                                     }}
                                     size="small"
-                                    sx={{ minHeight: 40, minWidth: 96, whiteSpace: 'nowrap' }}
+                                    sx={{
+                                      minHeight: 40,
+                                      minWidth: 96,
+                                      whiteSpace: 'nowrap',
+                                      width: '100%',
+                                    }}
                                     variant="outlined"
                                   >
                                     {operationLabel('rollback')}
@@ -1066,7 +1134,12 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                       });
                                     }}
                                     size="small"
-                                    sx={{ minHeight: 40, minWidth: 96, whiteSpace: 'nowrap' }}
+                                    sx={{
+                                      minHeight: 40,
+                                      minWidth: 96,
+                                      whiteSpace: 'nowrap',
+                                      width: '100%',
+                                    }}
                                     variant="outlined"
                                   >
                                     {operationLabel('retire')}
@@ -1102,16 +1175,12 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                     >
                                       <ShellIcon
                                         fontSize="small"
-                                        name={
-                                          expanded
-                                            ? 'chevron-up'
-                                            : 'chevron-down'
-                                        }
+                                        name={expanded ? 'chevron-up' : 'chevron-down'}
                                       />
                                     </IconButton>
                                   </span>
                                 </Tooltip>
-                              </Stack>
+                              </Box>
                             </Box>
                             {rowMutationError ? (
                               <Alert severity="error" sx={{ mt: 1.5 }}>
@@ -1208,8 +1277,12 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                               },
                                             }}
                                           >
-                                            <Typography sx={{ overflowWrap: 'anywhere' }} variant="body2">
-                                              {step.kind || friendlyPackageLabel(step.code)}
+                                            <Typography
+                                              sx={{ overflowWrap: 'anywhere' }}
+                                              variant="body2"
+                                            >
+                                              {step.kind ||
+                                                friendlyPackageLabel(step.code)}
                                             </Typography>
                                             <Chip
                                               label={`${step.targetRuntimeRole} · ${step.dataType}`}
@@ -1217,8 +1290,13 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                               variant="outlined"
                                             />
                                             <Chip
-                                              color={preparationStatusColor(step.status)}
-                                              label={preparationStatusLabel(step.status, step.trigger)}
+                                              color={preparationStatusColor(
+                                                step.status,
+                                              )}
+                                              label={preparationStatusLabel(
+                                                step.status,
+                                                step.trigger,
+                                              )}
                                               size="small"
                                               variant={
                                                 step.status === 'CURRENT' ||

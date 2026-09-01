@@ -311,10 +311,7 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
             timeout="auto"
             unmountOnExit
           >
-            <Stack
-              spacing={1.5}
-              sx={{ borderTop: 1, borderColor: 'divider', p: 2 }}
-            >
+            <Stack spacing={1.5} sx={{ borderTop: 1, borderColor: 'divider', p: 2 }}>
               {publicationMutation.error instanceof Error ? (
                 <Alert severity="error">{publicationMutation.error.message}</Alert>
               ) : null}
@@ -355,10 +352,7 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
                 ))}
               </Box>
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                <Chip
-                  label={`Site: ${publication.data.siteCode}`}
-                  size="small"
-                />
+                <Chip label={`Site: ${publication.data.siteCode}`} size="small" />
                 <Chip
                   label={`Content pack: ${source.packCode}`}
                   size="small"
@@ -376,9 +370,7 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
                 />
                 {publication.data.publication ? (
                   <Chip
-                    label={`Revision: ${String(
-                      publication.data.publication.revision,
-                    )}`}
+                    label={`Revision: ${String(publication.data.publication.revision)}`}
                     size="small"
                     variant="outlined"
                   />
@@ -430,7 +422,6 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
           </Collapse>
         </Paper>
         <CmsRoutePage
-          accessToken={props.accessToken}
           channel={props.channel}
           cmsBaseUrl={props.cmsBaseUrl}
           enterpriseCode={props.runtime.enterpriseCode}
@@ -670,10 +661,18 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
                           },
                         }}
                       >
-                        <Typography component="div" sx={{ fontWeight: 800 }} variant="body2">
+                        <Typography
+                          component="div"
+                          sx={{ fontWeight: 800 }}
+                          variant="body2"
+                        >
                           {step.title}
                         </Typography>
-                        <Typography color="text.secondary" component="div" variant="body2">
+                        <Typography
+                          color="text.secondary"
+                          component="div"
+                          variant="body2"
+                        >
                           {step.body}
                         </Typography>
                       </Box>
@@ -761,7 +760,6 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
                 . Revalidate the staged release before requesting publication again.
               </Alert>
             ) : null}
-
           </Stack>
         </Paper>
       </Stack>
