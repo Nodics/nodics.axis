@@ -37,6 +37,7 @@ interface BusinessNavigationGroups {
   readonly mediaManagement: ShellNavigationGroupDefinition;
   readonly editorialSpace: ShellNavigationGroupDefinition;
   readonly processAutomations: ShellNavigationGroupDefinition;
+  readonly sustainabilityOperations: ShellNavigationGroupDefinition;
   readonly documentation: ShellNavigationGroupDefinition;
   readonly publishing: ShellNavigationGroupDefinition;
   readonly otherBacklogs: ShellNavigationGroupDefinition;
@@ -118,6 +119,11 @@ const BUSINESS_GROUPS: BusinessNavigationGroups = Object.freeze({
     label: 'Process & Automations',
     order: 1_500,
   },
+  sustainabilityOperations: {
+    id: 'sustainability-operations',
+    label: 'Sustainability Operations',
+    order: 1_550,
+  },
   documentation: {
     id: 'documentation',
     label: 'Documentation',
@@ -144,6 +150,8 @@ const CATEGORY_GROUPS: Readonly<Record<string, ShellNavigationGroupDefinition>> 
     organization: BUSINESS_GROUPS.customersOrganisation,
     operations: BUSINESS_GROUPS.processAutomations,
     platform: BUSINESS_GROUPS.systemIntegrations,
+    sustainability: BUSINESS_GROUPS.sustainabilityOperations,
+    waste: BUSINESS_GROUPS.sustainabilityOperations,
   });
 
 const GROUP_ID_ALIASES: Readonly<Record<string, ShellNavigationGroupDefinition>> =
@@ -173,6 +181,10 @@ const GROUP_ID_ALIASES: Readonly<Record<string, ShellNavigationGroupDefinition>>
     'process-and-automations': BUSINESS_GROUPS.processAutomations,
     'process-automations': BUSINESS_GROUPS.processAutomations,
     'business-process-automation': BUSINESS_GROUPS.processAutomations,
+    'sustainability-operations': BUSINESS_GROUPS.sustainabilityOperations,
+    sustainability: BUSINESS_GROUPS.sustainabilityOperations,
+    waste: BUSINESS_GROUPS.sustainabilityOperations,
+    'waste-management': BUSINESS_GROUPS.sustainabilityOperations,
     publishing: BUSINESS_GROUPS.publishing,
     documentation: BUSINESS_GROUPS.documentation,
     documentations: BUSINESS_GROUPS.documentation,
@@ -416,6 +428,15 @@ function directBusinessNavigationGroup(
     text.includes('automation')
   ) {
     return BUSINESS_GROUPS.processAutomations;
+  }
+  if (
+    text.includes('waste') ||
+    text.includes('recycle') ||
+    text.includes('recycling') ||
+    text.includes('sustainability') ||
+    text.includes('environment')
+  ) {
+    return BUSINESS_GROUPS.sustainabilityOperations;
   }
   if (
     text.includes('my work') ||

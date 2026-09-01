@@ -143,6 +143,16 @@ const governanceMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     route: '/content/restrictions',
     icon: 'security',
   }),
+  Object.freeze({
+    id: 'experience-placements',
+    label: 'Experience placements',
+    moduleName: 'wcmsExperience',
+    schemaName: 'cmsExperiencePlacement',
+    description:
+      'Targeted CMS component placements for category, collection, brand, and fallback journeys.',
+    route: '/content/experience-studio/placements',
+    icon: 'experience',
+  }),
 ]);
 
 const publishingMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
@@ -253,6 +263,14 @@ export function ContentDashboardRoutePage({
                   variant="contained"
                 >
                   Open designer
+                </Button>
+                <Button
+                  component={RouterLink}
+                  size="small"
+                  to="/content/experience-studio"
+                  variant="outlined"
+                >
+                  Experience Studio
                 </Button>
                 <Chip label={`${String(allMetrics.length)} metrics`} />
                 <Chip

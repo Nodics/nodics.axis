@@ -21,4 +21,13 @@ describe('ShellIcon', () => {
       expect.stringContaining('M4 4'),
     );
   });
+
+  it('renders the Waste accelerator icon from backend metadata', () => {
+    const { container } = render(<ShellIcon name="waste" />);
+
+    expect(container.querySelector('svg path')).toHaveAttribute(
+      'd',
+      expect.stringContaining('M7 3'),
+    );
+  });
 });

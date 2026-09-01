@@ -204,7 +204,14 @@ export async function loadWorkbenchSchemas(
   }
   const uniqueSchemas = new Map<string, WorkbenchSchema>();
   schemas.forEach((schema) => {
-    const key = `${schema.moduleName}:${schema.schemaName}`;
+    const key = [
+      schema.moduleName,
+      schema.schemaName,
+      schema.connectionModuleName ?? schema.moduleName,
+      schema.connectionInstanceId ?? '',
+      schema.connectionServer ?? '',
+      schema.connectionEnvironment ?? '',
+    ].join(':');
     const existing = uniqueSchemas.get(key);
     const schemaIsOwnerConnection = schema.connectionModuleName === schema.moduleName;
     const existingIsOwnerConnection =
@@ -318,13 +325,26 @@ export async function createWorkbenchRecord(
   ) {
     throw new Error('This schema does not allow generated record creation');
   }
-  const result = await request(
-    connection,
-    `/${safeSegment(schema.schemaName, 'Workbench schema name')}`,
-    configuration,
-    { method: 'PUT', body: JSON.stringify(normalizeGeneratedCrudModel(schema, model)) },
-    fetchImplementation,
-  );
+  const normalizedModel = normalizeGeneratedCrudModel(schema, model);
+  let result: unknown;
+  try {
+    result = await request(
+      connection,
+      `/${safeSegment(schema.schemaName, 'Workbench schema name')}`,
+      configuration,
+      { method: 'PUT', body: JSON.stringify(normalizedModel) },
+      fetchImplementation,
+    );
+  } catch (error: unknown) {
+    if (!shouldFallbackToGenericWorkbench(error)) throw error;
+    result = await request(
+      connection,
+      `/schema/workbench/${safeSegment(schema.schemaName, 'Workbench schema name')}/record`,
+      configuration,
+      { method: 'POST', body: JSON.stringify({ model: normalizedModel }) },
+      fetchImplementation,
+    );
+  }
   if (Array.isArray(result)) {
     if (result.length !== 1) throw new Error('Workbench create result is invalid');
     return parseWorkbenchRecords(result)[0]!;
@@ -353,20 +373,39 @@ export async function updateWorkbenchRecord(
     throw new Error('This schema does not allow generated record updates');
   }
   const identity = recordIdentity(schema, original);
-  const result = await request(
-    connection,
-    `/${safeSegment(schema.schemaName, 'Workbench schema name')}`,
-    configuration,
-    {
-      method: 'PATCH',
-      body: JSON.stringify({
-        model: normalizeGeneratedCrudModel(schema, model),
-        options: { recursive: false, returnModified: true },
-        query: identity,
-      }),
-    },
-    fetchImplementation,
-  );
+  const normalizedModel = normalizeGeneratedCrudModel(schema, model);
+  let result: unknown;
+  try {
+    result = await request(
+      connection,
+      `/${safeSegment(schema.schemaName, 'Workbench schema name')}`,
+      configuration,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({
+          model: normalizedModel,
+          options: { recursive: false, returnModified: true },
+          query: identity,
+        }),
+      },
+      fetchImplementation,
+    );
+  } catch (error: unknown) {
+    if (!shouldFallbackToGenericWorkbench(error)) throw error;
+    result = await request(
+      connection,
+      `/schema/workbench/${safeSegment(schema.schemaName, 'Workbench schema name')}/record`,
+      configuration,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({
+          identity,
+          model: normalizedModel,
+        }),
+      },
+      fetchImplementation,
+    );
+  }
   if (Array.isArray(result)) {
     if (result.length !== 1) throw new Error('Workbench update result is invalid');
     return parseWorkbenchRecords(result)[0]!;
@@ -378,7 +417,7 @@ export async function updateWorkbenchRecord(
   if (Array.isArray(updateResult.models) && updateResult.models.length === 1) {
     return parseWorkbenchRecords(updateResult.models)[0]!;
   }
-  throw new Error('Workbench update did not return one modified record');
+  return Object.freeze(updateResult);
 }
 
 export async function deleteWorkbenchRecord(

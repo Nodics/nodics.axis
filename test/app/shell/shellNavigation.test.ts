@@ -449,4 +449,67 @@ describe('Axis shell navigation composition', () => {
       groups.find((group) => group.id === 'fulfillment-operations'),
     ).toBeUndefined();
   });
+
+  it('keeps Waste accelerator navigation under Sustainability Operations', () => {
+    const groups = composeShellNavigation([
+      {
+        id: 'waste-management',
+        label: 'Waste Workspace',
+        route: '/waste',
+        order: 1400,
+        moduleName: 'wasteCore',
+        category: 'sustainability',
+        icon: 'waste',
+        availability: 'UP',
+        featureState: 'ACTIVE',
+        group: {
+          id: 'sustainability-operations',
+          label: 'Sustainability Operations',
+          order: 1400,
+        },
+        workbenchTarget: {
+          moduleName: 'wasteCore',
+          schemaName: 'wasteLifecyclePolicy',
+        },
+      },
+      {
+        id: 'waste-submissions',
+        parentId: 'waste-management',
+        parentModuleName: 'wasteCore',
+        label: 'Submissions',
+        route: '/waste/submissions',
+        order: 1430,
+        moduleName: 'wasteSubmission',
+        category: 'sustainability',
+        icon: 'waste',
+        availability: 'UP',
+        workbenchTarget: {
+          moduleName: 'wasteSubmission',
+          schemaName: 'wasteSubmission',
+        },
+      },
+      {
+        id: 'ewaste-devices',
+        parentId: 'waste-management',
+        parentModuleName: 'wasteCore',
+        label: 'E-Waste Devices',
+        route: '/waste/e-waste/devices',
+        order: 1490,
+        moduleName: 'eWaste',
+        category: 'waste',
+        icon: 'recycling',
+        availability: 'UP',
+      },
+    ]);
+
+    const sustainability = groups.find(
+      (entry) => entry.id === 'sustainability-operations',
+    );
+    expect(groups.map((group) => group.id)).toEqual(['sustainability-operations']);
+    expect(sustainability?.items.map((item) => [item.id, item.depth])).toEqual([
+      ['waste-management', 0],
+      ['waste-submissions', 1],
+      ['ewaste-devices', 1],
+    ]);
+  });
 });

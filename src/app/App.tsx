@@ -31,6 +31,7 @@ import { SystemIntegrationsDashboardRoutePage } from '../operations/systemIntegr
 import { CronDashboardRoutePage } from '../operations/cron/CronDashboardRoutePage';
 import { ContentDashboardRoutePage } from '../operations/contentExperience/ContentDashboardRoutePage';
 import { ContentDesignerRoutePage } from '../operations/contentExperience/ContentDesignerRoutePage';
+import { WcmsExperienceStudioRoutePage } from '../operations/contentExperience/WcmsExperienceStudioRoutePage';
 import { PublishingDashboardRoutePage } from '../operations/contentExperience/PublishingDashboardRoutePage';
 import { PublishingRouteGuidancePage } from '../operations/contentExperience/PublishingRouteGuidancePage';
 import { DocumentationManagementRoutePage } from '../operations/documentationManagement/DocumentationManagementRoutePage';
@@ -77,6 +78,7 @@ import { LoadingScreen } from './LoadingScreen';
 import { ModuleWorkspacePlaceholder } from './ModuleWorkspacePlaceholder';
 import { RecoveryScreen } from './RecoveryScreen';
 import { AppShell } from './shell/AppShell';
+import { canRenderWorkbenchNavigation } from './workbenchNavigationPolicy';
 
 const axisDashboardRoute = '/dashboard';
 const axisInitializationRoute = '/initialize-axis';
@@ -792,11 +794,7 @@ export function App() {
     navigationItem &&
     navigationItem.workbenchTarget
       ? authenticatedShell(
-          ['UP', 'DEGRADED'].includes(navigationItem.availability) &&
-            selectModuleConnection(
-              authenticatedBootstrap,
-              navigationItem.workbenchTarget.moduleName,
-            ) ? (
+          canRenderWorkbenchNavigation(authenticatedBootstrap, navigationItem) ? (
             <WorkbenchRoutePage
               accessToken={session.accessToken}
               bootstrap={authenticatedBootstrap}
@@ -917,6 +915,15 @@ export function App() {
     authenticatedBootstrap?.navigation.find(
       (item) => item.route === '/content/designer',
     ) ?? contentDashboardNavigation;
+  const wcmsExperienceNavigation =
+    currentNavigation?.route.startsWith('/content/experience-studio') &&
+    currentNavigation.moduleName === 'wcmsExperience'
+      ? currentNavigation
+      : (authenticatedBootstrap?.navigation.find(
+          (item) =>
+            item.id === 'wcms-experience-studio' &&
+            item.moduleName === 'wcmsExperience',
+        ) ?? contentDashboardNavigation);
   const documentationManagementNavigation =
     authenticatedBootstrap?.navigation.find(
       (item) => item.id === 'documentation-governance-readiness',
@@ -959,6 +966,26 @@ export function App() {
             />
           ) : (
             <ModuleWorkspacePlaceholder item={contentDesignerNavigation} />
+          ),
+        )
+      : sessionFallback;
+  const wcmsExperienceElement =
+    session && !locked && authenticatedBootstrap && wcmsExperienceNavigation
+      ? authenticatedShell(
+          ['UP', 'DEGRADED'].includes(wcmsExperienceNavigation.availability) ? (
+            <WcmsExperienceStudioRoutePage
+              accessToken={session.accessToken}
+              bootstrap={authenticatedBootstrap}
+              channel={composition.channel}
+              cmsBaseUrl={bootstrap.endpoints.cms}
+              employeeId={session.loginId}
+              locale={composition.locale}
+              navigation={wcmsExperienceNavigation}
+              runtime={runtime}
+              site={composition.site}
+            />
+          ) : (
+            <ModuleWorkspacePlaceholder item={wcmsExperienceNavigation} />
           ),
         )
       : sessionFallback;
@@ -1704,6 +1731,8 @@ export function App() {
           }
         />
         <Route path="/content/designer" element={contentDesignerElement} />
+        <Route path="/content/experience-studio" element={wcmsExperienceElement} />
+        <Route path="/content/experience-studio/*" element={wcmsExperienceElement} />
         <Route path="/content/*" element={cmsWorkbenchElement} />
         <Route path="/publishing" element={publishingDashboardElement} />
         <Route path="/publishing/*" element={publishingRouteGuidanceElement} />

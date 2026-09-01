@@ -86,7 +86,9 @@ describe('Schema Workbench API client', () => {
   it('discovers schemas directly from owning modules with employee context', async () => {
     const request = vi
       .fn<typeof fetch>()
-      .mockResolvedValue(json({ moduleName: 'profile', schemas: [address] }));
+      .mockImplementation(() =>
+        Promise.resolve(json({ moduleName: 'profile', schemas: [address] })),
+      );
 
     await expect(
       loadWorkbenchSchemas([connection], configuration, request),
@@ -113,7 +115,7 @@ describe('Schema Workbench API client', () => {
     expect(url.href).not.toContain('memory-only-token');
   });
 
-  it('deduplicates repeated schema discovery for the same business schema', async () => {
+  it('keeps runtime-specific schema discovery for the same business schema', async () => {
     const duplicateConnection: AxisModuleConnection = {
       ...connection,
       instanceId: 'profile-duplicate',
@@ -122,7 +124,9 @@ describe('Schema Workbench API client', () => {
     };
     const request = vi
       .fn<typeof fetch>()
-      .mockResolvedValue(json({ moduleName: 'profile', schemas: [address] }));
+      .mockImplementation(() =>
+        Promise.resolve(json({ moduleName: 'profile', schemas: [address] })),
+      );
 
     await expect(
       loadWorkbenchSchemas([connection, duplicateConnection], configuration, request),
@@ -134,11 +138,18 @@ describe('Schema Workbench API client', () => {
         connectionServer: 'platformServer',
         connectionEnvironment: 'local',
       }),
+      expect.objectContaining({
+        label: 'Address',
+        moduleName: 'profile',
+        schemaName: 'address',
+        connectionServer: 'profileMirrorServer',
+        connectionEnvironment: 'local',
+      }),
     ]);
     expect(request).toHaveBeenCalledTimes(2);
   });
 
-  it('keeps schema discovery unique while preferring governed Staged duplicates', async () => {
+  it('keeps Online and Staged schema copies available for route-level preference', async () => {
     const stagedConnection: AxisModuleConnection = {
       ...connection,
       instanceId: 'profile-staged',
@@ -153,6 +164,12 @@ describe('Schema Workbench API client', () => {
     await expect(
       loadWorkbenchSchemas([connection, stagedConnection], configuration, request),
     ).resolves.toEqual([
+      expect.objectContaining({
+        moduleName: 'profile',
+        schemaName: 'address',
+        connectionServer: 'platformServer',
+        connectionEnvironment: 'local',
+      }),
       expect.objectContaining({
         moduleName: 'profile',
         schemaName: 'address',
@@ -280,6 +297,35 @@ describe('Schema Workbench API client', () => {
     );
   });
 
+  it('falls back to the generic Workbench create contract when generated save is unavailable', async () => {
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json({ message: 'not found' }, 404))
+      .mockResolvedValueOnce(json({ code: 'STYLE-PASS', type: 'COUPON_CODE' }));
+
+    await expect(
+      createWorkbenchRecord(
+        connection,
+        address,
+        { code: 'STYLE-PASS', type: 'COUPON_CODE' },
+        configuration,
+        request,
+      ),
+    ).resolves.toEqual({ code: 'STYLE-PASS', type: 'COUPON_CODE' });
+
+    expect((request.mock.calls[0]?.[0] as URL).pathname).toBe(
+      '/nodics/profile/v0/address',
+    );
+    const [fallbackUrl, fallbackOptions] = request.mock.calls[1] ?? [];
+    expect((fallbackUrl as URL).pathname).toBe(
+      '/nodics/profile/v0/schema/workbench/address/record',
+    );
+    expect(fallbackOptions?.method).toBe('POST');
+    expect(JSON.parse(String(fallbackOptions?.body))).toEqual({
+      model: { code: 'STYLE-PASS', type: 'COUPON_CODE' },
+    });
+  });
+
   it('normalizes descriptor-declared date fields before generated create/update', async () => {
     const datedSchema: WorkbenchSchema = {
       ...address,
@@ -363,6 +409,34 @@ describe('Schema Workbench API client', () => {
       model: { code: 'DXB-OFFICE', city: 'Abu Dhabi' },
       options: { recursive: false, returnModified: true },
       query: { code: 'DXB-OFFICE' },
+    });
+  });
+
+  it('falls back to the generic Workbench update contract when generated update is unavailable', async () => {
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json({ message: 'not found' }, 404))
+      .mockResolvedValueOnce(json({ code: 'STYLE-PASS', type: 'PHYSICAL' }));
+
+    await expect(
+      updateWorkbenchRecord(
+        connection,
+        address,
+        { code: 'STYLE-PASS', type: 'COUPON_CODE' },
+        { type: 'PHYSICAL' },
+        configuration,
+        request,
+      ),
+    ).resolves.toEqual({ code: 'STYLE-PASS', type: 'PHYSICAL' });
+
+    const [fallbackUrl, fallbackOptions] = request.mock.calls[1] ?? [];
+    expect((fallbackUrl as URL).pathname).toBe(
+      '/nodics/profile/v0/schema/workbench/address/record',
+    );
+    expect(fallbackOptions?.method).toBe('PATCH');
+    expect(JSON.parse(String(fallbackOptions?.body))).toEqual({
+      identity: { code: 'STYLE-PASS' },
+      model: { type: 'PHYSICAL' },
     });
   });
 

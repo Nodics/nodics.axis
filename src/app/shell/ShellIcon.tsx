@@ -80,6 +80,8 @@ const iconPaths: Readonly<Record<string, string>> = Object.freeze({
   redo: 'M16 7V3l6 6-6 6v-4H9a4 4 0 0 0 0 8h4v2H9A6 6 0 0 1 9 9h7V7Z',
   visible:
     'M12 5c5 0 8.73 3.11 11 7.5C20.73 16.89 17 20 12 20S3.27 16.89 1 12.5C3.27 8.11 7 5 12 5Zm0 2c-3.87 0-6.82 2.26-8.72 5.5C5.18 15.74 8.13 18 12 18s6.82-2.26 8.72-5.5C18.82 9.26 15.87 7 12 7Zm0 2a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Zm0 2a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z',
+  waste:
+    'M7 3h10l2 4h2v2h-1.2l-1.53 11H5.73L4.2 9H3V7h2l2-4Zm1.24 4h7.52l-1-2H9.24l-1 2ZM6.22 9l1.25 9h9.06l1.25-9H6.22Zm3.13 2.85 1.41-1.41L12 11.67l1.24-1.23 1.41 1.41L13.41 13l1.24 1.24-1.41 1.41L12 14.41l-1.24 1.24-1.41-1.41L10.59 13l-1.24-1.15Z',
   store:
     'M4 3h16l2 6v2a4 4 0 0 1-2 3.46V21H4v-6.54A4 4 0 0 1 2 11V9l2-6Zm1.44 2L4 9v2a2 2 0 0 0 4 0V9l.5-4H5.44ZM10.5 5 10 9v2a2 2 0 0 0 4 0V9l-.5-4h-3Zm5 0 .5 4v2a2 2 0 0 0 4 0V9l-1.44-4H15.5ZM6 15v4h12v-4.13a4 4 0 0 1-3-1.36A4 4 0 0 1 9 13.5 4 4 0 0 1 6 14.87V15Z',
   storage:
@@ -103,10 +105,15 @@ const aliases: Readonly<Record<string, string>> = Object.freeze({
   settings: 'operations',
   notifications: 'bell',
   component: 'module',
+  preview: 'visible',
+  target: 'search',
   layout: 'dashboard',
   page: 'content',
   route: 'reference',
   template: 'cms',
+  recycle: 'waste',
+  recycling: 'waste',
+  sustainability: 'waste',
 });
 
 interface ShellIconProps extends SvgIconProps {

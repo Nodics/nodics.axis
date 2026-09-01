@@ -112,7 +112,7 @@ function selectWorkbenchSchemaConnection(
   );
 }
 
-function routePreferredServer(
+export function routePreferredServer(
   navigation: WorkbenchRoutePageProps['routeNavigation'],
   routeOwnerConnection: AxisModuleConnection | undefined,
 ): string | undefined {
@@ -136,6 +136,14 @@ function routePreferredServer(
     route.startsWith('/commerce/inventory')
   ) {
     return 'commerceStagedServer';
+  }
+  if (
+    groupId === 'orders-checkouts' ||
+    groupId === 'order-lifecycle-operations' ||
+    route.startsWith('/commerce/checkout') ||
+    route.startsWith('/commerce/order-lifecycle')
+  ) {
+    return 'commerceServer';
   }
   return routeOwnerConnection?.server;
 }

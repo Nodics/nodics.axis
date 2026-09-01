@@ -19,6 +19,7 @@ import {
   workbenchReferenceLookupQuery,
   type WorkbenchDeepLinkTarget,
 } from '../../src/workbench/workbenchRouteModel';
+import { routePreferredServer } from '../../src/workbench/WorkbenchRoutePage';
 import type { WorkbenchSchema } from '../../src/workbench/api/workbenchContracts';
 
 function schema(
@@ -135,6 +136,37 @@ describe('resolveWorkbenchDeepLinkTarget', () => {
 });
 
 describe('resolveWorkbenchRouteTarget', () => {
+  it('keeps catalog routes on Staged and order lifecycle routes on Online Commerce', () => {
+    const ownerConnection = { server: 'commerceServer', environment: 'kickoffLocal' } as never;
+
+    expect(
+      routePreferredServer(
+        {
+          id: 'products',
+          label: 'Products',
+          route: '/commerce/catalog/products',
+          group: { id: 'products-merchandising', label: 'Products', order: 1 },
+        } as never,
+        ownerConnection,
+      ),
+    ).toBe('commerceStagedServer');
+    expect(
+      routePreferredServer(
+        {
+          id: 'order-cancellations',
+          label: 'Cancellations',
+          route: '/commerce/checkout/cancellations',
+          group: {
+            id: 'order-lifecycle-operations',
+            label: 'Order lifecycle',
+            order: 1,
+          },
+        } as never,
+        ownerConnection,
+      ),
+    ).toBe('commerceServer');
+  });
+
   it('selects a schema from governed functional navigation route mapping', () => {
     expect(
       summarize(
