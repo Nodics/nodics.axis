@@ -338,12 +338,12 @@ const cmsDocumentationNodes = [
   ...cmsDocumentationPages.map((page, index) => {
     const number = index + 1;
     return {
-      code: `nodicsDocsNodeTopic${String(number)}`,
+      code: `nodicsDocsNodePage${String(number)}`,
       product: 'nodicsDocumentationProduct',
       navigation: 'nodicsDocumentationNavigation',
       parentNode:
         number === 126 ? 'nodicsDocsNodeSecRuntime' : 'nodicsDocsNodeSecFramework',
-      nodeLevel: 'TOPIC',
+      nodeLevel: 'PAGE_LINK',
       nodeType: 'PAGE',
       nodeTitle: page.title,
       nodeSummary: page.summary,
@@ -523,7 +523,7 @@ function authoringModel() {
       },
       {
         code: 'pages',
-        label: 'Pages and Topic Content',
+        label: 'Page Content',
         schemaName: 'cmsDocumentationPage',
       },
     ],
@@ -758,7 +758,7 @@ describe('DocumentationManagementRoutePage', () => {
     );
     expect(requestJsonBody(navigationPatch?.[1]).model).toMatchObject({
       nodeTitle: 'Business overview',
-      parentNode: 'nodicsDocsNodeTopic1',
+      parentNode: 'nodicsDocsNodePage1',
     });
     expect(screen.queryByLabelText('Documentation designer views')).toBeNull();
   });

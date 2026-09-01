@@ -2061,8 +2061,8 @@ async function saveDocumentationDraftLink({
         ),
         nodeLevel: 'SECTION',
         nodeType: 'CONTAINER',
-        nodeTitle: link.parentLabel || 'New topic',
-        nodeSummary: `Navigation topic for ${page.title}.`,
+        nodeTitle: link.parentLabel || 'Documentation section',
+        nodeSummary: `Documentation section for ${page.title}.`,
         nodeOrder: link.parentOrder ?? documentationSectionOrder(link.parentLabel),
         expandable: true,
         expandedByDefault: true,
@@ -2090,7 +2090,7 @@ async function saveDocumentationDraftLink({
     nodeLevel:
       link.nodeLevel ||
       recordText(link.originalNodeRecord ?? {}, 'nodeLevel') ||
-      'TOPIC',
+      'PAGE_LINK',
     nodeType:
       link.nodeType || recordText(link.originalNodeRecord ?? {}, 'nodeType') || 'PAGE',
     nodeTitle: link.label,
