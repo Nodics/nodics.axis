@@ -329,7 +329,7 @@ describe('DocumentationRoutePage', () => {
     fetchMock.mockRestore();
   });
 
-  it('renders current CMS documentation through public delivery after source authorization', async () => {
+  it('renders current CMS documentation through authenticated delivery after source authorization', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((request) => {
       const url = new URL(requestPathname(request), 'http://localhost:3000');
       if (url.pathname.includes('/applications/frameworkdocs/initialization')) {
@@ -413,8 +413,14 @@ describe('DocumentationRoutePage', () => {
     const cmsRequest = fetchMock.mock.calls
       .map(([request]) => requestPathname(request))
       .find((pathname) => pathname.includes('/delivery/pages/resolve'));
-    expect(cmsRequest).toBe('/nodics/cms/v0/delivery/pages/resolve');
-    expect(cmsRequest).not.toContain('/authenticated');
+    expect(cmsRequest).toBe('/nodics/cms/v0/delivery/pages/resolve/authenticated');
+    const cmsCall = fetchMock.mock.calls.find(([request]) =>
+      requestPathname(request).includes('/delivery/pages/resolve'),
+    );
+    expect(cmsCall?.[1]?.headers).toBeInstanceOf(Headers);
+    expect((cmsCall?.[1]?.headers as Headers).get('Authorization')).toBe(
+      'Bearer token',
+    );
     fetchMock.mockRestore();
   });
 

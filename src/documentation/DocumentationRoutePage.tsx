@@ -430,6 +430,7 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
           </Collapse>
         </Paper>
         <CmsRoutePage
+          accessToken={props.accessToken}
           channel={props.channel}
           cmsBaseUrl={props.cmsBaseUrl}
           enterpriseCode={props.runtime.enterpriseCode}
