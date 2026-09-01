@@ -148,7 +148,7 @@ export function AppShell({
   const assistant = useMemo(
     () =>
       navigation.find(
-        (item) => item.id === 'assistant' && item.moduleName === 'aiAssistant',
+        (item) => item.id === 'assistant' && ['copilotApi', 'aiAssistant'].includes(item.moduleName),
       ),
     [navigation],
   );

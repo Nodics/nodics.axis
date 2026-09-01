@@ -332,12 +332,7 @@ function DocumentationSourceListItem({
                 variant="outlined"
               />
               {source.dashboard.audiences.map((audience) => (
-                <Chip
-                  key={audience}
-                  label={audience}
-                  size="small"
-                  variant="outlined"
-                />
+                <Chip key={audience} label={audience} size="small" variant="outlined" />
               ))}
             </Stack>
             <Box>
@@ -431,7 +426,9 @@ function documentationApprovalDecision(
 ) {
   return Object.freeze({
     approved,
-    outcome: approved ? 'approved-from-documentation-dashboard' : 'rejected-from-documentation-dashboard',
+    outcome: approved
+      ? 'approved-from-documentation-dashboard'
+      : 'rejected-from-documentation-dashboard',
     reason: approved
       ? `${source.label} documentation publication approved from Documentation publication center`
       : `${source.label} documentation publication rejected from Documentation publication center`,
@@ -465,14 +462,21 @@ function networkErrorLabel(
   if (/failed to fetch|networkerror|load failed/iu.test(error)) {
     return hasStatusData ? 'Refresh failed' : 'Backend unavailable';
   }
-  if (/content changed without a new release version|increment and regenerate/iu.test(error)) {
+  if (
+    /content changed without a new release version|increment and regenerate/iu.test(
+      error,
+    )
+  ) {
     return 'Release version update required. Increment the content-pack version, regenerate the pack, then update Staged again.';
   }
   return error;
 }
 
 function isDocumentationImportAlreadyRunning(error: string | undefined): boolean {
-  return Boolean(error && /documentation update is already running|import is already running/iu.test(error));
+  return Boolean(
+    error &&
+    /documentation update is already running|import is already running/iu.test(error),
+  );
 }
 
 function documentationOperatorGuidance({
@@ -809,8 +813,8 @@ function CmsDocumentationReadinessCard({
     },
     enabled: Boolean(
       processConnection &&
-        workflowRef &&
-        publication.data?.readiness === 'PUBLICATION_PENDING',
+      workflowRef &&
+      publication.data?.readiness === 'PUBLICATION_PENDING',
     ),
     refetchInterval: (query) =>
       query.state.data?.some(isActionablePublicationTask) ? 2_000 : false,
@@ -849,10 +853,7 @@ function CmsDocumentationReadinessCard({
         publicationQueryKey(runtime.enterpriseCode, initializationProfile ?? ''),
         nextStatus,
       );
-      await Promise.all([
-        pack.refetch(),
-        onPublicationStatusChange?.(nextStatus),
-      ]);
+      await Promise.all([pack.refetch(), onPublicationStatusChange?.(nextStatus)]);
     },
   });
   const approvalMutation = useMutation({
@@ -948,8 +949,7 @@ function CmsDocumentationReadinessCard({
     publicationReadiness: publication.data?.readiness,
     transientImportRunning,
   });
-  const canOpenApprovalTasks =
-    publication.data?.readiness === 'PUBLICATION_PENDING';
+  const canOpenApprovalTasks = publication.data?.readiness === 'PUBLICATION_PENDING';
   const approvalTaskCount = approvalTasks.data?.length ?? 0;
   const canDecideInline = Boolean(actionableApprovalTask);
   const canModifyStaged = Boolean(packOperation && !canOpenApprovalTasks);
@@ -964,7 +964,9 @@ function CmsDocumentationReadinessCard({
   const packActionLabel =
     packOperation === 'UPDATE' ? 'Update staged' : 'Install staged';
   const rowStatusText = rowError ?? pendingApprovalStatus ?? rowStatus;
-  const rowStatusIsError = Boolean((rowError && !transientImportRunning) || hasBlockingConfiguration);
+  const rowStatusIsError = Boolean(
+    (rowError && !transientImportRunning) || hasBlockingConfiguration,
+  );
 
   return (
     <Box
@@ -1240,9 +1242,9 @@ function CmsDocumentationReadinessCard({
                 Review before approval: publication{' '}
                 {publication.data?.publication?.code ?? 'pending'}, workflow{' '}
                 {workflowRef ?? 'unavailable'}, requested by{' '}
-                {publication.data?.publication?.requestedBy ?? 'unknown'}.
-                {' '}Approve to move this pack Online, or reject to keep the
-                current Online version unchanged.
+                {publication.data?.publication?.requestedBy ?? 'unknown'}. Approve to
+                move this pack Online, or reject to keep the current Online version
+                unchanged.
               </Alert>
             ) : null}
 
@@ -1383,7 +1385,7 @@ export function DocumentationDashboard({
     if (source.type === 'OPENAPI') return true;
     return Boolean(
       source.initializationProfile &&
-        readyCmsProfiles.has(source.initializationProfile),
+      readyCmsProfiles.has(source.initializationProfile),
     );
   });
   const measured = sources.filter((source) => source.dashboard.coverage);
@@ -1432,7 +1434,7 @@ export function DocumentationDashboard({
               }}
             >
               <Box sx={{ minWidth: 0 }}>
-                <Typography sx={{ lineHeight: 1.15 }} variant="h4">
+                <Typography component="h1" sx={{ lineHeight: 1.15 }} variant="h4">
                   Documentation publication center
                 </Typography>
                 <Typography color="text.secondary" sx={{ mt: 0.75, maxWidth: 900 }}>

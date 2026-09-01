@@ -538,10 +538,10 @@ export function App() {
 
   const composition = bootstrap.uiComposition;
   const assistantNavigation = authenticatedBootstrap?.navigation.find(
-    (item) => item.id === 'assistant' && item.moduleName === 'aiAssistant',
+    (item) => item.id === 'assistant' && ['copilotApi', 'aiAssistant'].includes(item.moduleName),
   );
   const assistantConnection = authenticatedBootstrap
-    ? selectModuleConnection(authenticatedBootstrap, 'aiAssistant')
+    ? selectModuleConnection(authenticatedBootstrap, assistantNavigation?.moduleName ?? 'copilotApi')
     : undefined;
   const workbenchNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'schema-workbench' && item.moduleName === 'backoffice',
