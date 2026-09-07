@@ -147,6 +147,72 @@ export interface AxisNavigationLifecycleActionInputField {
   readonly maximumLength: number;
 }
 
+export type AxisBackendWorkspaceFieldType =
+  | 'TEXT'
+  | 'EMAIL'
+  | 'PASSWORD'
+  | 'MULTILINE'
+  | 'SELECT'
+  | 'MULTISELECT'
+  | 'CHECKBOX'
+  | 'HIDDEN'
+  | 'IDEMPOTENCY';
+
+export interface AxisBackendWorkspaceOption {
+  readonly value: string;
+  readonly label: string;
+}
+
+export interface AxisBackendWorkspaceField {
+  readonly name: string;
+  readonly label: string;
+  readonly type: AxisBackendWorkspaceFieldType;
+  readonly required: boolean;
+  readonly maximumLength?: number | undefined;
+  readonly defaultValue?: string | boolean | readonly string[] | undefined;
+  readonly bindToPath?: boolean | undefined;
+  readonly options?: readonly AxisBackendWorkspaceOption[] | undefined;
+}
+
+export interface AxisBackendWorkspaceColumn {
+  readonly field: string;
+  readonly label: string;
+}
+
+export interface AxisBackendWorkspaceEndpoint {
+  readonly method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  readonly path: string;
+  readonly resultPath?: string | undefined;
+}
+
+export interface AxisBackendWorkspaceSection {
+  readonly id: string;
+  readonly type: 'listing' | 'form';
+  readonly title: string;
+  readonly submitLabel?: string | undefined;
+  readonly public?: boolean | undefined;
+  readonly endpoint: AxisBackendWorkspaceEndpoint;
+  readonly columns?: readonly AxisBackendWorkspaceColumn[] | undefined;
+  readonly filters?: readonly AxisBackendWorkspaceField[] | undefined;
+  readonly fields?: readonly AxisBackendWorkspaceField[] | undefined;
+}
+
+export interface AxisBackendWorkspaceTab {
+  readonly id: string;
+  readonly label: string;
+  readonly icon?: string | undefined;
+  readonly sections: readonly AxisBackendWorkspaceSection[];
+}
+
+export interface AxisBackendWorkspace {
+  readonly contractVersion: number;
+  readonly title: string;
+  readonly description?: string | undefined;
+  readonly renderer: string;
+  readonly defaultTab?: string | undefined;
+  readonly tabs: readonly AxisBackendWorkspaceTab[];
+}
+
 export interface AxisNavigationHelp {
   readonly summary: string;
   readonly documentationRoute?: string | undefined;
@@ -189,6 +255,7 @@ export interface AxisNavigationItem {
   readonly detailPanels?: readonly AxisNavigationDetailPanel[] | undefined;
   readonly lifecycleActions?: readonly AxisNavigationLifecycleAction[] | undefined;
   readonly help?: AxisNavigationHelp | undefined;
+  readonly backendWorkspace?: AxisBackendWorkspace | undefined;
   readonly sourceTrace?: AxisNavigationSourceTrace | undefined;
   readonly routeOwner?: AxisNavigationRouteOwner | undefined;
 }
@@ -423,6 +490,180 @@ function availabilityState(value: unknown): AxisModuleAvailability {
 
 function optionalText(value: unknown, name: string): string | undefined {
   return value === undefined ? undefined : text(value, name);
+}
+
+function optionalBoolean(value: unknown, name: string): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'boolean') throw new Error(`${name} must be a boolean`);
+  return value;
+}
+
+function backendWorkspaceOption(
+  value: unknown,
+  name: string,
+): AxisBackendWorkspaceOption {
+  const source = record(value, name);
+  if (typeof source.value !== 'string' || source.value.length > 128) {
+    throw new Error(`${name} value must be a bounded string`);
+  }
+  return Object.freeze({
+    value: source.value,
+    label: text(source.label, `${name} label`),
+  });
+}
+
+function backendWorkspaceField(
+  value: unknown,
+  name: string,
+): AxisBackendWorkspaceField {
+  const source = record(value, name);
+  const type = text(source.type, `${name} type`);
+  if (
+    ![
+      'TEXT',
+      'EMAIL',
+      'PASSWORD',
+      'MULTILINE',
+      'SELECT',
+      'MULTISELECT',
+      'CHECKBOX',
+      'HIDDEN',
+      'IDEMPOTENCY',
+    ].includes(type)
+  ) {
+    throw new Error(`${name} type is unsupported`);
+  }
+  const maximumLength =
+    source.maximumLength === undefined
+      ? undefined
+      : nonNegativeInteger(source.maximumLength, `${name} maximum length`);
+  const parsed = {
+    name: text(source.name, `${name} name`),
+    label: text(source.label, `${name} label`),
+    type: type as AxisBackendWorkspaceFieldType,
+    required: source.required === true,
+    maximumLength,
+    defaultValue:
+      typeof source.defaultValue === 'string' ||
+      typeof source.defaultValue === 'boolean' ||
+      (Array.isArray(source.defaultValue) &&
+        source.defaultValue.every((item) => typeof item === 'string'))
+        ? (source.defaultValue as string | boolean | readonly string[])
+        : undefined,
+    bindToPath: optionalBoolean(source.bindToPath, `${name} bindToPath`),
+    options:
+      source.options === undefined
+        ? undefined
+        : Object.freeze(
+            array(source.options, `${name} options`).map((option, index) =>
+              backendWorkspaceOption(option, `${name} option ${String(index)}`),
+            ),
+          ),
+  } satisfies AxisBackendWorkspaceField;
+  return Object.freeze(parsed);
+}
+
+function backendWorkspaceEndpoint(
+  value: unknown,
+  name: string,
+): AxisBackendWorkspaceEndpoint {
+  const source = record(value, name);
+  const method = text(source.method, `${name} method`);
+  if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    throw new Error(`${name} method is unsupported`);
+  }
+  return Object.freeze({
+    method: method as AxisBackendWorkspaceEndpoint['method'],
+    path: relativeRoute(source.path, `${name} path`),
+    resultPath: optionalText(source.resultPath, `${name} result path`),
+  });
+}
+
+function backendWorkspaceSection(
+  value: unknown,
+  name: string,
+): AxisBackendWorkspaceSection {
+  const source = record(value, name);
+  const type = text(source.type, `${name} type`);
+  if (!['listing', 'form'].includes(type)) {
+    throw new Error(`${name} type is unsupported`);
+  }
+  return Object.freeze({
+    id: text(source.id, `${name} id`),
+    type: type as AxisBackendWorkspaceSection['type'],
+    title: text(source.title, `${name} title`),
+    submitLabel: optionalText(source.submitLabel, `${name} submit label`),
+    public: optionalBoolean(source.public, `${name} public`),
+    endpoint: backendWorkspaceEndpoint(source.endpoint, `${name} endpoint`),
+    columns:
+      source.columns === undefined
+        ? undefined
+        : Object.freeze(
+            array(source.columns, `${name} columns`).map((column, index) => {
+              const parsed = record(column, `${name} column ${String(index)}`);
+              return Object.freeze({
+                field: text(parsed.field, `${name} column field ${String(index)}`),
+                label: text(parsed.label, `${name} column label ${String(index)}`),
+              });
+            }),
+          ),
+    filters:
+      source.filters === undefined
+        ? undefined
+        : Object.freeze(
+            array(source.filters, `${name} filters`).map((field, index) =>
+              backendWorkspaceField(field, `${name} filter ${String(index)}`),
+            ),
+          ),
+    fields:
+      source.fields === undefined
+        ? undefined
+        : Object.freeze(
+            array(source.fields, `${name} fields`).map((field, index) =>
+              backendWorkspaceField(field, `${name} field ${String(index)}`),
+            ),
+          ),
+  });
+}
+
+export function parseBackendWorkspace(
+  value: unknown,
+  name = 'Backend workspace',
+): AxisBackendWorkspace {
+  const source = record(value, name);
+  return Object.freeze({
+    contractVersion: nonNegativeInteger(source.contractVersion, `${name} version`),
+    title: text(source.title, `${name} title`),
+    description: optionalText(source.description, `${name} description`),
+    renderer: text(source.renderer, `${name} renderer`),
+    defaultTab: optionalText(source.defaultTab, `${name} default tab`),
+    tabs: Object.freeze(
+      array(source.tabs, `${name} tabs`).map((tab, index) => {
+        const parsed = record(tab, `${name} tab ${String(index)}`);
+        return Object.freeze({
+          id: text(parsed.id, `${name} tab id ${String(index)}`),
+          label: text(parsed.label, `${name} tab label ${String(index)}`),
+          icon: optionalText(parsed.icon, `${name} tab icon ${String(index)}`),
+          sections: Object.freeze(
+            array(parsed.sections, `${name} tab sections ${String(index)}`).map(
+              (section, sectionIndex) =>
+                backendWorkspaceSection(
+                  section,
+                  `${name} tab ${String(index)} section ${String(sectionIndex)}`,
+                ),
+            ),
+          ),
+        });
+      }),
+    ),
+  });
+}
+
+function optionalBackendWorkspace(
+  value: unknown,
+  name: string,
+): AxisBackendWorkspace | undefined {
+  return value === undefined ? undefined : parseBackendWorkspace(value, name);
 }
 
 function safeModuleName(value: unknown, name: string): string {
@@ -1122,6 +1363,10 @@ function parseNavigation(
             moduleName,
           ),
           help: parseNavigationHelp(item.help, moduleName),
+          backendWorkspace: optionalBackendWorkspace(
+            item.backendWorkspace,
+            `${moduleName} navigation backend workspace`,
+          ),
         }),
       );
     });
@@ -1281,6 +1526,10 @@ function parseEffectiveNavigationComposition(
         moduleName,
       ),
       help: parseNavigationHelp(item.help, moduleName),
+      backendWorkspace: optionalBackendWorkspace(
+        item.backendWorkspace,
+        `${moduleName} effective navigation backend workspace`,
+      ),
       sourceTrace: parseNavigationSourceTrace(item.sourceTrace, moduleName),
       routeOwner: parseNavigationRouteOwner(item.routeOwner, moduleName),
     } satisfies AxisNavigationItem);

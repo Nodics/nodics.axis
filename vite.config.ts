@@ -12,7 +12,7 @@ const RUNTIME_CONFIG_PATH = '/axis-config.json';
 const LOCAL_SECURITY_HEADERS = {
   'Cache-Control': 'no-store',
   'Content-Security-Policy':
-    "default-src 'self'; connect-src 'self' http://localhost:* http://127.0.0.1:*; img-src 'self' data: http://localhost:* http://127.0.0.1:*; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
+    "default-src 'self'; connect-src 'self' http://localhost:* http://127.0.0.1:* https://api.mapbox.com https://events.mapbox.com; img-src 'self' data: blob: http://localhost:* http://127.0.0.1:* https://api.mapbox.com https://*.tiles.mapbox.com https://a.tile.openstreetmap.fr; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
   'Cross-Origin-Resource-Policy': 'same-origin',
   'Referrer-Policy': 'no-referrer',
   'X-Content-Type-Options': 'nosniff',
@@ -54,6 +54,8 @@ function booleanValue(env: Record<string, string>, name: string): boolean {
 export function buildRuntimeConfig(env: Record<string, string>): AxisRuntimeConfig {
   return parseRuntimeConfig({
     backofficeBaseUrl: required(env, 'AXIS_BACKOFFICE_BASE_URL'),
+    locationBaseUrl: required(env, 'AXIS_LOCATION_BASE_URL'),
+    wasteApiBaseUrl: required(env, 'AXIS_WASTE_API_BASE_URL'),
     enterpriseCode: required(env, 'AXIS_ENTERPRISE_CODE'),
     projectCode: required(env, 'AXIS_PROJECT_CODE'),
     clientContractVersion: positiveInteger(env, 'AXIS_CLIENT_CONTRACT_VERSION'),

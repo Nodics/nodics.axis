@@ -20,5 +20,5 @@
     "types": ["vitest/globals", "@testing-library/jest-dom"],
     "tsBuildInfoFile": "../../.cache/typescript/tsconfig.test.tsbuildinfo"
   },
-  "include": ["../../test", "../../vite.config.ts"]
+  "include": ["../../test", "../../vite.config.ts", "../../src/vite-env.d.ts"]
 }

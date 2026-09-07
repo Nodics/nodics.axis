@@ -50,6 +50,8 @@ import { LocalizationOperationsRoutePage } from '../operations/localization/Loca
 import { CustomerEngagementRoutePage } from '../operations/customerEngagement/CustomerEngagementRoutePage';
 import { SetupAcceleratorsRoutePage } from '../operations/setupAccelerators/SetupAcceleratorsRoutePage';
 import { CollectionCentresRoutePage } from '../operations/location/CollectionCentresRoutePage';
+import { LocationMapConfigurationRoutePage } from '../operations/location/LocationMapConfigurationRoutePage';
+import { WasteManagementRoutePage } from '../operations/wasteManagement/WasteManagementRoutePage';
 import { EnterpriseRelationshipsRoutePage } from '../operations/enterprise/EnterpriseRelationshipsRoutePage';
 import { AxisDashboardRoutePage } from '../dashboard/AxisDashboardRoutePage';
 import { useIdleScreenLock } from '../auth/useIdleScreenLock';
@@ -75,6 +77,10 @@ import {
   useAxisLocalizationController,
 } from '../localization/AxisLocalizationContext';
 import { useRuntimeConfig } from '../runtime/RuntimeConfigContext';
+import {
+  BackendOperationsWorkspaceRoutePage,
+  PublicBackendOperationsWorkspaceRoutePage,
+} from './BackendOperationsWorkspaceRoutePage';
 import { CmsRoutePage } from './CmsRoutePage';
 import { LoadingScreen } from './LoadingScreen';
 import { ModuleWorkspacePlaceholder } from './ModuleWorkspacePlaceholder';
@@ -540,10 +546,15 @@ export function App() {
 
   const composition = bootstrap.uiComposition;
   const assistantNavigation = authenticatedBootstrap?.navigation.find(
-    (item) => item.id === 'assistant' && ['copilotApi', 'aiAssistant'].includes(item.moduleName),
+    (item) =>
+      item.id === 'assistant' &&
+      ['copilotApi', 'aiAssistant'].includes(item.moduleName),
   );
   const assistantConnection = authenticatedBootstrap
-    ? selectModuleConnection(authenticatedBootstrap, assistantNavigation?.moduleName ?? 'copilotApi')
+    ? selectModuleConnection(
+        authenticatedBootstrap,
+        assistantNavigation?.moduleName ?? 'copilotApi',
+      )
     : undefined;
   const workbenchNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'schema-workbench' && item.moduleName === 'backoffice',
@@ -576,28 +587,7 @@ export function App() {
   const cronNavigation =
     authenticatedBootstrap?.navigation.find(
       (item) => item.route.startsWith('/cron') || item.moduleName === 'cronjob',
-    ) ??
-    ({
-      id: 'cron',
-      label: 'Cron',
-      route: '/cron',
-      order: 0,
-      moduleName: 'cronjob',
-      category: 'operations',
-      icon: 'cronjob',
-      availability:
-        authenticatedBootstrap &&
-        selectModuleConnection(authenticatedBootstrap, 'cronjob')
-          ? 'UP'
-          : 'UNKNOWN',
-      perspectives: ['operations'],
-      contexts: ['scheduler'],
-      featureState: 'ACTIVE',
-      help: {
-        summary:
-          'Monitor scheduled job definitions, execution logs, and cron runtime health.',
-      },
-    } satisfies AxisNavigationItem);
+    );
   const mediaManagementNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'media-management' && item.moduleName === 'media',
   );
@@ -818,7 +808,16 @@ export function App() {
     session && !locked && authenticatedBootstrap && navigationItem
       ? navigationItem.workbenchTarget
         ? workbenchRouteElement(navigationItem)
-        : authenticatedShell(<ModuleWorkspacePlaceholder item={navigationItem} />)
+        : navigationItem.backendWorkspace
+          ? authenticatedShell(
+              <BackendOperationsWorkspaceRoutePage
+                accessToken={session.accessToken}
+                enterpriseCode={runtime.enterpriseCode}
+                runtime={runtime}
+                workspace={navigationItem.backendWorkspace}
+              />,
+            )
+          : authenticatedShell(<ModuleWorkspacePlaceholder item={navigationItem} />)
       : sessionFallback;
   const cmsWorkbenchElement =
     currentWorkbenchNavigation && currentWorkbenchSchema
@@ -1267,8 +1266,67 @@ export function App() {
           ),
         )
       : sessionFallback;
+  const locationMapNavigation = currentNavigation?.route.startsWith('/location/maps')
+    ? currentNavigation
+    : authenticatedBootstrap?.navigation.find(
+        (item) =>
+          item.id === 'location-map' &&
+          item.moduleName === 'locationMap' &&
+          item.route === '/location/maps',
+      );
+  const locationMapConfigurationElement =
+    session && !locked && authenticatedBootstrap && locationMapNavigation
+      ? authenticatedShell(
+          ['UP', 'DEGRADED'].includes(locationMapNavigation.availability) ? (
+            <LocationMapConfigurationRoutePage
+              accessToken={session.accessToken}
+              bootstrap={authenticatedBootstrap}
+              channel={composition.channel}
+              cmsBaseUrl={bootstrap.endpoints.cms}
+              employeeId={session.loginId}
+              locale={composition.locale}
+              navigation={locationMapNavigation}
+              runtime={runtime}
+              site={composition.site}
+            />
+          ) : (
+            <ModuleWorkspacePlaceholder item={locationMapNavigation} />
+          ),
+        )
+      : sessionFallback;
+  const wasteOperationsNavigation = currentNavigation?.route.startsWith('/waste/assets')
+    ? currentNavigation
+    : authenticatedBootstrap?.navigation.find(
+        (item) => item.route === '/waste/assets',
+      );
+  const wasteOperationsElement =
+    session && !locked && authenticatedBootstrap && wasteOperationsNavigation
+      ? authenticatedShell(
+          ['UP', 'DEGRADED'].includes(wasteOperationsNavigation.availability) ? (
+            <WasteManagementRoutePage
+              accessToken={session.accessToken}
+              bootstrap={authenticatedBootstrap}
+              employeeId={session.loginId}
+              navigation={wasteOperationsNavigation}
+              runtime={runtime}
+            />
+          ) : (
+            <ModuleWorkspacePlaceholder item={wasteOperationsNavigation} />
+          ),
+        )
+      : sessionFallback;
+  const enterpriseRelationshipsNavigation = currentNavigation?.route.startsWith(
+    '/enterprises/',
+  )
+    ? currentNavigation
+    : authenticatedBootstrap?.navigation.find(
+        (item) =>
+          item.moduleName === 'profile' &&
+          item.id === 'enterprises' &&
+          item.route === '/profile/enterprises',
+      );
   const enterpriseRelationshipsElement =
-    session && !locked && authenticatedBootstrap
+    session && !locked && authenticatedBootstrap && enterpriseRelationshipsNavigation
       ? authenticatedShell(
           <EnterpriseRelationshipsRoutePage
             accessToken={session.accessToken}
@@ -1277,6 +1335,17 @@ export function App() {
           />,
         )
       : sessionFallback;
+  const profileBackendWorkspaceNavigation =
+    currentNavigation?.backendWorkspace &&
+    currentNavigation.route.startsWith('/profile')
+      ? currentNavigation
+      : authenticatedBootstrap?.navigation.find(
+          (item) => item.route.startsWith('/profile') && Boolean(item.backendWorkspace),
+        );
+  const profileBackendWorkspaceElement =
+    profileBackendWorkspaceNavigation?.backendWorkspace
+      ? navigationRouteElement(profileBackendWorkspaceNavigation)
+      : navigationRouteElement(currentNavigation);
 
   const initializationRequired = Boolean(
     session &&
@@ -1365,6 +1434,10 @@ export function App() {
               <Navigate replace to={composition.defaultPublicPage} />
             )
           }
+        />
+        <Route
+          path="/enterprise-access/register"
+          element={<PublicBackendOperationsWorkspaceRoutePage runtime={runtime} />}
         />
         <Route
           path={axisDashboardRoute}
@@ -1674,17 +1747,21 @@ export function App() {
           path="/cron/*"
           element={
             session && !locked && authenticatedBootstrap ? (
-              authenticatedShell(
-                selectModuleConnection(authenticatedBootstrap, 'cronjob') ? (
+              cronNavigation ? (
+                authenticatedShell(
+                  selectModuleConnection(authenticatedBootstrap, 'cronjob') ? (
                   <CronDashboardRoutePage
                     accessToken={session.accessToken}
                     bootstrap={authenticatedBootstrap}
                     routeNavigation={cronNavigation}
                     runtime={runtime}
                   />
-                ) : (
-                  <ModuleWorkspacePlaceholder item={cronNavigation} />
-                ),
+                  ) : (
+                    <ModuleWorkspacePlaceholder item={cronNavigation} />
+                  ),
+                )
+              ) : (
+                <Navigate replace to={composition.defaultAuthenticatedPage} />
               )
             ) : (
               <Navigate
@@ -1781,7 +1858,12 @@ export function App() {
         <Route path="/discovery/*" element={discoveryManagementElement} />
         <Route path="/localization/*" element={localizationOperationsElement} />
         <Route path="/commerce/*" element={commerceRouteElement} />
+        <Route path="/waste/assets" element={wasteOperationsElement} />
+        <Route path="/waste/assets/*" element={wasteOperationsElement} />
         <Route path="/waste/collection-centres" element={collectionCentresElement} />
+        <Route path="/location/maps" element={locationMapConfigurationElement} />
+        <Route path="/location/maps/*" element={locationMapConfigurationElement} />
+        <Route path="/profile/*" element={profileBackendWorkspaceElement} />
         <Route
           path="/enterprises/:enterpriseCode"
           element={enterpriseRelationshipsElement}
@@ -1804,6 +1886,8 @@ export function App() {
                   !item.route.startsWith('/process') &&
                   !item.route.startsWith('/publishing') &&
                   !item.route.startsWith('/cron') &&
+                  !item.route.startsWith('/location/maps') &&
+                  !item.route.startsWith('/waste/assets') &&
                   ![
                     '/assistant',
                     '/registry',

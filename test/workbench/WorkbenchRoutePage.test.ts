@@ -121,6 +121,21 @@ describe('resolveWorkbenchDeepLinkTarget', () => {
     });
   });
 
+  it('carries the requested record search into the selected schema target', () => {
+    const target = resolveWorkbenchDeepLinkTarget(
+        '?module=wasteCollection&schema=wasteCollectionPoint&search=WCP_SAMPLE',
+        [schema('wasteCollection', 'wasteCollectionPoint', ['search', 'read'])],
+      );
+    expect(summarize(target)).toEqual({
+      key: 'wasteCollection:wasteCollectionPoint:browse:WCP_SAMPLE',
+      mode: undefined,
+      moduleName: 'wasteCollection',
+      schemaName: 'wasteCollectionPoint',
+      connectionServer: undefined,
+    });
+    expect(target?.search).toBe('WCP_SAMPLE');
+  });
+
   it('ignores unresolved or incomplete deep links', () => {
     expect(
       resolveWorkbenchDeepLinkTarget('?module=media&schema=unknown', [

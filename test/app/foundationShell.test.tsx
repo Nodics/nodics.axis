@@ -45,7 +45,7 @@ describe('Axis Phase 2 foundation', () => {
     expect(screen.getByRole('button', { name: 'Retry module' })).toBeInTheDocument();
   });
 
-  it('allows schema-backed Waste workbench navigation without an invented module endpoint', () => {
+  it('blocks schema-backed workbench navigation without the owning module endpoint', () => {
     const bootstrap = {
       moduleConnections: {
         backoffice: [
@@ -75,6 +75,6 @@ describe('Axis Phase 2 foundation', () => {
       },
     } as never;
 
-    expect(canRenderWorkbenchNavigation(bootstrap, navigation)).toBe(true);
+    expect(canRenderWorkbenchNavigation(bootstrap, navigation)).toBe(false);
   });
 });

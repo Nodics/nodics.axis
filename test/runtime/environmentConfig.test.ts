@@ -4,6 +4,8 @@ import { buildRuntimeConfig } from '../../vite.config';
 
 const validEnvironment = {
   AXIS_BACKOFFICE_BASE_URL: 'https://backoffice.example.com/',
+  AXIS_LOCATION_BASE_URL: 'https://location.example.com/nodics/locationMap/',
+  AXIS_WASTE_API_BASE_URL: 'https://waste.example.com/nodics/wasteApi/',
   AXIS_ENTERPRISE_CODE: 'default',
   AXIS_PROJECT_CODE: 'nodics.kickoff',
   AXIS_CLIENT_CONTRACT_VERSION: '1',
@@ -18,6 +20,8 @@ describe('Axis environment configuration', () => {
   it('maps explicit public environment values into the runtime contract', () => {
     expect(buildRuntimeConfig(validEnvironment)).toEqual({
       backofficeBaseUrl: 'https://backoffice.example.com',
+      locationBaseUrl: 'https://location.example.com/nodics/locationMap',
+      wasteApiBaseUrl: 'https://waste.example.com/nodics/wasteApi',
       enterpriseCode: 'default',
       projectCode: 'nodics.kickoff',
       clientContractVersion: 1,
@@ -37,6 +41,20 @@ describe('Axis environment configuration', () => {
       {
         ...validEnvironment,
         AXIS_BACKOFFICE_BASE_URL: 'https://user:secret@example.com',
+      },
+    ],
+    [
+      'credential-bearing Location URL',
+      {
+        ...validEnvironment,
+        AXIS_LOCATION_BASE_URL: 'https://user:secret@example.com/nodics/locationMap',
+      },
+    ],
+    [
+      'credential-bearing Waste API URL',
+      {
+        ...validEnvironment,
+        AXIS_WASTE_API_BASE_URL: 'https://user:secret@example.com/nodics/wasteApi',
       },
     ],
     [

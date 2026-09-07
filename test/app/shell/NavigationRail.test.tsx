@@ -16,7 +16,7 @@ describe('Axis navigation rail', () => {
     const groups: readonly ShellNavigationGroup[] = [
       {
         id: 'system-integrations',
-        label: 'System & Integrations',
+        label: 'System Integrations',
         order: 150,
         items: [
           {
@@ -76,7 +76,9 @@ describe('Axis navigation rail', () => {
     ).toBeDisabled();
     expect(
       screen
-        .getByRole('button', { name: 'Collapse System & Integrations' })
+        .getByRole('button', {
+          name: 'Collapse System Integrations',
+        })
         .querySelector('[data-navigation-expander="group"]'),
     ).toHaveStyle({ width: '40px' });
     expect(
@@ -94,7 +96,7 @@ describe('Axis navigation rail', () => {
     const groups: readonly ShellNavigationGroup[] = [
       {
         id: 'system-integrations',
-        label: 'System & Integrations',
+        label: 'System Integrations',
         order: 150,
         items: [
           {
@@ -133,7 +135,9 @@ describe('Axis navigation rail', () => {
     );
 
     expect(
-      screen.getByRole('button', { name: 'Expand System & Integrations' }),
+      screen.getByRole('button', {
+        name: 'Expand System Integrations',
+      }),
     ).toBeVisible();
     expect(screen.queryByText('Module Registry')).not.toBeInTheDocument();
   });

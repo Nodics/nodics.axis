@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 240" role="img" aria-label="Smartphone evidence">
+  <rect width="360" height="240" rx="18" fill="#eef6ee"/>
+  <rect x="132" y="28" width="96" height="184" rx="18" fill="#242629"/>
+  <rect x="146" y="52" width="68" height="132" rx="8" fill="#ffffff"/>
+  <path d="M161 102h38M161 126h30M161 150h42" stroke="#16883f" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="180" cy="196" r="6" fill="#f5c400"/>
+</svg>

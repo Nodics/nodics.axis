@@ -1,5 +1,7 @@
 export interface AxisRuntimeConfig {
   readonly backofficeBaseUrl: string;
+  readonly locationBaseUrl?: string | undefined;
+  readonly wasteApiBaseUrl?: string | undefined;
   readonly enterpriseCode: string;
   readonly projectCode: string;
   readonly clientContractVersion: number;
@@ -78,6 +80,8 @@ export function parseRuntimeConfig(value: unknown): AxisRuntimeConfig {
 
   const allowedKeys = new Set([
     'backofficeBaseUrl',
+    'locationBaseUrl',
+    'wasteApiBaseUrl',
     'enterpriseCode',
     'projectCode',
     'clientContractVersion',
@@ -106,6 +110,12 @@ export function parseRuntimeConfig(value: unknown): AxisRuntimeConfig {
 
   return Object.freeze({
     backofficeBaseUrl: parseBaseUrl(value.backofficeBaseUrl, 'backofficeBaseUrl'),
+    ...(value.locationBaseUrl === undefined || value.locationBaseUrl === ''
+      ? {}
+      : { locationBaseUrl: parseBaseUrl(value.locationBaseUrl, 'locationBaseUrl') }),
+    ...(value.wasteApiBaseUrl === undefined || value.wasteApiBaseUrl === ''
+      ? {}
+      : { wasteApiBaseUrl: parseBaseUrl(value.wasteApiBaseUrl, 'wasteApiBaseUrl') }),
     enterpriseCode: parseIdentifier(value.enterpriseCode, 'enterpriseCode'),
     projectCode: parseIdentifier(value.projectCode, 'projectCode'),
     clientContractVersion: parsePositiveInteger(

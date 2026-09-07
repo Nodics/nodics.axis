@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 240" role="img" aria-label="Router evidence">
+  <rect width="360" height="240" rx="18" fill="#f7f3e8"/>
+  <rect x="72" y="104" width="216" height="72" rx="14" fill="#242629"/>
+  <path d="M112 104L90 48M248 104l22-56" stroke="#242629" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="116" cy="140" r="8" fill="#16883f"/>
+  <circle cx="148" cy="140" r="8" fill="#f5c400"/>
+  <path d="M184 140h58" stroke="#ffffff" stroke-width="9" stroke-linecap="round"/>
+</svg>

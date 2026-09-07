@@ -607,6 +607,119 @@ describe('employee login journey', () => {
     await waitFor(() => expect(window.location.pathname).toBe('/initialize-axis'));
   });
 
+  it('does not invent Waste or Location navigation before backend activation publishes them', async () => {
+    window.history.pushState({}, '', '/waste/assets');
+    document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
+    const request = vi.fn<typeof fetch>().mockImplementation((input, options) => {
+      const url = fetchInputUrl(input);
+      if (url.includes('/bootstrap/public')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(publicBootstrap), { status: 200 }),
+        );
+      }
+      if (url.includes('/employee/browser/restore')) {
+        expect(new Headers(options?.headers).get('X-CSRF-Token')).toBe('refresh-csrf');
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              result: {
+                authToken: 'restored-dashboard-access',
+                loginId: 'operator',
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes('/axis/initialization')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(axisInitializationReady), { status: 200 }),
+        );
+      }
+      if (url.includes('/bootstrap')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: {
+                modules: {
+                  backoffice: [
+                    {
+                      moduleName: 'backoffice',
+                      instanceId: 'platform-1',
+                      environment: 'kickoffLocal',
+                      clientCallable: true,
+                      endpoint: 'https://platform.example.com/nodics/backoffice',
+                      state: 'UP',
+                    },
+                  ],
+                },
+                catalogue: {
+                  backoffice: {
+                    enabled: true,
+                    category: 'platform',
+                    icon: 'dashboard',
+                    requiredPermissions: ['axis.dashboard.view'],
+                    compatibility: { status: 'COMPATIBLE' },
+                    navigation: [
+                      {
+                        id: 'dashboard',
+                        label: 'Dashboard',
+                        route: '/dashboard',
+                        order: 10,
+                        moduleName: 'backoffice',
+                        category: 'platform',
+                        availability: 'UP',
+                        featureState: 'ACTIVE',
+                      },
+                    ],
+                  },
+                },
+                availability: {
+                  backoffice: { state: 'UP' },
+                },
+                axisPolicy: {
+                  contractVersion: 0,
+                  screenLockEnabled: true,
+                  idleTimeoutSeconds: 900,
+                  recentNavigationLimit: 12,
+                  revision: 0,
+                  source: 'DEFAULT',
+                },
+                documentationSources: [],
+                tenantCode: 'default',
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes('/delivery/pages/resolve')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ result: dashboardPage }), { status: 200 }),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 404 }));
+    });
+    vi.stubGlobal('fetch', request);
+    const user = userEvent.setup();
+
+    render(
+      <AppProviders runtimeConfig={runtimeConfig}>
+        <App />
+      </AppProviders>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeVisible();
+    await waitFor(() => expect(window.location.pathname).toBe('/dashboard'));
+    expect(screen.queryByText('Create waste submission')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Open navigation' }));
+    expect(
+      screen.getByRole('navigation', { name: 'Primary navigation' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Circa Waste Operations')).not.toBeInTheDocument();
+    expect(screen.queryByText('Map Configuration')).not.toBeInTheDocument();
+  });
+
   it('restores an authenticated documentation deep link in a fresh browser tab', async () => {
     window.history.pushState(
       {},
@@ -680,6 +793,7 @@ describe('employee login journey', () => {
                         label: 'Documentation',
                         route: '/docs',
                         order: 100,
+                        group: { id: 'documentation', label: 'Documentation', order: 1600 },
                         requiredPermissions: ['backoffice.documentation.view'],
                       },
                       {
@@ -687,6 +801,7 @@ describe('employee login journey', () => {
                         label: 'Framework placeholder',
                         route: '/docs/framework',
                         order: 110,
+                        group: { id: 'documentation', label: 'Documentation', order: 1600 },
                         requiredPermissions: ['backoffice.documentation.view'],
                       },
                     ],
@@ -1020,6 +1135,7 @@ describe('employee login journey', () => {
                         label: 'Documentation',
                         route: '/docs',
                         order: 100,
+                        group: { id: 'documentation', label: 'Documentation', order: 1600 },
                         requiredPermissions: ['backoffice.documentation.view'],
                       },
                       {
@@ -1027,6 +1143,7 @@ describe('employee login journey', () => {
                         label: 'Framework placeholder',
                         route: '/docs/framework',
                         order: 110,
+                        group: { id: 'documentation', label: 'Documentation', order: 1600 },
                         requiredPermissions: ['backoffice.documentation.view'],
                       },
                     ],
@@ -1213,6 +1330,7 @@ describe('employee login journey', () => {
                         label: 'Documentation',
                         route: '/docs',
                         order: 100,
+                        group: { id: 'documentation', label: 'Documentation', order: 1600 },
                         requiredPermissions: ['backoffice.documentation.view'],
                       },
                     ],
@@ -1428,6 +1546,7 @@ describe('employee login journey', () => {
                         label: 'Documentation',
                         route: '/docs',
                         order: 100,
+                        group: { id: 'documentation', label: 'Documentation', order: 1600 },
                         requiredPermissions: ['backoffice.documentation.view'],
                       },
                       {
@@ -1435,6 +1554,7 @@ describe('employee login journey', () => {
                         label: 'Framework placeholder',
                         route: '/docs/framework',
                         order: 110,
+                        group: { id: 'documentation', label: 'Documentation', order: 1600 },
                         requiredPermissions: ['backoffice.documentation.view'],
                       },
                     ],
@@ -1829,6 +1949,7 @@ describe('employee login journey', () => {
                         label: 'Content',
                         route: '/content',
                         order: 200,
+                        group: { id: 'content', label: 'Content & Experience', order: 200 },
                         workbenchTarget: { moduleName: 'cms', schemaName: 'cmsPage' },
                         requiredPermissions: ['cms.backoffice.view'],
                       },

@@ -22,6 +22,7 @@ type ShellNavigationGroupDefinition = Pick<
 >;
 
 interface BusinessNavigationGroups {
+  readonly systemConfiguration: ShellNavigationGroupDefinition;
   readonly systemIntegrations: ShellNavigationGroupDefinition;
   readonly contentExperience: ShellNavigationGroupDefinition;
   readonly customersOrganisation: ShellNavigationGroupDefinition;
@@ -44,9 +45,14 @@ interface BusinessNavigationGroups {
 }
 
 const BUSINESS_GROUPS: BusinessNavigationGroups = Object.freeze({
+  systemConfiguration: {
+    id: 'system-configuration',
+    label: 'System Configuration',
+    order: 90,
+  },
   systemIntegrations: {
     id: 'system-integrations',
-    label: 'System & Integrations',
+    label: 'System Integrations',
     order: 100,
   },
   contentExperience: {
@@ -141,56 +147,6 @@ const BUSINESS_GROUPS: BusinessNavigationGroups = Object.freeze({
   },
 });
 
-const CATEGORY_GROUPS: Readonly<Record<string, ShellNavigationGroupDefinition>> =
-  Object.freeze({
-    content: BUSINESS_GROUPS.contentExperience,
-    experience: BUSINESS_GROUPS.contentExperience,
-    commerce: BUSINESS_GROUPS.productsMerchandising,
-    core: BUSINESS_GROUPS.customersOrganisation,
-    organization: BUSINESS_GROUPS.customersOrganisation,
-    operations: BUSINESS_GROUPS.processAutomations,
-    platform: BUSINESS_GROUPS.systemIntegrations,
-    sustainability: BUSINESS_GROUPS.sustainabilityOperations,
-    waste: BUSINESS_GROUPS.sustainabilityOperations,
-  });
-
-const GROUP_ID_ALIASES: Readonly<Record<string, ShellNavigationGroupDefinition>> =
-  Object.freeze({
-    'system-integrations': BUSINESS_GROUPS.systemIntegrations,
-    content: BUSINESS_GROUPS.contentExperience,
-    'content-experience': BUSINESS_GROUPS.contentExperience,
-    commerce: BUSINESS_GROUPS.productsMerchandising,
-    'media-management': BUSINESS_GROUPS.mediaManagement,
-    'products-merchandising': BUSINESS_GROUPS.productsMerchandising,
-    'catalogs-products': BUSINESS_GROUPS.productsMerchandising,
-    'search-discovery': BUSINESS_GROUPS.searchDiscovery,
-    'search-navigations': BUSINESS_GROUPS.searchDiscovery,
-    'inventory-operations': BUSINESS_GROUPS.inventoryOperations,
-    'orders-checkouts': BUSINESS_GROUPS.ordersCheckouts,
-    'order-lifecycle-operations': BUSINESS_GROUPS.orderLifecycleOperations,
-    'order-life-cycle': BUSINESS_GROUPS.orderLifecycleOperations,
-    'shipping-operations': BUSINESS_GROUPS.shippingOperations,
-    'payment-operations': BUSINESS_GROUPS.paymentOperations,
-    'fulfillment-operations': BUSINESS_GROUPS.fulfillmentOperations,
-    'promotions-discounts': BUSINESS_GROUPS.promotionsDiscounts,
-    'promotions-discount': BUSINESS_GROUPS.promotionsDiscounts,
-    organization: BUSINESS_GROUPS.customersOrganisation,
-    'customers-organisation': BUSINESS_GROUPS.customersOrganisation,
-    'customer-experience': BUSINESS_GROUPS.customersOrganisation,
-    'editorial-space': BUSINESS_GROUPS.editorialSpace,
-    'process-and-automations': BUSINESS_GROUPS.processAutomations,
-    'process-automations': BUSINESS_GROUPS.processAutomations,
-    'business-process-automation': BUSINESS_GROUPS.processAutomations,
-    'sustainability-operations': BUSINESS_GROUPS.sustainabilityOperations,
-    sustainability: BUSINESS_GROUPS.sustainabilityOperations,
-    waste: BUSINESS_GROUPS.sustainabilityOperations,
-    'waste-management': BUSINESS_GROUPS.sustainabilityOperations,
-    publishing: BUSINESS_GROUPS.publishing,
-    documentation: BUSINESS_GROUPS.documentation,
-    documentations: BUSINESS_GROUPS.documentation,
-    'other-backlogs': BUSINESS_GROUPS.otherBacklogs,
-  });
-
 export function composeShellNavigation(
   navigation: readonly AxisNavigationItem[],
 ): readonly ShellNavigationGroup[] {
@@ -256,23 +212,6 @@ function rootNavigationItem(
   return current;
 }
 
-function itemSearchText(item: AxisNavigationItem): string {
-  return [
-    item.id,
-    item.label,
-    item.route,
-    item.moduleName,
-    item.category,
-    item.group?.id,
-    item.group?.label,
-    item.workbenchTarget?.moduleName,
-    item.workbenchTarget?.schemaName,
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-}
-
 function businessNavigationGroup(
   item: ShellNavigationItem,
   byIdentity: ReadonlyMap<string, ShellNavigationItem>,
@@ -284,30 +223,19 @@ function businessNavigationGroup(
     const rootDeclaredDefinition = declaredBusinessNavigationGroup(rootItem);
     if (rootDeclaredDefinition) return rootDeclaredDefinition;
   }
-  const text = itemSearchText(item);
-  const directDefinition = directBusinessNavigationGroup(item, text);
-  if (directDefinition) return directDefinition;
-  if (rootItem !== item) {
-    return (
-      directBusinessNavigationGroup(rootItem, itemSearchText(rootItem)) ??
-      CATEGORY_GROUPS[item.category] ??
-      BUSINESS_GROUPS.otherBacklogs
-    );
-  }
-  return CATEGORY_GROUPS[item.category] ?? BUSINESS_GROUPS.otherBacklogs;
+  return BUSINESS_GROUPS.otherBacklogs;
 }
 
 function declaredBusinessNavigationGroup(
   item: AxisNavigationItem,
 ): ShellNavigationGroupDefinition | undefined {
   if (!item.group?.id) return undefined;
-  const alias = GROUP_ID_ALIASES[item.group.id];
   return {
-    id: alias?.id ?? item.group.id,
-    label: navigationDisplayLabel(item.group.label || alias?.label || item.group.id),
+    id: item.group.id,
+    label: navigationDisplayLabel(item.group.label || item.group.id),
     order: Number.isInteger(item.group.order)
       ? item.group.order
-      : (alias?.order ?? BUSINESS_GROUPS.otherBacklogs.order),
+      : BUSINESS_GROUPS.otherBacklogs.order,
   };
 }
 
@@ -318,150 +246,6 @@ function navigationDisplayLabel(label: string): string {
     .replace(/\s*&\s*/g, ' & ')
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-function directBusinessNavigationGroup(
-  item: AxisNavigationItem,
-  text: string,
-): ShellNavigationGroupDefinition | undefined {
-  if (item.id === 'dashboard' || text.includes('runtime dashboard')) {
-    return BUSINESS_GROUPS.systemIntegrations;
-  }
-  if (text.includes('publish')) return BUSINESS_GROUPS.publishing;
-  if (text.includes('media')) return BUSINESS_GROUPS.mediaManagement;
-  if (
-    text.includes('web content management') ||
-    text.includes('wcms') ||
-    text.includes('content management') ||
-    text.includes('page') ||
-    text.includes('component') ||
-    text.includes('renderer') ||
-    text.includes('template') ||
-    text.includes('slot') ||
-    text.includes('route') ||
-    text.includes('restriction') ||
-    text.includes('website') ||
-    text.includes('site') ||
-    text.includes('navigation node')
-  ) {
-    return BUSINESS_GROUPS.contentExperience;
-  }
-  if (
-    text.includes('news') ||
-    text.includes('blog') ||
-    text.includes('article') ||
-    text.includes('author') ||
-    text.includes('taxonomy') ||
-    text.includes('series') ||
-    text.includes('editorial')
-  ) {
-    return BUSINESS_GROUPS.editorialSpace;
-  }
-  if (text.includes('discovery') || text.includes('search')) {
-    return BUSINESS_GROUPS.searchDiscovery;
-  }
-  if (
-    text.includes('inventory') ||
-    text.includes('stock') ||
-    text.includes('warehouse')
-  ) {
-    return BUSINESS_GROUPS.inventoryOperations;
-  }
-  if (
-    text.includes('shipment') ||
-    text.includes('shipping') ||
-    text.includes('carrier')
-  ) {
-    return BUSINESS_GROUPS.shippingOperations;
-  }
-  if (text.includes('fulfillment') || text.includes('delivery')) {
-    return BUSINESS_GROUPS.fulfillmentOperations;
-  }
-  if (text.includes('payment')) return BUSINESS_GROUPS.paymentOperations;
-  if (
-    text.includes('promotion') ||
-    text.includes('coupon') ||
-    text.includes('discount')
-  ) {
-    return BUSINESS_GROUPS.promotionsDiscounts;
-  }
-  if (
-    text.includes('cancel') ||
-    text.includes('return') ||
-    text.includes('refund') ||
-    text.includes('exchange') ||
-    text.includes('life cycle') ||
-    text.includes('lifecycle')
-  ) {
-    return BUSINESS_GROUPS.orderLifecycleOperations;
-  }
-  if (text.includes('order') || text.includes('checkout') || text.includes('cart')) {
-    return BUSINESS_GROUPS.ordersCheckouts;
-  }
-  if (
-    text.includes('product') ||
-    text.includes('catalog') ||
-    text.includes('category') ||
-    text.includes('classification') ||
-    text.includes('pricing') ||
-    text.includes('price') ||
-    text.includes('tax')
-  ) {
-    return BUSINESS_GROUPS.productsMerchandising;
-  }
-  if (
-    text.includes('customer') ||
-    text.includes('profile') ||
-    text.includes('employee') ||
-    text.includes('role') ||
-    text.includes('permission') ||
-    text.includes('enterprise') ||
-    text.includes('business unit') ||
-    text.includes('contact') ||
-    text.includes('engagement')
-  ) {
-    return BUSINESS_GROUPS.customersOrganisation;
-  }
-  if (
-    text.includes('workflow') ||
-    text.includes('process') ||
-    text.includes('automation')
-  ) {
-    return BUSINESS_GROUPS.processAutomations;
-  }
-  if (
-    text.includes('waste') ||
-    text.includes('recycle') ||
-    text.includes('recycling') ||
-    text.includes('sustainability') ||
-    text.includes('environment')
-  ) {
-    return BUSINESS_GROUPS.sustainabilityOperations;
-  }
-  if (
-    text.includes('my work') ||
-    text.includes('assigned') ||
-    text.includes('approval') ||
-    text.includes('returned work') ||
-    text.includes('completed work')
-  ) {
-    return BUSINESS_GROUPS.processAutomations;
-  }
-  if (text.includes('documentation') || text.includes('documentations')) {
-    return BUSINESS_GROUPS.documentation;
-  }
-  if (
-    text.includes('schema') ||
-    text.includes('model') ||
-    text.includes('module') ||
-    text.includes('import') ||
-    text.includes('export') ||
-    text.includes('integration') ||
-    text.includes('system')
-  ) {
-    return BUSINESS_GROUPS.systemIntegrations;
-  }
-  return undefined;
 }
 
 function flattenHierarchy(

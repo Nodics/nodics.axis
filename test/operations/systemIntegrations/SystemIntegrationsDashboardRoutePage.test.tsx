@@ -60,7 +60,11 @@ function navigationItem(
     icon: 'module',
     availability: 'UP',
     featureState,
-    group: { id: 'system-integrations', label: 'System & Integrations', order: 150 },
+    group: {
+      id: 'system-integrations',
+      label: 'System Integrations',
+      order: 150,
+    },
   };
 }
 

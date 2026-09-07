@@ -22,6 +22,7 @@ export interface CollectionCentreWorkspaceConfiguration {
   readonly accessToken: string;
   readonly enterpriseCode: string;
   readonly timeoutMs: number;
+  readonly wasteApiBaseUrl?: string | undefined;
 }
 
 export interface CollectionCentreRecord {
@@ -113,8 +114,9 @@ async function loadWasteCollectionCentrePage(
   fetchImplementation: typeof fetch,
 ): Promise<WasteCollectionCentrePage | undefined> {
   const connection = selectModuleConnection(bootstrap, 'wasteApi');
-  if (!connection) return undefined;
-  const endpoint = new URL(connection.endpoint);
+  const rawEndpoint = connection?.endpoint ?? configuration.wasteApiBaseUrl;
+  if (!rawEndpoint) return undefined;
+  const endpoint = new URL(rawEndpoint);
   if (!['http:', 'https:'].includes(endpoint.protocol)) {
     throw new Error('Waste API endpoint is invalid');
   }

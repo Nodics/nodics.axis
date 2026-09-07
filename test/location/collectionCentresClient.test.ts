@@ -191,6 +191,59 @@ describe('collectionCentresClient', () => {
     expect(data.unavailableSources).toEqual([]);
   });
 
+  it('uses the configured Waste API base URL when bootstrap does not expose wasteApi', async () => {
+    const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            records: [
+              {
+                code: 'WCP_2',
+                name: { en: 'Configured Waste API Centre' },
+                collectionPointType: 'DROP_OFF',
+                latitude: 25.25,
+                longitude: 55.35,
+                operatorEnterpriseRef: { code: 'NODICS_WASTE_MANAGEMENT_CO' },
+                assetOwnerEnterpriseRef: { code: 'BEAH_RECYCLING_SERVICES' },
+                operatingStatus: 'ACTIVE',
+                publicVisibility: 'PUBLIC',
+                status: 'ACTIVE',
+              },
+            ],
+            totalCount: 1,
+            sourceCounts: {
+              collectionPoints: 1,
+              locations: 0,
+              addresses: 0,
+              enterprises: 0,
+            },
+            unavailableSources: [],
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const data = await loadCollectionCentreWorkspaceData(
+      {
+        moduleConnections: {},
+      } as never,
+      {
+        ...configuration,
+        wasteApiBaseUrl: 'http://configured.example.test/nodics/wasteApi',
+      },
+      fetchImplementation,
+    );
+
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+    const requestUrl = fetchImplementation.mock.calls[0]?.[0];
+    expect(requestUrl instanceof URL ? requestUrl.href : '').toBe(
+      'http://configured.example.test/nodics/wasteApi/v0/waste/collection-centres/search',
+    );
+    expect(mockedLoadWorkbenchSchemas).not.toHaveBeenCalled();
+    expect(data.records[0]?.code).toBe('WCP_2');
+  });
+
   it('falls back to workbench sources when the Waste domain API is unavailable', async () => {
     mockedLoadWorkbenchSchemas.mockResolvedValue(
       Object.freeze([

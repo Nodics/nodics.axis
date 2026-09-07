@@ -4,6 +4,8 @@ import { parseRuntimeConfig } from '../../src/runtime/runtimeConfig';
 
 const validConfig = {
   backofficeBaseUrl: 'https://backoffice.example.com/',
+  locationBaseUrl: 'https://location.example.com/nodics/locationMap/',
+  wasteApiBaseUrl: 'https://waste.example.com/nodics/wasteApi/',
   enterpriseCode: 'default',
   projectCode: 'nodics.kickoff',
   clientContractVersion: 1,
@@ -18,6 +20,8 @@ describe('parseRuntimeConfig', () => {
   it('accepts and normalizes a safe configuration', () => {
     expect(parseRuntimeConfig(validConfig)).toEqual({
       backofficeBaseUrl: 'https://backoffice.example.com',
+      locationBaseUrl: 'https://location.example.com/nodics/locationMap',
+      wasteApiBaseUrl: 'https://waste.example.com/nodics/wasteApi',
       enterpriseCode: 'default',
       projectCode: 'nodics.kickoff',
       clientContractVersion: 1,
@@ -31,6 +35,8 @@ describe('parseRuntimeConfig', () => {
 
   it.each([
     ['relative URL', { ...validConfig, backofficeBaseUrl: '/backoffice' }],
+    ['relative Location URL', { ...validConfig, locationBaseUrl: '/location' }],
+    ['relative Waste API URL', { ...validConfig, wasteApiBaseUrl: '/wasteApi' }],
     [
       'credentials',
       { ...validConfig, backofficeBaseUrl: 'https://user:secret@example.com' },

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { composeShellNavigation } from '../../../src/app/shell/shellNavigation';
 
 describe('Axis shell navigation composition', () => {
-  it('does not synthesize a local dashboard and groups backend capabilities by business area', () => {
+  it('does not synthesize a local dashboard and groups backend capabilities by declared group', () => {
     const groups = composeShellNavigation([
       {
         id: 'cms',
@@ -14,6 +14,7 @@ describe('Axis shell navigation composition', () => {
         category: 'content',
         icon: 'content',
         availability: 'UP',
+        group: { id: 'content', label: 'Content & Experience', order: 200 },
       },
       {
         id: 'pricing',
@@ -24,6 +25,11 @@ describe('Axis shell navigation composition', () => {
         category: 'commerce',
         icon: 'price',
         availability: 'DEGRADED',
+        group: {
+          id: 'products-merchandising',
+          label: 'Products & Merchandising',
+          order: 500,
+        },
       },
     ]);
 
@@ -47,6 +53,11 @@ describe('Axis shell navigation composition', () => {
         category: 'platform',
         icon: 'operations',
         availability: 'UP',
+        group: {
+          id: 'system-integrations',
+          label: 'System Integrations',
+          order: 100,
+        },
       },
       {
         id: 'dashboard',
@@ -68,6 +79,11 @@ describe('Axis shell navigation composition', () => {
         category: 'platform',
         icon: 'registry',
         availability: 'UP',
+        group: {
+          id: 'system-integrations',
+          label: 'System Integrations',
+          order: 100,
+        },
       },
       {
         id: 'registry',
@@ -103,6 +119,11 @@ describe('Axis shell navigation composition', () => {
         category: 'platform',
         icon: 'operations',
         availability: 'UP',
+        group: {
+          id: 'system-integrations',
+          label: 'System Integrations',
+          order: 100,
+        },
       },
       {
         id: 'dashboard',
@@ -149,6 +170,7 @@ describe('Axis shell navigation composition', () => {
         category: 'content',
         icon: 'content',
         availability: 'UP',
+        group: { id: 'content', label: 'Content & Experience', order: 200 },
       },
       {
         id: 'documentation-dashboard',
@@ -192,7 +214,7 @@ describe('Axis shell navigation composition', () => {
     );
   });
 
-  it('moves WCMS page composition items out of system operations into content experience', () => {
+  it('keeps WCMS page composition items in the backend-declared content group', () => {
     const groups = composeShellNavigation([
       {
         id: 'wcms',
@@ -203,6 +225,7 @@ describe('Axis shell navigation composition', () => {
         category: 'platform',
         icon: 'content',
         availability: 'UP',
+        group: { id: 'content', label: 'Content & Experience', order: 200 },
       },
       {
         id: 'renderer-mappings',
@@ -224,6 +247,11 @@ describe('Axis shell navigation composition', () => {
         category: 'platform',
         icon: 'task',
         availability: 'UP',
+        group: {
+          id: 'process-and-automations',
+          label: 'Process & Automations',
+          order: 1500,
+        },
       },
     ]);
 
@@ -236,6 +264,47 @@ describe('Axis shell navigation composition', () => {
       ['renderer-mappings', 1],
     ]);
     expect(process?.items.map((item) => item.id)).toEqual(['assigned-work']);
+  });
+
+  it('keeps backend-declared configuration capabilities under System Configuration', () => {
+    const groups = composeShellNavigation([
+      {
+        id: 'location-map',
+        label: 'Map Configuration',
+        route: '/location/maps',
+        order: 90,
+        moduleName: 'locationMap',
+        category: 'operations',
+        icon: 'location',
+        availability: 'UP',
+        group: {
+          id: 'system-configuration',
+          label: 'System Configuration',
+          order: 90,
+        },
+      },
+      {
+        id: 'module-health',
+        label: 'Module Health',
+        route: '/operations/module-health',
+        order: 100,
+        moduleName: 'backoffice',
+        category: 'platform',
+        icon: 'module',
+        availability: 'UP',
+        group: {
+          id: 'system-integrations',
+          label: 'System Integrations',
+          order: 100,
+        },
+      },
+    ]);
+
+    expect(groups.map((group) => [group.id, group.label])).toEqual([
+      ['system-configuration', 'System Configuration'],
+      ['system-integrations', 'System Integrations'],
+    ]);
+    expect(groups[0]?.items.map((item) => item.id)).toEqual(['location-map']);
   });
 
   it('places explicit cross-module children below their backend-owned parent', () => {
@@ -267,7 +336,7 @@ describe('Axis shell navigation composition', () => {
       },
     ]);
 
-    const commerce = groups.find((entry) => entry.id === 'products-merchandising');
+    const commerce = groups.find((entry) => entry.id === 'commerce');
     expect(
       commerce?.items.map((item) => [item.moduleName, item.id, item.depth]),
     ).toEqual([
@@ -288,6 +357,11 @@ describe('Axis shell navigation composition', () => {
         category: 'commerce',
         icon: 'payment',
         availability: 'UP',
+        group: {
+          id: 'payment-operations',
+          label: 'Payment Operations',
+          order: 1200,
+        },
         workbenchTarget: {
           moduleName: 'payment',
           schemaName: 'paymentTransaction',
@@ -361,6 +435,11 @@ describe('Axis shell navigation composition', () => {
         category: 'platform',
         icon: 'search',
         availability: 'UP',
+        group: {
+          id: 'search-discovery',
+          label: 'Search & Discovery',
+          order: 600,
+        },
       },
       {
         id: 'publishing-requests',
@@ -371,17 +450,22 @@ describe('Axis shell navigation composition', () => {
         category: 'content',
         icon: 'publish',
         availability: 'UP',
+        group: {
+          id: 'publishing',
+          label: 'Publishing',
+          order: 1700,
+        },
       },
     ]);
 
     expect(groups.map((group) => [group.id, group.label])).toEqual([
-      ['organization', 'Customer Experience'],
+      ['customer-experience', 'Customer Experience'],
       ['search-discovery', 'Search & Discovery'],
       ['publishing', 'Publishing'],
     ]);
   });
 
-  it('keeps child entries under their backend-owned parent group before keyword fallback', () => {
+  it('keeps child entries under their backend-owned parent group without keyword fallback', () => {
     const groups = composeShellNavigation([
       {
         id: 'customer-engagement',
@@ -436,7 +520,7 @@ describe('Axis shell navigation composition', () => {
       },
     ]);
 
-    const customerGroup = groups.find((group) => group.id === 'organization');
+    const customerGroup = groups.find((group) => group.id === 'customer-experience');
     expect(customerGroup?.items.map((item) => [item.id, item.depth])).toEqual([
       ['customer-engagement', 0],
       ['testimonial-editorial', 1],
@@ -510,6 +594,25 @@ describe('Axis shell navigation composition', () => {
       ['waste-management', 0],
       ['waste-submissions', 1],
       ['ewaste-devices', 1],
+    ]);
+  });
+
+  it('places ungrouped backend navigation in a neutral fallback bucket', () => {
+    const groups = composeShellNavigation([
+      {
+        id: 'pricing',
+        label: 'Pricing',
+        route: '/commerce/pricing',
+        order: 10,
+        moduleName: 'pricing',
+        category: 'commerce',
+        icon: 'price',
+        availability: 'UP',
+      },
+    ]);
+
+    expect(groups.map((group) => [group.id, group.label])).toEqual([
+      ['other-backlogs', 'Other Backlogs'],
     ]);
   });
 });

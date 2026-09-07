@@ -4,6 +4,8 @@ import { loadRuntimeConfig } from '../../src/runtime/loadRuntimeConfig';
 
 const validConfig = {
   backofficeBaseUrl: 'http://localhost:3000',
+  locationBaseUrl: 'http://localhost:4380/nodics/locationMap',
+  wasteApiBaseUrl: 'http://localhost:4370/nodics/wasteApi',
   enterpriseCode: 'default',
   projectCode: 'nodics.kickoff',
   clientContractVersion: 1,

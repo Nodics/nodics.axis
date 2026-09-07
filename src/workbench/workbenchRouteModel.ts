@@ -17,11 +17,13 @@ export interface WorkbenchRouteSchemaSelection {
   readonly moduleName: string;
   readonly schemaName: string;
   readonly mode?: 'create' | undefined;
+  readonly search?: string | undefined;
 }
 
 export interface WorkbenchDeepLinkTarget {
   readonly key: string;
   readonly mode?: 'create' | undefined;
+  readonly search?: string | undefined;
   readonly schema: WorkbenchSchema;
 }
 
@@ -48,9 +50,13 @@ export function resolveWorkbenchDeepLinkTarget(
     requestedMode === 'create' && schema.operations.includes('create')
       ? 'create'
       : undefined;
+  const requestedSearch = parameters.get('search')?.trim();
   return Object.freeze({
-    key: `${schema.moduleName}:${schema.schemaName}:${mode ?? 'browse'}`,
+    key: `${schema.moduleName}:${schema.schemaName}:${mode ?? 'browse'}${
+      requestedSearch ? `:${requestedSearch}` : ''
+    }`,
     ...(mode ? { mode } : {}),
+    ...(requestedSearch ? { search: requestedSearch } : {}),
     schema,
   });
 }
@@ -74,8 +80,11 @@ export function resolveWorkbenchRouteTarget(
       ? 'create'
       : undefined;
   return Object.freeze({
-    key: `${schema.moduleName}:${schema.schemaName}:${mode ?? 'browse'}:route:${routeScopeKey ?? 'default'}`,
+    key: `${schema.moduleName}:${schema.schemaName}:${mode ?? 'browse'}${
+      routeSchema.search ? `:${routeSchema.search}` : ''
+    }:route:${routeScopeKey ?? 'default'}`,
     ...(mode ? { mode } : {}),
+    ...(routeSchema.search ? { search: routeSchema.search } : {}),
     schema,
   });
 }

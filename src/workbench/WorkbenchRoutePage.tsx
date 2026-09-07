@@ -577,8 +577,15 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
     },
   });
   const selectWorkbenchSchema = useCallback(
-    (schema: WorkbenchSchema, options: { readonly openCreate?: boolean } = {}) => {
+    (
+      schema: WorkbenchSchema,
+      options: {
+        readonly openCreate?: boolean;
+        readonly recordSearch?: string | undefined;
+      } = {},
+    ) => {
       const normalizedSchema = schemaWithValidQueryCapabilities(schema);
+      const nextRecordSearch = options.recordSearch?.trim() ?? '';
       createRecord.reset();
       updateRecord.reset();
       deleteRecord.reset();
@@ -590,8 +597,8 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
       setSelectedRecord(undefined);
       setOpenedReferenceRecord(undefined);
       setDeleteOpen(false);
-      setRecordSearchInput('');
-      setRecordSearch('');
+      setRecordSearchInput(nextRecordSearch);
+      setRecordSearch(nextRecordSearch);
       setRecordFilters(undefined);
       setRecordPageNumber(1);
       setRecordPageSize(normalizedSchema.queryCapabilities.defaultPageSize);
@@ -669,6 +676,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
       consumedDeepLinkKey.current = deepLinkTarget.key;
       selectWorkbenchSchema(deepLinkTarget.schema, {
         openCreate: deepLinkTarget.mode === 'create',
+        recordSearch: deepLinkTarget.search,
       });
     }, 0);
     return () => globalThis.clearTimeout(timeout);
