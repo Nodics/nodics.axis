@@ -50,6 +50,13 @@ const workspace: CmsComponentContract = {
     reasoningTokensLabel: 'Reasoning',
     embeddingTokensLabel: 'Embedding',
     reconciliationLabel: 'Accounting status',
+    knowledgeTitle: 'Knowledge sources',
+    knowledgeSourcesLabel: 'Sources',
+    knowledgeChunksLabel: 'Indexed chunks',
+    knowledgeLastRefreshLabel: 'Last refresh',
+    knowledgeRefreshLabel: 'Refresh',
+    knowledgeRefreshingLabel: 'Refreshing',
+    knowledgeUnavailableLabel: 'Knowledge status unavailable',
   },
   slot: 'workspace',
   index: 20,
@@ -83,6 +90,40 @@ describe('AssistantWorkspaceRenderer', () => {
         />,
       ),
     ).toThrow('axisAssistantWorkspaceComponent.submitLabel must be a string');
+  });
+
+  it('renders failures even before an active conversation is available', () => {
+    render(
+      <AssistantWorkspaceRenderer
+        actions={{
+          assistant: {
+            state: {
+              scope: { enterpriseCode: 'default', employeeId: 'operator' },
+              status: 'FAILED',
+              error: 'Assistant history could not be loaded',
+              availableConversations: [],
+              conversationPage: 1,
+              conversationsHaveMore: false,
+              historyLoading: false,
+              conversations: {},
+            },
+            submit: vi.fn(),
+            cancel: vi.fn(),
+            selectConversation: vi.fn(),
+            newConversation: vi.fn(),
+            loadMoreConversations: vi.fn(),
+            loadMoreHistory: vi.fn(),
+            approveConfirmation: vi.fn(),
+            rejectConfirmation: vi.fn(),
+            executeConfirmation: vi.fn(),
+          },
+        }}
+        component={workspace}
+      />,
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Request failed: Assistant history could not be loaded',
+    );
   });
 
   it('submits and cancels through the presentation controller', async () => {
@@ -178,5 +219,43 @@ describe('AssistantWorkspaceRenderer', () => {
     expect(screen.getByText(/I am preparing the operation/)).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Stop request' }));
     expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it('renders governed source health and refreshes through the controller', async () => {
+    const user = userEvent.setup();
+    const refreshKnowledgeSource = vi.fn().mockResolvedValue(undefined);
+    render(
+      <AssistantWorkspaceRenderer
+        component={workspace}
+        actions={{
+          assistant: {
+            state: {
+              scope: { enterpriseCode: 'default', employeeId: 'admin' },
+              status: 'IDLE', availableConversations: [], conversationPage: 1,
+              conversationsHaveMore: false, historyLoading: false, conversations: {},
+            },
+            submit: vi.fn(), cancel: vi.fn(), selectConversation: vi.fn(),
+            newConversation: vi.fn(), loadMoreConversations: vi.fn(),
+            loadMoreHistory: vi.fn(), approveConfirmation: vi.fn(),
+            rejectConfirmation: vi.fn(), executeConfirmation: vi.fn(),
+            refreshKnowledgeSource,
+            knowledgeStatus: {
+              enabled: true, ingestionEnabled: true,
+              lastRefreshAt: '2026-09-02T12:00:00.000Z',
+              sources: [{
+                code: 'nodics-framework-docs', repository: 'nodics.ai',
+                sourceType: 'FRAMEWORK_DOCUMENTATION', classification: 'INTERNAL',
+                version: 'local', refreshPolicy: 'ON_START', state: 'INDEXED',
+                filesRead: 10, filesAccepted: 10, filesRejected: 0, chunksProjected: 42,
+              }],
+            },
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText('Sources: 1')).toBeVisible();
+    expect(screen.getByText('Indexed chunks: 42')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Refresh nodics-framework-docs' }));
+    expect(refreshKnowledgeSource).toHaveBeenCalledWith('nodics-framework-docs');
   });
 });

@@ -4,6 +4,7 @@ import {
   parseAssistantConfirmation,
   parseAssistantToolActivity,
   parseAssistantUsage,
+  parseAssistantExportArtifact,
 } from '../api/assistantContractParsers';
 import type {
   AssistantConversationPresentation,
@@ -109,6 +110,10 @@ export function assistantPresentationReducer(
         updateState(state, {
           activeConversationCode: action.conversation.conversationCode,
           status: 'STREAMING',
+          availableConversations: upsertConversation(
+            state.availableConversations,
+            action.conversation,
+          ),
           error: undefined,
         }),
         action.conversation.conversationCode,
@@ -126,6 +131,7 @@ export function assistantPresentationReducer(
           confirmation: undefined,
           citations: undefined,
           usage: undefined,
+          exportArtifact: undefined,
           failure: undefined,
         }),
       );
@@ -223,8 +229,10 @@ function reduceStreamEvent(
 ): AssistantPresentationState {
   const current = state.conversations[event.conversationCode];
   if (!current || current.turn?.turnCode !== event.turnCode) return state;
-  if (event.sequence <= current.lastSequence) return state;
-  if (event.sequence !== current.lastSequence + 1) {
+  const previousEvent = current.events[current.events.length - 1];
+  const previousSequence = previousEvent?.sequence ?? 0;
+  if (event.sequence <= previousSequence) return state;
+  if (event.sequence !== previousSequence + 1) {
     return updateState(state, {
       status: 'FAILED',
       error: 'Assistant event sequence is incomplete',
@@ -305,6 +313,11 @@ function applyEvent(
       });
     case 'USAGE':
       return Object.freeze({ ...current, usage: parseAssistantUsage(event.data) });
+    case 'EXPORT_READY':
+      return Object.freeze({
+        ...current,
+        exportArtifact: parseAssistantExportArtifact(event.data),
+      });
     case 'FAILED':
       return Object.freeze({ ...current, failure: event.data });
     default:

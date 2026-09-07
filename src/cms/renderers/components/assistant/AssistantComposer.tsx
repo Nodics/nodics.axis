@@ -40,7 +40,13 @@ export function AssistantComposer(props: AssistantComposerProps) {
       component="form"
       direction={{ xs: 'column', sm: 'row' }}
       spacing={1}
-      sx={{ borderTop: '1px solid', borderColor: 'divider', p: 2 }}
+      sx={{
+        bgcolor: 'background.paper',
+        borderTop: '1px solid',
+        borderColor: 'divider',
+        boxShadow: '0 -10px 28px rgba(15, 23, 42, 0.04)',
+        p: { xs: 1.5, md: 2.5 },
+      }}
       onSubmit={onSubmit}
     >
       <TextField
@@ -51,7 +57,10 @@ export function AssistantComposer(props: AssistantComposerProps) {
         minRows={2}
         placeholder={props.inputPlaceholder}
         value={message}
-        slotProps={{ htmlInput: { 'aria-label': props.inputPlaceholder } }}
+        slotProps={{
+          htmlInput: { 'aria-label': props.inputPlaceholder },
+          input: { sx: { borderRadius: 2.5 } },
+        }}
         onChange={(event) => setMessage(event.target.value)}
         onKeyDown={onKeyDown}
       />
@@ -59,12 +68,14 @@ export function AssistantComposer(props: AssistantComposerProps) {
         <Button
           disabled={!props.connected || active || !message.trim()}
           type="submit"
+          sx={{ borderRadius: 2, minHeight: 44 }}
           variant="contained"
         >
           {props.submitLabel}
         </Button>
         <Button
           disabled={!props.connected || props.status !== 'STREAMING'}
+          sx={{ borderRadius: 2, minHeight: 44 }}
           variant="outlined"
           onClick={() => void props.onCancel()}
         >

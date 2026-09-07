@@ -13,6 +13,8 @@ import {
   type AssistantMessage,
   type AssistantToolActivity,
   type AssistantUsage,
+  type AssistantKnowledgeStatus,
+  type AssistantExportArtifact,
 } from './assistantContracts';
 
 const TURN_STATES: readonly AssistantTurnState[] = [
@@ -33,6 +35,7 @@ const EVENT_TYPES: readonly AssistantEventType[] = [
   'CONFIRMATION_REQUIRED',
   'TOOL_STARTED',
   'TOOL_RESULT',
+  'EXPORT_READY',
   'CITATIONS',
   'USAGE',
   'COMPLETED',
@@ -45,6 +48,63 @@ export function assistantRecord(value: unknown, name: string): Record<string, un
     throw new Error(`${name} must be an object`);
   }
   return value as Record<string, unknown>;
+}
+
+function booleanValue(value: unknown, name: string): boolean {
+  if (typeof value !== 'boolean') throw new Error(`${name} must be a boolean`);
+  return value;
+}
+
+export function parseAssistantKnowledgeStatus(
+  value: unknown,
+): AssistantKnowledgeStatus {
+  const status = assistantRecord(value, 'Assistant knowledge status');
+  if (!Array.isArray(status.sources)) {
+    throw new Error('Assistant knowledge sources must be an array');
+  }
+  return Object.freeze({
+    enabled: booleanValue(status.enabled, 'knowledge enabled'),
+    ingestionEnabled: booleanValue(
+      status.ingestionEnabled,
+      'knowledge ingestionEnabled',
+    ),
+    lastRefreshAt:
+      status.lastRefreshAt === null
+        ? undefined
+        : optionalText(status.lastRefreshAt, 'knowledge lastRefreshAt'),
+    sources: Object.freeze(
+      status.sources.map((rawSource) => {
+        const source = assistantRecord(rawSource, 'Assistant knowledge source');
+        return Object.freeze({
+          code: text(source.code, 'knowledge source code'),
+          repository: text(source.repository, 'knowledge source repository'),
+          sourceType: text(source.sourceType, 'knowledge source type'),
+          classification: text(
+            source.classification,
+            'knowledge source classification',
+          ),
+          version: text(source.version, 'knowledge source version'),
+          refreshPolicy: text(source.refreshPolicy, 'knowledge refreshPolicy'),
+          state: text(source.state, 'knowledge source state'),
+          filesRead: nonNegativeInteger(source.filesRead ?? 0, 'knowledge filesRead'),
+          filesAccepted: nonNegativeInteger(
+            source.filesAccepted ?? 0,
+            'knowledge filesAccepted',
+          ),
+          filesRejected: nonNegativeInteger(
+            source.filesRejected ?? 0,
+            'knowledge filesRejected',
+          ),
+          chunksProjected: nonNegativeInteger(
+            source.chunksProjected ?? 0,
+            'knowledge chunksProjected',
+          ),
+          refreshedAt: optionalText(source.refreshedAt, 'knowledge refreshedAt'),
+          failureCode: optionalText(source.failureCode, 'knowledge failureCode'),
+        });
+      }),
+    ),
+  });
 }
 
 function text(value: unknown, name: string): string {
@@ -307,5 +367,23 @@ export function parseAssistantToolActivity(
     state,
     failureCode:
       state === 'FAILED' ? optionalText(data.code, 'tool failure code') : undefined,
+  });
+}
+
+export function parseAssistantExportArtifact(value: unknown): AssistantExportArtifact {
+  const wrapper = assistantRecord(value, 'Assistant export event');
+  const item = assistantRecord(wrapper.export ?? wrapper, 'Assistant export artifact');
+  if (
+    !['csv', 'xlsx', 'text'].includes(String(item.format)) ||
+    !['utf8', 'base64'].includes(String(item.encoding))
+  ) {
+    throw new Error('Assistant export artifact is unsupported');
+  }
+  return Object.freeze({
+    format: item.format as AssistantExportArtifact['format'],
+    fileName: text(item.fileName, 'export fileName'),
+    mimeType: text(item.mimeType, 'export mimeType'),
+    encoding: item.encoding as AssistantExportArtifact['encoding'],
+    content: text(item.content, 'export content'),
   });
 }

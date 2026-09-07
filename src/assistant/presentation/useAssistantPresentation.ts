@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 
 import type { AssistantClient } from '../api/assistantClient';
 import type {
@@ -34,6 +34,10 @@ export function useAssistantPresentation(
     initialAssistantPresentationState,
   );
   const streamAbort = useRef<AbortController | undefined>(undefined);
+  const [knowledgeStatus, setKnowledgeStatus] = useState<import('../api/assistantContracts').AssistantKnowledgeStatus>();
+  const [knowledgeLoading, setKnowledgeLoading] = useState(true);
+  const [knowledgeError, setKnowledgeError] = useState<string>();
+  const [refreshingKnowledgeSource, setRefreshingKnowledgeSource] = useState<string>();
   const enterpriseCode = configuration.scope.enterpriseCode;
   const employeeId = configuration.scope.employeeId;
 
@@ -69,6 +73,40 @@ export function useAssistantPresentation(
       });
     return () => controller.abort();
   }, [configuration.client, employeeId, enterpriseCode]);
+
+  useEffect(() => {
+    if (!configuration.client.getKnowledgeStatus) {
+      setKnowledgeLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setKnowledgeLoading(true);
+    setKnowledgeError(undefined);
+    void configuration.client.getKnowledgeStatus(controller.signal)
+      .then(setKnowledgeStatus)
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setKnowledgeError(error instanceof Error ? error.message : 'Knowledge status could not be loaded');
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setKnowledgeLoading(false);
+      });
+    return () => controller.abort();
+  }, [configuration.client, employeeId, enterpriseCode]);
+
+  const refreshKnowledgeSource = useCallback(async (sourceCode: string) => {
+    if (!configuration.client.refreshKnowledgeSource) return;
+    setRefreshingKnowledgeSource(sourceCode);
+    setKnowledgeError(undefined);
+    try {
+      setKnowledgeStatus(await configuration.client.refreshKnowledgeSource(sourceCode));
+    } catch (error: unknown) {
+      setKnowledgeError(error instanceof Error ? error.message : 'Knowledge source could not be refreshed');
+    } finally {
+      setRefreshingKnowledgeSource(undefined);
+    }
+  }, [configuration.client]);
 
   const submit = useCallback(
     async (message: string) => {
@@ -298,5 +336,10 @@ export function useAssistantPresentation(
     approveConfirmation,
     rejectConfirmation,
     executeConfirmation,
+    knowledgeStatus,
+    knowledgeLoading,
+    knowledgeError,
+    refreshingKnowledgeSource,
+    refreshKnowledgeSource,
   } as const;
 }

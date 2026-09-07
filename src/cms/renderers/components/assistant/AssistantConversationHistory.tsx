@@ -21,20 +21,44 @@ export function AssistantConversationHistory(props: AssistantConversationHistory
       aria-label={props.historyLabel}
       spacing={1}
       sx={{
-        bgcolor: 'action.hover',
+        background:
+          'linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.82))',
         borderBottom: { xs: '1px solid', md: 0 },
         borderColor: 'divider',
         borderRight: { xs: 0, md: '1px solid' },
         maxHeight: { xs: 180, md: 'none' },
-        minWidth: 0,
-        overflowY: 'auto',
+        maxWidth: { md: 420 },
+        minWidth: { xs: 0, md: 220 },
+        overflow: 'auto',
         p: 2,
+        position: 'relative',
+        resize: { xs: 'none', md: 'horizontal' },
+        width: { xs: 'auto', md: 'clamp(240px, 24vw, 340px)' },
+        '&::after': {
+          bgcolor: 'divider',
+          borderRadius: 4,
+          content: '""',
+          display: { xs: 'none', md: 'block' },
+          height: 42,
+          opacity: 0.75,
+          position: 'absolute',
+          right: 3,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          width: 3,
+        },
       }}
     >
-      <Typography component="h2" variant="subtitle1">
+      <Typography component="h2" sx={{ fontWeight: 700 }} variant="subtitle1">
         {props.historyLabel}
       </Typography>
-      <Button disabled={busy} fullWidth variant="outlined" onClick={props.onNew}>
+      <Button
+        disabled={busy}
+        fullWidth
+        sx={{ borderRadius: 2, minHeight: 44 }}
+        variant="outlined"
+        onClick={props.onNew}
+      >
         {props.newConversationLabel}
       </Button>
       <Divider />
@@ -51,10 +75,14 @@ export function AssistantConversationHistory(props: AssistantConversationHistory
               color="secondary"
               disabled={busy || props.state.historyLoading}
               sx={{
+                borderRadius: 2,
                 justifyContent: 'flex-start',
+                minHeight: 44,
                 overflow: 'hidden',
+                px: 1.5,
                 textAlign: 'start',
                 textOverflow: 'ellipsis',
+                textTransform: 'none',
                 whiteSpace: 'nowrap',
               }}
               variant={
@@ -64,7 +92,7 @@ export function AssistantConversationHistory(props: AssistantConversationHistory
               }
               onClick={() => void props.onSelect(conversation.conversationCode)}
             >
-              {conversation.title ?? conversation.conversationCode}
+              {conversation.title ?? props.newConversationLabel}
             </Button>
           ))}
           {props.state.conversationsHaveMore ? (

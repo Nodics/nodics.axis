@@ -49,6 +49,8 @@ import { PromotionsBuilderRoutePage } from '../operations/promotions/PromotionsB
 import { LocalizationOperationsRoutePage } from '../operations/localization/LocalizationOperationsRoutePage';
 import { CustomerEngagementRoutePage } from '../operations/customerEngagement/CustomerEngagementRoutePage';
 import { SetupAcceleratorsRoutePage } from '../operations/setupAccelerators/SetupAcceleratorsRoutePage';
+import { CollectionCentresRoutePage } from '../operations/location/CollectionCentresRoutePage';
+import { EnterpriseRelationshipsRoutePage } from '../operations/enterprise/EnterpriseRelationshipsRoutePage';
 import { AxisDashboardRoutePage } from '../dashboard/AxisDashboardRoutePage';
 import { useIdleScreenLock } from '../auth/useIdleScreenLock';
 import { AxisInitializationWorkspace } from '../initialization/AxisInitializationWorkspace';
@@ -1241,6 +1243,40 @@ export function App() {
           ),
         )
       : sessionFallback;
+  const collectionCentresNavigation = currentNavigation?.route.startsWith(
+    '/waste/collection-centres',
+  )
+    ? currentNavigation
+    : authenticatedBootstrap?.navigation.find(
+        (item) =>
+          item.id === 'waste-collection-centres' &&
+          item.route === '/waste/collection-centres',
+      );
+  const collectionCentresElement =
+    session && !locked && authenticatedBootstrap && collectionCentresNavigation
+      ? authenticatedShell(
+          ['UP', 'DEGRADED'].includes(collectionCentresNavigation.availability) ? (
+            <CollectionCentresRoutePage
+              accessToken={session.accessToken}
+              bootstrap={authenticatedBootstrap}
+              navigation={collectionCentresNavigation}
+              runtime={runtime}
+            />
+          ) : (
+            <ModuleWorkspacePlaceholder item={collectionCentresNavigation} />
+          ),
+        )
+      : sessionFallback;
+  const enterpriseRelationshipsElement =
+    session && !locked && authenticatedBootstrap
+      ? authenticatedShell(
+          <EnterpriseRelationshipsRoutePage
+            accessToken={session.accessToken}
+            bootstrap={authenticatedBootstrap}
+            runtime={runtime}
+          />,
+        )
+      : sessionFallback;
 
   const initializationRequired = Boolean(
     session &&
@@ -1745,6 +1781,11 @@ export function App() {
         <Route path="/discovery/*" element={discoveryManagementElement} />
         <Route path="/localization/*" element={localizationOperationsElement} />
         <Route path="/commerce/*" element={commerceRouteElement} />
+        <Route path="/waste/collection-centres" element={collectionCentresElement} />
+        <Route
+          path="/enterprises/:enterpriseCode"
+          element={enterpriseRelationshipsElement}
+        />
         <Route path="/process/*" element={processWorkflowElement} />
         <Route path="/engagement/*" element={customerEngagementElement} />
         {session && !locked && authenticatedBootstrap

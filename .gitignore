@@ -13,3 +13,4 @@ dist/
 
 # Generated process outputs.
 **/generated/
+.nodics/tmp/

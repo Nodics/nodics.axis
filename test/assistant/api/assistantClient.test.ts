@@ -202,4 +202,28 @@ describe('Assistant API client', () => {
     );
     expect(request).not.toHaveBeenCalled();
   });
+
+  it('loads and refreshes governed knowledge-source status', async () => {
+    const status = {
+      enabled: true, ingestionEnabled: true, lastRefreshAt: '2026-09-02T12:00:00.000Z',
+      sources: [{
+        code: 'nodics-framework-docs', repository: 'nodics.ai',
+        sourceType: 'FRAMEWORK_DOCUMENTATION', classification: 'INTERNAL',
+        version: 'local', refreshPolicy: 'ON_START', state: 'INDEXED',
+        filesRead: 2, filesAccepted: 2, filesRejected: 0, chunksProjected: 5,
+      }],
+    };
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(json({ data: status }))
+      .mockResolvedValueOnce(json({ data: { sourceCode: 'nodics-framework-docs' } }))
+      .mockResolvedValueOnce(json({ data: status }));
+    const client = createAssistantClient(configuration, request);
+
+    await expect(client.getKnowledgeStatus?.()).resolves.toEqual(status);
+    await expect(client.refreshKnowledgeSource?.('nodics-framework-docs')).resolves.toEqual(status);
+    expect((request.mock.calls[1]?.[0] as URL).pathname).toContain(
+      '/knowledge/sources/nodics-framework-docs/refresh',
+    );
+    expect(request.mock.calls[1]?.[1]?.method).toBe('POST');
+  });
 });

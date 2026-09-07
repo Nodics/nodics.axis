@@ -8,6 +8,7 @@ import type {
   AssistantTurnEvent,
   AssistantToolActivity,
   AssistantUsage,
+  AssistantExportArtifact,
 } from '../api/assistantContracts';
 
 export interface AssistantPresentationScope {
@@ -43,6 +44,7 @@ export interface AssistantConversationPresentation {
   readonly confirmationResult?: Readonly<Record<string, unknown>> | undefined;
   readonly citations?: readonly AssistantCitation[] | undefined;
   readonly usage?: AssistantUsage | undefined;
+  readonly exportArtifact?: AssistantExportArtifact | undefined;
   readonly failure?: Readonly<Record<string, unknown>> | undefined;
 }
 

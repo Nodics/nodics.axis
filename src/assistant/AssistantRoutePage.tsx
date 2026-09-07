@@ -18,19 +18,23 @@ interface AssistantRoutePageProps {
 }
 
 export function AssistantRoutePage(props: AssistantRoutePageProps) {
+  const assistantRequestTimeoutMs = Math.max(
+    props.runtime.requestTimeoutMs,
+    props.runtime.assistantIdleTimeoutMs,
+  );
   const client = useMemo(
     () =>
       createAssistantClient({
         moduleBaseUrl: props.connection.endpoint,
         enterpriseCode: props.runtime.enterpriseCode,
         accessToken: props.accessToken,
-        timeoutMs: props.runtime.requestTimeoutMs,
+        timeoutMs: assistantRequestTimeoutMs,
       }),
     [
       props.accessToken,
       props.connection.endpoint,
       props.runtime.enterpriseCode,
-      props.runtime.requestTimeoutMs,
+      assistantRequestTimeoutMs,
     ],
   );
   const scope = useMemo(
@@ -48,7 +52,7 @@ export function AssistantRoutePage(props: AssistantRoutePageProps) {
       moduleBaseUrl: props.connection.endpoint,
       enterpriseCode: props.runtime.enterpriseCode,
       accessToken: props.accessToken,
-      timeoutMs: props.runtime.requestTimeoutMs,
+      timeoutMs: assistantRequestTimeoutMs,
       maximumEventBytes: props.runtime.assistantMaximumEventBytes,
       reconnectWindowMs: props.runtime.assistantReconnectWindowMs,
       idleTimeoutMs: props.runtime.assistantIdleTimeoutMs,

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 import type { AxisSort } from '../../../app/table/axisTableSorting';
 import type { AssistantPresentationState } from '../../../assistant/presentation/assistantPresentationContracts';
+import type { AssistantKnowledgeStatus } from '../../../assistant/api/assistantContracts';
 import type { AxisAuthenticatedBootstrap } from '../../../bootstrap/publicBootstrap';
 import type {
   AxisNavigationDetailPanel,
@@ -32,6 +33,11 @@ export interface AssistantRendererController {
   readonly approveConfirmation: () => Promise<void>;
   readonly rejectConfirmation: () => Promise<void>;
   readonly executeConfirmation: () => Promise<void>;
+  readonly knowledgeStatus?: AssistantKnowledgeStatus | undefined;
+  readonly knowledgeLoading?: boolean | undefined;
+  readonly knowledgeError?: string | undefined;
+  readonly refreshingKnowledgeSource?: string | undefined;
+  readonly refreshKnowledgeSource?: (sourceCode: string) => Promise<void>;
 }
 
 export interface WorkbenchRendererController {

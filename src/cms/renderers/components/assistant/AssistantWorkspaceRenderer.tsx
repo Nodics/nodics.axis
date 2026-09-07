@@ -6,6 +6,7 @@ import type { CmsComponentRendererProps } from '../../shared/rendererTypes';
 import { AssistantComposer } from './AssistantComposer';
 import { AssistantConversationHistory } from './AssistantConversationHistory';
 import { AssistantMessageTimeline } from './AssistantMessageTimeline';
+import { AssistantKnowledgeStatus } from './AssistantKnowledgeStatus';
 
 export function AssistantWorkspaceRenderer({
   actions,
@@ -45,6 +46,13 @@ export function AssistantWorkspaceRenderer({
   const reasoningTokensLabel = stringProperty(component, 'reasoningTokensLabel');
   const embeddingTokensLabel = stringProperty(component, 'embeddingTokensLabel');
   const reconciliationLabel = stringProperty(component, 'reconciliationLabel');
+  const knowledgeTitle = stringProperty(component, 'knowledgeTitle', '');
+  const knowledgeSourcesLabel = stringProperty(component, 'knowledgeSourcesLabel', '');
+  const knowledgeChunksLabel = stringProperty(component, 'knowledgeChunksLabel', '');
+  const knowledgeLastRefreshLabel = stringProperty(component, 'knowledgeLastRefreshLabel', '');
+  const knowledgeRefreshLabel = stringProperty(component, 'knowledgeRefreshLabel', '');
+  const knowledgeRefreshingLabel = stringProperty(component, 'knowledgeRefreshingLabel', '');
+  const knowledgeUnavailableLabel = stringProperty(component, 'knowledgeUnavailableLabel', '');
   const confirmationTitle = stringProperty(component, 'confirmationTitle');
   const approveLabel = stringProperty(component, 'approveLabel');
   const executeLabel = stringProperty(component, 'executeLabel');
@@ -76,6 +84,8 @@ export function AssistantWorkspaceRenderer({
       sx={{
         border: '1px solid',
         borderColor: 'divider',
+        borderRadius: 3,
+        boxShadow: '0 18px 50px rgba(15, 23, 42, 0.08)',
         minHeight: { xs: 480, md: 600 },
         overflow: 'hidden',
       }}
@@ -83,7 +93,14 @@ export function AssistantWorkspaceRenderer({
       <Stack sx={{ minHeight: 'inherit' }}>
         <Stack
           spacing={0.75}
-          sx={{ borderBottom: '1px solid', borderColor: 'divider', p: 3 }}
+          sx={{
+            background:
+              'linear-gradient(120deg, rgba(255, 193, 7, 0.14), rgba(255, 255, 255, 0) 58%)',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+            px: { xs: 2.5, md: 4 },
+            py: { xs: 2.5, md: 3.5 },
+          }}
         >
           <WorkspaceHeading
             description={welcomeMessage}
@@ -92,11 +109,27 @@ export function AssistantWorkspaceRenderer({
             title={title}
           />
         </Stack>
+        {knowledgeTitle && controller ? (
+          <AssistantKnowledgeStatus
+            chunksLabel={knowledgeChunksLabel}
+            error={controller.knowledgeError}
+            lastRefreshLabel={knowledgeLastRefreshLabel}
+            loading={Boolean(controller.knowledgeLoading)}
+            refreshingLabel={knowledgeRefreshingLabel}
+            refreshingSource={controller.refreshingKnowledgeSource}
+            refreshLabel={knowledgeRefreshLabel}
+            sourcesLabel={knowledgeSourcesLabel}
+            status={controller.knowledgeStatus}
+            title={knowledgeTitle}
+            unavailableLabel={knowledgeUnavailableLabel}
+            onRefresh={controller.refreshKnowledgeSource ?? (() => Promise.resolve())}
+          />
+        ) : null}
         <Box
           sx={{
             display: 'grid',
             flexGrow: 1,
-            gridTemplateColumns: { xs: '1fr', md: '240px minmax(0, 1fr)' },
+            gridTemplateColumns: { xs: '1fr', md: 'auto minmax(0, 1fr)' },
             minHeight: 0,
           }}
         >

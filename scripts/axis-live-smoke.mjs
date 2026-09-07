@@ -13,6 +13,8 @@
 const axisUrl = process.env.AXIS_URL || 'http://127.0.0.1:3100';
 const platformUrl = process.env.AXIS_PLATFORM_URL || 'http://127.0.0.1:4300';
 const processUrl = process.env.AXIS_PROCESS_URL || 'http://127.0.0.1:4330';
+const wasteUrl = process.env.AXIS_WASTE_URL || 'http://127.0.0.1:4370';
+const locationUrl = process.env.AXIS_LOCATION_URL || 'http://127.0.0.1:4380';
 const enterpriseCode = process.env.AXIS_ENTERPRISE || 'default';
 const projectCode = process.env.AXIS_PROJECT || 'nodics.kickoff';
 const loginId = process.env.AXIS_LOGIN_ID || 'admin';
@@ -21,6 +23,8 @@ const browserOrigin = process.env.AXIS_BROWSER_ORIGIN || axisUrl;
 const clientContractVersion = process.env.AXIS_CLIENT_CONTRACT_VERSION || '1';
 const strictModules = process.env.AXIS_EXPECT_MODULES === '1';
 const verifyDocumentationPacks = process.env.AXIS_EXPECT_DOCUMENTATION === '1';
+const verifyCopilot = process.env.AXIS_EXPECT_COPILOT === '1';
+const verifyWasteLocation = process.env.AXIS_EXPECT_WASTE_LOCATION === '1';
 const runCronLifecycle = process.env.AXIS_CRON_LIFECYCLE === '1';
 const runProcessLifecycle = process.env.AXIS_PROCESS_LIFECYCLE === '1';
 const wcmsUrl = process.env.AXIS_WCMS_URL || 'http://127.0.0.1:4312';
@@ -45,7 +49,15 @@ const axisRoutes = [
   '/docs/framework/process',
   '/docs/framework/process/visual-designer',
   '/docs/swaggers',
+  '/assistant',
 ];
+if (verifyWasteLocation) {
+  axisRoutes.push(
+    '/waste/collection-centres',
+    '/enterprises/NODICS_WASTE_MANAGEMENT_CO',
+    '/enterprises/BEAH_RECYCLING_SERVICES',
+  );
+}
 const requiredModules = [
   'nodics.foundation',
   'nodics.localization',
@@ -126,6 +138,15 @@ async function expectOk(url) {
   }
 }
 
+async function expectReady(baseUrl, label) {
+  const body = await requestJson(endpoint(baseUrl, '/nodics/system/v0/health/ready'));
+  const status = resultPayload(body);
+  if (status?.status !== 'UP') {
+    throw new Error(`${label} readiness returned ${String(status?.status)}`);
+  }
+  console.log(`PASS ${label} runtime ready`);
+}
+
 function resultPayload(body) {
   if (!body || typeof body !== 'object') return body;
   if ('result' in body) return body.result;
@@ -139,6 +160,23 @@ function listModules(body) {
   if (result && Array.isArray(result.items)) return result.items;
   if (result && Array.isArray(result.modules)) return result.modules;
   return [];
+}
+
+function listRecords(body) {
+  const result = resultPayload(body);
+  if (Array.isArray(result)) return result;
+  if (Array.isArray(result?.records)) return result.records;
+  if (Array.isArray(result?.items)) return result.items;
+  if (Array.isArray(result?.data)) return result.data;
+  return [];
+}
+
+function listNavigationItems(body) {
+  const result = resultPayload(body);
+  const navigation = result?.effectiveNavigationComposition?.navigation ||
+    result?.navigation ||
+    [];
+  return Array.isArray(navigation) ? navigation : [];
 }
 
 function assertModule(modules, functionalModule, expected) {
@@ -215,6 +253,12 @@ function assertFunctionalModuleRuntimeStates(modules) {
   }
 }
 
+function enterpriseRefCode(record, fieldName) {
+  const value = record?.[fieldName];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  return typeof value.code === 'string' ? value.code : '';
+}
+
 async function verifyDocumentationContentPacks(authorizedHeaders) {
   for (const packCode of documentationPacks) {
     const body = await requestJson(
@@ -234,6 +278,202 @@ async function verifyDocumentationContentPacks(authorizedHeaders) {
       `PASS documentation pack ${packCode} is CURRENT (${status.installedVersion})`,
     );
   }
+}
+
+async function verifyWasteLocationOperations(authorizedHeaders) {
+  await expectReady(locationUrl, 'Location');
+  await expectReady(wasteUrl, 'Waste');
+
+  const bootstrapBody = await requestJson(
+    endpoint(platformUrl, '/nodics/backoffice/v0/bootstrap'),
+    { headers: authorizedHeaders },
+  );
+  const navigationItems = listNavigationItems(bootstrapBody);
+  if (
+    !navigationItems.some(
+      (item) =>
+        item?.id === 'waste-collection-centres' &&
+        item?.route === '/waste/collection-centres' &&
+        item?.availability === 'UP',
+    )
+  ) {
+    throw new Error(
+      'Authenticated bootstrap omitted active Waste collection-centres navigation',
+    );
+  }
+  console.log('PASS Waste collection-centres navigation is discoverable in Axis');
+
+  const centresBody = await requestJson(
+    endpoint(wasteUrl, '/nodics/wasteApi/v0/waste/collection-centres/search'),
+    {
+      body: JSON.stringify({ filters: {}, pageNumber: 1, pageSize: 100 }),
+      headers: authorizedHeaders,
+      method: 'POST',
+    },
+  );
+  const centres = listRecords(centresBody);
+  const centresPayload = resultPayload(centresBody);
+  if (centres.length < 14) {
+    throw new Error(`Waste collection centres returned ${centres.length} records`);
+  }
+  const unavailableSources = Array.isArray(centresPayload?.unavailableSources)
+    ? centresPayload.unavailableSources
+    : [];
+  if (unavailableSources.length > 0) {
+    throw new Error(
+      `Waste collection-centre API reported unavailable composed sources: ${unavailableSources.join(', ')}`,
+    );
+  }
+  const uniqueLocationRefs = new Set(
+    centres.map((record) => enterpriseRefCode(record, 'locationRef')).filter(Boolean),
+  );
+  if (Number(centresPayload?.sourceCounts?.locations || 0) < uniqueLocationRefs.size) {
+    throw new Error('Waste collection-centre API did not compose Location records for every centre');
+  }
+  const first = centres.find((record) =>
+    enterpriseRefCode(record, 'operatorEnterpriseRef') === 'NODICS_WASTE_MANAGEMENT_CO',
+  );
+  if (!first) throw new Error('Waste collection centres omitted Nodics operator association');
+  if (enterpriseRefCode(first, 'assetOwnerEnterpriseRef') !== 'BEAH_RECYCLING_SERVICES') {
+    throw new Error('Waste collection centre did not expose the asset-owner enterprise reference');
+  }
+  if (first.coordinates !== undefined) {
+    throw new Error('Waste collection centre exposed an unlabeled coordinate array');
+  }
+  if (
+    typeof first.latitude !== 'number' ||
+    typeof first.longitude !== 'number' ||
+    first.location?.code !== enterpriseRefCode(first, 'locationRef')
+  ) {
+    throw new Error('Waste collection centre did not expose map-ready Location coordinates');
+  }
+  console.log(
+    `PASS Waste collection-centre API exposes role-aware enterprises (${centres.length} records)`,
+  );
+
+  const enterpriseBody = await requestJson(
+    endpoint(
+      platformUrl,
+      '/nodics/profile/v0/enterprises/search?limit=100',
+    ),
+    { headers: authorizedHeaders },
+  );
+  const enterprises = listRecords(enterpriseBody);
+  for (const expectedEnterprise of [
+    'NODICS_WASTE_MANAGEMENT_CO',
+    'BEAH_RECYCLING_SERVICES',
+  ]) {
+    if (!enterprises.some((record) => record?.code === expectedEnterprise)) {
+      throw new Error(`Profile enterprise search omitted ${expectedEnterprise}`);
+    }
+  }
+  console.log('PASS Profile enterprise references visible for Waste traversal');
+}
+
+async function verifyCopilotJourney(authorizedHeaders) {
+  const copilotBasePath = '/nodics/copilotApi/v0';
+  const anonymous = await fetch(
+    endpoint(platformUrl, `${copilotBasePath}/conversations`),
+    {
+      body: JSON.stringify({ title: 'Unauthorized smoke' }),
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      method: 'POST',
+    },
+  );
+  if (anonymous.status !== 401 && anonymous.status !== 403) {
+    throw new Error(`Copilot anonymous request returned HTTP ${anonymous.status}`);
+  }
+
+  const createdBody = await requestJson(
+    endpoint(platformUrl, `${copilotBasePath}/conversations`),
+    {
+      body: JSON.stringify({ title: 'Axis Ollama live smoke' }),
+      headers: authorizedHeaders,
+      method: 'POST',
+    },
+  );
+  const conversation = resultPayload(createdBody)?.conversation;
+  if (!conversation?.conversationCode)
+    throw new Error('Copilot did not create a conversation');
+
+  const turnBody = await requestJson(
+    endpoint(
+      platformUrl,
+      `${copilotBasePath}/conversations/${encodeURIComponent(conversation.conversationCode)}/turns`,
+    ),
+    {
+      body: JSON.stringify({
+        message: 'What is Nodics and why does Axis exist?',
+        idempotencyKey: `axis-smoke-${Date.now()}`,
+      }),
+      headers: authorizedHeaders,
+      method: 'POST',
+    },
+  );
+  const turnResult = resultPayload(turnBody);
+  if (turnResult?.turn?.state !== 'COMPLETED')
+    throw new Error(`Copilot turn ended in ${String(turnResult?.turn?.state)}`);
+  if (!Array.isArray(turnResult.citations) || turnResult.citations.length === 0)
+    throw new Error('Copilot turn returned no governed citations');
+  const eventsBody = await requestJson(
+    endpoint(
+      platformUrl,
+      `${copilotBasePath}/conversations/${encodeURIComponent(conversation.conversationCode)}/turns/${encodeURIComponent(turnResult.turn.turnCode)}/events`,
+    ),
+    { headers: authorizedHeaders },
+  );
+  const events = resultPayload(eventsBody)?.items;
+  if (
+    !Array.isArray(events) ||
+    !events.some((event) => event.eventType === 'CITATIONS')
+  )
+    throw new Error('Copilot event replay omitted citations');
+  if (
+    !events.some(
+      (event) =>
+        event.eventType === 'TEXT_DELTA' && String(event.data?.text || '').trim(),
+    )
+  )
+    throw new Error('Copilot event replay omitted the model response');
+  console.log(
+    `PASS Axis Copilot journey through local Ollama (${turnResult.citations.length} citations)`,
+  );
+
+  const knowledgeBody = await requestJson(
+    endpoint(platformUrl, `${copilotBasePath}/knowledge/status`),
+    { headers: authorizedHeaders },
+  );
+  const knowledge = resultPayload(knowledgeBody);
+  if (!knowledge?.enabled || !Array.isArray(knowledge.sources) || !knowledge.sources.length) {
+    throw new Error('Copilot knowledge status did not expose indexed sources');
+  }
+  if (knowledge.sources.some((source) => source.state !== 'PROJECTED')) {
+    throw new Error('Copilot knowledge status contains a source that is not projected');
+  }
+  console.log(`PASS Copilot governed knowledge status (${knowledge.sources.length} sources)`);
+
+  const countBody = await requestJson(
+    endpoint(
+      platformUrl,
+      `${copilotBasePath}/conversations/${encodeURIComponent(conversation.conversationCode)}/turns`,
+    ),
+    {
+      body: JSON.stringify({
+        message: 'Give me the number of modules in Nodics.',
+        idempotencyKey: `axis-registry-count-${Date.now()}`,
+      }),
+      headers: authorizedHeaders,
+      method: 'POST',
+    },
+  );
+  const countResult = resultPayload(countBody);
+  if (!Number.isSafeInteger(countResult?.capabilityResult?.count)) {
+    throw new Error('Copilot module count did not use the live registry capability');
+  }
+  if (countResult?.citations?.[0]?.navigationTarget !== '/registry') {
+    throw new Error('Copilot module count omitted its governed registry navigation');
+  }
+  console.log(`PASS Copilot live module count (${countResult.capabilityResult.count} modules)`);
 }
 
 async function verifyOpenApiContract(authorizedHeaders) {
@@ -730,6 +970,8 @@ async function main() {
   console.log(`Axis: ${axisUrl}`);
   console.log(`Platform: ${platformUrl}`);
   console.log(`Process: ${processUrl}`);
+  console.log(`Waste: ${wasteUrl}`);
+  if (verifyWasteLocation) console.log(`Location: ${locationUrl}`);
 
   for (const route of axisRoutes) {
     await expectOk(endpoint(axisUrl, route));
@@ -799,6 +1041,14 @@ async function main() {
     );
   }
 
+  if (verifyWasteLocation) {
+    await verifyWasteLocationOperations(authorizedHeaders);
+  } else {
+    console.log(
+      'PASS Waste/Location live journey skipped; set AXIS_EXPECT_WASTE_LOCATION=1 to enable',
+    );
+  }
+
   if (verifyDocumentationPacks) {
     await verifyDocumentationContentPacks(authorizedHeaders);
   } else {
@@ -808,6 +1058,11 @@ async function main() {
   }
 
   await verifyOpenApiContract(authorizedHeaders);
+  if (verifyCopilot) await verifyCopilotJourney(authorizedHeaders);
+  else
+    console.log(
+      'PASS Copilot live journey skipped; set AXIS_EXPECT_COPILOT=1 to enable',
+    );
   await verifyMediaOperations(authorizedHeaders);
   await verifyProcessOperations(authorizedHeaders);
 

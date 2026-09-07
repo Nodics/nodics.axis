@@ -6,6 +6,7 @@ import {
   parseConversationPage,
   parseConversationHistory,
   parseEventPage,
+  parseAssistantKnowledgeStatus,
 } from './assistantContractParsers';
 import {
   type ApproveConfirmationInput,
@@ -15,6 +16,7 @@ import {
   type AssistantConversationHistory,
   type AssistantEventPage,
   type AssistantTurn,
+  type AssistantKnowledgeStatus,
   type CreateConfirmationInput,
   type CreateConversationInput,
   type ListConversationsInput,
@@ -96,6 +98,11 @@ export interface AssistantClient {
     confirmationCode: string,
     signal?: AbortSignal,
   ): Promise<Readonly<Record<string, unknown>>>;
+  getKnowledgeStatus?(signal?: AbortSignal): Promise<AssistantKnowledgeStatus>;
+  refreshKnowledgeSource?(
+    sourceCode: string,
+    signal?: AbortSignal,
+  ): Promise<AssistantKnowledgeStatus>;
 }
 
 function positiveBoundary(
@@ -284,6 +291,19 @@ export function createAssistantClient(
           'Execute confirmation data',
         ),
       }),
+    getKnowledgeStatus: async (signal) =>
+      parseAssistantKnowledgeStatus(
+        await transport.request('/knowledge/status', { signal }),
+      ),
+    refreshKnowledgeSource: async (sourceCode, signal) => {
+      await transport.request(
+        `/knowledge/sources/${assistantPathSegment(sourceCode, 'sourceCode')}/refresh`,
+        { method: 'POST', body: {}, signal },
+      );
+      return parseAssistantKnowledgeStatus(
+        await transport.request('/knowledge/status', { signal }),
+      );
+    },
   };
   return Object.freeze(client);
 }

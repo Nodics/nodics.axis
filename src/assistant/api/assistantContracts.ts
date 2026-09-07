@@ -15,6 +15,7 @@ export type AssistantEventType =
   | 'CONFIRMATION_REQUIRED'
   | 'TOOL_STARTED'
   | 'TOOL_RESULT'
+  | 'EXPORT_READY'
   | 'CITATIONS'
   | 'USAGE'
   | 'COMPLETED'
@@ -111,12 +112,43 @@ export interface AssistantUsage {
   readonly reconciliationState?: string | undefined;
 }
 
+export interface AssistantKnowledgeSourceStatus {
+  readonly code: string;
+  readonly repository: string;
+  readonly sourceType: string;
+  readonly classification: string;
+  readonly version: string;
+  readonly refreshPolicy: string;
+  readonly state: string;
+  readonly filesRead: number;
+  readonly filesAccepted: number;
+  readonly filesRejected: number;
+  readonly chunksProjected: number;
+  readonly refreshedAt?: string | undefined;
+  readonly failureCode?: string | undefined;
+}
+
+export interface AssistantKnowledgeStatus {
+  readonly enabled: boolean;
+  readonly ingestionEnabled: boolean;
+  readonly lastRefreshAt?: string | undefined;
+  readonly sources: readonly AssistantKnowledgeSourceStatus[];
+}
+
 export interface AssistantToolActivity {
   readonly toolId: string;
   readonly ownerModule: string;
   readonly operationId: string;
   readonly state: 'PLANNED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
   readonly failureCode?: string | undefined;
+}
+
+export interface AssistantExportArtifact {
+  readonly format: 'csv' | 'xlsx' | 'text';
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly encoding: 'utf8' | 'base64';
+  readonly content: string;
 }
 
 export interface CreateConversationInput {

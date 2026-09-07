@@ -9,6 +9,7 @@ import { AssistantConfirmationCard } from './AssistantConfirmationCard';
 import { AssistantStreamingStatus } from './AssistantStreamingStatus';
 import { AssistantToolActivityCard } from './AssistantToolActivityCard';
 import { AssistantUsageCard } from './AssistantUsageCard';
+import { AssistantExportCard } from './AssistantExportCard';
 
 interface AssistantMessageTimelineProps {
   readonly state: AssistantPresentationState;
@@ -78,9 +79,18 @@ export function AssistantMessageTimeline(props: AssistantMessageTimelineProps) {
           textAlign: 'center',
         }}
       >
-        <Typography color="text.secondary" sx={{ maxWidth: 600 }}>
-          {props.emptyState}
-        </Typography>
+        {props.state.status === 'FAILED' ? (
+          <Alert severity="error">
+            <Typography component="span" sx={{ fontWeight: 'bold' }}>
+              {props.errorLabel}
+            </Typography>
+            {props.state.error ? `: ${props.state.error}` : null}
+          </Alert>
+        ) : (
+          <Typography color="text.secondary" sx={{ maxWidth: 600 }}>
+            {props.emptyState}
+          </Typography>
+        )}
       </Box>
     );
   }
@@ -94,11 +104,13 @@ export function AssistantMessageTimeline(props: AssistantMessageTimelineProps) {
       aria-relevant="additions text"
       spacing={2.5}
       sx={{
+        background:
+          'linear-gradient(180deg, rgba(248, 250, 252, 0.42), rgba(255, 255, 255, 0.96) 24%)',
         flexGrow: 1,
         minHeight: 280,
         overflowAnchor: 'none',
         overflowY: 'auto',
-        p: { xs: 2, md: 3 },
+        p: { xs: 2, md: 4 },
         scrollBehavior: 'smooth',
       }}
     >
@@ -187,6 +199,9 @@ export function AssistantMessageTimeline(props: AssistantMessageTimelineProps) {
           title={props.usageTitle}
           usage={active.usage}
         />
+      ) : null}
+      {active.exportArtifact ? (
+        <AssistantExportCard artifact={active.exportArtifact} />
       ) : null}
       {working && !active.streamedText ? (
         <AssistantStreamingStatus label={props.workingLabel} />

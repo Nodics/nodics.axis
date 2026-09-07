@@ -54,6 +54,21 @@ function streamingState() {
 }
 
 describe('Assistant presentation reducer', () => {
+  it('refreshes the conversation list with the backend-owned title after the first turn', () => {
+    let state = initialAssistantPresentationState(scope);
+    state = assistantPresentationReducer(state, {
+      type: 'CONVERSATION_RECEIVED',
+      conversation,
+    });
+    state = assistantPresentationReducer(state, {
+      type: 'TURN_RECEIVED',
+      conversation: { ...conversation, title: 'What is Nodics framework?' },
+      turn,
+      message: 'What is Nodics framework?',
+    });
+    expect(state.availableConversations[0]?.title).toBe('What is Nodics framework?');
+  });
+
   it('projects ordered deltas and terminal metadata without losing raw events', () => {
     let state = streamingState();
     state = assistantPresentationReducer(state, {
