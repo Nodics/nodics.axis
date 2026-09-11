@@ -1,3 +1,4 @@
+import { WorkspaceContainer } from '../../app/shell/ShellPrimitives';
 import {
   Alert,
   Box,
@@ -14,7 +15,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { Link as RouterLink, useParams } from 'react-router';
 
-import { AxisDataListing, type AxisDataListingColumn } from '../../app/table/AxisDataListing';
+import {
+  AxisDataListing,
+  type AxisDataListingColumn,
+} from '../../app/table/AxisDataListing';
 import type { AxisAuthenticatedBootstrap } from '../../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
@@ -48,7 +52,9 @@ function enterpriseName(value: unknown): string {
   if (typeof name === 'string') return name;
   if (typeof name === 'object' && name !== null && !Array.isArray(name)) {
     const localized = name as Record<string, unknown>;
-    return text(localized.en) || text(Object.values(localized).find((item) => text(item)));
+    return (
+      text(localized.en) || text(Object.values(localized).find((item) => text(item)))
+    );
   }
   return '';
 }
@@ -136,13 +142,7 @@ const linkedColumns: readonly AxisDataListingColumn<EnterpriseLinkedRecord>[] =
     },
   ]);
 
-function Metric({
-  label,
-  value,
-}: {
-  readonly label: string;
-  readonly value: number;
-}) {
+function Metric({ label, value }: { readonly label: string; readonly value: number }) {
   return (
     <Paper variant="outlined" sx={{ p: dashboardCardPadding }}>
       <Typography color="text.secondary" variant="body2">
@@ -168,7 +168,11 @@ export function EnterpriseRelationshipsRoutePage(
   );
   const relationshipQuery = useQuery({
     enabled: enterpriseCode.trim().length > 0,
-    queryKey: ['enterprise-relationships', props.runtime.enterpriseCode, enterpriseCode],
+    queryKey: [
+      'enterprise-relationships',
+      props.runtime.enterpriseCode,
+      enterpriseCode,
+    ],
     queryFn: () =>
       loadEnterpriseRelationshipData(props.bootstrap, configuration, enterpriseCode),
   });
@@ -179,117 +183,137 @@ export function EnterpriseRelationshipsRoutePage(
     ...(relationshipQuery.data?.coupons ?? emptyLinkedRecords),
   ]);
   const enterpriseLabel =
-    enterpriseName(relationshipQuery.data?.enterprise) || enterpriseCode || 'Enterprise';
+    enterpriseName(relationshipQuery.data?.enterprise) ||
+    enterpriseCode ||
+    'Enterprise';
 
   return (
-    <Stack spacing={dashboardContentGap}>
-      <Stack
-        direction={{ xs: 'column', md: 'row' }}
-        spacing={dashboardComponentGap}
-        sx={{ alignItems: { md: 'flex-end' }, justifyContent: 'space-between' }}
-      >
-        <Stack spacing={0.5}>
-          <Typography variant="h4">{enterpriseLabel}</Typography>
-          <Typography color="text.secondary">
-            Enterprise relationship view across active Nodics modules.
-          </Typography>
+    <WorkspaceContainer>
+      <Stack spacing={dashboardContentGap}>
+        <Stack
+          direction={{ xs: 'column', md: 'row' }}
+          spacing={dashboardComponentGap}
+          sx={{ alignItems: { md: 'flex-end' }, justifyContent: 'space-between' }}
+        >
+          <Stack spacing={0.5}>
+            <Typography variant="h4">{enterpriseLabel}</Typography>
+            <Typography color="text.secondary">
+              Enterprise relationship view across active Nodics modules.
+            </Typography>
+          </Stack>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+            <Chip label={enterpriseCode} variant="outlined" />
+            <Button
+              component={RouterLink}
+              to="/schema-workbench?module=profile&schema=enterprise"
+              variant="outlined"
+            >
+              Enterprise records
+            </Button>
+          </Stack>
         </Stack>
-        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-          <Chip label={enterpriseCode} variant="outlined" />
-          <Button
-            component={RouterLink}
-            to="/schema-workbench?module=profile&schema=enterprise"
-            variant="outlined"
-          >
-            Enterprise records
-          </Button>
-        </Stack>
+        {relationshipQuery.isLoading ? (
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+            <CircularProgress size={18} />
+            <Typography color="text.secondary">
+              Loading enterprise relationships
+            </Typography>
+          </Stack>
+        ) : null}
+        {relationshipQuery.error ? (
+          <Alert severity="error">
+            {relationshipQuery.error instanceof Error
+              ? relationshipQuery.error.message
+              : 'Enterprise relationships could not be loaded.'}
+          </Alert>
+        ) : null}
+        {relationshipQuery.data?.unavailableSources.length ? (
+          <Alert severity="info">
+            Unavailable relationship sources:{' '}
+            {relationshipQuery.data.unavailableSources.join(', ')}
+          </Alert>
+        ) : null}
+        {relationshipQuery.data?.projection.mode === 'AXIS_AGGREGATION' ? (
+          <Alert severity="info">
+            Relationship view is assembled from owning module records.
+          </Alert>
+        ) : null}
+        <Box
+          sx={{
+            display: 'grid',
+            gap: dashboardComponentGap,
+            gridTemplateColumns: { xs: '1fr', md: 'repeat(4, minmax(0, 1fr))' },
+          }}
+        >
+          <Metric label="Collection centres" value={collectionCentres.length} />
+          <Metric
+            label="Promotions"
+            value={relationshipQuery.data?.promotions.length ?? 0}
+          />
+          <Metric label="Coupons" value={relationshipQuery.data?.coupons.length ?? 0} />
+          <Metric
+            label="Enterprise records"
+            value={relationshipQuery.data?.sourceCounts.enterprises ?? 0}
+          />
+        </Box>
+        <AxisDataListing
+          ariaLabel="Enterprise collection centres"
+          columns={collectionColumns}
+          emptyMessage="No collection centres are linked to this enterprise."
+          exportFileName={`${enterpriseCode}-collection-centres`}
+          getRowKey={(record) => record.code}
+          maxBodyHeight={360}
+          minTableWidth={930}
+          records={collectionCentres}
+          size="small"
+          toolbarStart={
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+            >
+              <Chip label="Waste collection centres" size="small" variant="outlined" />
+              <Link
+                component={RouterLink}
+                to="/waste/collection-centres"
+                underline="hover"
+                variant="body2"
+              >
+                Open map
+              </Link>
+            </Stack>
+          }
+        />
+        <Divider />
+        <AxisDataListing
+          ariaLabel="Enterprise commerce relationships"
+          columns={linkedColumns}
+          emptyMessage="No promotion or coupon records are linked to this enterprise."
+          exportFileName={`${enterpriseCode}-commerce-relationships`}
+          getRowKey={(record) => `${record.source}:${record.code}`}
+          maxBodyHeight={320}
+          minTableWidth={860}
+          records={commerceRecords}
+          size="small"
+          toolbarStart={
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+            >
+              <Chip label="Commerce relationships" size="small" variant="outlined" />
+              <Link
+                component={RouterLink}
+                to="/schema-workbench?module=promotion&schema=coupon"
+                underline="hover"
+                variant="body2"
+              >
+                Coupon records
+              </Link>
+            </Stack>
+          }
+        />
       </Stack>
-      {relationshipQuery.isLoading ? (
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-          <CircularProgress size={18} />
-          <Typography color="text.secondary">Loading enterprise relationships</Typography>
-        </Stack>
-      ) : null}
-      {relationshipQuery.error ? (
-        <Alert severity="error">
-          {relationshipQuery.error instanceof Error
-            ? relationshipQuery.error.message
-            : 'Enterprise relationships could not be loaded.'}
-        </Alert>
-      ) : null}
-      {relationshipQuery.data?.unavailableSources.length ? (
-        <Alert severity="info">
-          Unavailable relationship sources:{' '}
-          {relationshipQuery.data.unavailableSources.join(', ')}
-        </Alert>
-      ) : null}
-      {relationshipQuery.data?.projection.mode === 'AXIS_AGGREGATION' ? (
-        <Alert severity="info">
-          Relationship view is assembled from owning module records.
-        </Alert>
-      ) : null}
-      <Box
-        sx={{
-          display: 'grid',
-          gap: dashboardComponentGap,
-          gridTemplateColumns: { xs: '1fr', md: 'repeat(4, minmax(0, 1fr))' },
-        }}
-      >
-        <Metric label="Collection centres" value={collectionCentres.length} />
-        <Metric label="Promotions" value={relationshipQuery.data?.promotions.length ?? 0} />
-        <Metric label="Coupons" value={relationshipQuery.data?.coupons.length ?? 0} />
-        <Metric label="Enterprise records" value={relationshipQuery.data?.sourceCounts.enterprises ?? 0} />
-      </Box>
-      <AxisDataListing
-        ariaLabel="Enterprise collection centres"
-        columns={collectionColumns}
-        emptyMessage="No collection centres are linked to this enterprise."
-        exportFileName={`${enterpriseCode}-collection-centres`}
-        getRowKey={(record) => record.code}
-        maxBodyHeight={360}
-        minTableWidth={930}
-        records={collectionCentres}
-        size="small"
-        toolbarStart={
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-            <Chip label="Waste collection centres" size="small" variant="outlined" />
-            <Link
-              component={RouterLink}
-              to="/waste/collection-centres"
-              underline="hover"
-              variant="body2"
-            >
-              Open map
-            </Link>
-          </Stack>
-        }
-      />
-      <Divider />
-      <AxisDataListing
-        ariaLabel="Enterprise commerce relationships"
-        columns={linkedColumns}
-        emptyMessage="No promotion or coupon records are linked to this enterprise."
-        exportFileName={`${enterpriseCode}-commerce-relationships`}
-        getRowKey={(record) => `${record.source}:${record.code}`}
-        maxBodyHeight={320}
-        minTableWidth={860}
-        records={commerceRecords}
-        size="small"
-        toolbarStart={
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-            <Chip label="Commerce relationships" size="small" variant="outlined" />
-            <Link
-              component={RouterLink}
-              to="/schema-workbench?module=promotion&schema=coupon"
-              underline="hover"
-              variant="body2"
-            >
-              Coupon records
-            </Link>
-          </Stack>
-        }
-      />
-    </Stack>
+    </WorkspaceContainer>
   );
 }

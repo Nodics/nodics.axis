@@ -1,11 +1,9 @@
+import { loadPublicBackendWorkspace } from '../../src/app/backendWorkspaceClient';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  BackendOperationsWorkspaceRoutePage,
-  loadPublicBackendWorkspace,
-} from '../../src/app/BackendOperationsWorkspaceRoutePage';
+import { BackendOperationsWorkspaceRoutePage } from '../../src/app/BackendOperationsWorkspaceRoutePage';
 import type { AxisBackendWorkspace } from '../../src/bootstrap/publicBootstrap';
 import { parseBackendWorkspace } from '../../src/bootstrap/publicBootstrap';
 
@@ -90,7 +88,9 @@ afterEach(() => {
 describe('BackendOperationsWorkspaceRoutePage', () => {
   it('renders backend-provided listings and posts backend-provided forms', async () => {
     const fetchMock = vi.fn(async (url: URL | RequestInfo, init?: RequestInit) => {
-      const requestUrl = String(url);
+      await Promise.resolve();
+      const requestUrl =
+        typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
       if (requestUrl.includes('/enterprises/search')) {
         return new Response(
           JSON.stringify({
@@ -105,7 +105,7 @@ describe('BackendOperationsWorkspaceRoutePage', () => {
       );
       expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer token');
       expect(new Headers(init?.headers).get('x-enterprise-code')).toBe('default');
-      expect(JSON.parse(String(init?.body))).toMatchObject({
+      expect(JSON.parse(init?.body as string)).toMatchObject({
         code: 'i2e',
         name: 'I2E',
       });
@@ -148,6 +148,7 @@ describe('BackendOperationsWorkspaceRoutePage', () => {
 
   it('loads the public registration workspace without an authorization header', async () => {
     const fetchMock = vi.fn(async (_url: URL | RequestInfo, init?: RequestInit) => {
+      await Promise.resolve();
       expect(new Headers(init?.headers).get('Authorization')).toBeNull();
       return new Response(JSON.stringify({ code: 'SUC_PRFL_00000', data: workspace }), {
         status: 200,
@@ -187,5 +188,85 @@ describe('BackendOperationsWorkspaceRoutePage', () => {
         ],
       }),
     ).toThrow(/application-relative route/);
+  });
+
+  it('opens the declared users tab with a bounded enterprise default and sends nothing automatically', () => {
+    const previousUrl = window.location.href;
+    window.history.replaceState({}, '', '?tab=users&enterpriseCode=example-company');
+    const fetcher = vi.fn();
+    vi.stubGlobal('fetch', fetcher);
+    const users: AxisBackendWorkspace = {
+      ...workspace,
+      tabs: [
+        {
+          id: 'users',
+          label: 'Users',
+          sections: [
+            {
+              id: 'assign',
+              type: 'form',
+              title: 'Assign user',
+              submitLabel: 'Assign',
+              endpoint: {
+                method: 'POST',
+                path: '/nodics/profile/v0/enterprise-access',
+              },
+              fields: [
+                {
+                  name: 'enterpriseCode',
+                  label: 'Enterprise',
+                  type: 'TEXT',
+                  maximumLength: 7,
+                  defaultFromParameter: 'enterpriseCode',
+                  required: true,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    try {
+      render(
+        <BackendOperationsWorkspaceRoutePage
+          accessToken="token"
+          runtime={runtime}
+          workspace={users}
+        />,
+      );
+      expect(screen.getByRole('textbox', { name: 'Enterprise' })).toHaveValue(
+        'example',
+      );
+      expect(screen.getByRole('tab', { name: 'Users' })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(() =>
+        parseBackendWorkspace({
+          ...users,
+          tabs: [
+            {
+              ...users.tabs[0],
+              sections: [
+                {
+                  ...users.tabs[0]!.sections[0],
+                  fields: [
+                    {
+                      name: 'password',
+                      label: 'Password',
+                      type: 'PASSWORD',
+                      defaultFromParameter: 'password',
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+      ).toThrow(/context parameter/);
+    } finally {
+      window.history.replaceState({}, '', previousUrl);
+    }
   });
 });

@@ -8,6 +8,7 @@ import { EnumFieldRenderer } from './fields/EnumFieldRenderer';
 import { NumberFieldRenderer } from './fields/NumberFieldRenderer';
 import { ReadOnlyFieldRenderer } from './fields/ReadOnlyFieldRenderer';
 import { StringFieldRenderer } from './fields/StringFieldRenderer';
+import { StructuredFieldRenderer } from './fields/StructuredFieldRenderer';
 
 const FIELD_RENDERERS: Readonly<Record<string, ComponentType<WorkbenchFieldProps>>> =
   Object.freeze({
@@ -17,14 +18,24 @@ const FIELD_RENDERERS: Readonly<Record<string, ComponentType<WorkbenchFieldProps
     date: DateFieldRenderer,
     float: NumberFieldRenderer,
     int: NumberFieldRenderer,
+    integer: NumberFieldRenderer,
     number: NumberFieldRenderer,
     string: StringFieldRenderer,
   });
 
 export function WorkbenchFieldRenderer(props: WorkbenchFieldProps) {
-  if (props.field.readOnly) return <ReadOnlyFieldRenderer {...props} />;
-  const Renderer = props.field.enum
-    ? EnumFieldRenderer
-    : (FIELD_RENDERERS[props.field.type] ?? StringFieldRenderer);
+  if (props.field.readOnly || props.field.fixedValue !== undefined) {
+    return <ReadOnlyFieldRenderer {...props} />;
+  }
+  const Renderer =
+    props.field.enum || props.field.enumOptions
+      ? EnumFieldRenderer
+      : props.field.type === 'object' ||
+          props.field.component === 'json' ||
+          props.field.component === 'localizedText' ||
+          (Array.isArray(props.value) &&
+            props.value.some((value) => typeof value !== 'string'))
+        ? StructuredFieldRenderer
+        : (FIELD_RENDERERS[props.field.type] ?? StringFieldRenderer);
   return <Renderer {...props} />;
 }

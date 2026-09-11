@@ -1,4 +1,4 @@
-import { TextField } from '@mui/material';
+import { Autocomplete, TextField } from '@mui/material';
 
 import type { WorkbenchFieldProps } from '../WorkbenchFieldProps';
 
@@ -9,23 +9,23 @@ export function ArrayFieldRenderer({
   value,
 }: WorkbenchFieldProps) {
   return (
-    <TextField
-      error={Boolean(error)}
-      fullWidth
-      helperText={error ?? field.description}
-      label={field.label}
-      multiline
-      required={field.required}
-      rows={2}
-      value={Array.isArray(value) ? value.join(', ') : ''}
-      onChange={(event) =>
-        onChange(
-          event.target.value
-            .split(',')
-            .map((item) => item.trim())
-            .filter(Boolean),
-        )
-      }
+    <Autocomplete
+      multiple
+      freeSolo
+      autoSelect
+      options={[] as string[]}
+      value={Array.isArray(value) ? value.map(String) : []}
+      onChange={(_event, values) => onChange(values)}
+      renderInput={(params) => (
+        <TextField
+          {...params}
+          error={Boolean(error)}
+          fullWidth
+          helperText={error ?? field.description}
+          label={field.label}
+          required={field.required && (!Array.isArray(value) || value.length === 0)}
+        />
+      )}
     />
   );
 }

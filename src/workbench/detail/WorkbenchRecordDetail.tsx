@@ -29,8 +29,11 @@ import type { WorkbenchRelationshipRuntime } from '../form/WorkbenchRelationship
 import { workbenchRecordValue } from '../record/workbenchRecordPaths';
 import { lifecycleActionsForRecord } from '../workbenchRouteModel';
 import type { WorkbenchRecordDetailPanel } from './workbenchRecordDetailPanels';
+import { WorkbenchModelDialog } from './WorkbenchModelDialog';
+import type { WorkbenchRelationshipCopy } from '../form/WorkbenchRelationshipRuntime';
 
 interface WorkbenchRecordDetailProps {
+  readonly relationshipCopy?: WorkbenchRelationshipCopy | undefined;
   readonly closeLabel: string;
   readonly editLabel: string;
   readonly deleteLabel: string;
@@ -290,7 +293,11 @@ function WorkbenchRelatedDetailPanel({
     setReferenceError(undefined);
     setLoadingReference(true);
     try {
-      const result = await relationshipRuntime.resolveRecord(relationship, reference);
+      const result = await relationshipRuntime.resolveRecord(
+        relationship,
+        reference,
+        schema,
+      );
       if (!result) {
         setReferenceError('Referenced record was not found or is not authorized.');
         return;
@@ -391,7 +398,14 @@ function WorkbenchRelatedDetailPanel({
             record={openedReference.record}
             referenceResolver={
               relationshipRuntime?.resolveRecord
-                ? { resolveReference: relationshipRuntime.resolveRecord }
+                ? {
+                    resolveReference: (relationship, reference) =>
+                      relationshipRuntime.resolveRecord!(
+                        relationship,
+                        reference,
+                        openedReference.schema,
+                      ),
+                  }
                 : undefined
             }
             schema={openedReference.schema}
@@ -418,6 +432,7 @@ export function WorkbenchRecordDetail(props: WorkbenchRecordDetailProps) {
   return (
     <Stack spacing={1.5}>
       <AxisSchemaRecordDetail
+        variant="plain"
         actions={
           <>
             <Button onClick={props.onClose}>{props.closeLabel}</Button>
@@ -438,10 +453,32 @@ export function WorkbenchRecordDetail(props: WorkbenchRecordDetailProps) {
         record={props.record}
         referenceResolver={
           props.relationshipRuntime?.resolveRecord
-            ? { resolveReference: props.relationshipRuntime.resolveRecord }
+            ? {
+                resolveReference: (relationship, reference) =>
+                  props.relationshipRuntime!.resolveRecord!(
+                    relationship,
+                    reference,
+                    props.schema,
+                  ),
+              }
             : undefined
         }
         schema={props.schema}
+        renderReference={
+          props.relationshipRuntime
+            ? (reference) => (
+                <WorkbenchModelDialog
+                  {...reference}
+                  runtime={props.relationshipRuntime!}
+                  copy={props.relationshipCopy}
+                  editable={reference.relationship.actions.includes('EDIT_RELATED')}
+                  depth={reference.referenceDepth}
+                  path={[props.schema.label]}
+                  closeLabel={props.closeLabel}
+                />
+              )
+            : undefined
+        }
         title={title}
         trueLabel={props.trueLabel}
       />

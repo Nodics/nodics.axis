@@ -196,7 +196,9 @@ function parseProfile(value: unknown): ApplicationInitializationProfile {
           kind: text(pack.kind, 'Application data package kind'),
           required: booleanValue(pack.required, true),
           trigger: text(pack.trigger, 'Application data package trigger'),
-          ...(optionalText(pack.dataType) ? { dataType: optionalText(pack.dataType) } : {}),
+          ...(optionalText(pack.dataType)
+            ? { dataType: optionalText(pack.dataType) }
+            : {}),
           ...(optionalText(pack.targetServer)
             ? { targetServer: optionalText(pack.targetServer) }
             : {}),
@@ -322,14 +324,18 @@ function parse(value: unknown): ApplicationInitializationStatus {
               'Application preparation runtime role',
             ),
             ...(optionalText(step.status) ? { status: optionalText(step.status) } : {}),
-            ...(optionalText(step.version) ? { version: optionalText(step.version) } : {}),
+            ...(optionalText(step.version)
+              ? { version: optionalText(step.version) }
+              : {}),
             ...(optionalText(step.installedVersion)
               ? { installedVersion: optionalText(step.installedVersion) }
               : {}),
             ...(optionalText(step.description)
               ? { description: optionalText(step.description) }
               : {}),
-            ...(optionalText(step.message) ? { message: optionalText(step.message) } : {}),
+            ...(optionalText(step.message)
+              ? { message: optionalText(step.message) }
+              : {}),
             ...(optionalText(step.manifestPath)
               ? { manifestPath: optionalText(step.manifestPath) }
               : {}),

@@ -102,9 +102,7 @@ describe('wcmsExperienceClient', () => {
     );
 
     expect(fetchMock).toHaveBeenCalledWith(
-      new URL(
-        'http://localhost:4312/nodics/wcmsExperience/v0/authoring/index-status',
-      ),
+      new URL('http://localhost:4312/nodics/wcmsExperience/v0/authoring/index-status'),
       expect.objectContaining({ method: 'GET' }),
     );
     expect(result.status).toBe('CURRENT');

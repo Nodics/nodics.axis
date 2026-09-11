@@ -707,7 +707,9 @@ describe('ProcessWorkflowRoutePage', () => {
     expect(
       await screen.findByRole('heading', { name: 'Framework' }),
     ).toBeInTheDocument();
-    expect(await screen.findByText(/frameworkdocs -> frameworkdocs/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/frameworkdocs -> frameworkdocs/i),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Review evidence' }));
     expect(screen.getByText('Review before decision')).toBeInTheDocument();
     expect(screen.getByText('Staged profile')).toBeInTheDocument();

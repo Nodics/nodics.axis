@@ -1,4 +1,14 @@
-import { Alert, Button, CircularProgress, Stack, Typography } from '@mui/material';
+import {
+  Alert,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  Tooltip,
+  CircularProgress,
+  Stack,
+  Typography,
+} from '@mui/material';
 import { useState, type ReactNode } from 'react';
 
 import { AxisMetadataPanel, type AxisMetadataField } from '../detail/AxisMetadataPanel';
@@ -16,12 +26,17 @@ import {
   isLongSchemaDetailField,
 } from './axisSchemaRecordValues';
 import { AxisSchemaReferenceValues } from './AxisSchemaReferenceValues';
+import { ShellIcon } from '../shell/ShellIcon';
 import {
   axisSchemaRelationshipReferences,
   type AxisSchemaReferenceValue,
 } from './axisSchemaReferenceValuesModel';
 
 export interface AxisSchemaRecordDetailProps {
+  readonly variant?: 'panel' | 'plain' | undefined;
+  readonly renderReference?:
+    | ((props: AxisSchemaReferenceDetailProps) => ReactNode)
+    | undefined;
   readonly actions?: ReactNode | undefined;
   readonly falseLabel?: string | undefined;
   readonly notice?: string | undefined;
@@ -32,6 +47,14 @@ export interface AxisSchemaRecordDetailProps {
   readonly schema: WorkbenchSchema;
   readonly title?: ReactNode | undefined;
   readonly trueLabel?: string | undefined;
+}
+
+export interface AxisSchemaReferenceDetailProps {
+  readonly record: WorkbenchRecord;
+  readonly schema: WorkbenchSchema;
+  readonly relationship: WorkbenchRelationship;
+  readonly referenceDepth: number;
+  readonly onClose: () => void;
 }
 
 export interface AxisSchemaRecordReferenceResult {
@@ -110,9 +133,11 @@ export function AxisSchemaRecordDetail({
   record,
   referenceDepth = 0,
   referenceResolver,
+  renderReference,
   schema,
   title,
   trueLabel = 'Yes',
+  variant,
 }: AxisSchemaRecordDetailProps) {
   const [loadedReference, setLoadedReference] = useState<AxisSchemaLoadedReference>();
   const [loadingReference, setLoadingReference] = useState(false);
@@ -148,9 +173,21 @@ export function AxisSchemaRecordDetail({
   };
   return (
     <AxisMetadataPanel
+      variant={variant}
       actions={actions}
       fields={schemaDetailFields(
-        schema,
+        variant === 'plain'
+          ? {
+              ...schema,
+              fields: schema.fields.filter((field) => {
+                const value = workbenchRecordValue(record, field.name);
+                return (
+                  !field.readOnly ||
+                  (value !== undefined && value !== null && value !== '')
+                );
+              }),
+            }
+          : schema,
         record,
         trueLabel,
         falseLabel,
@@ -171,21 +208,49 @@ export function AxisSchemaRecordDetail({
         </Stack>
       ) : null}
       {referenceError ? <Alert severity="warning">{referenceError}</Alert> : null}
-      {loadedReference ? (
-        <AxisSchemaRecordDetail
-          actions={
-            <Button size="small" onClick={() => setLoadedReference(undefined)}>
-              Close reference
-            </Button>
-          }
-          falseLabel={falseLabel}
-          record={loadedReference.record}
-          referenceDepth={referenceDepth + 1}
-          referenceResolver={referenceResolver}
-          schema={loadedReference.schema}
-          title={`${loadedReference.relationship.label}: ${loadedReference.displayValue}`}
-          trueLabel={trueLabel}
-        />
+      {loadedReference && renderReference ? (
+        renderReference({
+          record: loadedReference.record,
+          schema: loadedReference.schema,
+          relationship: loadedReference.relationship,
+          referenceDepth: referenceDepth + 1,
+          onClose: () => setLoadedReference(undefined),
+        })
+      ) : loadedReference ? (
+        <Dialog
+          open
+          fullWidth
+          maxWidth="md"
+          onClose={() => setLoadedReference(undefined)}
+        >
+          <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Typography
+              component="span"
+              sx={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere', fontWeight: 700 }}
+            >
+              {loadedReference.schema.label}
+            </Typography>
+            <Tooltip title="Close reference">
+              <IconButton
+                aria-label="Close reference"
+                onClick={() => setLoadedReference(undefined)}
+              >
+                <ShellIcon name="close" />
+              </IconButton>
+            </Tooltip>
+          </DialogTitle>
+          <DialogContent>
+            <AxisSchemaRecordDetail
+              falseLabel={falseLabel}
+              record={loadedReference.record}
+              referenceDepth={referenceDepth + 1}
+              referenceResolver={referenceResolver}
+              schema={loadedReference.schema}
+              title={`${loadedReference.relationship.label}: ${loadedReference.displayValue}`}
+              trueLabel={trueLabel}
+            />
+          </DialogContent>
+        </Dialog>
       ) : null}
     </AxisMetadataPanel>
   );

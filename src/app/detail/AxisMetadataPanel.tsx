@@ -10,6 +10,7 @@ export interface AxisMetadataField {
 }
 
 export interface AxisMetadataPanelProps {
+  readonly variant?: 'panel' | 'plain' | undefined;
   readonly actions?: ReactNode | undefined;
   readonly children?: ReactNode | undefined;
   readonly fields: readonly AxisMetadataField[];
@@ -23,15 +24,16 @@ export function AxisMetadataPanel({
   fields,
   notice,
   title = 'Metadata',
+  variant = 'panel',
 }: AxisMetadataPanelProps) {
   return (
     <Box
       sx={{
-        bgcolor: 'background.default',
-        border: 1,
+        bgcolor: variant === 'plain' ? 'transparent' : 'background.default',
+        border: variant === 'plain' ? 0 : 1,
         borderColor: 'divider',
         borderRadius: 2,
-        p: 1.5,
+        p: variant === 'plain' ? 0 : 1.5,
       }}
     >
       <Stack spacing={1.5}>
@@ -55,21 +57,22 @@ export function AxisMetadataPanel({
               <Grid key={field.key} size={{ xs: 12, sm: field.fullWidth ? 12 : 6 }}>
                 <Box
                   sx={{
-                    bgcolor: 'background.paper',
-                    border: 1,
+                    bgcolor: variant === 'plain' ? 'transparent' : 'background.paper',
+                    border: variant === 'plain' ? 0 : 1,
+                    borderBottom: 1,
                     borderColor: 'divider',
-                    borderRadius: 1.5,
+                    borderRadius: variant === 'plain' ? 0 : 1.5,
                     minHeight: '100%',
-                    p: 1.25,
+                    p: variant === 'plain' ? '12px 0' : 1.25,
                   }}
                 >
                   <Typography
                     color="text.secondary"
                     sx={{
-                      fontSize: '0.68rem',
-                      fontWeight: 800,
-                      letterSpacing: 0.9,
-                      textTransform: 'uppercase',
+                      fontSize: variant === 'plain' ? '0.75rem' : '0.68rem',
+                      fontWeight: variant === 'plain' ? 500 : 800,
+                      letterSpacing: variant === 'plain' ? 0 : 0.9,
+                      textTransform: variant === 'plain' ? 'none' : 'uppercase',
                     }}
                   >
                     {field.label}

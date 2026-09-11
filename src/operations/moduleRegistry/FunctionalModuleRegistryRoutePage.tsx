@@ -368,7 +368,47 @@ function ActivationDataPanel({
           Blocked by {activationData.preflight.blockedReasons.join(', ')}
         </Alert>
       ) : null}
-      {activationData.preflight.dependencies.length > 0 ? (
+      {activationData.preflight.dependencyStates.length > 0 ? (
+        <Box>
+          <Typography color="text.secondary" sx={{ mb: 1 }} variant="caption">
+            Runtime and data dependencies
+          </Typography>
+          <Stack component="ul" spacing={0} sx={{ listStyle: 'none', m: 0, p: 0 }}>
+            {activationData.preflight.dependencyStates.map((dependency) => (
+              <Box
+                component="li"
+                key={dependency.functionalModule}
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: {
+                    xs: '1fr',
+                    sm: 'minmax(140px, 1fr) minmax(0, 3fr)',
+                  },
+                  gap: { xs: 0.5, sm: 2 },
+                  py: 1.25,
+                  borderBottom: '1px solid',
+                  borderColor: 'divider',
+                  overflowWrap: 'anywhere',
+                }}
+              >
+                <Typography variant="subtitle2">{dependency.displayName}</Typography>
+                <Stack spacing={0.5} sx={{ minWidth: 0 }}>
+                  <Typography
+                    color={dependency.satisfied ? 'text.secondary' : 'error.main'}
+                    variant="body2"
+                  >
+                    {dependency.reason ||
+                      `${dependency.registrationState} · ${dependency.runtimeState}`}
+                  </Typography>
+                  {dependency.resolution ? (
+                    <Typography variant="body2">{dependency.resolution}</Typography>
+                  ) : null}
+                </Stack>
+              </Box>
+            ))}
+          </Stack>
+        </Box>
+      ) : activationData.preflight.dependencies.length > 0 ? (
         <Box>
           <Typography color="text.secondary" sx={{ mb: 1 }} variant="caption">
             Runtime and data dependencies
@@ -411,7 +451,15 @@ function ActivationDataPanel({
                   {group.packages.length > 0 ? (
                     <Stack spacing={0.5} sx={{ mt: 1 }}>
                       {group.packages.slice(0, 4).map((pack) => (
-                        <Typography key={pack.code} variant="caption">
+                        <Typography
+                          key={JSON.stringify([
+                            pack.code,
+                            pack.targetServer,
+                            pack.targetModule,
+                            pack.targetDatabase,
+                          ])}
+                          variant="caption"
+                        >
                           {friendlyCodeLabel(pack.code)} ·{' '}
                           {dataTypeLabel(pack.dataType)} · {pack.trigger || 'SYSTEM'}
                         </Typography>
@@ -500,7 +548,8 @@ function RegistryMetric({
         gap: { xs: 0.25, sm: 1 },
         justifyContent: 'space-between',
         alignItems: { xs: 'flex-start', sm: 'center' },
-        boxShadow: (theme) => `inset 0 1px 0 ${alpha(theme.palette.common.white, 0.56)}`,
+        boxShadow: (theme) =>
+          `inset 0 1px 0 ${alpha(theme.palette.common.white, 0.56)}`,
         minHeight: 48,
         minWidth: 112,
         px: 1.25,
@@ -567,8 +616,10 @@ function ModuleCard({
     activationData?.packages.filter(
       (pack) => pack.dataType === 'sample' || pack.trigger === 'USER',
     ).length ?? 0;
-  const blockedReasonCount =
-    Math.max(activationData?.preflight.blockedReasons.length ?? 0, missingDependencyCount);
+  const blockedReasonCount = Math.max(
+    activationData?.preflight.blockedReasons.length ?? 0,
+    missingDependencyCount,
+  );
   const visibleTechnicalModules = technicalExpanded
     ? module.technicalModules
     : module.technicalModules.slice(0, 8);
@@ -971,27 +1022,27 @@ function ModuleCard({
 
               <ActivationDataPanel activationData={activationData} />
 
-              <Alert
-                severity={
-                  missingDependencyCount > 0
-                    ? 'warning'
-                    : canActivate
+              {missingDependencyCount === 0 ? (
+                <Alert
+                  severity={
+                    missingDependencyCount > 0
                       ? 'warning'
-                      : module.enabled
-                        ? 'success'
-                        : 'info'
-                }
-              >
-                {missingDependencyCount > 0
-                  ? `Activation is waiting for ${String(missingDependencyCount)} required module dependency.`
-                  : canActivate
-                  ? activationData?.packages.length === 0
-                    ? 'No required data package is declared.'
-                    : 'Activation imports required data before enabling Axis capabilities.'
-                  : module.enabled
-                    ? 'Axis capabilities are enabled for this module.'
-                    : 'Registry state is ready for operator review.'}
-              </Alert>
+                      : canActivate
+                        ? 'warning'
+                        : module.enabled
+                          ? 'success'
+                          : 'info'
+                  }
+                >
+                  {canActivate
+                    ? activationData?.packages.length === 0
+                      ? 'No required data package is declared.'
+                      : 'Activation imports required data before enabling Axis capabilities.'
+                    : module.enabled
+                      ? 'Axis capabilities are enabled for this module.'
+                      : 'Registry state is ready for operator review.'}
+                </Alert>
+              ) : null}
 
               <Divider />
 
@@ -1135,6 +1186,7 @@ export function FunctionalModuleRegistryRoutePage(
     refetchOnWindowFocus: true,
   });
   const lifecycle = useMutation({
+    onMutate: () => setNavigationRefreshState(undefined),
     mutationFn: async ({
       module,
       action,
@@ -1151,7 +1203,7 @@ export function FunctionalModuleRegistryRoutePage(
         { dryRun: action === 'preview' },
       );
     },
-    onSuccess: (updatedModule, variables) => {
+    onSuccess: async (updatedModule, variables) => {
       setNavigationRefreshState(undefined);
       const registeredQueryKey = [
         ...registryQueryRoot,
@@ -1195,7 +1247,7 @@ export function FunctionalModuleRegistryRoutePage(
           (modules) => removeModule(modules, updatedModule.functionalModule),
         );
       }
-      void Promise.all([
+      await Promise.all([
         queryClient.refetchQueries({
           queryKey: registeredQueryKey,
           type: 'active',
@@ -1230,6 +1282,10 @@ export function FunctionalModuleRegistryRoutePage(
                 : 'Lifecycle completed, but Axis could not refresh navigation automatically.',
           });
         });
+    },
+    onError: async () => {
+      setNavigationRefreshState(undefined);
+      await queryClient.invalidateQueries({ queryKey: registryQueryRoot });
     },
   });
   const sampleData = useMutation({
@@ -1369,10 +1425,7 @@ export function FunctionalModuleRegistryRoutePage(
           <Alert severity="error">{loadError.message}</Alert>
         ) : (
           <Stack spacing={2}>
-            <Card
-              variant="outlined"
-              sx={{ borderRadius: 1, overflow: 'hidden' }}
-            >
+            <Card variant="outlined" sx={{ borderRadius: 1, overflow: 'hidden' }}>
               <CardContent
                 sx={{
                   '&:last-child': { pb: 1.5 },

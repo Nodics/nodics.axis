@@ -121,7 +121,8 @@ async function parseErrorMessage(response: Response): Promise<string> {
   } catch {
     body = '';
   }
-  if (!body.trim()) return `Documentation publication returned HTTP ${String(response.status)}`;
+  if (!body.trim())
+    return `Documentation publication returned HTTP ${String(response.status)}`;
   try {
     const parsed = JSON.parse(body) as unknown;
     const envelope = record(parsed, 'Documentation publication error');
@@ -145,7 +146,11 @@ async function parseErrorMessage(response: Response): Promise<string> {
     ]
       .filter(Boolean)
       .join(' ');
-    if (/content changed without a new release version|increment and regenerate|checksum/iu.test(message)) {
+    if (
+      /content changed without a new release version|increment and regenerate|checksum/iu.test(
+        message,
+      )
+    ) {
       return 'Release version update required. Increment the content-pack version, regenerate the pack, then update Staged again.';
     }
     return message.trim()

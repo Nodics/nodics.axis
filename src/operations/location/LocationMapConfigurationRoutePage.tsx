@@ -3,6 +3,8 @@ import {
   Box,
   Button,
   Chip,
+  Checkbox,
+  FormControlLabel,
   Divider,
   MenuItem,
   Paper,
@@ -44,7 +46,7 @@ interface LocationMapConfigurationRoutePageProps {
 
 const schemaGuidance: Readonly<Record<string, string>> = Object.freeze({
   locationMapProviderConfiguration:
-    'Maintain active map configuration per surface and usage. For Axis collection centres, configure provider MAPBOX, usage COLLECTION_CENTRE_MAP, style mapbox://styles/mapbox/streets-v12, default viewport, and a frontend-safe public pk.* token.',
+    'Maintain one shared configuration per map usage. Provider, viewport, controls, marker appearance and zoom behavior apply to every connected application. Mapbox requires a frontend-safe public pk.* token.',
   locationMapProvider:
     'Manage map provider records that render Location maps. Create providers, open a provider to edit its renderer and token rules, or remove providers that are no longer allowed.',
   locationMapUsage:
@@ -55,7 +57,7 @@ const schemaGuidance: Readonly<Record<string, string>> = Object.freeze({
     'Maintain control presets for navigation, scale, geolocation, and directions behaviour.',
 });
 
-const mapSurfaceCode = 'AXIS';
+const mapSurfaceCode = 'SHARED';
 const mapUsageCode = 'COLLECTION_CENTRE_MAP';
 const defaultControls = Object.freeze([
   'FILTERS',
@@ -115,6 +117,9 @@ function draftFromConfiguration(
 ): LocationMapConfigurationDraft {
   const defaults = initialDraft();
   return {
+    expectedRevision: configuration.revision,
+    presentation: configuration.presentation,
+    interaction: configuration.interaction,
     code: configuration.code || defaults.code,
     providerCode: configuration.providerCode || defaults.providerCode,
     surfaceCode: configuration.surfaceCode || defaults.surfaceCode,
@@ -130,29 +135,15 @@ function draftFromConfiguration(
     defaultZoom: configuration.defaultZoom,
     minimumZoom: configuration.minimumZoom ?? defaults.minimumZoom,
     maximumZoom: configuration.maximumZoom ?? defaults.maximumZoom,
-    enabledControls:
-      configuration.enabledControls.length > 0
-        ? configuration.enabledControls
-        : defaults.enabledControls,
+    enabledControls: configuration.enabledControls,
     setupStatus: configuration.setupStatus || defaults.setupStatus,
     status: configuration.status || defaults.status,
   };
 }
 
-function controlsText(controls: readonly string[]): string {
-  return controls.join(', ');
-}
-
-function controlsFromText(value: string): readonly string[] {
-  return Object.freeze(
-    value
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean),
-  );
-}
-
-function stylePresetForProvider(provider: LocationMapProviderOption | undefined): string {
+function stylePresetForProvider(
+  provider: LocationMapProviderOption | undefined,
+): string {
   if (provider?.rendererType === 'XYZ_TILE') return 'OSM_HOT';
   if (provider?.providerType === 'MAPBOX') return 'MAPBOX_STREETS';
   return '';
@@ -182,12 +173,16 @@ function providerName(provider: LocationMapProviderOption): string {
   return typeof english === 'string' && english.trim() ? english : provider.code;
 }
 
-function providerRequiresToken(provider: LocationMapProviderOption | undefined): boolean {
+function providerRequiresToken(
+  provider: LocationMapProviderOption | undefined,
+): boolean {
   return provider?.requiresPublicAccessToken === true || provider?.code === 'MAPBOX';
 }
 
 function tokenPrefix(provider: LocationMapProviderOption | undefined): string {
-  return provider?.frontendSafeTokenPrefix || (provider?.code === 'MAPBOX' ? 'pk.' : '');
+  return (
+    provider?.frontendSafeTokenPrefix || (provider?.code === 'MAPBOX' ? 'pk.' : '')
+  );
 }
 
 function setupStatusColor(status: string): 'success' | 'warning' | 'default' | 'error' {
@@ -277,7 +272,9 @@ function LocationMapSetupForm(props: LocationMapSetupFormProps) {
       }),
     onSuccess: (configuration) => {
       setDraft(draftFromConfiguration(configuration));
-      setSuccessMessage('Map configuration saved.');
+      setSuccessMessage(
+        'Shared map configuration saved. Connected applications refresh automatically.',
+      );
       void queryClient.invalidateQueries({ queryKey: ['location-map-configuration'] });
     },
   });
@@ -329,11 +326,10 @@ function LocationMapSetupForm(props: LocationMapSetupFormProps) {
           >
             <Box>
               <Typography variant="overline">Map provider setup</Typography>
-              <Typography variant="h5">Axis collection-centre map</Typography>
+              <Typography variant="h5">Shared collection-centre map</Typography>
               <Typography color="text.secondary">
-                Business users choose the active map provider, renderer, fallback,
-                credentials, viewport, and controls. Axis reads the resolved contract
-                from the Location backend.
+                Changes apply to Axis, Circa and every application using this map.
+                Location owns the provider, viewport, controls, pins and zoom behavior.
               </Typography>
             </Box>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
@@ -411,10 +407,7 @@ function LocationMapSetupForm(props: LocationMapSetupFormProps) {
                   publicAccessToken: providerRequiresToken(provider)
                     ? current.publicAccessToken
                     : '',
-                  setupStatus: setupStatusForProvider(
-                    provider,
-                    current.setupStatus,
-                  ),
+                  setupStatus: setupStatusForProvider(provider, current.setupStatus),
                   stylePresetCode:
                     stylePresetForProvider(provider) || current.stylePresetCode,
                   styleUrl: styleUrlForProvider(provider, current.styleUrl),
@@ -444,14 +437,14 @@ function LocationMapSetupForm(props: LocationMapSetupFormProps) {
               <MenuItem value="INVALID">INVALID</MenuItem>
             </TextField>
             <TextField
-              label="Surface code"
-              value={draft.surfaceCode}
-              onChange={(event) => updateText('surfaceCode', event.target.value)}
+              label="Applies to"
+              value="All connected applications"
+              slotProps={{ input: { readOnly: true } }}
             />
             <TextField
               label="Usage code"
               value={draft.usageCode}
-              onChange={(event) => updateText('usageCode', event.target.value)}
+              slotProps={{ input: { readOnly: true } }}
             />
             <TextField
               label="Record status"
@@ -515,17 +508,6 @@ function LocationMapSetupForm(props: LocationMapSetupFormProps) {
               <MenuItem value="NON_PRODUCTION_ONLY">NON_PRODUCTION_ONLY</MenuItem>
             </TextField>
             <TextField
-              label="Enabled controls"
-              value={controlsText(draft.enabledControls)}
-              onChange={(event) => {
-                setSuccessMessage('');
-                setDraft((current) => ({
-                  ...current,
-                  enabledControls: controlsFromText(event.target.value),
-                }));
-              }}
-            />
-            <TextField
               label="Default latitude"
               type="number"
               value={draft.defaultCenterLatitude}
@@ -563,6 +545,176 @@ function LocationMapSetupForm(props: LocationMapSetupFormProps) {
 
           <Divider />
 
+          <Divider />
+          <Typography variant="h6">Map controls</Typography>
+          <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap' }}>
+            {(
+              [
+                ['FILTERS', 'Centre type filters'],
+                ['ZOOM', 'Zoom buttons'],
+                ['SCALE', 'Distance scale'],
+                ['GEOLOCATE', 'Find near me'],
+                ['DIRECTIONS', 'Directions'],
+              ] as const
+            ).map(([code, label]) => (
+              <FormControlLabel
+                key={code}
+                label={label}
+                control={
+                  <Checkbox
+                    checked={draft.enabledControls.includes(code)}
+                    onChange={(_event, checked) =>
+                      setDraft((current) => ({
+                        ...current,
+                        enabledControls: checked
+                          ? [...current.enabledControls, code]
+                          : current.enabledControls.filter((value) => value !== code),
+                      }))
+                    }
+                  />
+                }
+              />
+            ))}
+          </Stack>
+          {draft.interaction ? (
+            <>
+              <Typography variant="h6">Scroll and zoom</Typography>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 2,
+                  gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' },
+                }}
+              >
+                <TextField
+                  select
+                  label="Wheel zoom"
+                  value={draft.interaction.wheelZoomMode}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      interaction: {
+                        ...current.interaction!,
+                        wheelZoomMode: event.target.value as
+                          | 'MODIFIER'
+                          | 'FREE'
+                          | 'DISABLED',
+                      },
+                    }))
+                  }
+                >
+                  <MenuItem value="MODIFIER">Command / Control + scroll</MenuItem>
+                  <MenuItem value="FREE">Scroll without a modifier key</MenuItem>
+                  <MenuItem value="DISABLED">Disabled</MenuItem>
+                </TextField>
+                {(
+                  [
+                    ['wheelStep', 'Zoom step'],
+                    ['wheelCooldownMs', 'Gesture spacing (milliseconds)'],
+                    ['zoomAnimationSeconds', 'Zoom animation (seconds)'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <TextField
+                    key={key}
+                    label={label}
+                    type="number"
+                    value={draft.interaction![key]}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        interaction: {
+                          ...current.interaction!,
+                          [key]: Number(event.target.value),
+                        },
+                      }))
+                    }
+                  />
+                ))}
+              </Box>
+            </>
+          ) : null}
+          {draft.presentation ? (
+            <>
+              <Typography variant="h6">Centre types and pins</Typography>
+              <Typography color="text.secondary">
+                Colours and labels apply to pins and filter buttons in every
+                application. Matching terms use centre type, capabilities and legacy
+                centre names.
+              </Typography>
+              {draft.presentation.categories.map((category, index) => (
+                <Box
+                  key={category.code}
+                  sx={{
+                    display: 'grid',
+                    gap: 2,
+                    gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 2fr' },
+                  }}
+                >
+                  <TextField
+                    label={`${category.code} label`}
+                    value={category.label}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        presentation: {
+                          ...current.presentation!,
+                          categories: current.presentation!.categories.map(
+                            (value, i) =>
+                              i === index
+                                ? { ...value, label: event.target.value }
+                                : value,
+                          ),
+                        },
+                      }))
+                    }
+                  />
+                  <TextField
+                    label={`${category.code} pin colour`}
+                    type="color"
+                    value={category.color}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        presentation: {
+                          ...current.presentation!,
+                          categories: current.presentation!.categories.map(
+                            (value, i) =>
+                              i === index
+                                ? { ...value, color: event.target.value }
+                                : value,
+                          ),
+                        },
+                      }))
+                    }
+                  />
+                  <TextField
+                    label={`${category.code} matching terms`}
+                    value={category.matchTerms.join(', ')}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        presentation: {
+                          ...current.presentation!,
+                          categories: current.presentation!.categories.map(
+                            (value, i) =>
+                              i === index
+                                ? {
+                                    ...value,
+                                    matchTerms: event.target.value
+                                      .split(',')
+                                      .map((term) => term.trim())
+                                      .filter(Boolean),
+                                  }
+                                : value,
+                          ),
+                        },
+                      }))
+                    }
+                  />
+                </Box>
+              ))}
+            </>
+          ) : null}
           <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
             <Button
               component={RouterLink}
@@ -679,9 +831,11 @@ export function LocationMapConfigurationRoutePage(
         </Stack>
       </Paper>
 
-      {isConfigurationRoot ? (
+      {isConfigurationRoot && setupQuery.isPending ? (
+        <Alert severity="info">Loading shared map configuration…</Alert>
+      ) : isConfigurationRoot ? (
         <LocationMapSetupForm
-          key={`${setupConfiguration.code}:${setupConfiguration.setupStatus}:${setupConfiguration.publicAccessToken}`}
+          key={setupConfiguration.code}
           accessToken={props.accessToken}
           bootstrap={props.bootstrap}
           initialConfiguration={setupConfiguration}

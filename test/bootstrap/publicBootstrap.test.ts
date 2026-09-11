@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  parseBackendWorkspace,
   loadAuthenticatedBootstrap,
   loadPublicBootstrap,
   selectModuleConnection,
@@ -810,5 +811,27 @@ describe('Axis bootstrap clients', () => {
         request,
       ),
     ).rejects.toThrow(/policy is incompatible/i);
+  });
+});
+
+describe('native workspace contribution', () => {
+  const native = {
+    contractVersion: 1,
+    renderer: 'axis.workspace.native',
+    workspaceCode: 'waste.review',
+    viewCode: 'ewaste.overview',
+    title: 'Electronics',
+  };
+  it('preserves bounded owner-supplied keys without executable components', () => {
+    expect(parseBackendWorkspace(native)).toMatchObject(native);
+  });
+  it.each([
+    { component: '../../code.js' },
+    { viewCode: 'https://evil.example' },
+    { workspaceCode: 'x'.repeat(129) },
+    { script: 'alert(1)' },
+    { contractVersion: 2 },
+  ])('rejects invalid native metadata %j', (change) => {
+    expect(() => parseBackendWorkspace({ ...native, ...change })).toThrow();
   });
 });

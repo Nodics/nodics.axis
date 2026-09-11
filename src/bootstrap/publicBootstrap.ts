@@ -164,6 +164,7 @@ export interface AxisBackendWorkspaceOption {
 }
 
 export interface AxisBackendWorkspaceField {
+  readonly defaultFromParameter?: string | undefined;
   readonly name: string;
   readonly label: string;
   readonly type: AxisBackendWorkspaceFieldType;
@@ -205,6 +206,8 @@ export interface AxisBackendWorkspaceTab {
 }
 
 export interface AxisBackendWorkspace {
+  readonly workspaceCode?: string | undefined;
+  readonly viewCode?: string | undefined;
   readonly contractVersion: number;
   readonly title: string;
   readonly description?: string | undefined;
@@ -537,6 +540,16 @@ function backendWorkspaceField(
     source.maximumLength === undefined
       ? undefined
       : nonNegativeInteger(source.maximumLength, `${name} maximum length`);
+  const defaultFromParameter =
+    source.defaultFromParameter === undefined
+      ? undefined
+      : text(source.defaultFromParameter, `${name} context parameter`);
+  if (
+    defaultFromParameter !== undefined &&
+    (type !== 'TEXT' || !/^[A-Za-z][A-Za-z0-9_-]{0,127}$/.test(defaultFromParameter))
+  ) {
+    throw new Error(`${name} context parameter is invalid`);
+  }
   const parsed = {
     name: text(source.name, `${name} name`),
     label: text(source.label, `${name} label`),
@@ -548,9 +561,10 @@ function backendWorkspaceField(
       typeof source.defaultValue === 'boolean' ||
       (Array.isArray(source.defaultValue) &&
         source.defaultValue.every((item) => typeof item === 'string'))
-        ? (source.defaultValue as string | boolean | readonly string[])
+        ? source.defaultValue
         : undefined,
     bindToPath: optionalBoolean(source.bindToPath, `${name} bindToPath`),
+    defaultFromParameter,
     options:
       source.options === undefined
         ? undefined
@@ -631,6 +645,41 @@ export function parseBackendWorkspace(
   name = 'Backend workspace',
 ): AxisBackendWorkspace {
   const source = record(value, name);
+  if (source.renderer === 'axis.workspace.native') {
+    if (
+      source.contractVersion !== 1 ||
+      Object.keys(source).some(
+        (key) =>
+          ![
+            'contractVersion',
+            'title',
+            'description',
+            'renderer',
+            'workspaceCode',
+            'viewCode',
+          ].includes(key),
+      )
+    )
+      throw new Error(`${name} native workspace is invalid.`);
+    const workspaceCode = text(source.workspaceCode, `${name} workspace code`);
+    const viewCode = text(source.viewCode, `${name} view code`);
+    if (
+      [workspaceCode, viewCode].some(
+        (code) =>
+          code.length > 128 || !/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/i.test(code),
+      )
+    )
+      throw new Error(`${name} native workspace key is invalid.`);
+    return Object.freeze({
+      contractVersion: 1,
+      renderer: source.renderer,
+      workspaceCode,
+      viewCode,
+      title: text(source.title, `${name} title`),
+      description: optionalText(source.description, `${name} description`),
+      tabs: Object.freeze([]),
+    });
+  }
   return Object.freeze({
     contractVersion: nonNegativeInteger(source.contractVersion, `${name} version`),
     title: text(source.title, `${name} title`),

@@ -195,7 +195,9 @@ describe('locationMapConfigurationClient', () => {
     );
 
     expect(fetchImplementation).toHaveBeenCalledWith(
-      new URL('http://localhost:4380/nodics/locationMap/v0/location/maps/configurations'),
+      new URL(
+        'http://localhost:4380/nodics/locationMap/v0/location/maps/configurations',
+      ),
       expect.objectContaining({ method: 'PUT' }),
     );
   });

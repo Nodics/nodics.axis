@@ -28,6 +28,7 @@ import type {
   WorkbenchRelationshipRuntime,
 } from './WorkbenchRelationshipRuntime';
 import { WorkbenchRecordForm } from './WorkbenchRecordForm';
+import { WorkbenchFormDialog } from './WorkbenchFormDialog';
 import { RelationshipPendingRecordChips } from './RelationshipPendingRecordChips';
 import { RelationshipReferenceChips } from './RelationshipReferenceChips';
 import {
@@ -119,6 +120,9 @@ export function RelationshipFieldRenderer(props: RelationshipFieldRendererProps)
       ...props.runtime.queryScope,
       props.targetSchema.moduleName,
       props.targetSchema.schemaName,
+      props.targetSchema.connectionInstanceId ?? '',
+      props.targetSchema.connectionServer ?? '',
+      props.targetSchema.connectionEnvironment ?? '',
       backendSearch,
       pageSize,
     ],
@@ -140,6 +144,7 @@ export function RelationshipFieldRenderer(props: RelationshipFieldRendererProps)
   });
   const selected = new Set(props.draft.references);
   const label = props.relationship.label;
+  const createLabel = `${props.targetSchema.form?.copy.createRelatedLabel ?? props.copy.createRelatedLabel} ${props.targetSchema.label}`;
   const allRecords = useMemo(
     () => records.data?.pages.flatMap((page) => [...page.records]) ?? [],
     [records.data],
@@ -258,7 +263,7 @@ export function RelationshipFieldRenderer(props: RelationshipFieldRendererProps)
           ) : null}
           {canCreateRelated && !selectOpen ? (
             <Button disabled={props.disabled} variant="outlined" onClick={openCreate}>
-              {props.copy.createRelatedLabel} {label}
+              {createLabel}
             </Button>
           ) : null}
         </Stack>
@@ -283,7 +288,7 @@ export function RelationshipFieldRenderer(props: RelationshipFieldRendererProps)
                   variant="outlined"
                   onClick={openCreate}
                 >
-                  {props.copy.createRelatedLabel} {label}
+                  {createLabel}
                 </Button>
               ) : null}
             </Stack>
@@ -416,59 +421,62 @@ export function RelationshipFieldRenderer(props: RelationshipFieldRendererProps)
           </Stack>
         ) : null}
         {editRecord ? (
-          <WorkbenchRecordForm
-            cancelLabel={props.copy.cancelLabel}
-            depth={props.depth + 1}
-            embedded
-            initialModel={editRecord}
-            lineage={[...props.lineage, targetKey]}
-            relationshipCopy={props.copy}
-            relationshipRuntime={props.runtime}
-            saving={false}
-            savingLabel={props.copy.editRelatedLabel}
-            schema={props.targetSchema}
-            submitLabel={props.copy.editRelatedLabel}
-            title={`${props.copy.editRelatedLabel} ${label}`}
-            onCancel={() => setEditRecord(undefined)}
-            onSubmit={async (model) => {
-              if (!props.runtime.updateRecord) {
-                throw new Error('Related record update is unavailable');
-              }
-              await props.runtime.updateRecord(props.targetSchema, editRecord, model);
-              setEditRecord(undefined);
-              await records.refetch();
-            }}
-          />
+          <WorkbenchFormDialog title={`${props.copy.editRelatedLabel} ${label}`}>
+            <WorkbenchRecordForm
+              cancelLabel={props.copy.cancelLabel}
+              depth={props.depth + 1}
+              initialModel={editRecord}
+              lineage={[...props.lineage, targetKey]}
+              relationshipCopy={props.copy}
+              relationshipRuntime={props.runtime}
+              saving={false}
+              savingLabel={props.copy.editRelatedLabel}
+              schema={props.targetSchema}
+              submitLabel={props.copy.editRelatedLabel}
+              title={`${props.copy.editRelatedLabel} ${label}`}
+              onCancel={() => setEditRecord(undefined)}
+              onSubmit={async (model) => {
+                if (!props.runtime.updateRecord) {
+                  throw new Error('Related record update is unavailable');
+                }
+                await props.runtime.updateRecord(props.targetSchema, editRecord, model);
+                setEditRecord(undefined);
+                await records.refetch();
+              }}
+            />
+          </WorkbenchFormDialog>
         ) : null}
         {createOpen ? (
-          <WorkbenchRecordForm
-            cancelLabel={props.copy.cancelLabel}
-            embedded
-            depth={props.depth + 1}
-            lineage={[...props.lineage, targetKey]}
-            relationshipCopy={props.copy}
-            relationshipRuntime={props.runtime}
-            saving={false}
-            savingLabel={props.copy.addToDraftLabel}
-            schema={props.targetSchema}
-            submitLabel={props.copy.addToDraftLabel}
-            title={`${props.copy.createRelatedLabel} ${label}`}
-            onCancel={() => setCreateOpen(false)}
-            onSubmit={(model) => {
-              const pending =
-                props.relationship.cardinality === 'ONE'
-                  ? [model]
-                  : [...props.draft.pending, model];
-              props.onChange({
-                pending: Object.freeze(pending),
-                references:
+          <WorkbenchFormDialog title={createLabel}>
+            <WorkbenchRecordForm
+              cancelLabel={props.copy.cancelLabel}
+              deferRelatedCreates
+              depth={props.depth + 1}
+              lineage={[...props.lineage, targetKey]}
+              relationshipCopy={props.copy}
+              relationshipRuntime={props.runtime}
+              saving={false}
+              savingLabel={props.copy.addToDraftLabel}
+              schema={props.targetSchema}
+              submitLabel={props.copy.addToDraftLabel}
+              title={createLabel}
+              onCancel={() => setCreateOpen(false)}
+              onSubmit={(model) => {
+                const pending =
                   props.relationship.cardinality === 'ONE'
-                    ? Object.freeze([])
-                    : props.draft.references,
-              });
-              setCreateOpen(false);
-            }}
-          />
+                    ? [model]
+                    : [...props.draft.pending, model];
+                props.onChange({
+                  pending: Object.freeze(pending),
+                  references:
+                    props.relationship.cardinality === 'ONE'
+                      ? Object.freeze([])
+                      : props.draft.references,
+                });
+                setCreateOpen(false);
+              }}
+            />
+          </WorkbenchFormDialog>
         ) : null}
       </Stack>
     </Box>

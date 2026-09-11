@@ -133,11 +133,7 @@ function FieldGrid({ children }: { readonly children: ReactNode }) {
   );
 }
 
-function StudioTabs({
-  activeTab,
-}: {
-  readonly activeTab: ExperienceStudioTab;
-}) {
+function StudioTabs({ activeTab }: { readonly activeTab: ExperienceStudioTab }) {
   return (
     <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
       {tabs.map((tab) => (
@@ -160,9 +156,9 @@ function OverviewPanel() {
   return (
     <Stack spacing={3}>
       <Alert severity="info">
-        Experience Studio is an Axis control surface. CMS components and
-        placements stay backend-owned, publication stays governed, and storefront
-        delivery reads indexed projections only.
+        Experience Studio is an Axis control surface. CMS components and placements stay
+        backend-owned, publication stays governed, and storefront delivery reads indexed
+        projections only.
       </Alert>
       <Box
         sx={{
@@ -179,7 +175,11 @@ function OverviewPanel() {
           >
             <CardContent>
               <Stack spacing={1.5}>
-                <Chip label={card.target} size="small" sx={{ alignSelf: 'flex-start' }} />
+                <Chip
+                  label={card.target}
+                  size="small"
+                  sx={{ alignSelf: 'flex-start' }}
+                />
                 <Typography variant="h5">{card.title}</Typography>
                 <Typography color="text.secondary">{card.summary}</Typography>
                 <Typography
@@ -499,7 +499,9 @@ function IndexStatusPanel({
             ))}
           </Box>
         ) : null}
-        {status.data?.message ? <Alert severity="info">{status.data.message}</Alert> : null}
+        {status.data?.message ? (
+          <Alert severity="info">{status.data.message}</Alert>
+        ) : null}
       </Stack>
     </Paper>
   );

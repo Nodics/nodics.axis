@@ -54,7 +54,9 @@ function schema(moduleName: string, schemaName: string): WorkbenchSchema {
   });
 }
 
-function page(records: readonly Readonly<Record<string, unknown>>[]): WorkbenchRecordPage {
+function page(
+  records: readonly Readonly<Record<string, unknown>>[],
+): WorkbenchRecordPage {
   return Object.freeze({
     records,
     totalCount: records.length,
@@ -87,36 +89,42 @@ describe('enterpriseRelationshipsClient', () => {
     );
     mockedLoadWorkbenchRecords.mockImplementation((_connection, workbenchSchema) => {
       if (workbenchSchema.moduleName === 'profile') {
-        return Promise.resolve(page([
-          Object.freeze({
-            code: 'NODICS_REWARDS_MARKETPLACE_CO',
-            name: 'Nodics Rewards Marketplace Co.',
-          }),
-        ]));
+        return Promise.resolve(
+          page([
+            Object.freeze({
+              code: 'NODICS_REWARDS_MARKETPLACE_CO',
+              name: 'Nodics Rewards Marketplace Co.',
+            }),
+          ]),
+        );
       }
       if (workbenchSchema.schemaName === 'promotion') {
-        return Promise.resolve(page([
+        return Promise.resolve(
+          page([
+            Object.freeze({
+              code: 'PROMO_REWARDS_001',
+              name: 'Marketplace Campaign',
+              issuerEnterpriseRef: Object.freeze({ code: 'default' }),
+              vendorEnterpriseRef: Object.freeze({
+                code: 'NODICS_REWARDS_MARKETPLACE_CO',
+              }),
+              status: 'ACTIVE',
+            }),
+          ]),
+        );
+      }
+      return Promise.resolve(
+        page([
           Object.freeze({
-            code: 'PROMO_REWARDS_001',
-            name: 'Marketplace Campaign',
+            code: 'COUPON_REWARDS_001',
             issuerEnterpriseRef: Object.freeze({ code: 'default' }),
             vendorEnterpriseRef: Object.freeze({
               code: 'NODICS_REWARDS_MARKETPLACE_CO',
             }),
-            status: 'ACTIVE',
+            status: 'AVAILABLE',
           }),
-        ]));
-      }
-      return Promise.resolve(page([
-        Object.freeze({
-          code: 'COUPON_REWARDS_001',
-          issuerEnterpriseRef: Object.freeze({ code: 'default' }),
-          vendorEnterpriseRef: Object.freeze({
-            code: 'NODICS_REWARDS_MARKETPLACE_CO',
-          }),
-          status: 'AVAILABLE',
-        }),
-      ]));
+        ]),
+      );
     });
 
     const data = await loadEnterpriseRelationshipData(
@@ -151,12 +159,8 @@ describe('enterpriseRelationshipsClient', () => {
     );
 
     expect(data.enterprise?.code).toBe('NODICS_REWARDS_MARKETPLACE_CO');
-    expect(data.promotions.map((record) => record.code)).toEqual([
-      'PROMO_REWARDS_001',
-    ]);
-    expect(data.coupons.map((record) => record.code)).toEqual([
-      'COUPON_REWARDS_001',
-    ]);
+    expect(data.promotions.map((record) => record.code)).toEqual(['PROMO_REWARDS_001']);
+    expect(data.coupons.map((record) => record.code)).toEqual(['COUPON_REWARDS_001']);
     expect(data.promotions[0]?.relationship).toBe('Marketplace vendor');
     expect(data.projection.mode).toBe('AXIS_AGGREGATION');
     expect(data.projection.authoritativeSources).toContain(
@@ -215,12 +219,14 @@ describe('enterpriseRelationshipsClient', () => {
     );
     mockedLoadWorkbenchRecords.mockImplementation((_connection, workbenchSchema) => {
       if (workbenchSchema.moduleName === 'profile') {
-        return Promise.resolve(page([
-          Object.freeze({
-            code: 'BEAH_RECYCLING_SERVICES',
-            name: 'BEAH Recycling Services',
-          }),
-        ]));
+        return Promise.resolve(
+          page([
+            Object.freeze({
+              code: 'BEAH_RECYCLING_SERVICES',
+              name: 'BEAH Recycling Services',
+            }),
+          ]),
+        );
       }
       return Promise.resolve(page([]));
     });

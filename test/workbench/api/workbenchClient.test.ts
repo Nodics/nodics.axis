@@ -12,7 +12,11 @@ import {
   updateWorkbenchRecord,
 } from '../../../src/workbench/api/workbenchClient';
 import type { AxisModuleConnection } from '../../../src/bootstrap/publicBootstrap';
-import type { WorkbenchSchema } from '../../../src/workbench/api/workbenchContracts';
+import {
+  parseWorkbenchSchema,
+  isWorkbenchAuthoringSchema,
+  type WorkbenchSchema,
+} from '../../../src/workbench/api/workbenchContracts';
 
 const connection: AxisModuleConnection = {
   moduleName: 'profile',
@@ -83,6 +87,295 @@ function json(result: unknown, status = 200): Response {
 }
 
 describe('Schema Workbench API client', () => {
+  it('uses the declared owning create command and retains its key on retry without generic fallback', async () => {
+    const schema: WorkbenchSchema = {
+      ...address,
+      aggregateOperations: [
+        {
+          name: 'setup',
+          label: 'Set up',
+          purpose: 'CREATE',
+          consistency: 'MODULE_OWNED',
+          confirmationRequired: true,
+        },
+      ],
+      form: {
+        contractVersion: 1,
+        sections: [],
+        hiddenFields: [],
+        managedCreateFields: [],
+        defaultColumns: [],
+        copy: {},
+        createOperation: 'setup',
+      },
+    };
+    const model = { code: 'SETUP-TEST' };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json({ message: 'Setup interrupted' }, 503))
+      .mockResolvedValueOnce(json(model));
+    await expect(
+      createWorkbenchRecord(connection, schema, model, configuration, fetcher),
+    ).rejects.toThrow();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await expect(
+      createWorkbenchRecord(connection, schema, model, configuration, fetcher),
+    ).resolves.toEqual(model);
+    const first = fetcher.mock.calls[0]!;
+    const second = fetcher.mock.calls[1]!;
+    expect((first[0] as URL).pathname).toBe(
+      '/nodics/profile/v0/schema/workbench/address/aggregate',
+    );
+    expect(parseRequestBody(first[1]?.body)).toEqual({
+      operation: 'setup',
+      payload: { model },
+    });
+    expect(new Headers(first[1]?.headers).get('Idempotency-Key')).toBeTruthy();
+    expect(new Headers(first[1]?.headers).get('Idempotency-Key')).toBe(
+      new Headers(second[1]?.headers).get('Idempotency-Key'),
+    );
+  });
+
+  it('validates authoring metadata and never infers publication from runtime names', () => {
+    const operational = { ...address, connectionServer: 'stagedServer' };
+    expect(isWorkbenchAuthoringSchema(operational)).toBe(true);
+    for (const stage of ['ONLINE', 'OPERATIONAL', 'UNASSIGNED']) {
+      const schema = parseWorkbenchSchema({
+        ...address,
+        mutationMode: 'READ_ONLY',
+        operations: ['search', 'read'],
+        authoring: { stage, publishRequired: true, authoringAllowed: false },
+      });
+      expect(isWorkbenchAuthoringSchema(schema)).toBe(false);
+    }
+    const staged = parseWorkbenchSchema({
+      ...address,
+      authoring: { stage: 'STAGED', publishRequired: true, authoringAllowed: true },
+    });
+    expect(isWorkbenchAuthoringSchema(staged)).toBe(true);
+    expect(() =>
+      parseWorkbenchSchema({
+        ...address,
+        authoring: { stage: 'ONLINE', publishRequired: true, authoringAllowed: true },
+      }),
+    ).toThrow(/inconsistent/);
+    expect(() =>
+      parseWorkbenchSchema({
+        ...address,
+        authoring: { stage: 'UNKNOWN', publishRequired: true, authoringAllowed: false },
+      }),
+    ).toThrow(/unsupported/);
+    expect(
+      isWorkbenchAuthoringSchema(
+        parseWorkbenchSchema({ ...address, mutationPolicy: { publishRequired: true } }),
+      ),
+    ).toBe(false);
+  });
+
+  it('keeps managed counters out of business payloads and uses the saved token for the next edit', async () => {
+    const schema: WorkbenchSchema = {
+      ...address,
+      concurrency: {
+        mode: 'COMPARE_AND_SET',
+        field: 'revision',
+        required: true,
+        managed: true,
+      },
+    };
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        json({ models: [{ code: 'DXB', revision: 8, name: 'First' }] }),
+      )
+      .mockResolvedValueOnce(
+        json({ models: [{ code: 'DXB', revision: 9, name: 'Second' }] }),
+      );
+    const first = await updateWorkbenchRecord(
+      connection,
+      schema,
+      { code: 'DXB', revision: 7 },
+      { name: 'First', revision: 100 },
+      configuration,
+      request,
+    );
+    await updateWorkbenchRecord(
+      connection,
+      schema,
+      first,
+      { name: 'Second' },
+      configuration,
+      request,
+    );
+    expect(parseRequestBody(request.mock.calls[0]?.[1]?.body)).toMatchObject({
+      query: { code: 'DXB', revision: 7 },
+      model: { name: 'First' },
+    });
+    expect(parseRequestBody(request.mock.calls[0]?.[1]?.body).model).not.toHaveProperty(
+      'revision',
+    );
+    expect(parseRequestBody(request.mock.calls[1]?.[1]?.body).query).toMatchObject({
+      revision: 8,
+    });
+  });
+
+  it('uses the managed legacy absence token without requiring a revision input', async () => {
+    const schema: WorkbenchSchema = {
+      ...address,
+      concurrency: {
+        mode: 'COMPARE_AND_SET',
+        field: 'revision',
+        required: true,
+        managed: true,
+      },
+    };
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(json({ models: [{ code: 'DXB', revision: 1 }] }));
+    await updateWorkbenchRecord(
+      connection,
+      schema,
+      { code: 'DXB' },
+      { name: 'Updated' },
+      configuration,
+      request,
+    );
+    expect(parseRequestBody(request.mock.calls[0]?.[1]?.body).query).toMatchObject({
+      revision: 0,
+    });
+    expect(parseWorkbenchSchema(schema).concurrency?.managed).toBe(true);
+  });
+  it('parses backend-driven field components, schema origin, and mutation policy', () => {
+    expect(
+      parseWorkbenchSchema({
+        ...address,
+        origin: {
+          source: 'PROJECT',
+          moduleName: 'profile',
+          layer: 'custom',
+          status: 'OVERRIDDEN',
+        },
+        hierarchy: [
+          {
+            source: 'FRAMEWORK',
+            moduleName: 'profile',
+            schemaName: 'address',
+            layer: 'framework',
+            status: 'BASE',
+          },
+        ],
+        mutationPolicy: {
+          mode: 'GENERATED_CRUD',
+          savePath: 'GENERATED_CRUD',
+          lifecycle: 'DIRECT',
+          createStrategy: 'TOP_LEVEL_WITH_REFERENCES',
+          updateStrategy: 'DIRECT_OR_REFERENCED',
+          deleteStrategy: 'TOP_LEVEL_ONLY',
+          aggregateSave: true,
+          publishRequired: false,
+        },
+        fields: [
+          {
+            ...address.fields[0]!,
+            component: 'select',
+            enum: ['UNVERIFIED', 'VERIFIED'],
+            enumOptions: [
+              {
+                value: 'UNVERIFIED',
+                label: 'Unverified',
+                description: '',
+                disabled: false,
+              },
+              {
+                value: 'VERIFIED',
+                label: 'Verified',
+                description: '',
+                disabled: false,
+              },
+            ],
+            fixedValue: 'UNVERIFIED',
+            validation: { minLength: 3 },
+            origin: {
+              source: 'PROJECT',
+              moduleName: 'profile',
+              layer: 'custom',
+              status: 'ADDED',
+            },
+          },
+          {
+            name: 'tenant',
+            label: 'Tenant',
+            type: 'object',
+            required: true,
+            readOnly: false,
+            primary: false,
+            description: '',
+            searchable: false,
+            reference: {
+              field: 'tenant',
+              label: 'Tenant',
+              description: '',
+              targetModule: 'profile',
+              targetSchema: 'tenant',
+              cardinality: 'ONE',
+              referenceProperty: 'code',
+              component: 'referenceSelector',
+              resolution: 'LOCAL_OR_REMOTE',
+              actions: ['SELECT_EXISTING'],
+              required: true,
+            },
+          },
+        ],
+        relationships: [
+          {
+            field: 'tenant',
+            label: 'Tenant',
+            description: '',
+            targetModule: 'profile',
+            targetSchema: 'tenant',
+            cardinality: 'ONE',
+            referenceProperty: 'code',
+            component: 'referenceSelector',
+            resolution: 'LOCAL_OR_REMOTE',
+            actions: ['SELECT_EXISTING'],
+            required: true,
+          },
+        ],
+      }),
+    ).toEqual(
+      partial({
+        origin: partial({ source: 'PROJECT' }),
+        mutationPolicy: partial({
+          deleteStrategy: 'TOP_LEVEL_ONLY',
+          aggregateSave: true,
+        }),
+        fields: [
+          partial({
+            component: 'select',
+            enumOptions: [
+              partial({ label: 'Unverified' }),
+              partial({ label: 'Verified' }),
+            ],
+            fixedValue: 'UNVERIFIED',
+            validation: partial({ minLength: 3 }),
+            origin: partial({ status: 'ADDED' }),
+          }),
+          partial({
+            reference: partial({
+              targetModule: 'profile',
+              targetSchema: 'tenant',
+              referenceProperty: 'code',
+            }),
+          }),
+        ],
+        relationships: [
+          partial({
+            component: 'referenceSelector',
+          }),
+        ],
+      }),
+    );
+  });
+
   it('discovers schemas directly from owning modules with employee context', async () => {
     const request = vi
       .fn<typeof fetch>()
@@ -93,7 +386,7 @@ describe('Schema Workbench API client', () => {
     await expect(
       loadWorkbenchSchemas([connection], configuration, request),
     ).resolves.toEqual([
-      expect.objectContaining({
+      partial({
         label: 'Address',
         moduleName: 'profile',
         connectionModuleName: 'profile',
@@ -131,14 +424,14 @@ describe('Schema Workbench API client', () => {
     await expect(
       loadWorkbenchSchemas([connection, duplicateConnection], configuration, request),
     ).resolves.toEqual([
-      expect.objectContaining({
+      partial({
         label: 'Address',
         moduleName: 'profile',
         schemaName: 'address',
         connectionServer: 'platformServer',
         connectionEnvironment: 'local',
       }),
-      expect.objectContaining({
+      partial({
         label: 'Address',
         moduleName: 'profile',
         schemaName: 'address',
@@ -164,13 +457,13 @@ describe('Schema Workbench API client', () => {
     await expect(
       loadWorkbenchSchemas([connection, stagedConnection], configuration, request),
     ).resolves.toEqual([
-      expect.objectContaining({
+      partial({
         moduleName: 'profile',
         schemaName: 'address',
         connectionServer: 'platformServer',
         connectionEnvironment: 'local',
       }),
-      expect.objectContaining({
+      partial({
         moduleName: 'profile',
         schemaName: 'address',
         connectionServer: 'commerceStagedServer',
@@ -321,7 +614,7 @@ describe('Schema Workbench API client', () => {
       '/nodics/profile/v0/schema/workbench/address/record',
     );
     expect(fallbackOptions?.method).toBe('POST');
-    expect(JSON.parse(String(fallbackOptions?.body))).toEqual({
+    expect(parseRequestBody(fallbackOptions?.body)).toEqual({
       model: { code: 'STYLE-PASS', type: 'COUPON_CODE' },
     });
   });
@@ -434,7 +727,7 @@ describe('Schema Workbench API client', () => {
       '/nodics/profile/v0/schema/workbench/address/record',
     );
     expect(fallbackOptions?.method).toBe('PATCH');
-    expect(JSON.parse(String(fallbackOptions?.body))).toEqual({
+    expect(parseRequestBody(fallbackOptions?.body)).toEqual({
       identity: { code: 'STYLE-PASS' },
       model: { type: 'PHYSICAL' },
     });
@@ -497,7 +790,7 @@ describe('Schema Workbench API client', () => {
     const updateBody = updateRequest.mock.calls[0]?.[1]?.body;
     if (typeof updateBody !== 'string') throw new Error('Expected update body');
     expect(JSON.parse(updateBody)).toEqual(
-      expect.objectContaining({ query: { code: 'DXB', revision: 7 } }),
+      partial({ query: { code: 'DXB', revision: 7 } }),
     );
 
     const deleteRequest = vi.fn<typeof fetch>().mockResolvedValue(
@@ -516,7 +809,7 @@ describe('Schema Workbench API client', () => {
     const deleteBody = deleteRequest.mock.calls[0]?.[1]?.body;
     if (typeof deleteBody !== 'string') throw new Error('Expected delete body');
     expect(JSON.parse(deleteBody)).toEqual(
-      expect.objectContaining({
+      partial({
         identity: { code: 'DXB', revision: 7 },
       }),
     );
@@ -890,3 +1183,12 @@ describe('Schema Workbench API client', () => {
     });
   });
 });
+
+/** Request bodies are JSON strings at this HTTP boundary. */
+function parseRequestBody(body: RequestInit['body']): Record<string, unknown> {
+  expect(typeof body).toBe('string');
+  return JSON.parse(body as string) as Record<string, unknown>;
+}
+function partial(value: Record<string, unknown>): unknown {
+  return expect.objectContaining(value);
+}

@@ -616,3 +616,58 @@ describe('Axis shell navigation composition', () => {
     ]);
   });
 });
+
+it('preserves accelerator ownership beneath a generic business anchor', () => {
+  const common = {
+    category: 'sustainability',
+    icon: 'waste',
+    availability: 'UP' as const,
+  };
+  const groups = composeShellNavigation([
+    {
+      ...common,
+      moduleName: 'wasteCore',
+      id: 'waste-operations',
+      label: 'Waste Management',
+      route: '/shared',
+      order: 1,
+      group: { id: 'sustainability', label: 'Sustainability', order: 1 },
+    },
+    {
+      ...common,
+      moduleName: 'wasteCore',
+      id: 'waste-overview',
+      label: 'Overview',
+      route: '/shared/overview',
+      order: 10,
+      parentId: 'waste-operations',
+    },
+    {
+      ...common,
+      moduleName: 'eWaste',
+      id: 'ewaste-operations',
+      label: 'Electronics',
+      route: '/devices',
+      order: 100,
+      parentId: 'waste-operations',
+      parentModuleName: 'wasteCore',
+    },
+    {
+      ...common,
+      moduleName: 'eWaste',
+      id: 'ewaste-overview',
+      label: 'Overview',
+      route: '/devices/overview',
+      order: 10,
+      parentId: 'ewaste-operations',
+    },
+  ]);
+  expect(
+    groups[0]?.items.map((item) => [item.label, item.moduleName, item.depth]),
+  ).toEqual([
+    ['Waste Management', 'wasteCore', 0],
+    ['Overview', 'wasteCore', 1],
+    ['Electronics', 'eWaste', 1],
+    ['Overview', 'eWaste', 2],
+  ]);
+});

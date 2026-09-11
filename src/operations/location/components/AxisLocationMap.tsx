@@ -1,6 +1,14 @@
 import { GlobalStyles, Paper, type SxProps, type Theme } from '@mui/material';
 import ReactMapGL, { type MapRef } from 'react-map-gl/mapbox';
-import { useCallback, type ComponentProps, type ReactNode, type Ref } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  type ComponentProps,
+  type ReactNode,
+  type Ref,
+} from 'react';
+import { shouldHandleMapWheel, type MapInteraction } from '../api/locationMapContract';
 
 export interface AxisLocationViewState {
   readonly latitude: number;
@@ -17,6 +25,9 @@ export interface AxisLocationMapFrameProps {
 }
 
 export interface AxisMapboxCanvasProps {
+  readonly interaction?: MapInteraction | undefined;
+  readonly minimumZoom?: number | undefined;
+  readonly maximumZoom?: number | undefined;
   readonly accessToken: string;
   readonly children?: ReactNode;
   readonly initialViewState: AxisLocationViewState;
@@ -59,6 +70,9 @@ export function AxisLocationMapFrame({
 }
 
 export function AxisMapboxCanvas({
+  interaction,
+  minimumZoom = 0,
+  maximumZoom = 20,
   accessToken,
   children,
   cooperativeGestures = true,
@@ -70,27 +84,67 @@ export function AxisMapboxCanvas({
   scrollZoom = true,
   transformRequest,
 }: AxisMapboxCanvasProps) {
+  const wheelCleanup = useRef<() => void>(() => {});
+  useEffect(() => () => wheelCleanup.current(), []);
   const handleLoad = useCallback<
     NonNullable<ComponentProps<typeof ReactMapGL>['onLoad']>
   >(
     (event) => {
-      event.target.scrollZoom.setZoomRate(mapboxTrackpadZoomRate);
-      event.target.scrollZoom.setWheelZoomRate(mapboxWheelZoomRate);
+      wheelCleanup.current();
+      if (interaction) {
+        const map = event.target;
+        map.scrollZoom.disable();
+        const container = map.getContainer();
+        let lastZoomAt = -Infinity;
+        const wheel = (wheelEvent: WheelEvent) => {
+          if (!shouldHandleMapWheel(wheelEvent, interaction, navigator.platform))
+            return;
+          wheelEvent.preventDefault();
+          wheelEvent.stopPropagation();
+          const now = performance.now();
+          if (now - lastZoomAt < interaction.wheelCooldownMs) return;
+          const zoom = Math.max(
+            minimumZoom,
+            Math.min(
+              maximumZoom,
+              map.getZoom() + (wheelEvent.deltaY > 0 ? -1 : 1) * interaction.wheelStep,
+            ),
+          );
+          if (zoom === map.getZoom()) return;
+          lastZoomAt = now;
+          map.stop();
+          map.easeTo({
+            center: map.getCenter(),
+            zoom,
+            duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+              ? 0
+              : interaction.zoomAnimationSeconds * 1000,
+          });
+        };
+        container.addEventListener('wheel', wheel, { capture: true, passive: false });
+        wheelCleanup.current = () =>
+          container.removeEventListener('wheel', wheel, true);
+      } else {
+        event.target.scrollZoom.setZoomRate(mapboxTrackpadZoomRate);
+        event.target.scrollZoom.setWheelZoomRate(mapboxWheelZoomRate);
+      }
       onLoad?.(event);
     },
-    [onLoad],
+    [onLoad, interaction, minimumZoom, maximumZoom],
   );
 
   return (
     <ReactMapGL
-      cooperativeGestures={cooperativeGestures}
+      cooperativeGestures={interaction ? false : cooperativeGestures}
+      minZoom={minimumZoom}
+      maxZoom={maximumZoom}
       initialViewState={initialViewState}
       key="mapbox-street-map"
       mapboxAccessToken={accessToken}
       mapStyle={mapStyle}
       onLoad={handleLoad}
       ref={mapRef}
-      scrollZoom={scrollZoom}
+      scrollZoom={interaction ? false : scrollZoom}
       style={{ height: '100%', width: '100%' }}
       {...(onError ? { onError } : {})}
       {...(transformRequest ? { transformRequest } : {})}

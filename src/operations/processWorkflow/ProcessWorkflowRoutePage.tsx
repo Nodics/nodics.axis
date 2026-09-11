@@ -3,7 +3,6 @@ import {
   useQueries,
   useQuery,
   useQueryClient,
-  type Query,
 } from '@tanstack/react-query';
 import {
   Alert,
@@ -30,9 +29,7 @@ import {
   type AxisDocumentationSource,
   type AxisNavigationItem,
 } from '../../bootstrap/publicBootstrap';
-import {
-  createDocumentationPublicationClient,
-} from '../../documentation/api/documentationPublicationClient';
+import { createDocumentationPublicationClient } from '../../documentation/api/documentationPublicationClient';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
   archiveProcessTrigger,
@@ -719,7 +716,10 @@ function TaskInbox({
         <Stack
           direction={{ xs: 'column', md: 'row' }}
           spacing={1}
-          sx={{ alignItems: { xs: 'flex-start', md: 'center' }, justifyContent: 'space-between' }}
+          sx={{
+            alignItems: { xs: 'flex-start', md: 'center' },
+            justifyContent: 'space-between',
+          }}
         >
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
             <ShellIcon name="task" />
@@ -731,7 +731,10 @@ function TaskInbox({
               label={`${String(publicationTasks.length)} publication approvals`}
               variant={publicationTasks.length ? 'filled' : 'outlined'}
             />
-            <Chip label={`${String(workflowTasks.length)} other tasks`} variant="outlined" />
+            <Chip
+              label={`${String(workflowTasks.length)} other tasks`}
+              variant="outlined"
+            />
           </Stack>
         </Stack>
         {tasks.length === 0 ? (
@@ -743,7 +746,9 @@ function TaskInbox({
           <Stack spacing={1.5}>
             {publicationTasks.length ? (
               <Stack spacing={1}>
-                <Typography variant="subtitle1">Documentation publication approvals</Typography>
+                <Typography variant="subtitle1">
+                  Documentation publication approvals
+                </Typography>
                 {publicationTasks.map((task) => {
                   const actionable = isActionableTask(task);
                   const context = publicationContexts.get(task.instanceCode ?? '');
@@ -790,8 +795,8 @@ function TaskInbox({
                                 : `Workflow ${shortCode(task.instanceCode)} · task ${shortCode(task.code)}`}
                             </Typography>
                             <Typography color="text.secondary" variant="body2">
-                              Requested by {context?.requestedBy ?? 'unknown'} · assigned to{' '}
-                              {task.assignee ?? 'unassigned'}
+                              Requested by {context?.requestedBy ?? 'unknown'} ·
+                              assigned to {task.assignee ?? 'unassigned'}
                             </Typography>
                           </Box>
                           <Stack
@@ -870,12 +875,15 @@ function TaskInbox({
                                 }}
                               >
                                 <Box>
-                                  <Typography sx={{ fontWeight: 700 }} variant="subtitle1">
+                                  <Typography
+                                    sx={{ fontWeight: 700 }}
+                                    variant="subtitle1"
+                                  >
                                     Review before decision
                                   </Typography>
                                   <Typography color="text.secondary" variant="body2">
-                                    This is the staged documentation publication evidence
-                                    for the selected approval task.
+                                    This is the staged documentation publication
+                                    evidence for the selected approval task.
                                   </Typography>
                                 </Box>
                                 <Chip
@@ -964,64 +972,64 @@ function TaskInbox({
                 {workflowTasks.map((task) => {
                   const actionable = isActionableTask(task);
                   return (
-                <Paper
-                  component="article"
-                  elevation={0}
-                  key={task.code}
-                  sx={{ border: 1, borderColor: 'divider', p: 2 }}
-                >
-                  <Stack spacing={1.5}>
-                    <Stack
-                      direction={{ xs: 'column', md: 'row' }}
-                      spacing={1}
-                      sx={{ justifyContent: 'space-between' }}
+                    <Paper
+                      component="article"
+                      elevation={0}
+                      key={task.code}
+                      sx={{ border: 1, borderColor: 'divider', p: 2 }}
                     >
-                      <Box>
-                        <Typography variant="h6">{task.code}</Typography>
-                        <Typography color="text.secondary">
-                          {task.instanceCode ?? 'unknown instance'} · node{' '}
-                          {task.nodeCode ?? 'unknown'} · assignee{' '}
-                          {task.assignee ?? 'unassigned'}
-                        </Typography>
-                      </Box>
-                      <Chip
-                        color={task.status === 'COMPLETED' ? 'success' : 'warning'}
-                        label={task.status}
-                      />
-                    </Stack>
-                    <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                      <Button
-                        disabled={disabled || !actionable || !assignee.trim()}
-                        onClick={() => onAssign(task.code)}
-                        variant="outlined"
-                      >
-                        Assign
-                      </Button>
-                      <Button
-                        disabled={disabled || task.status !== 'OPEN'}
-                        onClick={() => onClaim(task.code)}
-                        variant="outlined"
-                      >
-                        Claim
-                      </Button>
-                      <Button
-                        disabled={disabled || !actionable}
-                        onClick={() => onComplete(task.code)}
-                        variant="contained"
-                      >
-                        Complete
-                      </Button>
-                      <Button
-                        color="error"
-                        disabled={disabled || !actionable}
-                        onClick={() => onCancel(task.code)}
-                        variant="outlined"
-                      >
-                        Cancel task
-                      </Button>
-                    </Stack>
-                  </Stack>
-                </Paper>
+                      <Stack spacing={1.5}>
+                        <Stack
+                          direction={{ xs: 'column', md: 'row' }}
+                          spacing={1}
+                          sx={{ justifyContent: 'space-between' }}
+                        >
+                          <Box>
+                            <Typography variant="h6">{task.code}</Typography>
+                            <Typography color="text.secondary">
+                              {task.instanceCode ?? 'unknown instance'} · node{' '}
+                              {task.nodeCode ?? 'unknown'} · assignee{' '}
+                              {task.assignee ?? 'unassigned'}
+                            </Typography>
+                          </Box>
+                          <Chip
+                            color={task.status === 'COMPLETED' ? 'success' : 'warning'}
+                            label={task.status}
+                          />
+                        </Stack>
+                        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                          <Button
+                            disabled={disabled || !actionable || !assignee.trim()}
+                            onClick={() => onAssign(task.code)}
+                            variant="outlined"
+                          >
+                            Assign
+                          </Button>
+                          <Button
+                            disabled={disabled || task.status !== 'OPEN'}
+                            onClick={() => onClaim(task.code)}
+                            variant="outlined"
+                          >
+                            Claim
+                          </Button>
+                          <Button
+                            disabled={disabled || !actionable}
+                            onClick={() => onComplete(task.code)}
+                            variant="contained"
+                          >
+                            Complete
+                          </Button>
+                          <Button
+                            color="error"
+                            disabled={disabled || !actionable}
+                            onClick={() => onCancel(task.code)}
+                            variant="outlined"
+                          >
+                            Cancel task
+                          </Button>
+                        </Stack>
+                      </Stack>
+                    </Paper>
                   );
                 })}
               </Stack>
@@ -2083,9 +2091,7 @@ export function ProcessWorkflowRoutePage({
                 />
                 <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
                   <Chip
-                    color={
-                      publicationTasksReadyForDecision > 0 ? 'warning' : 'default'
-                    }
+                    color={publicationTasksReadyForDecision > 0 ? 'warning' : 'default'}
                     label={`${String(publicationTasksReadyForDecision)} ready for decision`}
                     variant={
                       publicationTasksReadyForDecision > 0 ? 'filled' : 'outlined'

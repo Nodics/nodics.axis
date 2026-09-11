@@ -132,6 +132,7 @@ describe('Axis application shell navigation', () => {
                 order: 200,
                 moduleName: 'cms',
                 category: 'content',
+                group: { id: 'content', label: 'Content & Experience', order: 100 },
                 icon: 'cms',
                 availability: 'UP',
               },
@@ -143,6 +144,7 @@ describe('Axis application shell navigation', () => {
                 order: 20,
                 moduleName: 'cms',
                 category: 'content',
+                group: { id: 'content', label: 'Content & Experience', order: 100 },
                 icon: 'cms',
                 availability: 'UP',
               },
@@ -191,6 +193,7 @@ describe('Axis application shell navigation', () => {
                 order: 200,
                 moduleName: 'cms',
                 category: 'content',
+                group: { id: 'content', label: 'Content & Experience', order: 100 },
                 icon: 'cms',
                 availability: 'UP',
               },
@@ -302,6 +305,7 @@ describe('Axis application shell navigation', () => {
                 order: 10,
                 moduleName: 'cms',
                 category: 'content',
+                group: { id: 'content', label: 'Content & Experience', order: 100 },
                 icon: 'cms',
                 availability: 'UP',
                 perspectives: ['content'],
@@ -357,6 +361,7 @@ describe('Axis application shell navigation', () => {
                 order: 10,
                 moduleName: 'cms',
                 category: 'content',
+                group: { id: 'content', label: 'Content & Experience', order: 100 },
                 icon: 'cms',
                 availability: 'UP',
               },
@@ -368,6 +373,7 @@ describe('Axis application shell navigation', () => {
                 order: 20,
                 moduleName: 'cms',
                 category: 'content',
+                group: { id: 'content', label: 'Content & Experience', order: 100 },
                 icon: 'cms',
                 availability: 'UP',
               },
@@ -422,6 +428,7 @@ describe('Axis application shell navigation', () => {
                 order: 10,
                 moduleName: 'cms',
                 category: 'content',
+                group: { id: 'content', label: 'Content & Experience', order: 100 },
                 icon: 'cms',
                 availability: 'UP',
               },
@@ -434,6 +441,7 @@ describe('Axis application shell navigation', () => {
                 order: 20,
                 moduleName: 'media',
                 category: 'content',
+                group: { id: 'content', label: 'Content & Experience', order: 100 },
                 icon: 'media',
                 availability: 'UP',
               },
@@ -446,6 +454,7 @@ describe('Axis application shell navigation', () => {
                 order: 30,
                 moduleName: 'media',
                 category: 'content',
+                group: { id: 'content', label: 'Content & Experience', order: 100 },
                 icon: 'media',
                 availability: 'UP',
               },
@@ -463,10 +472,12 @@ describe('Axis application shell navigation', () => {
     expect(activeItem).toHaveClass('Mui-selected');
     expect(scrollIntoView).toHaveBeenCalled();
 
-    await user.click(screen.getByRole('button', { name: 'Collapse Media Management' }));
+    await user.click(
+      screen.getByRole('button', { name: 'Collapse Media Management submenu' }),
+    );
     expect(screen.getByRole('button', { name: 'Media Items' })).toBeVisible();
     expect(
-      screen.getByRole('button', { name: 'Collapse Media Management' }),
+      screen.getByRole('button', { name: 'Collapse Media Management submenu' }),
     ).toHaveAttribute('aria-expanded', 'true');
   });
 
@@ -488,6 +499,7 @@ describe('Axis application shell navigation', () => {
                 order: 10,
                 moduleName: 'cms',
                 category: 'content',
+                group: { id: 'content', label: 'Content & Experience', order: 100 },
                 icon: 'cms',
                 availability: 'UP',
               },
@@ -542,6 +554,7 @@ describe('Axis application shell navigation', () => {
                 order: 10,
                 moduleName: 'cms',
                 category: 'content',
+                group: { id: 'content', label: 'Content & Experience', order: 100 },
                 icon: 'cms',
                 availability: 'UP',
               },
@@ -552,6 +565,7 @@ describe('Axis application shell navigation', () => {
                 order: 20,
                 moduleName: 'media',
                 category: 'content',
+                group: { id: 'content', label: 'Content & Experience', order: 100 },
                 icon: 'media',
                 availability: 'UP',
               },

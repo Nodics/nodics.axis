@@ -1,33 +1,52 @@
+import { WorkspaceContainer } from '../../app/shell/ShellPrimitives';
+import { WasteImpactAssessments } from './WasteImpactAssessments';
+import { WasteSearchPanel } from './WasteSearchPanel';
+import { WasteSubmissionList } from './WasteSubmissionList';
+import { WasteSubmissionDialog } from './WasteSubmissionDialog';
+import { exportWasteSubmissions } from './wasteSubmissionExport';
+import { WasteAuditPanel } from './WasteAuditPanel';
+import { WasteDashboard } from './WasteDashboard';
+import { wasteName } from './wastePresentation';
+import { WastePropertyDetails } from './WastePropertyDetails';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
   Button,
   Chip,
-  Divider,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Paper,
-  Select,
+  Checkbox,
+  FormControlLabel,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Stack,
-  Tab,
-  Tabs,
   TextField,
+  MenuItem,
   Typography,
 } from '@mui/material';
-import { useMemo, useState } from 'react';
-
 import type {
   AxisAuthenticatedBootstrap,
   AxisNavigationItem,
 } from '../../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
-  dashboardCardPadding,
-  dashboardComponentGap,
-  dashboardContentGap,
-} from '../shared/workbenchMetricDashboardModel';
-
+  decideWasteReview,
+  loadWasteOperationsContext,
+  verifyWasteSubmission,
+  type WasteOperationsContext,
+  loadWasteReviewPhoto,
+  loadWasteReviewPage,
+  loadWasteReviewDetail,
+  assignWasteReview,
+  retryWasteOutcome,
+  resolveWasteOutcome,
+  recoverWasteReview,
+  type WasteReviewFacts,
+  type WasteReviewFilters,
+  type WasteDashboardData,
+  type WasteReviewSubmission,
+} from './api/wasteReviewClient';
 interface WasteManagementRoutePageProps {
   readonly accessToken: string;
   readonly bootstrap: AxisAuthenticatedBootstrap;
@@ -35,503 +54,1219 @@ interface WasteManagementRoutePageProps {
   readonly navigation: AxisNavigationItem;
   readonly runtime: AxisRuntimeConfig;
 }
-
-type WasteReviewStatus = 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED' | 'LISTED';
-
-interface WasteSubmission {
-  readonly code: string;
-  readonly customerName: string;
-  readonly customerEmail: string;
-  readonly generatedName: string;
-  readonly verifiedName: string;
-  readonly type: string;
-  readonly category: string;
-  readonly centre: string;
-  readonly evidenceUrl: string;
-  readonly rewardEstimate: number;
-  readonly carbonEstimate: number;
-  readonly rewardApproved: number;
-  readonly carbonApproved: number;
-  readonly confidence: number;
-  readonly status: WasteReviewStatus;
-  readonly submittedAt: string;
-  readonly tradeable: boolean;
-}
-
-interface CouponDraft {
-  readonly code: string;
-  readonly enterprise: string;
-  readonly title: string;
-  readonly rewardCost: number;
-  readonly status: 'DRAFT' | 'PUBLISHED' | 'PAUSED';
-  readonly settlementPolicy: string;
-}
-
-const statusOptions: readonly ('ALL' | WasteReviewStatus)[] = Object.freeze([
-  'ALL',
-  'PENDING_REVIEW',
-  'APPROVED',
-  'REJECTED',
-  'LISTED',
-]);
-
-const initialSubmissions: readonly WasteSubmission[] = Object.freeze([
-  {
-    code: 'EWA-AX-1042',
-    customerName: 'Circa Customer',
-    customerEmail: 'customer@circa.local',
-    generatedName: 'AI named smartphone evidence',
-    verifiedName: 'Retired iPhone 12',
-    type: 'Smartphone',
-    category: 'Small electronics',
-    centre: 'Circa Green Hub Al Quoz',
-    evidenceUrl: '/media/waste-smartphone.svg',
-    rewardEstimate: 12,
-    carbonEstimate: 14,
-    rewardApproved: 10,
-    carbonApproved: 10,
-    confidence: 0.91,
-    status: 'PENDING_REVIEW',
-    submittedAt: '2026-09-07',
-    tradeable: true,
-  },
-  {
-    code: 'EWA-AX-1038',
-    customerName: 'Maya Shah',
-    customerEmail: 'maya@example.com',
-    generatedName: 'Laptop with broken display',
-    verifiedName: 'Damaged ThinkPad T480',
-    type: 'Laptop',
-    category: 'Computing',
-    centre: 'TechCycle Collection Desk',
-    evidenceUrl: '/media/waste-laptop.svg',
-    rewardEstimate: 24,
-    carbonEstimate: 30,
-    rewardApproved: 22,
-    carbonApproved: 28,
-    confidence: 0.86,
-    status: 'APPROVED',
-    submittedAt: '2026-09-03',
-    tradeable: false,
-  },
-  {
-    code: 'EWA-AX-1029',
-    customerName: 'Amal R.',
-    customerEmail: 'amal@example.com',
-    generatedName: 'Mesh router pair',
-    verifiedName: 'Mesh Router Pair',
-    type: 'Network device',
-    category: 'Connectivity',
-    centre: 'Emirates Circular Drop Box',
-    evidenceUrl: '/media/waste-router.svg',
-    rewardEstimate: 8,
-    carbonEstimate: 13,
-    rewardApproved: 8,
-    carbonApproved: 13,
-    confidence: 0.94,
-    status: 'LISTED',
-    submittedAt: '2026-09-05',
-    tradeable: true,
-  },
-]);
-
-const initialCoupons: readonly CouponDraft[] = Object.freeze([
-  {
-    code: 'CPN-GRN-30',
-    enterprise: 'GreenTech Store',
-    title: 'AED 30 repair credit',
-    rewardCost: 14,
-    status: 'PUBLISHED',
-    settlementPolicy: 'Default enterprise settlement bucket',
-  },
-  {
-    code: 'CPN-ECO-15',
-    enterprise: 'EcoMart',
-    title: '15% recycled accessories offer',
-    rewardCost: 9,
-    status: 'DRAFT',
-    settlementPolicy: 'Enterprise carbon settlement',
-  },
-  {
-    code: 'CPN-SVC-50',
-    enterprise: 'FixPoint',
-    title: 'AED 50 device diagnosis',
-    rewardCost: 20,
-    status: 'PAUSED',
-    settlementPolicy: 'No carbon movement for coupon',
-  },
-]);
-
-const initialSelectedSubmissionCode = 'EWA-AX-1042';
-
-const operationContracts = Object.freeze([
-  {
-    title: 'Create waste submission',
-    owner: 'Waste API',
-    route: '/nodics/waste/v0/customer/submissions',
-    permission: 'waste.submission.create',
-  },
-  {
-    title: 'Approve or reject evidence',
-    owner: 'Waste + Workflow',
-    route: '/nodics/waste/v0/backoffice/assets/{assetCode}/{approve|reject}',
-    permission: 'waste.asset.approve',
-  },
-  {
-    title: 'Credit wallet appreciation',
-    owner: 'Loyalty Wallet',
-    route: '/nodics/loyalty/v0/wallets/{customerCode}/ledger',
-    permission: 'loyalty.wallet.credit',
-  },
-  {
-    title: 'Project asset to product',
-    owner: 'Commerce Product',
-    route: '/nodics/commerce/v0/products/projections/waste-assets',
-    permission: 'commerce.product.project',
-  },
-  {
-    title: 'Publish enterprise coupon',
-    owner: 'Promotion API',
-    route: '/nodics/promotion/v0/backoffice/promotions/{promotionCode}/publish',
-    permission: 'commerce.promotion.manage',
-  },
-]);
-
-function reviewStatusLabel(status: WasteReviewStatus): string {
-  switch (status) {
-    case 'PENDING_REVIEW':
-      return 'Pending review';
-    case 'APPROVED':
-      return 'Approved';
-    case 'REJECTED':
-      return 'Rejected';
-    case 'LISTED':
-      return 'Listed';
-  }
-}
-
-function metricCount(
-  records: readonly WasteSubmission[],
-  status: WasteReviewStatus,
-): number {
-  return records.filter((record) => record.status === status).length;
-}
-
+/** Renders the backend-owned Waste approval queue; explicit decisions persist through the eWaste domain accelerator. */
 export function WasteManagementRoutePage(props: WasteManagementRoutePageProps) {
-  const [tab, setTab] = useState<'review' | 'coupons' | 'contracts'>('review');
-  const [records, setRecords] = useState<readonly WasteSubmission[]>(initialSubmissions);
-  const [coupons, setCoupons] = useState<readonly CouponDraft[]>(initialCoupons);
-  const [statusFilter, setStatusFilter] = useState<'ALL' | WasteReviewStatus>('ALL');
-  const [query, setQuery] = useState('');
-  const [selectedCode, setSelectedCode] = useState(initialSelectedSubmissionCode);
-  const [notice, setNotice] = useState(
-    'Local visual workspace is active until Waste-owned review APIs are connected.',
+  const [records, setRecords] = useState<WasteReviewSubmission[]>([]),
+    [operations, setOperations] = useState<WasteOperationsContext | null>(null),
+    [selectedCode, setSelectedCode] = useState(''),
+    [query, setQuery] = useState(''),
+    [searchQuery, setSearchQuery] = useState(''),
+    [status, setStatus] = useState(''),
+    [dashboard, setDashboard] = useState<WasteDashboardData | null>(null),
+    [filters, setFilters] = useState<WasteReviewFilters>({}),
+    [appliedFilters, setAppliedFilters] = useState<WasteReviewFilters>({}),
+    [detailLoading, setDetailLoading] = useState(false),
+    [detailFailed, setDetailFailed] = useState(false),
+    [pendingSelection, setPendingSelection] = useState<string | null>(null),
+    [page, setPage] = useState(1),
+    [total, setTotal] = useState(0),
+    [limit, setLimit] = useState(25),
+    [counts, setCounts] = useState<Record<string, number>>({}),
+    [editedFacts, setEditedFacts] = useState<WasteReviewFacts>({}),
+    [error, setError] = useState(''),
+    [notice, setNotice] = useState(''),
+    [notificationAction, setNotificationAction] = useState<
+      'MARK_DELIVERED' | 'AUTHORIZE_RESEND' | 'CANCEL' | null
+    >(null),
+    [notificationReason, setNotificationReason] = useState(''),
+    [busy, setBusy] = useState(false),
+    [assignmentAction, setAssignmentAction] = useState<'CLAIM' | 'RELEASE' | null>(
+      null,
+    ),
+    [exporting, setExporting] = useState(false),
+    [loading, setLoading] = useState(true),
+    [loadFailed, setLoadFailed] = useState(false),
+    [photo, setPhoto] = useState(''),
+    [name, setName] = useState(''),
+    [reason, setReason] = useState(''),
+    [evidenceReviewed, setEvidenceReviewed] = useState(false),
+    [decision, setDecision] = useState<
+      'APPROVED' | 'REJECTED' | 'VERIFIED' | 'RECOVER' | null
+    >(null);
+  const configuration = useMemo(
+    () => ({
+      bootstrap: props.bootstrap,
+      accessToken: props.accessToken,
+      enterpriseCode: props.runtime.enterpriseCode,
+      timeoutMs: props.runtime.requestTimeoutMs,
+    }),
+    [
+      props.bootstrap,
+      props.accessToken,
+      props.runtime.enterpriseCode,
+      props.runtime.requestTimeoutMs,
+    ],
   );
-
-  const filteredRecords = useMemo(
-    () =>
-      records.filter((record) => {
-        const statusMatches = statusFilter === 'ALL' || record.status === statusFilter;
-        const text = [
-          record.code,
-          record.customerName,
-          record.customerEmail,
-          record.generatedName,
-          record.verifiedName,
-          record.type,
-          record.category,
-          record.centre,
-        ]
-          .join(' ')
-          .toLowerCase();
-        return statusMatches && text.includes(query.toLowerCase());
-      }),
-    [query, records, statusFilter],
+  const loadGeneration = useRef(0);
+  const refreshAfterClose = useRef(false);
+  const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
+    setLoading(true);
+    setLoadFailed(false);
+    setError('');
+    let availableContext: WasteOperationsContext | null = null;
+    try {
+      const context = await loadWasteOperationsContext(configuration);
+      const viewCode = props.navigation.backendWorkspace?.viewCode;
+      const view = viewCode ? context.reviewWorkspace?.views?.[viewCode] : undefined;
+      if (viewCode && (!view || view.ownerModule !== props.navigation.moduleName))
+        throw new Error('This Waste workspace is unavailable in the current runtime.');
+      availableContext = context;
+      const records = await loadWasteReviewPage(configuration, {
+        ...appliedFilters,
+        ...(viewCode ? { viewCode } : {}),
+        familyCode: view?.familyCode || appliedFilters.familyCode || '',
+        page,
+        status: status || (view?.mode === 'REVIEW_QUEUE' ? 'OPEN' : 'ALL'),
+        q: searchQuery,
+        dashboard: true,
+      });
+      if (generation !== loadGeneration.current) return;
+      setRecords(view?.mode === 'OVERVIEW' ? [] : records.items);
+      setTotal(records.total);
+      setLimit(records.limit);
+      setCounts(records.counts);
+      setOperations(context);
+      setDashboard(records.dashboard || null);
+    } catch (e) {
+      if (generation !== loadGeneration.current) return;
+      setRecords([]);
+      setLoadFailed(true);
+      setTotal(0);
+      setCounts({});
+      setOperations(availableContext);
+      setError(e instanceof Error ? e.message : 'The review queue is unavailable.');
+    } finally {
+      if (generation === loadGeneration.current) setLoading(false);
+    }
+  }, [
+    configuration,
+    page,
+    status,
+    searchQuery,
+    appliedFilters,
+    props.navigation.moduleName,
+    props.navigation.backendWorkspace?.viewCode,
+  ]);
+  useEffect(() => {
+    void load();
+    const generation = loadGeneration.current;
+    return () => {
+      loadGeneration.current = generation + 1;
+    };
+  }, [load]);
+  useEffect(() => {
+    if (!selectedCode && refreshAfterClose.current) {
+      refreshAfterClose.current = false;
+      void load();
+    }
+  }, [selectedCode, load]);
+  const selected = records.find((r) => r.code === selectedCode);
+  useEffect(() => {
+    let active = true;
+    setDetailFailed(false);
+    if (!selected || selected.descriptor) {
+      setDetailLoading(false);
+      return;
+    }
+    setDetailLoading(true);
+    void loadWasteReviewDetail(configuration, selected.code)
+      .then((detail) => {
+        if (active)
+          setRecords((current) =>
+            current.map((item) =>
+              item.code === detail.code && item.revision <= detail.revision
+                ? detail
+                : item,
+            ),
+          );
+      })
+      .catch((error) => {
+        if (active) {
+          setDetailFailed(true);
+          setError(
+            error instanceof Error ? error.message : 'Review detail unavailable.',
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setDetailLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [configuration, selected]);
+  useEffect(() => {
+    let active = true;
+    setPhoto('');
+    setReason(selected?.metadata.publicReason || '');
+    setEditedFacts({});
+    setName(
+      selected?.metadata.reviewedFacts?.name ||
+        selected?.metadata.verifiedFacts?.name ||
+        selected?.confirmedFacts?.name ||
+        selected?.submittedFacts.name ||
+        '',
+    );
+    if (selected?.metadata.photo && operations?.canReadEvidence)
+      void loadWasteReviewPhoto(configuration, selected.code)
+        .then((src) => {
+          if (active) setPhoto(src);
+        })
+        .catch((e) => {
+          if (active) setError(e instanceof Error ? e.message : 'Photo unavailable.');
+        });
+    return () => {
+      active = false;
+    };
+  }, [configuration, selected, operations?.canReadEvidence]);
+  const settled = ['APPROVED', 'REJECTED'].includes(selected?.submissionStatus || '');
+  const settlementRetry = selected?.submissionStatus === 'APPROVED';
+  const facts =
+    selected?.metadata.reviewedFacts ||
+    selected?.metadata.verifiedFacts ||
+    selected?.confirmedFacts ||
+    selected?.submittedFacts;
+  const labels = operations?.presentation || {};
+  const verificationMissing =
+    operations?.requireVerification &&
+    !selected?.metadata.preApprovalVerificationRef &&
+    !settlementRetry;
+  const sameVerifier =
+    operations?.requireDifferentApprover &&
+    selected?.metadata.verifiedBy?.code === operations?.principalCode;
+  const assignedElsewhere =
+    selected?.metadata.reviewAssignment?.type === 'EMPLOYEE' &&
+    selected.metadata.reviewAssignment.principalCode !== operations?.principalCode;
+  const assignedToMe = Boolean(
+    operations?.principalCode &&
+    selected?.metadata.reviewAssignment?.type === 'EMPLOYEE' &&
+    selected.metadata.reviewAssignment.principalCode === operations.principalCode,
   );
-  const selected =
-    records.find((record) => record.code === selectedCode) ?? filteredRecords[0];
-
-  const updateSelected = (
-    patch: Partial<Pick<WasteSubmission, 'verifiedName' | 'rewardApproved' | 'carbonApproved'>>,
-  ) => {
-    setRecords((current) =>
-      current.map((record) =>
-        record.code === selected?.code ? { ...record, ...patch } : record,
-      ),
-    );
+  const canDecide =
+    !detailLoading &&
+    !detailFailed &&
+    operations?.canApprove &&
+    !verificationMissing &&
+    !sameVerifier &&
+    !assignedElsewhere &&
+    (assignedToMe || settlementRetry) &&
+    selected?.submissionStatus !== 'REJECTED';
+  const evidenceReview =
+    selected?.evidenceReview || selected?.descriptor?.evidenceReview;
+  const needsEvidenceAcknowledgement =
+    decision === 'APPROVED' &&
+    !settlementRetry &&
+    evidenceReview?.acknowledgementRequired === true;
+  const startDecision = (next: typeof decision) => {
+    setEvidenceReviewed(false);
+    setDecision(next);
   };
-
-  const setSelectedStatus = (status: WasteReviewStatus) => {
-    if (!selected) return;
-    setRecords((current) =>
-      current.map((record) =>
-        record.code === selected.code ? { ...record, status } : record,
-      ),
-    );
-    setNotice(
-      status === 'APPROVED'
-        ? `${selected.code} approved. Wallet credit and carbon asset projection are queued through backend-owned ledgers.`
-        : `${selected.code} moved to ${reviewStatusLabel(status)}.`,
-    );
+  const workspaceLabels = operations?.reviewWorkspace?.labels || {};
+  const dashboardLabels = operations?.reviewWorkspace?.dashboardLabels || {};
+  const canEdit =
+    !detailLoading &&
+    !detailFailed &&
+    !!(
+      operations?.canVerify ||
+      (operations?.canApprove && !operations?.requireVerification)
+    ) &&
+    !settled &&
+    assignedToMe &&
+    !selected?.reviewPending;
+  const dirty =
+    !!selected &&
+    (name !== (facts?.name || '') ||
+      reason !== (selected.metadata.publicReason || '') ||
+      Object.entries(editedFacts).some(
+        ([key, value]) =>
+          JSON.stringify(value) !==
+          JSON.stringify(facts?.[key as keyof WasteReviewFacts]),
+      ));
+  useEffect(() => {
+    if (busy || dirty || exporting || query.trim() === searchQuery) return;
+    const timer = window.setTimeout(() => {
+      setSearchQuery(query.trim());
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [query, searchQuery, busy, dirty, exporting]);
+  const view =
+    operations?.reviewWorkspace?.views?.[
+      props.navigation.backendWorkspace?.viewCode || ''
+    ];
+  const showReview = props.navigation.backendWorkspace
+    ? Boolean(view) && view?.mode !== 'OVERVIEW'
+    : true;
+  const requestSelection = (code: string) => {
+    if (busy) return;
+    if (dirty) setPendingSelection(code);
+    else {
+      setError('');
+      setNotice('');
+      setSelectedCode(code);
+    }
   };
-
-  const publishCoupon = (coupon: CouponDraft) => {
-    setCoupons((current) =>
-      current.map((item) =>
-        item.code === coupon.code ? { ...item, status: 'PUBLISHED' } : item,
-      ),
-    );
-    setNotice(`${coupon.code} published through Promotion-owned coupon policy.`);
+  /** Applies the persisted assignment without closing the dialog or optimistically enabling edits. */
+  const changeAssignment = async () => {
+    if (!selected || busy || dirty || detailLoading || detailFailed) return;
+    const action = assignedToMe ? 'RELEASE' : 'CLAIM';
+    setBusy(true);
+    setAssignmentAction(action);
+    setError('');
+    setNotice('');
+    try {
+      const result = await assignWasteReview(configuration, selected, action);
+      const assignment = result?.metadata?.reviewAssignment;
+      if (
+        !result ||
+        result.code !== selected.code ||
+        !Number.isSafeInteger(result.revision) ||
+        result.revision < selected.revision ||
+        (action === 'CLAIM'
+          ? assignment?.type !== 'EMPLOYEE' ||
+            assignment.principalCode !== operations?.principalCode
+          : assignment?.type !== 'QUEUE')
+      )
+        throw new Error(
+          'The review service did not confirm the assignment. Reopen the details and try again.',
+        );
+      setRecords((current) =>
+        current.map((item) =>
+          item.code === result.code
+            ? { ...result, ...(item.descriptor ? { descriptor: item.descriptor } : {}) }
+            : item,
+        ),
+      );
+      refreshAfterClose.current = true;
+      setNotice(
+        (action === 'CLAIM'
+          ? workspaceLabels.assignmentSaved
+          : workspaceLabels.releaseSaved) || '',
+      );
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : workspaceLabels.assignmentFailed || 'The request could not be completed.',
+      );
+    } finally {
+      setAssignmentAction(null);
+      setBusy(false);
+    }
   };
-
+  const effectiveStatus = status || (view?.mode === 'REVIEW_QUEUE' ? 'OPEN' : 'ALL');
+  const displayValue = (value: unknown): string => {
+    if (value === null || value === undefined || value === '')
+      return dashboardLabels.unknown || '—';
+    if (Array.isArray(value))
+      return value.map((item: unknown) => displayValue(item)).join(', ');
+    if (typeof value === 'object') {
+      const item = value as Record<string, unknown>;
+      if (
+        item.ref &&
+        typeof item.ref === 'object' &&
+        'code' in item.ref &&
+        typeof item.ref.code === 'string'
+      ) {
+        const code = item.ref.code;
+        return (
+          wasteName(
+            dashboard?.materials.find((material) => material.code === code)?.name,
+          ) || code
+        );
+      }
+      if ('min' in item)
+        return `${displayValue(item.min)}–${displayValue(item.max)} ${displayValue(item.unit)}`;
+      if ('value' in item) return displayValue(item.value);
+      return Object.entries(item)
+        .filter(([key]) => !['basis', 'confidence'].includes(key))
+        .map(([key, entry]) => `${dashboardLabels[key] || key}: ${displayValue(entry)}`)
+        .join('; ');
+    }
+    return ['string', 'number', 'boolean'].includes(typeof value)
+      ? (value as string | number | boolean).toString()
+      : '—';
+  };
+  const dashboardPanel = (
+    <>
+      {operations?.reviewWorkspace?.dashboardLabels && (
+        <WasteDashboard
+          showSummary={!showReview}
+          fixedFamily={view?.familyCode}
+          data={dashboard}
+          counts={counts}
+          labels={dashboardLabels}
+          filters={filters}
+          appliedFilters={appliedFilters}
+          setFilters={setFilters}
+          busy={busy || loading || dirty}
+          apply={() => {
+            setAppliedFilters(filters);
+            setPage(1);
+          }}
+          reset={() => {
+            setFilters({});
+            setAppliedFilters({});
+            setPage(1);
+          }}
+          onStatus={(value) => {
+            setStatus(value);
+            setPage(1);
+          }}
+        />
+      )}
+    </>
+  );
   return (
-    <Stack spacing={dashboardContentGap}>
-      <Stack spacing={0.75}>
-        <Typography variant="h4">Circa Waste Operations</Typography>
-        <Typography color="text.secondary">
-          Review customer eWaste evidence, finalize verified asset values, monitor
-          tradeability, and manage enterprise coupons without moving backend ownership
-          into Axis.
-        </Typography>
-      </Stack>
-
-      <Stack direction="row" spacing={dashboardComponentGap} sx={{ flexWrap: 'wrap' }}>
-        <Paper variant="outlined" sx={{ minWidth: 210, p: dashboardCardPadding }}>
-          <Typography color="text.secondary" variant="body2">Pending review</Typography>
-          <Typography variant="h4">{metricCount(records, 'PENDING_REVIEW')}</Typography>
-        </Paper>
-        <Paper variant="outlined" sx={{ minWidth: 210, p: dashboardCardPadding }}>
-          <Typography color="text.secondary" variant="body2">Approved assets</Typography>
-          <Typography variant="h4">{metricCount(records, 'APPROVED')}</Typography>
-        </Paper>
-        <Paper variant="outlined" sx={{ minWidth: 210, p: dashboardCardPadding }}>
-          <Typography color="text.secondary" variant="body2">Listed assets</Typography>
-          <Typography variant="h4">{metricCount(records, 'LISTED')}</Typography>
-        </Paper>
-        <Paper variant="outlined" sx={{ minWidth: 210, p: dashboardCardPadding }}>
-          <Typography color="text.secondary" variant="body2">Published coupons</Typography>
-          <Typography variant="h4">
-            {coupons.filter((coupon) => coupon.status === 'PUBLISHED').length}
-          </Typography>
-        </Paper>
-      </Stack>
-
-      <Alert severity="info">
-        {notice} Operator: {props.employeeId}. Enterprise: {props.runtime.enterpriseCode}.
-      </Alert>
-
-      <Paper variant="outlined">
-        <Tabs
-          value={tab}
-          onChange={(_, value: 'review' | 'coupons' | 'contracts') => setTab(value)}
-          aria-label="Waste operations tabs"
+    <WorkspaceContainer>
+      <Stack
+        spacing={2}
+        data-functional-module={props.navigation.moduleName}
+        sx={{
+          minWidth: 0,
+          width: '100%',
+          boxSizing: 'border-box',
+        }}
+      >
+        <Stack
+          direction="row"
+          spacing={2}
+          sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}
         >
-          <Tab label="Asset approval" value="review" />
-          <Tab label="Coupon management" value="coupons" />
-          <Tab label="Operation contracts" value="contracts" />
-        </Tabs>
-      </Paper>
-
-      {tab === 'review' ? (
-        <Stack direction={{ xs: 'column', lg: 'row' }} spacing={dashboardComponentGap}>
-          <Paper variant="outlined" sx={{ flex: 1, p: dashboardCardPadding }}>
-            <Stack spacing={2}>
-              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
-                <TextField
-                  fullWidth
-                  label="Search submissions"
-                  onChange={(event) => setQuery(event.target.value)}
-                  size="small"
-                  value={query}
+          <Box>
+            <Typography variant="h4" sx={{ fontWeight: 600, letterSpacing: '-.025em' }}>
+              {view?.label || dashboardLabels.title || labels.title}
+            </Typography>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ mt: 0.75, maxWidth: '78ch', lineHeight: 1.6 }}
+            >
+              {dashboardLabels.subtitle}
+            </Typography>
+          </Box>
+          <Button
+            color="inherit"
+            size="small"
+            sx={{ flexShrink: 0 }}
+            disabled={loading || busy || dirty}
+            onClick={() => void load()}
+          >
+            {dashboardLabels.refresh || 'Refresh'}
+          </Button>
+        </Stack>
+        {error && !selected && <Alert severity="error">{error}</Alert>}
+        {notice && !selected && <Alert severity="success">{notice}</Alert>}
+        {!showReview && dashboardPanel}
+        {showReview && (
+          <>
+            <WasteSubmissionList
+              searchPanel={
+                <WasteSearchPanel
+                  ownerModule={props.navigation.moduleName}
+                  labels={workspaceLabels}
+                  filterLabels={dashboardLabels}
+                  data={dashboard}
+                  fixedFamily={view?.familyCode}
+                  query={query}
+                  appliedQuery={searchQuery}
+                  setQuery={setQuery}
+                  onSearch={() => {
+                    setSearchQuery(query.trim());
+                    setPage(1);
+                  }}
+                  status={effectiveStatus}
+                  defaultStatus={view?.mode === 'REVIEW_QUEUE' ? 'OPEN' : 'ALL'}
+                  statuses={(operations?.reviewWorkspace?.statuses || []).filter(
+                    (item) =>
+                      view?.mode !== 'REVIEW_QUEUE' ||
+                      ['OPEN', 'SUBMITTED', 'UNDER_REVIEW'].includes(item.code),
+                  )}
+                  counts={counts}
+                  onStatus={(value) => {
+                    setStatus(value);
+                    setPage(1);
+                  }}
+                  filters={filters}
+                  appliedFilters={appliedFilters}
+                  setFilters={setFilters}
+                  apply={() => {
+                    setAppliedFilters(filters);
+                    setSearchQuery(query.trim());
+                    setPage(1);
+                  }}
+                  removeFilter={(key) => {
+                    setFilters((current) => {
+                      const next = { ...current };
+                      delete next[key];
+                      return next;
+                    });
+                    setAppliedFilters((current) => {
+                      const next = { ...current };
+                      delete next[key];
+                      return next;
+                    });
+                    setPage(1);
+                  }}
+                  reset={() => {
+                    setQuery('');
+                    setSearchQuery('');
+                    setStatus('');
+                    setFilters({});
+                    setAppliedFilters({});
+                    setPage(1);
+                  }}
+                  loading={loading}
+                  disabled={busy || dirty || exporting}
+                  exporting={exporting}
+                  total={total}
+                  onExport={() => {
+                    setExporting(true);
+                    setError('');
+                    void exportWasteSubmissions(
+                      configuration,
+                      {
+                        ...appliedFilters,
+                        ...(props.navigation.backendWorkspace?.viewCode
+                          ? { viewCode: props.navigation.backendWorkspace.viewCode }
+                          : {}),
+                        familyCode: view?.familyCode || appliedFilters.familyCode || '',
+                        status: effectiveStatus,
+                        q: searchQuery,
+                      },
+                      workspaceLabels,
+                    )
+                      .catch((error: unknown) => {
+                        setError(
+                          error instanceof Error
+                            ? error.message
+                            : 'Export unavailable.',
+                        );
+                      })
+                      .finally(() => setExporting(false));
+                  }}
                 />
-                <FormControl size="small" sx={{ minWidth: 220 }}>
-                  <InputLabel id="waste-review-status">Status</InputLabel>
-                  <Select
-                    label="Status"
-                    labelId="waste-review-status"
-                    onChange={(event) =>
-                      setStatusFilter(event.target.value as 'ALL' | WasteReviewStatus)
-                    }
-                    value={statusFilter}
-                  >
-                    {statusOptions.map((status) => (
-                      <MenuItem key={status} value={status}>
-                        {status === 'ALL' ? 'All statuses' : reviewStatusLabel(status)}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Stack>
-              <Stack spacing={1}>
-                {filteredRecords.map((record) => (
-                  <Paper
-                    component="button"
-                    key={record.code}
-                    onClick={() => setSelectedCode(record.code)}
-                    variant="outlined"
-                    sx={{
-                      bgcolor: record.code === selected?.code ? 'action.selected' : 'background.paper',
-                      cursor: 'pointer',
-                      p: 1.5,
-                      textAlign: 'left',
-                    }}
-                    type="button"
-                  >
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ justifyContent: 'space-between' }}>
-                      <Box>
-                        <Typography sx={{ fontWeight: 700 }}>{record.verifiedName}</Typography>
-                        <Typography color="text.secondary" variant="body2">
-                          {record.code} - {record.customerName} - {record.centre}
-                        </Typography>
-                      </Box>
-                      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                        <Chip label={reviewStatusLabel(record.status)} size="small" />
-                        <Chip label={`${Math.round(record.confidence * 100).toString()}% AI`} size="small" variant="outlined" />
-                      </Stack>
-                    </Stack>
-                  </Paper>
-                ))}
-              </Stack>
-            </Stack>
-          </Paper>
-
-          <Paper variant="outlined" sx={{ flex: 0.86, p: dashboardCardPadding }}>
-            {selected ? (
-              <Stack spacing={2}>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                  <Box
-                    component="img"
-                    src={selected.evidenceUrl}
-                    alt={`${selected.verifiedName} evidence`}
-                    sx={{ borderRadius: 1, maxWidth: { sm: 180 }, width: '100%' }}
-                  />
-                  <Stack spacing={0.75}>
-                    <Typography variant="h6">{selected.code}</Typography>
-                    <Typography color="text.secondary">
-                      {selected.generatedName} submitted by {selected.customerName}
-                    </Typography>
-                    <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                      <Chip label={selected.type} size="small" />
-                      <Chip label={selected.category} size="small" variant="outlined" />
-                      <Chip label={selected.tradeable ? 'Tradeable' : 'Hold'} size="small" color={selected.tradeable ? 'success' : 'default'} />
-                    </Stack>
-                  </Stack>
-                </Stack>
-                <Divider />
-                <TextField
-                  label="Final verified name"
-                  onChange={(event) => updateSelected({ verifiedName: event.target.value })}
-                  size="small"
-                  value={selected.verifiedName}
-                />
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                  <TextField
-                    label="Approved rewards"
-                    onChange={(event) =>
-                      updateSelected({ rewardApproved: Number(event.target.value) })
-                    }
-                    size="small"
-                    type="number"
-                    value={selected.rewardApproved}
-                  />
-                  <TextField
-                    label="Approved carbon credits"
-                    onChange={(event) =>
-                      updateSelected({ carbonApproved: Number(event.target.value) })
-                    }
-                    size="small"
-                    type="number"
-                    value={selected.carbonApproved}
-                  />
-                </Stack>
-                <Stack spacing={0.5}>
-                  <Typography variant="body2">
-                    AI estimate: {selected.rewardEstimate} rewards and{' '}
-                    {selected.carbonEstimate} carbon credits.
-                  </Typography>
-                  <Typography color="text.secondary" variant="body2">
-                    Approval creates a customer-owned asset, credits reward appreciation,
-                    and updates carbon asset projection through backend-owned contracts.
-                  </Typography>
-                </Stack>
-                <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                  <Button
-                    onClick={() => setSelectedStatus('APPROVED')}
-                    variant="contained"
-                  >
-                    Approve
-                  </Button>
-                  <Button color="error" onClick={() => setSelectedStatus('REJECTED')} variant="outlined">
-                    Reject
-                  </Button>
-                  <Button onClick={() => setSelectedStatus('LISTED')} variant="outlined">
-                    Mark listed
-                  </Button>
-                </Stack>
-              </Stack>
-            ) : (
-              <Typography color="text.secondary">Select a submission to review.</Typography>
+              }
+              failed={loadFailed}
+              records={records}
+              configuration={configuration}
+              canReadEvidence={operations?.canReadEvidence === true}
+              labels={workspaceLabels}
+              dashboard={dashboard}
+              onOpen={requestSelection}
+              loading={loading}
+              disabled={busy || dirty || exporting}
+              page={page}
+              total={total}
+              limit={limit}
+              onPage={setPage}
+            />
+            {operations?.canAudit && (
+              <WasteAuditPanel
+                key={`${props.navigation.moduleName}:${props.navigation.backendWorkspace?.viewCode || ''}:${props.employeeId}`}
+                configuration={configuration}
+                labels={labels}
+                centreLabel={dashboardLabels.centre}
+              />
             )}
-          </Paper>
-        </Stack>
-      ) : null}
-
-      {tab === 'coupons' ? (
-        <Stack spacing={dashboardComponentGap}>
-          <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
-            {coupons.map((coupon) => (
-              <Paper key={coupon.code} variant="outlined" sx={{ maxWidth: 360, p: dashboardCardPadding }}>
-                <Stack spacing={1.2}>
-                  <Stack direction="row" spacing={1} sx={{ justifyContent: 'space-between' }}>
-                    <Typography sx={{ fontWeight: 700 }}>{coupon.title}</Typography>
-                    <Chip label={coupon.status} size="small" />
-                  </Stack>
-                  <Typography color="text.secondary" variant="body2">
-                    {coupon.enterprise} - {coupon.rewardCost} reward points
-                  </Typography>
-                  <Typography color="text.secondary" variant="body2">
-                    {coupon.settlementPolicy}
-                  </Typography>
-                  <Button
-                    disabled={coupon.status === 'PUBLISHED'}
-                    onClick={() => publishCoupon(coupon)}
-                    variant="outlined"
+            <WasteSubmissionDialog
+              open={!!selected}
+              title={workspaceLabels.details || 'Submission details'}
+              closeLabel={workspaceLabels.close || 'Close details'}
+              busy={busy}
+              onClose={() => requestSelection('')}
+              header={
+                selected && (
+                  <Box
+                    sx={{
+                      px: { xs: 2, sm: 3 },
+                      py: 1.5,
+                      borderBottom: 1,
+                      borderColor: 'divider',
+                      bgcolor: 'background.paper',
+                    }}
                   >
-                    Publish coupon
-                  </Button>
+                    <Stack
+                      direction={{ xs: 'column', sm: 'row' }}
+                      spacing={1.5}
+                      sx={{
+                        alignItems: { sm: 'center' },
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <Box role="status" aria-live="polite">
+                        <Typography variant="subtitle2">
+                          {settled
+                            ? workspaceLabels.reviewComplete
+                            : assignedToMe
+                              ? workspaceLabels.assignedToYou
+                              : assignedElsewhere
+                                ? workspaceLabels.assignedTo
+                                : workspaceLabels.readOnlyMode}
+                          {assignedElsewhere && !settled
+                            ? `: ${selected.metadata.reviewAssignment?.principalCode}`
+                            : ''}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {settled
+                            ? workspaceLabels.completedReadOnly
+                            : assignedToMe
+                              ? workspaceLabels.assignmentOwned
+                              : assignedElsewhere
+                                ? workspaceLabels.assignmentElsewhere
+                                : operations?.canAssign
+                                  ? workspaceLabels.assignmentRequired
+                                  : labels.readOnly}
+                        </Typography>
+                        {dirty && assignedToMe && (
+                          <Typography variant="caption">
+                            {workspaceLabels.releaseDirty}
+                          </Typography>
+                        )}
+                      </Box>
+                      {operations?.canAssign &&
+                        !settled &&
+                        !assignedElsewhere &&
+                        !selected.reviewPending && (
+                          <Button
+                            variant={assignedToMe ? 'outlined' : 'contained'}
+                            disabled={busy || dirty || detailLoading || detailFailed}
+                            onClick={() => void changeAssignment()}
+                            sx={{ flexShrink: 0 }}
+                          >
+                            {assignmentAction === 'CLAIM'
+                              ? workspaceLabels.assigning
+                              : assignmentAction === 'RELEASE'
+                                ? workspaceLabels.releasing
+                                : assignedToMe
+                                  ? workspaceLabels.release
+                                  : workspaceLabels.assign}
+                          </Button>
+                        )}
+                    </Stack>
+                  </Box>
+                )
+              }
+            >
+              {error && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  {error}
+                </Alert>
+              )}
+              {notice && (
+                <Alert severity="success" sx={{ mb: 2 }}>
+                  {notice}
+                </Alert>
+              )}
+              {selected ? (
+                <Stack spacing={2}>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                    {photo ? (
+                      <Box
+                        component="img"
+                        src={photo}
+                        alt={
+                          selected.metadata.sample
+                            ? 'Reference image'
+                            : 'Original submission evidence'
+                        }
+                        referrerPolicy="no-referrer"
+                        sx={{
+                          width: { xs: '100%', sm: 220 },
+                          height: 220,
+                          bgcolor: 'action.hover',
+                          objectFit: 'contain',
+                          borderRadius: 1,
+                        }}
+                      />
+                    ) : (
+                      <Typography>Photo preview unavailable</Typography>
+                    )}
+                    <Box>
+                      <Chip
+                        label={selected.submissionStatus.replaceAll('_', ' ')}
+                        size="small"
+                      />
+                      <Typography variant="h6" sx={{ mt: 1 }}>
+                        {facts?.name}
+                      </Typography>
+                      <Typography variant="body2">
+                        Customer: {selected.submitterRef.code}
+                      </Typography>
+                      <Typography variant="caption">{selected.code}</Typography>
+                    </Box>
+                  </Stack>
+                  {evidenceReview?.manualApprovalRequired && (
+                    <Alert severity="warning">
+                      <Typography variant="subtitle2">
+                        {evidenceReview.label}
+                      </Typography>
+                      <Typography variant="body2">{evidenceReview.message}</Typography>
+                      <Typography variant="body2">
+                        {evidenceReview.sourceLabel}
+                      </Typography>
+                      {evidenceReview.reason && (
+                        <Typography variant="body2">{evidenceReview.reason}</Typography>
+                      )}
+                    </Alert>
+                  )}
+                  {selected.metadata.sample && (
+                    <Alert severity="info">This record uses reference imagery.</Alert>
+                  )}
+                  <Typography>
+                    Type: {facts?.itemTypeCode} · Quantity: {facts?.quantity} ·
+                    Condition: {facts?.conditionGrade}
+                  </Typography>
+                  <Typography>
+                    Collection centre: {facts?.preferredCollectionPointCode}
+                  </Typography>
+                  <Typography>{facts?.description}</Typography>
+                  {detailLoading && (
+                    <Typography role="status">Loading item properties…</Typography>
+                  )}
+                  <WastePropertyDetails
+                    record={selected}
+                    data={dashboard}
+                    labels={dashboardLabels}
+                    options={operations?.reviewWorkspace?.descriptorOptions}
+                    edits={editedFacts}
+                    onChange={setEditedFacts}
+                    disabled={busy || detailLoading || !canEdit}
+                  />
+                  <Typography variant="h6">
+                    {settled ? dashboardLabels.detail : dashboardLabels.correction}
+                  </Typography>
+                  {selected.metadata.suggestion?.facts && (
+                    <Alert severity="info">
+                      AI suggestion:{' '}
+                      {selected.metadata.suggestion.facts.name ||
+                        selected.metadata.suggestion.facts.itemTypeCode}
+                      . Original photo-analysis suggestion.
+                    </Alert>
+                  )}
+                  {selected.submissionStatus === 'APPROVED' &&
+                    operations?.impactAssessment && (
+                      <WasteImpactAssessments
+                        key={selected.code}
+                        configuration={configuration}
+                        code={selected.code}
+                        canAssess={operations.canVerify}
+                        canSelect={operations.canApprove}
+                        labels={operations.impactAssessment.labels}
+                      />
+                    )}
+                  {selected.submissionStatus !== 'APPROVED' &&
+                    selected.metadata.verifiedEstimate && (
+                      <Alert severity="info">
+                        Verified impact assessment:{' '}
+                        {selected.metadata.verifiedEstimate.calculationStatus}.{' '}
+                        {selected.metadata.verifiedEstimate.reason}
+                        {selected.metadata.verifiedEstimate.metrics?.map((metric) => (
+                          <Typography key={metric.metricCode}>
+                            {metric.metricCode}: {metric.value} {metric.unitOfMeasure}{' '}
+                            (estimate)
+                          </Typography>
+                        ))}
+                        {selected.metadata.verifiedEstimate.formulaVersion && (
+                          <Typography variant="caption">
+                            Method version:{' '}
+                            {selected.metadata.verifiedEstimate.formulaVersion}
+                          </Typography>
+                        )}
+                      </Alert>
+                    )}
+                  {['APPROVED', 'REJECTED'].includes(selected.submissionStatus) && (
+                    <Alert
+                      severity={
+                        selected.metadata.outcomeDelivery?.status === 'DELIVERED'
+                          ? 'success'
+                          : 'info'
+                      }
+                    >
+                      Outcome notification:{' '}
+                      {selected.metadata.outcomeDelivery?.status || 'PENDING'}.
+                      {selected.metadata.outcomeDelivery?.status === 'UNCERTAIN'
+                        ? ' Telegram may have accepted the message. Check delivery before taking further action.'
+                        : ![
+                            'DELIVERED',
+                            'SUPPRESSED',
+                            'FAILED',
+                            'DEAD_LETTER',
+                          ].includes(
+                            selected.metadata.outcomeDelivery?.status || '',
+                          ) && (
+                            <Button
+                              disabled={busy}
+                              onClick={() => {
+                                setBusy(true);
+                                void retryWasteOutcome(configuration, selected)
+                                  .then(() => load())
+                                  .catch((error: unknown) =>
+                                    setError(
+                                      error instanceof Error
+                                        ? error.message
+                                        : 'The request could not be completed.',
+                                    ),
+                                  )
+                                  .finally(() => setBusy(false));
+                              }}
+                            >
+                              Retry notification
+                            </Button>
+                          )}
+                    </Alert>
+                  )}
+                  {selected.metadata.outcomeDelivery?.status === 'UNCERTAIN' &&
+                    operations?.canApprove && (
+                      <Stack direction="row" spacing={1}>
+                        <Button
+                          disabled={busy}
+                          onClick={() => {
+                            setNotificationReason('');
+                            setNotificationAction('MARK_DELIVERED');
+                          }}
+                        >
+                          Record delivered
+                        </Button>
+                        <Button
+                          disabled={busy}
+                          onClick={() => {
+                            setNotificationReason('');
+                            setNotificationAction('AUTHORIZE_RESEND');
+                          }}
+                        >
+                          Authorize one resend
+                        </Button>
+                        <Button
+                          disabled={busy}
+                          onClick={() => {
+                            setNotificationReason('');
+                            setNotificationAction('CANCEL');
+                          }}
+                        >
+                          Stop delivery
+                        </Button>
+                      </Stack>
+                    )}
+                  {selected.metadata.publicReason && (
+                    <Alert
+                      severity={
+                        selected.submissionStatus === 'REJECTED' ? 'warning' : 'info'
+                      }
+                    >
+                      {selected.metadata.publicReason}
+                    </Alert>
+                  )}
+                  <TextField
+                    label="Final verified name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    disabled={busy || detailLoading || !canEdit}
+                  />
+                  {(operations?.reviewWorkspace?.fields || [])
+                    .filter((field) =>
+                      [
+                        'description',
+                        'categoryCode',
+                        'itemTypeCode',
+                        'quantity',
+                        'conditionGrade',
+                        'brand',
+                        'model',
+                        'weight',
+                        'sizeClass',
+                      ].includes(field.key),
+                    )
+                    .map((field) => {
+                      const selectedItemCode =
+                        editedFacts.itemTypeCode || facts?.itemTypeCode;
+                      const selectedCategoryCode =
+                        editedFacts.categoryCode || facts?.categoryCode;
+                      const choices =
+                        field.key === 'categoryCode'
+                          ? dashboard?.categories
+                          : field.key === 'itemTypeCode'
+                            ? dashboard?.itemTypes.filter(
+                                (item) => item.categoryCode === selectedCategoryCode,
+                              )
+                            : field.key === 'sizeClass'
+                              ? operations?.reviewWorkspace?.descriptorOptions?.sizeClasses.map(
+                                  (code) => ({ code, name: code.toLowerCase() }),
+                                )
+                              : field.key === 'conditionGrade'
+                                ? dashboard?.itemTypes
+                                    .find((item) => item.code === selectedItemCode)
+                                    ?.allowedConditionGrades?.map((code) => ({
+                                      code,
+                                      name: code.toLowerCase(),
+                                    }))
+                                : undefined;
+                      return (
+                        <TextField
+                          key={field.key}
+                          label={field.label}
+                          select={!!choices}
+                          type={field.type === 'number' ? 'number' : 'text'}
+                          multiline={field.type === 'text'}
+                          value={
+                            editedFacts[field.key] ??
+                            selected.metadata.verifiedFacts?.[field.key] ??
+                            facts?.[field.key] ??
+                            ''
+                          }
+                          disabled={busy || detailLoading || !canEdit}
+                          onChange={(event) =>
+                            setEditedFacts((current) => ({
+                              ...current,
+                              ...(field.key === 'categoryCode'
+                                ? { itemTypeCode: '' }
+                                : {}),
+                              [field.key]:
+                                field.type === 'number'
+                                  ? Number(event.target.value)
+                                  : event.target.value,
+                            }))
+                          }
+                        >
+                          {choices?.map((item) => (
+                            <MenuItem key={item.code} value={item.code}>
+                              {wasteName(item.name)}
+                            </MenuItem>
+                          ))}
+                        </TextField>
+                      );
+                    })}
+                  {dirty && (
+                    <Button
+                      disabled={busy}
+                      onClick={() => {
+                        setName(facts?.name || '');
+                        setEditedFacts({});
+                        setReason(selected.metadata.publicReason || '');
+                      }}
+                    >
+                      Discard unsaved changes
+                    </Button>
+                  )}
+                  <TextField
+                    label="Review feedback"
+                    multiline
+                    disabled={
+                      settled ||
+                      busy ||
+                      detailLoading ||
+                      detailFailed ||
+                      !assignedToMe ||
+                      !operations?.canApprove
+                    }
+                    minRows={2}
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    helperText="A reason is required when rejecting. The customer can see this feedback."
+                  />
+                  {!settled && verificationMissing && (
+                    <Alert severity="info">{labels.verificationRequired}</Alert>
+                  )}
+                  {!settled && sameVerifier && (
+                    <Alert severity="info">{labels.differentApproverRequired}</Alert>
+                  )}
+                  {!operations?.canVerify && !operations?.canApprove && (
+                    <Alert severity="info">{labels.readOnly}</Alert>
+                  )}
+                  {selected.reviewPending &&
+                    operations?.canApprove &&
+                    !sameVerifier && (
+                      <Button
+                        disabled={busy || detailLoading || detailFailed}
+                        onClick={() => startDecision('RECOVER')}
+                      >
+                        Resume recorded {selected.reviewPending.decision.toLowerCase()}
+                      </Button>
+                    )}
+                  <Stack direction="row" spacing={1}>
+                    {operations?.canVerify && !settled && (
+                      <Button
+                        variant="contained"
+                        disabled={
+                          busy ||
+                          settled ||
+                          detailLoading ||
+                          detailFailed ||
+                          !!assignedElsewhere ||
+                          !assignedToMe ||
+                          !!selected.reviewPending ||
+                          !name.trim()
+                        }
+                        onClick={() => startDecision('VERIFIED')}
+                      >
+                        {labels.verifyAction}
+                      </Button>
+                    )}
+                    {operations?.canApprove && (
+                      <Button
+                        variant="contained"
+                        disabled={
+                          busy || !name.trim() || !canDecide || !!selected.reviewPending
+                        }
+                        onClick={() => startDecision('APPROVED')}
+                      >
+                        {settlementRetry
+                          ? 'Review settlement retry'
+                          : 'Review approval'}
+                      </Button>
+                    )}
+                    {operations?.canApprove && (
+                      <Button
+                        color="error"
+                        variant="outlined"
+                        disabled={
+                          busy ||
+                          settled ||
+                          !reason.trim() ||
+                          !canDecide ||
+                          !!selected.reviewPending
+                        }
+                        onClick={() => startDecision('REJECTED')}
+                      >
+                        Review rejection
+                      </Button>
+                    )}
+                  </Stack>
                 </Stack>
-              </Paper>
-            ))}
-          </Stack>
-          <Alert severity="warning">
-            Enterprise hierarchy, coupon maker-checker roles, and settlement-policy
-            permissions are captured in the continued implementation actions file.
-          </Alert>
-        </Stack>
-      ) : null}
-
-      {tab === 'contracts' ? (
-        <Stack direction="row" spacing={dashboardComponentGap} sx={{ flexWrap: 'wrap' }}>
-          {operationContracts.map((operation) => (
-            <Paper key={operation.title} variant="outlined" sx={{ maxWidth: 380, p: dashboardCardPadding }}>
-              <Stack spacing={1}>
-                <Typography sx={{ fontWeight: 700 }}>{operation.title}</Typography>
-                <Typography color="text.secondary" variant="body2">
-                  Owner: {operation.owner}
-                </Typography>
-                <Typography
-                  color="text.secondary"
-                  sx={{ overflowWrap: 'anywhere' }}
-                  variant="body2"
-                >
-                  {operation.route}
-                </Typography>
-                <Chip label={operation.permission} size="small" variant="outlined" />
-              </Stack>
-            </Paper>
-          ))}
-        </Stack>
-      ) : null}
-    </Stack>
+              ) : (
+                <Typography>Select a submission to review.</Typography>
+              )}
+            </WasteSubmissionDialog>
+            <Typography variant="caption" color="text.secondary">
+              Operator: {props.employeeId}
+            </Typography>
+          </>
+        )}
+        <Dialog
+          open={pendingSelection !== null}
+          onClose={() => setPendingSelection(null)}
+        >
+          <DialogTitle>Discard unsaved changes?</DialogTitle>
+          <DialogContent>
+            Your changes have not been saved. Discard them to leave these details.
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setPendingSelection(null)}>Keep editing</Button>
+            <Button
+              onClick={() => {
+                setSelectedCode(pendingSelection || '');
+                setPendingSelection(null);
+              }}
+            >
+              Discard changes
+            </Button>
+          </DialogActions>
+        </Dialog>
+        <Dialog
+          open={!!notificationAction}
+          onClose={() => {
+            if (!busy) setNotificationAction(null);
+          }}
+        >
+          <DialogTitle>Confirm notification resolution</DialogTitle>
+          <DialogContent>
+            <Typography>
+              {notificationAction === 'AUTHORIZE_RESEND'
+                ? 'Telegram may already have accepted this message. Authorizing a resend can create a duplicate. This records permission for one retry; use Retry notification afterwards.'
+                : notificationAction === 'MARK_DELIVERED'
+                  ? 'Confirm that you checked delivery and have evidence that the customer received this message.'
+                  : 'Stop further delivery attempts for this message.'}
+            </Typography>
+            <TextField
+              fullWidth
+              label="Reason or delivery evidence"
+              value={notificationReason}
+              onChange={(event) => setNotificationReason(event.target.value)}
+              slotProps={{ htmlInput: { maxLength: 1000 } }}
+              sx={{ mt: 2 }}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button disabled={busy} onClick={() => setNotificationAction(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={busy || !notificationReason.trim() || !selected}
+              onClick={() => {
+                if (!selected || !notificationAction) return;
+                setBusy(true);
+                void resolveWasteOutcome(
+                  configuration,
+                  selected,
+                  notificationAction,
+                  notificationReason,
+                )
+                  .then(() => {
+                    setNotificationAction(null);
+                    return load();
+                  })
+                  .catch((error: unknown) =>
+                    setError(
+                      error instanceof Error
+                        ? error.message
+                        : 'The request could not be completed.',
+                    ),
+                  )
+                  .finally(() => setBusy(false));
+              }}
+            >
+              Confirm resolution
+            </Button>
+          </DialogActions>
+        </Dialog>
+        <Dialog
+          open={!!decision}
+          onClose={() => {
+            if (!busy) setDecision(null);
+          }}
+        >
+          <DialogTitle>
+            {decision === 'RECOVER'
+              ? 'Resume recorded decision'
+              : decision === 'VERIFIED'
+                ? labels.verifyTitle
+                : decision === 'APPROVED'
+                  ? settlementRetry
+                    ? 'Confirm reward settlement retry'
+                    : 'Confirm asset approval'
+                  : 'Confirm rejection'}
+          </DialogTitle>
+          <DialogContent>
+            <Typography>{name}</Typography>
+            <Typography sx={{ mt: 1 }}>
+              {decision === 'RECOVER'
+                ? 'Continue the decision already recorded by the backend. Its facts, reviewer, and reward references stay unchanged.'
+                : decision === 'VERIFIED'
+                  ? labels.verifyExplanation
+                  : decision === 'APPROVED'
+                    ? settlementRetry
+                      ? 'Approval is already recorded. Retry its configured reward settlement with the original ledger references.'
+                      : 'The backend will create the asset and settle the configured rewards.'
+                    : 'The customer will receive the recorded review feedback.'}
+            </Typography>
+            {reason && <Typography sx={{ mt: 1 }}>{reason}</Typography>}
+            {needsEvidenceAcknowledgement && (
+              <Box sx={{ mt: 2 }}>
+                <Alert severity="warning">{evidenceReview?.message}</Alert>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={evidenceReviewed}
+                      onChange={(event) => setEvidenceReviewed(event.target.checked)}
+                      disabled={busy}
+                    />
+                  }
+                  label={evidenceReview?.acknowledgementLabel}
+                />
+              </Box>
+            )}
+            {decision === 'VERIFIED' && (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="body2">{dashboardLabels.confirmation}</Typography>
+                {Object.entries({ name: name.trim(), ...editedFacts })
+                  .filter(
+                    ([key, value]) =>
+                      JSON.stringify(value) !==
+                      JSON.stringify(facts?.[key as keyof WasteReviewFacts]),
+                  )
+                  .map(([key, value]) => (
+                    <Box
+                      key={key}
+                      sx={{ mt: 2, p: 1.5, bgcolor: 'action.hover', borderRadius: 1 }}
+                    >
+                      <Typography variant="subtitle2">
+                        {operations?.reviewWorkspace?.fields?.find(
+                          (field) => field.key === key,
+                        )?.label ||
+                          dashboardLabels[key] ||
+                          key}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {dashboardLabels.original}:{' '}
+                        {displayValue(facts?.[key as keyof WasteReviewFacts])}
+                      </Typography>
+                      <Typography variant="body2">
+                        {dashboardLabels.proposed}: {displayValue(value)}
+                      </Typography>
+                    </Box>
+                  ))}
+              </Box>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button disabled={busy} onClick={() => setDecision(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              disabled={
+                busy ||
+                !selected ||
+                !decision ||
+                (needsEvidenceAcknowledgement && !evidenceReviewed)
+              }
+              onClick={() => {
+                if (!selected || !decision) return;
+                setBusy(true);
+                setError('');
+                const mutation =
+                  decision === 'RECOVER'
+                    ? recoverWasteReview(configuration, selected)
+                    : decision === 'VERIFIED'
+                      ? verifyWasteSubmission(configuration, selected, {
+                          name: name.trim(),
+                          ...editedFacts,
+                        })
+                      : decideWasteReview(
+                          configuration,
+                          selected,
+                          decision,
+                          reason,
+                          operations?.requireVerification
+                            ? {}
+                            : { name: name.trim(), ...editedFacts },
+                          evidenceReviewed,
+                        );
+                void mutation
+                  .then((result) => {
+                    setNotice(
+                      result.settlementStatus === 'PENDING'
+                        ? result.settlementMessage ||
+                            'Decision saved. Reward settlement needs retry.'
+                        : decision === 'VERIFIED'
+                          ? labels.verifySaved || 'Verification saved.'
+                          : 'Review decision saved.',
+                    );
+                    setDecision(null);
+                    return load();
+                  })
+                  .catch((e) =>
+                    setError(e instanceof Error ? e.message : 'Review failed.'),
+                  )
+                  .finally(() => setBusy(false));
+              }}
+            >
+              {busy ? 'Saving…' : 'Confirm decision'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </Stack>
+    </WorkspaceContainer>
   );
 }

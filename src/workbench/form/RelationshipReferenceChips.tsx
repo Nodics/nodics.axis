@@ -1,7 +1,7 @@
 import { Alert, Box, Button, CircularProgress, Stack, Typography } from '@mui/material';
 import { useState } from 'react';
 
-import { AxisSchemaRecordDetail } from '../../app/schema/AxisSchemaRecordDetail';
+import { WorkbenchModelDialog } from '../detail/WorkbenchModelDialog';
 import type {
   WorkbenchRecord,
   WorkbenchRelationship,
@@ -40,7 +40,7 @@ export function RelationshipReferenceChips(props: RelationshipReferenceChipsProp
     setReferenceError(undefined);
     setLoadingReference(reference);
     void props.runtime
-      .resolveRecord(props.relationship, reference)
+      .resolveRecord(props.relationship, reference, props.targetSchema)
       .then((result) => {
         if (!result) {
           setReferenceError('Referenced record was not found or is not authorized.');
@@ -106,7 +106,7 @@ export function RelationshipReferenceChips(props: RelationshipReferenceChipsProp
                 {reference}
               </Typography>
             </Button>
-            {props.disabled ? null : (
+            {props.disabled || !props.relationship.actions.includes('UNLINK') ? null : (
               <Button
                 aria-label={`${props.copy.removeReferenceLabel} ${reference}`}
                 color="error"
@@ -129,20 +129,15 @@ export function RelationshipReferenceChips(props: RelationshipReferenceChipsProp
       ) : null}
       {referenceError ? <Alert severity="warning">{referenceError}</Alert> : null}
       {loadedReference ? (
-        <AxisSchemaRecordDetail
-          actions={
-            <Button size="small" onClick={() => setLoadedReference(undefined)}>
-              {props.copy.removeRelatedLabel}
-            </Button>
+        <WorkbenchModelDialog
+          copy={props.copy}
+          runtime={props.runtime}
+          editable={
+            !props.disabled && props.relationship.actions.includes('EDIT_RELATED')
           }
+          onClose={() => setLoadedReference(undefined)}
           record={loadedReference.record}
-          referenceResolver={
-            props.runtime.resolveRecord
-              ? { resolveReference: props.runtime.resolveRecord }
-              : undefined
-          }
           schema={loadedReference.schema}
-          title={`${props.relationship.label}: ${loadedReference.reference}`}
         />
       ) : null}
     </Stack>

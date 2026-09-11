@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -41,6 +42,103 @@ const schema: WorkbenchSchema = {
 };
 
 describe('WorkbenchRecordDetail', () => {
+  it('edits nested records in dialogs and returns to the parent without exposing nested delete', async () => {
+    const user = userEvent.setup();
+    const relationship = {
+      field: 'address',
+      label: 'Address',
+      targetModule: 'profile',
+      targetSchema: 'address',
+      cardinality: 'ONE',
+      referenceProperty: 'code',
+      resolution: 'LOCAL_OR_REMOTE',
+      actions: ['SELECT_EXISTING', 'EDIT_RELATED'],
+      required: false,
+      description: '',
+      maximumDepth: 5,
+    } as const;
+    const child: WorkbenchSchema = {
+      ...schema,
+      operations: ['read', 'update', 'delete'],
+      fields: [
+        ...schema.fields,
+        {
+          ...schema.fields[0]!,
+          name: 'description',
+          label: 'Description',
+          primary: false,
+          required: false,
+        },
+      ],
+    };
+    const parent: WorkbenchSchema = {
+      ...schema,
+      schemaName: 'enterprise',
+      label: 'Enterprise',
+      operations: ['read', 'update', 'delete'],
+      fields: [
+        ...schema.fields,
+        { ...schema.fields[0]!, name: 'address', label: 'Address', primary: false },
+      ],
+      relationships: [relationship],
+    };
+    const updateRecord = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Revision changed'))
+      .mockResolvedValue({ code: 'OFFICE', description: 'Updated address' });
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <WorkbenchRecordDetail
+          closeLabel="Close"
+          editLabel="Edit"
+          deleteLabel="Delete"
+          falseLabel="No"
+          trueLabel="Yes"
+          record={{ code: 'Enterprise one', address: 'OFFICE' }}
+          schema={parent}
+          onClose={vi.fn()}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+          relationshipRuntime={{
+            schemas: [child],
+            queryScope: ['default'],
+            createRecord: vi.fn(),
+            loadRecords: vi.fn(),
+            updateRecord,
+            resolveRecord: vi.fn().mockResolvedValue({
+              schema: child,
+              record: { code: 'OFFICE', description: 'Old address' },
+            }),
+          }}
+        />
+      </QueryClientProvider>,
+    );
+    await user.click(screen.getByRole('button', { name: 'OFFICE' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(
+      within(dialog).queryByRole('button', { name: 'Delete' }),
+    ).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Edit' }));
+    await user.clear(within(dialog).getByRole('textbox', { name: 'Description' }));
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Description' }),
+      'Updated address',
+    );
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+    expect(await within(dialog).findByText('Revision changed')).toBeVisible();
+    expect(within(dialog).getByRole('textbox', { name: 'Description' })).toHaveValue(
+      'Updated address',
+    );
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+    expect(await within(dialog).findByText('Updated address')).toBeVisible();
+    expect(updateRecord).toHaveBeenLastCalledWith(
+      child,
+      { code: 'OFFICE', description: 'Old address' },
+      { code: 'OFFICE', description: 'Updated address' },
+    );
+    await user.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(await screen.findByRole('button', { name: 'Delete' })).toBeVisible();
+  });
   it('does not expose mutation actions absent from the backend descriptor', () => {
     render(
       <WorkbenchRecordDetail
@@ -539,6 +637,7 @@ describe('WorkbenchRecordDetail', () => {
     expect(resolveRecord).toHaveBeenCalledWith(
       enterpriseSchema.relationships[0],
       'default',
+      enterpriseSchema,
     );
     expect(await screen.findByText('Default tenant')).toBeVisible();
   });
@@ -633,8 +732,11 @@ describe('WorkbenchRecordDetail', () => {
     expect(resolveRecord).toHaveBeenCalledWith(
       workflowActionSchema.relationships[0],
       'defaultRejectChannel',
+      workflowActionSchema,
     );
-    expect(await screen.findByText('Channels: defaultRejectChannel')).toBeVisible();
+    expect(await screen.findByRole('dialog')).toHaveAccessibleName(
+      /defaultRejectChannel/,
+    );
     expect(screen.getByText('defaultRejectAction')).toBeVisible();
   });
 
@@ -732,8 +834,9 @@ describe('WorkbenchRecordDetail', () => {
     expect(resolveRecord).toHaveBeenCalledWith(
       workflowActionSchema.relationships[0],
       'auditChannel',
+      workflowActionSchema,
     );
-    expect(await screen.findByText('Channels: auditChannel')).toBeVisible();
+    expect(await screen.findByRole('dialog')).toHaveAccessibleName(/auditChannel/);
     expect(screen.getByText('auditAction')).toBeVisible();
   });
 
@@ -861,6 +964,7 @@ describe('WorkbenchRecordDetail', () => {
     expect(resolveRecord).toHaveBeenCalledWith(
       workflowStepSchema.relationships[0],
       'defaultRejectChannel',
+      workflowStepSchema,
     );
     expect(
       await screen.findByText('Workflow Channel: defaultRejectChannel'),

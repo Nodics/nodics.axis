@@ -154,7 +154,9 @@ async function responseFailure(response: Response): Promise<Error> {
         return new Error(importAlreadyRunningMessage);
       }
       if (
-        (code === 'ERR_IMP_00003' || targetCode === 'ERR_IMP_00003' || response.status === 409) &&
+        (code === 'ERR_IMP_00003' ||
+          targetCode === 'ERR_IMP_00003' ||
+          response.status === 409) &&
         /version change|new release version|checksum|content changed/iu.test(message)
       ) {
         return new Error(immutableReleaseConflictMessage);
@@ -164,7 +166,9 @@ async function responseFailure(response: Response): Promise<Error> {
       if (/already running/iu.test(bounded)) {
         return new Error(importAlreadyRunningMessage);
       }
-      if (/version change|new release version|checksum|content changed/iu.test(bounded)) {
+      if (
+        /version change|new release version|checksum|content changed/iu.test(bounded)
+      ) {
         return new Error(immutableReleaseConflictMessage);
       }
     }

@@ -1,4 +1,5 @@
 import type { AxisModuleConnection } from '../../bootstrap/publicBootstrap';
+import { workbenchCommandKey } from '../record/workbenchCommand';
 import type { AxisNavigationLifecycleAction } from '../../bootstrap/publicBootstrap';
 import {
   parseWorkbenchRecords,
@@ -94,7 +95,7 @@ function normalizeDateValue(value: unknown): unknown {
 }
 
 function normalizeGeneratedCrudModel(
-  schema: Pick<WorkbenchSchema, 'fields'>,
+  schema: Pick<WorkbenchSchema, 'fields' | 'concurrency'>,
   model: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, unknown>> {
   const dateFields = new Set(
@@ -102,12 +103,17 @@ function normalizeGeneratedCrudModel(
       .filter((field) => field.type.toLowerCase() === 'date')
       .map((field) => field.name),
   );
-  if (dateFields.size === 0) return model;
+  const managedField = schema.concurrency?.managed
+    ? schema.concurrency.field
+    : undefined;
+  if (dateFields.size === 0 && !managedField) return model;
   const normalized = Object.fromEntries(
-    Object.entries(model).map(([key, value]) => [
-      key,
-      dateFields.has(key) ? normalizeDateValue(value) : value,
-    ]),
+    Object.entries(model)
+      .filter(([key]) => key !== managedField)
+      .map(([key, value]) => [
+        key,
+        dateFields.has(key) ? normalizeDateValue(value) : value,
+      ]),
   );
   return Object.freeze(normalized);
 }
@@ -319,6 +325,20 @@ export async function createWorkbenchRecord(
   configuration: WorkbenchClientConfiguration,
   fetchImplementation: typeof fetch = fetch,
 ): Promise<WorkbenchRecord> {
+  if (schema.form?.createOperation && schema.operations.includes('create')) {
+    const result = await executeWorkbenchAggregate(
+      connection,
+      schema,
+      schema.form.createOperation,
+      { model },
+      configuration,
+      workbenchCommandKey(model),
+      fetchImplementation,
+    );
+    if (!result || typeof result !== 'object' || Array.isArray(result))
+      throw new Error('Business setup did not return a record');
+    return Object.freeze({ ...(result as Record<string, unknown>) });
+  }
   if (
     schema.mutationMode !== 'GENERATED_CRUD' ||
     !schema.operations.includes('create')
@@ -468,7 +488,9 @@ function recordIdentity(
     [identityField]: identity,
   };
   if (schema.concurrency?.mode === 'COMPARE_AND_SET') {
-    const revision = original[schema.concurrency.field];
+    const revision =
+      original[schema.concurrency.field] ??
+      (schema.concurrency.managed ? 0 : undefined);
     if (typeof revision !== 'string' && typeof revision !== 'number') {
       throw new Error('This record does not expose its concurrency revision');
     }

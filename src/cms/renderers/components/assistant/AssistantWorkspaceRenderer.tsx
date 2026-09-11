@@ -49,10 +49,22 @@ export function AssistantWorkspaceRenderer({
   const knowledgeTitle = stringProperty(component, 'knowledgeTitle', '');
   const knowledgeSourcesLabel = stringProperty(component, 'knowledgeSourcesLabel', '');
   const knowledgeChunksLabel = stringProperty(component, 'knowledgeChunksLabel', '');
-  const knowledgeLastRefreshLabel = stringProperty(component, 'knowledgeLastRefreshLabel', '');
+  const knowledgeLastRefreshLabel = stringProperty(
+    component,
+    'knowledgeLastRefreshLabel',
+    '',
+  );
   const knowledgeRefreshLabel = stringProperty(component, 'knowledgeRefreshLabel', '');
-  const knowledgeRefreshingLabel = stringProperty(component, 'knowledgeRefreshingLabel', '');
-  const knowledgeUnavailableLabel = stringProperty(component, 'knowledgeUnavailableLabel', '');
+  const knowledgeRefreshingLabel = stringProperty(
+    component,
+    'knowledgeRefreshingLabel',
+    '',
+  );
+  const knowledgeUnavailableLabel = stringProperty(
+    component,
+    'knowledgeUnavailableLabel',
+    '',
+  );
   const confirmationTitle = stringProperty(component, 'confirmationTitle');
   const approveLabel = stringProperty(component, 'approveLabel');
   const executeLabel = stringProperty(component, 'executeLabel');

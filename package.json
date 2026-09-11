@@ -36,6 +36,7 @@
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",
     "@mui/material": "9.2.0",
+    "@nodics/location-map-ui": "file:packages/location-map-ui",
     "@tanstack/react-query": "5.101.4",
     "@tiptap/extension-code-block-lowlight": "^3.30.5",
     "@tiptap/extension-image": "^3.30.5",

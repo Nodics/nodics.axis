@@ -173,9 +173,8 @@ function listRecords(body) {
 
 function listNavigationItems(body) {
   const result = resultPayload(body);
-  const navigation = result?.effectiveNavigationComposition?.navigation ||
-    result?.navigation ||
-    [];
+  const navigation =
+    result?.effectiveNavigationComposition?.navigation || result?.navigation || [];
   return Array.isArray(navigation) ? navigation : [];
 }
 
@@ -328,14 +327,23 @@ async function verifyWasteLocationOperations(authorizedHeaders) {
     centres.map((record) => enterpriseRefCode(record, 'locationRef')).filter(Boolean),
   );
   if (Number(centresPayload?.sourceCounts?.locations || 0) < uniqueLocationRefs.size) {
-    throw new Error('Waste collection-centre API did not compose Location records for every centre');
+    throw new Error(
+      'Waste collection-centre API did not compose Location records for every centre',
+    );
   }
-  const first = centres.find((record) =>
-    enterpriseRefCode(record, 'operatorEnterpriseRef') === 'NODICS_WASTE_MANAGEMENT_CO',
+  const first = centres.find(
+    (record) =>
+      enterpriseRefCode(record, 'operatorEnterpriseRef') ===
+      'NODICS_WASTE_MANAGEMENT_CO',
   );
-  if (!first) throw new Error('Waste collection centres omitted Nodics operator association');
-  if (enterpriseRefCode(first, 'assetOwnerEnterpriseRef') !== 'BEAH_RECYCLING_SERVICES') {
-    throw new Error('Waste collection centre did not expose the asset-owner enterprise reference');
+  if (!first)
+    throw new Error('Waste collection centres omitted Nodics operator association');
+  if (
+    enterpriseRefCode(first, 'assetOwnerEnterpriseRef') !== 'BEAH_RECYCLING_SERVICES'
+  ) {
+    throw new Error(
+      'Waste collection centre did not expose the asset-owner enterprise reference',
+    );
   }
   if (first.coordinates !== undefined) {
     throw new Error('Waste collection centre exposed an unlabeled coordinate array');
@@ -345,17 +353,16 @@ async function verifyWasteLocationOperations(authorizedHeaders) {
     typeof first.longitude !== 'number' ||
     first.location?.code !== enterpriseRefCode(first, 'locationRef')
   ) {
-    throw new Error('Waste collection centre did not expose map-ready Location coordinates');
+    throw new Error(
+      'Waste collection centre did not expose map-ready Location coordinates',
+    );
   }
   console.log(
     `PASS Waste collection-centre API exposes role-aware enterprises (${centres.length} records)`,
   );
 
   const enterpriseBody = await requestJson(
-    endpoint(
-      platformUrl,
-      '/nodics/profile/v0/enterprises/search?limit=100',
-    ),
+    endpoint(platformUrl, '/nodics/profile/v0/enterprises/search?limit=100'),
     { headers: authorizedHeaders },
   );
   const enterprises = listRecords(enterpriseBody);
@@ -444,13 +451,19 @@ async function verifyCopilotJourney(authorizedHeaders) {
     { headers: authorizedHeaders },
   );
   const knowledge = resultPayload(knowledgeBody);
-  if (!knowledge?.enabled || !Array.isArray(knowledge.sources) || !knowledge.sources.length) {
+  if (
+    !knowledge?.enabled ||
+    !Array.isArray(knowledge.sources) ||
+    !knowledge.sources.length
+  ) {
     throw new Error('Copilot knowledge status did not expose indexed sources');
   }
   if (knowledge.sources.some((source) => source.state !== 'PROJECTED')) {
     throw new Error('Copilot knowledge status contains a source that is not projected');
   }
-  console.log(`PASS Copilot governed knowledge status (${knowledge.sources.length} sources)`);
+  console.log(
+    `PASS Copilot governed knowledge status (${knowledge.sources.length} sources)`,
+  );
 
   const countBody = await requestJson(
     endpoint(
@@ -473,7 +486,9 @@ async function verifyCopilotJourney(authorizedHeaders) {
   if (countResult?.citations?.[0]?.navigationTarget !== '/registry') {
     throw new Error('Copilot module count omitted its governed registry navigation');
   }
-  console.log(`PASS Copilot live module count (${countResult.capabilityResult.count} modules)`);
+  console.log(
+    `PASS Copilot live module count (${countResult.capabilityResult.count} modules)`,
+  );
 }
 
 async function verifyOpenApiContract(authorizedHeaders) {

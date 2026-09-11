@@ -2,6 +2,7 @@ import type { AxisSort } from '../app/table/axisTableSorting';
 import type {
   AxisNavigationLifecycleAction,
   AxisNavigationItem,
+  AxisModuleConnection,
   AxisWorkbenchPresentation,
   AxisWorkbenchPresentationQuickFilter,
 } from '../bootstrap/publicBootstrap';
@@ -152,9 +153,11 @@ export function resolveWorkbenchDefaultColumns(
 ): readonly string[] {
   const fieldNames = schemaFieldNames(schema);
   const excludedFields = new Set(workbenchPresentationExcludedColumns(presentation));
-  const presented = (presentation?.defaultColumns ?? []).filter(
-    (field) => fieldNames.has(field) && !excludedFields.has(field),
-  );
+  const presented = (
+    presentation?.defaultColumns ??
+    schema.form?.defaultColumns ??
+    []
+  ).filter((field) => fieldNames.has(field) && !excludedFields.has(field));
   if (presented.length > 0) return Object.freeze(presented);
   const semanticDefaults = schema.fields
     .filter(
@@ -385,4 +388,41 @@ export function relatedRecordPanelFilter(
       }),
     ]),
   });
+}
+
+/** Selects the existing staged or operational server for an authorized route. */
+export function routePreferredServer(
+  navigation: AxisNavigationItem | undefined,
+  routeOwnerConnection: AxisModuleConnection | undefined,
+): string | undefined {
+  const groupId = navigation?.group?.id;
+  const route = navigation?.route ?? '';
+  if (
+    groupId === 'content' ||
+    groupId === 'publishing' ||
+    route.startsWith('/content') ||
+    route.startsWith('/publishing')
+  ) {
+    return 'wcmsStagedServer';
+  }
+  if (
+    groupId === 'products-merchandising' ||
+    groupId === 'search-discovery' ||
+    groupId === 'inventory-operations' ||
+    groupId === 'promotions-discounts' ||
+    route.startsWith('/commerce/catalog') ||
+    route.startsWith('/commerce/search') ||
+    route.startsWith('/commerce/inventory')
+  ) {
+    return 'commerceStagedServer';
+  }
+  if (
+    groupId === 'orders-checkouts' ||
+    groupId === 'order-lifecycle-operations' ||
+    route.startsWith('/commerce/checkout') ||
+    route.startsWith('/commerce/order-lifecycle')
+  ) {
+    return 'commerceServer';
+  }
+  return routeOwnerConnection?.server;
 }

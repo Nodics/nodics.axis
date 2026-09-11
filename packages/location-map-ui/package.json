@@ -1,0 +1,17 @@
+{
+  "name": "@nodics/location-map-ui",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Existing Axis map presentation components, shared by Nodics frontend consumers.",
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./src/index.ts",
+    "./styles.css": "./src/styles.css"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  }
+}

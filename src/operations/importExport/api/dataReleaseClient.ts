@@ -411,10 +411,7 @@ async function request(
     throw new Error(`${context.serviceName} endpoint is invalid`);
   const controller = new AbortController();
   const effectiveTimeoutMs = requestTimeoutMs(configuration, options);
-  const timeout = globalThis.setTimeout(
-    () => controller.abort(),
-    effectiveTimeoutMs,
-  );
+  const timeout = globalThis.setTimeout(() => controller.abort(), effectiveTimeoutMs);
   try {
     const response = await fetchImplementation(
       new URL(`${endpoint.toString().replace(/\/$/, '')}/v0${path}`),

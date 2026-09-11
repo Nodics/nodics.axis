@@ -1,3 +1,4 @@
+import { wasteOverviewAliases } from '../operations/wasteManagement/wasteOverviewAliases';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router';
 import { useQueries, useQueryClient, type Query } from '@tanstack/react-query';
@@ -45,6 +46,7 @@ import { ProcessWorkflowRoutePage } from '../operations/processWorkflow/ProcessW
 import { ProductManagementRoutePage } from '../operations/productManagement/ProductManagementRoutePage';
 import { ProductSellabilityWorkspace } from '../operations/productManagement/ProductSellabilityWorkspace';
 import { DiscoveryManagementRoutePage } from '../operations/discovery/DiscoveryManagementRoutePage';
+import { MerchantRedemptionPanel } from '../operations/promotions/MerchantRedemptionPanel';
 import { PromotionsBuilderRoutePage } from '../operations/promotions/PromotionsBuilderRoutePage';
 import { LocalizationOperationsRoutePage } from '../operations/localization/LocalizationOperationsRoutePage';
 import { CustomerEngagementRoutePage } from '../operations/customerEngagement/CustomerEngagementRoutePage';
@@ -584,10 +586,9 @@ export function App() {
   const importExportNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'imports-exports' && item.moduleName === 'backoffice',
   );
-  const cronNavigation =
-    authenticatedBootstrap?.navigation.find(
-      (item) => item.route.startsWith('/cron') || item.moduleName === 'cronjob',
-    );
+  const cronNavigation = authenticatedBootstrap?.navigation.find(
+    (item) => item.route.startsWith('/cron') || item.moduleName === 'cronjob',
+  );
   const mediaManagementNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'media-management' && item.moduleName === 'media',
   );
@@ -806,18 +807,34 @@ export function App() {
       : sessionFallback;
   const navigationRouteElement = (navigationItem?: AxisNavigationItem) =>
     session && !locked && authenticatedBootstrap && navigationItem
-      ? navigationItem.workbenchTarget
-        ? workbenchRouteElement(navigationItem)
-        : navigationItem.backendWorkspace
-          ? authenticatedShell(
-              <BackendOperationsWorkspaceRoutePage
+      ? navigationItem.backendWorkspace?.renderer === 'axis.workspace.native'
+        ? authenticatedShell(
+            navigationItem.backendWorkspace.workspaceCode === 'waste.review' &&
+              ['UP', 'DEGRADED'].includes(navigationItem.availability) ? (
+              <WasteManagementRoutePage
+                key={`${navigationItem.moduleName}:${navigationItem.id}`}
                 accessToken={session.accessToken}
-                enterpriseCode={runtime.enterpriseCode}
+                bootstrap={authenticatedBootstrap}
+                employeeId={session.loginId}
+                navigation={navigationItem}
                 runtime={runtime}
-                workspace={navigationItem.backendWorkspace}
-              />,
-            )
-          : authenticatedShell(<ModuleWorkspacePlaceholder item={navigationItem} />)
+              />
+            ) : (
+              <ModuleWorkspacePlaceholder item={navigationItem} />
+            ),
+          )
+        : navigationItem.workbenchTarget
+          ? workbenchRouteElement(navigationItem)
+          : navigationItem.backendWorkspace
+            ? authenticatedShell(
+                <BackendOperationsWorkspaceRoutePage
+                  accessToken={session.accessToken}
+                  enterpriseCode={runtime.enterpriseCode}
+                  runtime={runtime}
+                  workspace={navigationItem.backendWorkspace}
+                />,
+              )
+            : authenticatedShell(<ModuleWorkspacePlaceholder item={navigationItem} />)
       : sessionFallback;
   const cmsWorkbenchElement =
     currentWorkbenchNavigation && currentWorkbenchSchema
@@ -1118,9 +1135,29 @@ export function App() {
           ),
         )
       : sessionFallback;
-  const commerceRouteElement = orderLifecycleNavigation
-    ? orderLifecycleElement
-    : navigationRouteElement(currentNavigation);
+  const merchantFulfillmentElement =
+    session &&
+    !locked &&
+    authenticatedBootstrap &&
+    currentNavigation?.id === 'merchant-coupon-fulfillment'
+      ? authenticatedShell(
+          ['UP', 'DEGRADED'].includes(currentNavigation.availability) ? (
+            <MerchantRedemptionPanel
+              bootstrap={authenticatedBootstrap}
+              accessToken={session.accessToken}
+              runtime={runtime}
+            />
+          ) : (
+            <ModuleWorkspacePlaceholder item={currentNavigation} />
+          ),
+        )
+      : sessionFallback;
+  const commerceRouteElement =
+    currentNavigation?.id === 'merchant-coupon-fulfillment'
+      ? merchantFulfillmentElement
+      : orderLifecycleNavigation
+        ? orderLifecycleElement
+        : navigationRouteElement(currentNavigation);
   const productManagementNavigation = currentNavigation?.route.startsWith(
     '/commerce/catalog/products',
   )
@@ -1291,27 +1328,6 @@ export function App() {
             />
           ) : (
             <ModuleWorkspacePlaceholder item={locationMapNavigation} />
-          ),
-        )
-      : sessionFallback;
-  const wasteOperationsNavigation = currentNavigation?.route.startsWith('/waste/assets')
-    ? currentNavigation
-    : authenticatedBootstrap?.navigation.find(
-        (item) => item.route === '/waste/assets',
-      );
-  const wasteOperationsElement =
-    session && !locked && authenticatedBootstrap && wasteOperationsNavigation
-      ? authenticatedShell(
-          ['UP', 'DEGRADED'].includes(wasteOperationsNavigation.availability) ? (
-            <WasteManagementRoutePage
-              accessToken={session.accessToken}
-              bootstrap={authenticatedBootstrap}
-              employeeId={session.loginId}
-              navigation={wasteOperationsNavigation}
-              runtime={runtime}
-            />
-          ) : (
-            <ModuleWorkspacePlaceholder item={wasteOperationsNavigation} />
           ),
         )
       : sessionFallback;
@@ -1750,12 +1766,12 @@ export function App() {
               cronNavigation ? (
                 authenticatedShell(
                   selectModuleConnection(authenticatedBootstrap, 'cronjob') ? (
-                  <CronDashboardRoutePage
-                    accessToken={session.accessToken}
-                    bootstrap={authenticatedBootstrap}
-                    routeNavigation={cronNavigation}
-                    runtime={runtime}
-                  />
+                    <CronDashboardRoutePage
+                      accessToken={session.accessToken}
+                      bootstrap={authenticatedBootstrap}
+                      routeNavigation={cronNavigation}
+                      runtime={runtime}
+                    />
                   ) : (
                     <ModuleWorkspacePlaceholder item={cronNavigation} />
                   ),
@@ -1858,8 +1874,6 @@ export function App() {
         <Route path="/discovery/*" element={discoveryManagementElement} />
         <Route path="/localization/*" element={localizationOperationsElement} />
         <Route path="/commerce/*" element={commerceRouteElement} />
-        <Route path="/waste/assets" element={wasteOperationsElement} />
-        <Route path="/waste/assets/*" element={wasteOperationsElement} />
         <Route path="/waste/collection-centres" element={collectionCentresElement} />
         <Route path="/location/maps" element={locationMapConfigurationElement} />
         <Route path="/location/maps/*" element={locationMapConfigurationElement} />
@@ -1887,7 +1901,6 @@ export function App() {
                   !item.route.startsWith('/publishing') &&
                   !item.route.startsWith('/cron') &&
                   !item.route.startsWith('/location/maps') &&
-                  !item.route.startsWith('/waste/assets') &&
                   ![
                     '/assistant',
                     '/registry',
@@ -1933,6 +1946,21 @@ export function App() {
             )
           }
         />
+        {session &&
+          !locked &&
+          authenticatedBootstrap &&
+          wasteOverviewAliases(authenticatedBootstrap.navigation).map((alias) => (
+            <Route
+              key={alias.from}
+              path={alias.from}
+              element={
+                <Navigate
+                  replace
+                  to={`${alias.to}${location.search}${location.hash}`}
+                />
+              }
+            />
+          ))}
         <Route path="*" element={<Navigate replace to="/" />} />
       </Routes>
     </AxisLocalizationBoundary>

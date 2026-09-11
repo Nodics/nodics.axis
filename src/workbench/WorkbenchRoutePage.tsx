@@ -1,3 +1,5 @@
+import { routePreferredServer } from './workbenchRouteModel';
+import { resolveWorkbenchRelationshipSchema } from './form/workbenchRelatedDrafts';
 import {
   useMutation,
   useQueries,
@@ -33,6 +35,7 @@ import type {
   WorkbenchRelationship,
   WorkbenchSchema,
 } from './api/workbenchContracts';
+import { isWorkbenchAuthoringSchema } from './api/workbenchContracts';
 import type { WorkbenchRecordDetailPanel } from './detail/workbenchRecordDetailPanels';
 import type { WorkbenchRelationshipLoadOptions } from './form/WorkbenchRelationshipRuntime';
 import {
@@ -103,49 +106,14 @@ function selectWorkbenchSchemaConnection(
 ): AxisModuleConnection | undefined {
   const moduleName = workbenchConnectionModuleName(schema);
   const connections = bootstrap.moduleConnections[moduleName] ?? [];
-  return (
-    connections.find(
+  if (schema.connectionInstanceId !== undefined) {
+    return connections.find(
       (connection) =>
         schema.connectionInstanceId !== undefined &&
         connection.instanceId === schema.connectionInstanceId,
-    ) ?? selectModuleConnection(bootstrap, moduleName)
-  );
-}
-
-export function routePreferredServer(
-  navigation: WorkbenchRoutePageProps['routeNavigation'],
-  routeOwnerConnection: AxisModuleConnection | undefined,
-): string | undefined {
-  const groupId = navigation?.group?.id;
-  const route = navigation?.route ?? '';
-  if (
-    groupId === 'content' ||
-    groupId === 'publishing' ||
-    route.startsWith('/content') ||
-    route.startsWith('/publishing')
-  ) {
-    return 'wcmsStagedServer';
+    );
   }
-  if (
-    groupId === 'products-merchandising' ||
-    groupId === 'search-discovery' ||
-    groupId === 'inventory-operations' ||
-    groupId === 'promotions-discounts' ||
-    route.startsWith('/commerce/catalog') ||
-    route.startsWith('/commerce/search') ||
-    route.startsWith('/commerce/inventory')
-  ) {
-    return 'commerceStagedServer';
-  }
-  if (
-    groupId === 'orders-checkouts' ||
-    groupId === 'order-lifecycle-operations' ||
-    route.startsWith('/commerce/checkout') ||
-    route.startsWith('/commerce/order-lifecycle')
-  ) {
-    return 'commerceServer';
-  }
-  return routeOwnerConnection?.server;
+  return selectModuleConnection(bootstrap, moduleName);
 }
 
 interface OpenedReferenceRecord {
@@ -273,18 +241,21 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
     normalizedSelectedSchema,
     recordSortOverride,
   );
+  const recordQueryPrefix = [
+    'schema-workbench',
+    'records',
+    props.runtime.enterpriseCode,
+    recordConnection?.instanceId,
+    recordConnection?.endpoint,
+    normalizedSelectedSchema?.moduleName,
+    normalizedSelectedSchema?.schemaName,
+  ];
   const records = useQuery({
     enabled: Boolean(
       normalizedSelectedSchema && recordConnection && !createOpen && !editOpen,
     ),
     queryKey: [
-      'schema-workbench',
-      'records',
-      props.runtime.enterpriseCode,
-      recordConnection?.instanceId,
-      recordConnection?.endpoint,
-      normalizedSelectedSchema?.moduleName,
-      normalizedSelectedSchema?.schemaName,
+      ...recordQueryPrefix,
       recordSearch,
       JSON.stringify(effectiveRecordFilters ?? null),
       recordPageNumber,
@@ -416,16 +387,12 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
         configuration,
       );
     },
-    onSuccess: async () => {
+    onSuccess: async (created) => {
       setCreateOpen(false);
+      setSelectedRecord(created);
+      setEditOpen(false);
       await queryClient.invalidateQueries({
-        queryKey: [
-          'schema-workbench',
-          'records',
-          props.runtime.enterpriseCode,
-          normalizedSelectedSchema?.moduleName,
-          normalizedSelectedSchema?.schemaName,
-        ],
+        queryKey: recordQueryPrefix,
       });
     },
   });
@@ -446,13 +413,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
       setSelectedRecord(updated);
       setEditOpen(false);
       await queryClient.invalidateQueries({
-        queryKey: [
-          'schema-workbench',
-          'records',
-          props.runtime.enterpriseCode,
-          normalizedSelectedSchema?.moduleName,
-          normalizedSelectedSchema?.schemaName,
-        ],
+        queryKey: recordQueryPrefix,
       });
     },
   });
@@ -474,13 +435,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
       setEditOpen(false);
       setSelectedRecord(undefined);
       await queryClient.invalidateQueries({
-        queryKey: [
-          'schema-workbench',
-          'records',
-          props.runtime.enterpriseCode,
-          normalizedSelectedSchema?.moduleName,
-          normalizedSelectedSchema?.schemaName,
-        ],
+        queryKey: recordQueryPrefix,
       });
     },
   });
@@ -517,13 +472,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
     onSuccess: async () => {
       setSelectedRecordKeys([]);
       await queryClient.invalidateQueries({
-        queryKey: [
-          'schema-workbench',
-          'records',
-          props.runtime.enterpriseCode,
-          normalizedSelectedSchema?.moduleName,
-          normalizedSelectedSchema?.schemaName,
-        ],
+        queryKey: recordQueryPrefix,
       });
     },
   });
@@ -652,10 +601,13 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
         })
       : undefined;
     return (
-      resolveWorkbenchDeepLinkTarget(location.search, schemas.data ?? []) ??
+      resolveWorkbenchDeepLinkTarget(
+        location.search,
+        (schemas.data ?? []).filter(isWorkbenchAuthoringSchema),
+      ) ??
       resolveWorkbenchRouteTarget(
         props.routeSchema,
-        schemas.data ?? [],
+        (schemas.data ?? []).filter(isWorkbenchAuthoringSchema),
         {
           environment: routeOwnerConnection?.environment,
           server: routePreferredServer(props.routeNavigation, routeOwnerConnection),
@@ -734,11 +686,17 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
           sort: resolveWorkbenchRecordSort(normalizedSchema, undefined),
         });
       },
-      resolveRecord: async (relationship: WorkbenchRelationship, reference: string) => {
-        const schema = (schemas.data ?? []).find(
-          (candidate) =>
-            candidate.moduleName === relationship.targetModule &&
-            candidate.schemaName === relationship.targetSchema,
+      resolveRecord: async (
+        relationship: WorkbenchRelationship,
+        reference: string,
+        sourceSchema?: WorkbenchSchema,
+      ) => {
+        const source = sourceSchema ?? selectedSchema;
+        if (!source) return undefined;
+        const schema = resolveWorkbenchRelationshipSchema(
+          schemas.data ?? [],
+          source,
+          relationship,
         );
         if (!schema) return undefined;
         const normalizedSchema = schemaWithValidQueryCapabilities(schema);
@@ -781,10 +739,20 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
           original,
           model,
           configuration,
-        );
+        ).then((saved) => {
+          void queryClient.invalidateQueries({ queryKey: ['schema-workbench'] });
+          return saved;
+        });
       },
     }),
-    [configuration, props.bootstrap, props.runtime.enterpriseCode, schemas.data],
+    [
+      configuration,
+      props.bootstrap,
+      props.runtime.enterpriseCode,
+      schemas.data,
+      selectedSchema,
+      queryClient,
+    ],
   );
   const openReferenceRecord = useCallback(
     async (relationship: WorkbenchRelationship, reference: string) => {

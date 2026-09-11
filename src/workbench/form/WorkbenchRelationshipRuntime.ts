@@ -31,6 +31,7 @@ export interface WorkbenchRelationshipRuntime {
   readonly resolveRecord?: (
     relationship: WorkbenchRelationship,
     reference: string,
+    sourceSchema?: WorkbenchSchema,
   ) => Promise<
     { readonly record: WorkbenchRecord; readonly schema: WorkbenchSchema } | undefined
   >;
@@ -64,3 +65,24 @@ export interface WorkbenchRelationshipDraft {
   readonly references: readonly string[];
   readonly pending: readonly Readonly<Record<string, unknown>>[];
 }
+
+/** Generic recovery copy; owning CMS component properties override these labels. */
+export const defaultRelationshipCopy: WorkbenchRelationshipCopy = {
+  addToDraftLabel: 'Add to draft',
+  cancelLabel: 'Cancel',
+  createRelatedLabel: 'Create new',
+  editRelatedLabel: 'Edit',
+  loadMoreRelatedLabel: 'Load more',
+  manySelectionHintLabel: 'Select associated records',
+  missingReferencePropertyLabel:
+    'The required reference property is missing: {property}.',
+  noRelatedRecordsLabel: 'No records found',
+  pendingReferencesLabel: 'Unsaved records',
+  relatedSearchLabel: 'Search records',
+  relatedResultsLabel: '{shown} shown from {total}',
+  removeReferenceLabel: 'Remove association',
+  removeRelatedLabel: 'Close',
+  selectedReferencesLabel: 'Selected records',
+  selectExistingLabel: 'Select existing',
+  singleSelectionHintLabel: 'Select one record',
+};

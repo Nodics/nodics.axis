@@ -81,7 +81,7 @@ backend.
   implementations.
 - Functional navigation must come from the authenticated
   `backofficeCapabilities.navigation` contract. Axis may render validated
-  groups, same-module hierarchy, perspectives, localization keys, context
+  groups, validated same-module and cross-module hierarchy, perspectives, localization keys, context
   requirements, feature states, ordering, semantic icons, and non-executable
   badge-provider references, but must not create a second menu authority.
 - Init, core, and sample operations may invoke only secured backend import
@@ -136,3 +136,5 @@ Every project and module keeps a concise README after detailed documentation
 migrates. That README must identify purpose, ownership, major implemented
 capabilities, supported setup and verification entry points, the safe extension
 boundary, and links to canonical detailed documentation.
+
+Native business workspaces use explicit, validated `backendWorkspace` keys from the authorized navigation item. Never infer their owner or renderer from a route prefix. Preserve each accelerator's publishing module when displaying cross-module navigation trees; do not create placeholder business links in Axis.

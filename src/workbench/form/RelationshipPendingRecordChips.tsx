@@ -8,6 +8,7 @@ import type {
   WorkbenchRelationshipRuntime,
 } from './WorkbenchRelationshipRuntime';
 import { WorkbenchRecordForm } from './WorkbenchRecordForm';
+import { WorkbenchFormDialog } from './WorkbenchFormDialog';
 import {
   displayWorkbenchRelationshipValue,
   workbenchRelationshipRecordLabel,
@@ -102,44 +103,55 @@ export function RelationshipPendingRecordChips(
         })}
       </Stack>
       {previewRecord ? (
-        <AxisSchemaRecordDetail
-          actions={
-            <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
-              <Button
-                disabled={props.disabled}
-                size="small"
-                onClick={() => {
-                  setEditRecord(previewRecord);
-                  setPreviewRecord(undefined);
-                }}
-              >
-                {props.copy.editRelatedLabel}
-              </Button>
-              <Button size="small" onClick={() => setPreviewRecord(undefined)}>
-                {props.copy.removeRelatedLabel}
-              </Button>
-            </Stack>
-          }
-          record={previewRecord.model}
-          referenceResolver={
-            props.runtime.resolveRecord
-              ? { resolveReference: props.runtime.resolveRecord }
-              : undefined
-          }
-          schema={props.targetSchema}
-          title={`Pending ${props.relationship.label}: ${workbenchRelationshipRecordLabel(
-            previewRecord.model,
-            props.targetSchema,
-            String(previewRecord.index + 1),
-          )}`}
-        />
+        <WorkbenchFormDialog title={props.relationship.label}>
+          <AxisSchemaRecordDetail
+            actions={
+              <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+                <Button
+                  disabled={props.disabled}
+                  size="small"
+                  onClick={() => {
+                    setEditRecord(previewRecord);
+                    setPreviewRecord(undefined);
+                  }}
+                >
+                  {props.copy.editRelatedLabel}
+                </Button>
+                <Button size="small" onClick={() => setPreviewRecord(undefined)}>
+                  {props.copy.removeRelatedLabel}
+                </Button>
+              </Stack>
+            }
+            record={previewRecord.model}
+            referenceResolver={
+              props.runtime.resolveRecord
+                ? {
+                    resolveReference: (relationship, reference) =>
+                      props.runtime.resolveRecord!(
+                        relationship,
+                        reference,
+                        props.targetSchema,
+                      ),
+                  }
+                : undefined
+            }
+            schema={props.targetSchema}
+            title={`Pending ${props.relationship.label}: ${workbenchRelationshipRecordLabel(
+              previewRecord.model,
+              props.targetSchema,
+              String(previewRecord.index + 1),
+            )}`}
+          />
+        </WorkbenchFormDialog>
       ) : null}
       {editRecord ? (
-        <Box>
+        <WorkbenchFormDialog
+          title={`${props.copy.editRelatedLabel} ${props.relationship.label}`}
+        >
           <WorkbenchRecordForm
             cancelLabel={props.copy.cancelLabel}
             depth={props.depth + 1}
-            embedded
+            deferRelatedCreates
             initialModel={editRecord.model}
             lineage={[...props.lineage, targetKey]}
             relationshipCopy={props.copy}
@@ -155,7 +167,7 @@ export function RelationshipPendingRecordChips(
               setEditRecord(undefined);
             }}
           />
-        </Box>
+        </WorkbenchFormDialog>
       ) : null}
     </Stack>
   );

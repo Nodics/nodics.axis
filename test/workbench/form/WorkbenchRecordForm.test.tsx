@@ -73,6 +73,135 @@ const contact: WorkbenchSchema = {
   relationships: [],
 };
 
+it('walks backend sections, validates before continuing and saves only after review', async () => {
+  const user = userEvent.setup();
+  const submit = vi.fn();
+  const schema: WorkbenchSchema = {
+    ...contact,
+    form: {
+      contractVersion: 1,
+      hiddenFields: [],
+      managedCreateFields: [],
+      defaultColumns: ['code'],
+      sections: [
+        { id: 'identity', label: 'Contact identity', fields: ['code'] },
+        { id: 'details', label: 'Contact details', fields: ['type', 'priority'] },
+      ],
+      copy: {},
+    },
+  };
+  render(
+    <WorkbenchRecordForm
+      schema={schema}
+      saving={false}
+      savingLabel="Saving"
+      submitLabel="Create"
+      cancelLabel="Cancel"
+      onSubmit={submit}
+      onCancel={vi.fn()}
+    />,
+  );
+  await user.click(screen.getByRole('button', { name: 'Continue' }));
+  expect(screen.getByText('Code is required')).toBeVisible();
+  await user.type(screen.getByRole('textbox', { name: /Code/ }), 'business-contact');
+  await user.click(screen.getByRole('button', { name: 'Continue' }));
+  expect(screen.queryByRole('textbox', { name: /Code/ })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('combobox', { name: /Type/ }));
+  await user.click(screen.getByRole('option', { name: 'EMAIL' }));
+  await user.click(screen.getByRole('button', { name: 'Continue' }));
+  expect(submit).not.toHaveBeenCalled();
+  expect(screen.getByText('business-contact')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Edit Contact identity' }));
+  expect(screen.getByRole('textbox', { name: /Code/ })).toHaveValue('business-contact');
+  await user.click(screen.getByRole('tab', { name: 'Review' }));
+  await user.click(screen.getByRole('button', { name: 'Create' }));
+  expect(submit).toHaveBeenCalledWith({
+    code: 'business-contact',
+    type: 'EMAIL',
+    priority: 0,
+  });
+});
+
+it('asks before discarding changes and keeps the form when declined', async () => {
+  const user = userEvent.setup();
+  const cancel = vi.fn();
+  render(
+    <WorkbenchRecordForm
+      schema={contact}
+      saving={false}
+      savingLabel="Saving"
+      submitLabel="Create"
+      cancelLabel="Cancel"
+      onSubmit={vi.fn()}
+      onCancel={cancel}
+    />,
+  );
+  await user.type(screen.getByRole('textbox', { name: /Code/ }), 'keep-me');
+  await user.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(cancel).not.toHaveBeenCalled();
+  await user.click(screen.getByRole('button', { name: 'Keep editing' }));
+  expect(await screen.findByRole('textbox', { name: /Code/ })).toHaveValue('keep-me');
+  await user.click(screen.getByRole('button', { name: 'Cancel' }));
+  await user.click(screen.getByRole('button', { name: 'Discard changes' }));
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
+it('excludes backend-managed create fields without requiring a tenant selection', async () => {
+  const user = userEvent.setup();
+  const submit = vi.fn();
+  const schema: WorkbenchSchema = {
+    ...contact,
+    form: {
+      contractVersion: 1,
+      hiddenFields: [],
+      managedCreateFields: ['code'],
+      defaultColumns: [],
+      sections: [],
+      copy: {},
+      createOperation: 'setup',
+    },
+  };
+  render(
+    <WorkbenchRecordForm
+      schema={schema}
+      saving={false}
+      savingLabel="Saving"
+      submitLabel="Create"
+      cancelLabel="Cancel"
+      onSubmit={submit}
+      onCancel={vi.fn()}
+    />,
+  );
+  expect(screen.queryByRole('textbox', { name: /Code/ })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('combobox', { name: /Type/ }));
+  await user.click(screen.getByRole('option', { name: 'PHONE' }));
+  await user.click(screen.getByRole('button', { name: 'Create' }));
+  expect(submit).toHaveBeenCalledWith({ type: 'PHONE', priority: 0 });
+});
+
+it('preserves a failed edit and displays the same mutation error only once', async () => {
+  const user = userEvent.setup();
+  const message = 'This record changed after it was read.';
+  const submit = vi.fn().mockRejectedValue(new Error(message));
+  render(
+    <WorkbenchRecordForm
+      schema={contact}
+      initialModel={{ code: 'edit-draft', type: 'EMAIL', priority: 0 }}
+      error={message}
+      saving={false}
+      savingLabel="Saving"
+      submitLabel="Update"
+      cancelLabel="Cancel"
+      onSubmit={submit}
+      onCancel={vi.fn()}
+    />,
+  );
+  await user.click(screen.getByRole('button', { name: 'Update' }));
+  await waitFor(() => expect(submit).toHaveBeenCalledOnce());
+  expect(screen.getAllByRole('alert')).toHaveLength(1);
+  expect(screen.getByRole('textbox', { name: /Code/ })).toHaveValue('edit-draft');
+});
+
 const address: WorkbenchSchema = {
   moduleName: 'profile',
   schemaName: 'address',
@@ -114,6 +243,40 @@ const address: WorkbenchSchema = {
       description: '',
       searchable: false,
     },
+    {
+      name: 'verificationStatus',
+      label: 'Verification status',
+      type: 'string',
+      required: false,
+      readOnly: false,
+      primary: false,
+      description: 'Reusable address verification state',
+      enum: ['UNVERIFIED', 'PENDING', 'VERIFIED', 'REJECTED', 'STALE'],
+      enumOptions: [
+        {
+          value: 'UNVERIFIED',
+          label: 'Unverified',
+          description: '',
+          disabled: false,
+        },
+        { value: 'PENDING', label: 'Pending', description: '', disabled: false },
+        { value: 'VERIFIED', label: 'Verified', description: '', disabled: false },
+        { value: 'REJECTED', label: 'Rejected', description: '', disabled: false },
+        { value: 'STALE', label: 'Stale', description: '', disabled: false },
+      ],
+      searchable: false,
+    },
+    {
+      name: 'countryCode',
+      label: 'Country',
+      type: 'string',
+      required: true,
+      readOnly: true,
+      primary: false,
+      description: 'Backend fixed country scope',
+      fixedValue: 'AE',
+      searchable: false,
+    },
   ],
   relationships: [
     {
@@ -125,7 +288,7 @@ const address: WorkbenchSchema = {
       cardinality: 'MANY',
       referenceProperty: 'code',
       resolution: 'LOCAL_OR_REMOTE',
-      actions: ['SELECT_EXISTING', 'CREATE_RELATED'],
+      actions: ['SELECT_EXISTING', 'CREATE_RELATED', 'UNLINK'],
       required: false,
     },
   ],
@@ -360,6 +523,67 @@ describe('WorkbenchRecordForm', () => {
     });
   });
 
+  it('renders address verification status as a backend enum selector', async () => {
+    const user = userEvent.setup();
+    const submit = vi.fn();
+    render(
+      <WorkbenchRecordForm
+        cancelLabel="Cancel"
+        initialModel={{
+          code: 'DXB-OFFICE',
+          verificationStatus: 'PENDING',
+        }}
+        saving={false}
+        savingLabel="Updating"
+        schema={address}
+        submitLabel="Update"
+        onCancel={vi.fn()}
+        onSubmit={submit}
+      />,
+    );
+
+    expect(screen.getByLabelText(/Verification status/)).toHaveTextContent('Pending');
+    await user.click(screen.getByLabelText(/Verification status/));
+    expect(screen.getByRole('option', { name: 'Unverified' })).toBeVisible();
+    expect(screen.getByRole('option', { name: 'Pending' })).toBeVisible();
+    expect(screen.getByRole('option', { name: 'Verified' })).toBeVisible();
+    expect(screen.getByRole('option', { name: 'Rejected' })).toBeVisible();
+    expect(screen.getByRole('option', { name: 'Stale' })).toBeVisible();
+
+    await user.click(screen.getByRole('option', { name: 'Verified' }));
+    await user.click(screen.getByRole('button', { name: 'Update' }));
+
+    expect(submit).toHaveBeenCalledWith({
+      code: 'DXB-OFFICE',
+      verificationStatus: 'VERIFIED',
+    });
+  });
+
+  it('renders fixed backend values as locked form fields without submitting them', async () => {
+    const user = userEvent.setup();
+    const submit = vi.fn();
+    render(
+      <WorkbenchRecordForm
+        cancelLabel="Cancel"
+        saving={false}
+        savingLabel="Saving"
+        schema={address}
+        submitLabel="Create"
+        onCancel={vi.fn()}
+        onSubmit={submit}
+      />,
+    );
+
+    expect(screen.getByLabelText(/Country/)).toHaveValue('AE');
+    expect(screen.getByLabelText(/Country/)).toBeDisabled();
+    await user.type(screen.getByLabelText(/Code/), 'DXB-OFFICE');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    expect(submit).toHaveBeenCalledWith({
+      code: 'DXB-OFFICE',
+    });
+  });
+
   it('edits inline nested fields and submits nested model objects', async () => {
     const user = userEvent.setup();
     const submit = vi.fn();
@@ -423,9 +647,7 @@ describe('WorkbenchRecordForm', () => {
     );
 
     await user.type(screen.getByLabelText(/Code/), 'DXB-OFFICE');
-    await user.click(
-      screen.getByRole('button', { name: 'Create related Contact methods' }),
-    );
+    await user.click(screen.getByRole('button', { name: 'Create related Contact' }));
     await user.type(screen.getAllByLabelText(/Code/)[1]!, 'DXB-EMAIL');
     await user.click(screen.getByLabelText(/Type/));
     await user.click(screen.getByRole('option', { name: 'EMAIL' }));
@@ -473,9 +695,7 @@ describe('WorkbenchRecordForm', () => {
     );
 
     await user.type(screen.getByLabelText(/Code/), 'DXB-OFFICE');
-    await user.click(
-      screen.getByRole('button', { name: 'Create related Contact methods' }),
-    );
+    await user.click(screen.getByRole('button', { name: 'Create related Contact' }));
     await user.type(screen.getAllByLabelText(/Code/)[1]!, 'DXB-EMAIL');
     await user.click(screen.getByLabelText(/Type/));
     await user.click(screen.getByRole('option', { name: 'EMAIL' }));
@@ -533,9 +753,7 @@ describe('WorkbenchRecordForm', () => {
     );
 
     await user.type(screen.getByLabelText(/Code/), 'DXB-OFFICE');
-    await user.click(
-      screen.getByRole('button', { name: 'Create related Contact methods' }),
-    );
+    await user.click(screen.getByRole('button', { name: 'Create related Contact' }));
     await user.type(screen.getAllByLabelText(/Code/)[1]!, 'DXB-EMAIL');
     await user.click(screen.getByLabelText(/Type/));
     await user.click(screen.getByRole('option', { name: 'EMAIL' }));
@@ -594,7 +812,7 @@ describe('WorkbenchRecordForm', () => {
     expect(screen.getByText('Contact methods')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Select existing' }));
     expect(
-      screen.getByRole('button', { name: 'Create related Contact methods' }),
+      screen.getByRole('button', { name: 'Create related Contact' }),
     ).toBeVisible();
     const relatedRecord = await screen.findByText(
       'DXB-PHONE - Primary office telephone contact used...',
@@ -926,7 +1144,7 @@ describe('WorkbenchRecordForm', () => {
 
     await user.click(screen.getByRole('button', { name: 'default' }));
 
-    expect(await screen.findByText('Tenant: default')).toBeVisible();
+    expect(await screen.findByRole('dialog')).toHaveAccessibleName(/Tenant.*default/);
     expect(screen.getByText('Description')).toBeVisible();
     expect(screen.getByText('Default tenant')).toBeVisible();
   });

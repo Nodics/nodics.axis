@@ -55,7 +55,9 @@ function schema(moduleName: string, schemaName: string): WorkbenchSchema {
   });
 }
 
-function page(records: readonly Readonly<Record<string, unknown>>[]): WorkbenchRecordPage {
+function page(
+  records: readonly Readonly<Record<string, unknown>>[],
+): WorkbenchRecordPage {
   return Object.freeze({
     records,
     totalCount: records.length,
@@ -169,12 +171,8 @@ describe('collectionCentresClient', () => {
     expect(mockedLoadWorkbenchSchemas).not.toHaveBeenCalled();
     expect(mockedLoadWorkbenchRecords).not.toHaveBeenCalled();
     expect(data.records[0]?.code).toBe('WCP_1');
-    expect(data.records[0]?.operatorEnterpriseName).toBe(
-      'Nodics Waste Management Co.',
-    );
-    expect(data.records[0]?.assetOwnerEnterpriseName).toBe(
-      'BEAH Recycling Services',
-    );
+    expect(data.records[0]?.operatorEnterpriseName).toBe('Nodics Waste Management Co.');
+    expect(data.records[0]?.assetOwnerEnterpriseName).toBe('BEAH Recycling Services');
     expect(data.records[0]?.enterpriseRelationshipCodes).toEqual([
       'NODICS_WASTE_MANAGEMENT_CO',
       'BEAH_RECYCLING_SERVICES',
@@ -255,57 +253,71 @@ describe('collectionCentresClient', () => {
     );
     mockedLoadWorkbenchRecords.mockImplementation((_connection, workbenchSchema) => {
       if (workbenchSchema.moduleName === 'wasteCollection') {
-        return Promise.resolve(page([
-          Object.freeze({
-            code: 'WCP_1',
-            name: { en: 'Business Bay Drop-Off' },
-            collectionPointType: 'DROP_OFF',
-            locationRef: { code: 'LOC_1' },
-            operatorEnterpriseRef: { code: 'NODICS_WASTE_MANAGEMENT_CO' },
-            assetOwnerEnterpriseRef: { code: 'BEAH_RECYCLING_SERVICES' },
-            operatingStatus: 'ACTIVE',
-            publicVisibility: 'PUBLIC',
-            status: 'ACTIVE',
-          }),
-        ]));
+        return Promise.resolve(
+          page([
+            Object.freeze({
+              code: 'WCP_1',
+              name: { en: 'Business Bay Drop-Off' },
+              collectionPointType: 'DROP_OFF',
+              locationRef: { code: 'LOC_1' },
+              operatorEnterpriseRef: { code: 'NODICS_WASTE_MANAGEMENT_CO' },
+              assetOwnerEnterpriseRef: { code: 'BEAH_RECYCLING_SERVICES' },
+              operatingStatus: 'ACTIVE',
+              publicVisibility: 'PUBLIC',
+              status: 'ACTIVE',
+            }),
+          ]),
+        );
       }
       if (workbenchSchema.moduleName === 'locationCore') {
-        return Promise.resolve(page([
-          Object.freeze({
-            code: 'LOC_1',
-            addressRef: Object.freeze({ code: 'ADDR_1' }),
-            latitude: 25.2,
-            longitude: 55.3,
-          }),
-        ]));
+        return Promise.resolve(
+          page([
+            Object.freeze({
+              code: 'LOC_1',
+              addressRef: Object.freeze({ code: 'ADDR_1' }),
+              latitude: 25.2,
+              longitude: 55.3,
+            }),
+          ]),
+        );
       }
-      if (workbenchSchema.moduleName === 'profile' && workbenchSchema.schemaName === 'address') {
-        return Promise.resolve(page([
-          Object.freeze({
-            code: 'ADDR_1',
-            addressLine1: 'Business Bay',
-            city: 'Dubai',
-            countryCode: 'AE',
-          }),
-        ]));
+      if (
+        workbenchSchema.moduleName === 'profile' &&
+        workbenchSchema.schemaName === 'address'
+      ) {
+        return Promise.resolve(
+          page([
+            Object.freeze({
+              code: 'ADDR_1',
+              addressLine1: 'Business Bay',
+              city: 'Dubai',
+              countryCode: 'AE',
+            }),
+          ]),
+        );
       }
-      if (workbenchSchema.moduleName === 'profile' && workbenchSchema.schemaName === 'enterprise') {
-        return Promise.resolve(page([
-          Object.freeze({
-            code: 'NODICS_WASTE_MANAGEMENT_CO',
-            name: 'Nodics Waste Management Co.',
-          }),
-          Object.freeze({
-            code: 'BEAH_RECYCLING_SERVICES',
-            name: 'BEAH Recycling Services',
-          }),
-        ]));
+      if (
+        workbenchSchema.moduleName === 'profile' &&
+        workbenchSchema.schemaName === 'enterprise'
+      ) {
+        return Promise.resolve(
+          page([
+            Object.freeze({
+              code: 'NODICS_WASTE_MANAGEMENT_CO',
+              name: 'Nodics Waste Management Co.',
+            }),
+            Object.freeze({
+              code: 'BEAH_RECYCLING_SERVICES',
+              name: 'BEAH Recycling Services',
+            }),
+          ]),
+        );
       }
       return Promise.resolve(page([]));
     });
-    const fetchImplementation = vi.fn<typeof fetch>().mockRejectedValue(
-      new Error('Waste API unavailable'),
-    );
+    const fetchImplementation = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new Error('Waste API unavailable'));
 
     const data = await loadCollectionCentreWorkspaceData(
       {
@@ -350,9 +362,7 @@ describe('collectionCentresClient', () => {
 
     expect(mockedLoadWorkbenchSchemas).toHaveBeenCalledTimes(1);
     expect(mockedLoadWorkbenchRecords).toHaveBeenCalledTimes(4);
-    expect(data.records[0]?.operatorEnterpriseName).toBe(
-      'Nodics Waste Management Co.',
-    );
+    expect(data.records[0]?.operatorEnterpriseName).toBe('Nodics Waste Management Co.');
     expect(data.records[0]?.addressLine).toBe('Business Bay');
     expect(data.records[0]?.latitude).toBe(25.2);
     expect(data.records[0]?.longitude).toBe(55.3);

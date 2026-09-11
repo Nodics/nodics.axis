@@ -71,6 +71,29 @@ const runtime: AxisRuntimeConfig = {
 };
 
 const setupRequiredConfiguration: LocationMapConfiguration = Object.freeze({
+  contractVersion: 1,
+  revision: 1,
+  fallbackAllowed: true,
+  refreshIntervalMs: 15000,
+  presentation: {
+    defaultCategoryCode: 'recycling',
+    categories: [
+      { code: 'repair', label: 'Repair', color: '#4CAF50', matchTerms: ['repair'] },
+      { code: 'trade-in', label: 'Trade-in', color: '#2196F3', matchTerms: ['trade'] },
+      {
+        code: 'recycling',
+        label: 'Recycling',
+        color: '#ee9a08',
+        matchTerms: ['recycling'],
+      },
+    ],
+  },
+  interaction: {
+    wheelZoomMode: 'MODIFIER' as const,
+    wheelStep: 1,
+    wheelCooldownMs: 180,
+    zoomAnimationSeconds: 0.42,
+  },
   code: 'AXIS_COLLECTION_CENTRE_MAPBOX_STREETS',
   providerCode: 'MAPBOX',
   surfaceCode: 'AXIS',
@@ -270,7 +293,7 @@ describe('LocationMapConfigurationRoutePage', () => {
     expect(screen.getByText('System Configuration')).toBeVisible();
     expect(screen.getByText(/select the active map provider/i)).toBeVisible();
     expect(
-      await screen.findByRole('heading', { name: 'Axis collection-centre map' }),
+      await screen.findByRole('heading', { name: 'Shared collection-centre map' }),
     ).toBeVisible();
     expect(screen.getByLabelText('Public access token')).toBeVisible();
     expect(screen.getByLabelText('Renderer')).toHaveValue('axis.location.mapbox');
@@ -303,14 +326,18 @@ describe('LocationMapConfigurationRoutePage', () => {
       setupStatus: 'ACTIVE',
       styleUrl: 'mapbox://styles/mapbox/streets-v12',
     });
-    expect(await screen.findByText('Map configuration saved.')).toBeVisible();
+    expect(
+      await screen.findByText(
+        'Shared map configuration saved. Connected applications refresh automatically.',
+      ),
+    ).toBeVisible();
   });
 
   it('activates OSM as a tokenless tile renderer from the setup form', async () => {
     const user = userEvent.setup();
     renderPage(configurationNavigation);
 
-    await screen.findByRole('heading', { name: 'Axis collection-centre map' });
+    await screen.findByRole('heading', { name: 'Shared collection-centre map' });
     await user.click(screen.getByLabelText('Provider'));
     await user.click(screen.getByRole('option', { name: 'OpenStreetMap (XYZ_TILE)' }));
     expect(screen.getByLabelText('Renderer')).toHaveValue('axis.location.tile');
@@ -340,7 +367,9 @@ describe('LocationMapConfigurationRoutePage', () => {
       screen.getByText('Workbench: locationMap.locationMapProvider'),
     ).toBeVisible();
     expect(
-      screen.getByText(/Location endpoint: http:\/\/localhost:4320\/nodics\/locationMap/i),
+      screen.getByText(
+        /Location endpoint: http:\/\/localhost:4320\/nodics\/locationMap/i,
+      ),
     ).toBeVisible();
     expect(screen.getByRole('link', { name: 'Providers' })).toHaveAttribute(
       'href',
@@ -373,7 +402,9 @@ describe('LocationMapConfigurationRoutePage', () => {
       screen.getByText('Workbench: locationMap.locationMapProvider'),
     ).toBeVisible();
     expect(
-      screen.getByText(/Location endpoint: http:\/\/localhost:4380\/nodics\/locationMap/i),
+      screen.getByText(
+        /Location endpoint: http:\/\/localhost:4380\/nodics\/locationMap/i,
+      ),
     ).toBeVisible();
   });
 });

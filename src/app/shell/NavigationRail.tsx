@@ -328,7 +328,8 @@ export function NavigationRail({
                       activeAncestorKeys.has(itemKey) ||
                       !collapsedItems.has(itemKey);
                     const assistantItem =
-                      item.id === 'assistant' && ['copilotApi', 'aiAssistant'].includes(item.moduleName);
+                      item.id === 'assistant' &&
+                      ['copilotApi', 'aiAssistant'].includes(item.moduleName);
                     const assistantActive =
                       assistantItem && ['UP', 'DEGRADED'].includes(item.availability);
                     const navigationItem = (

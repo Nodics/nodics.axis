@@ -9,16 +9,18 @@ import {
   type EnterpriseRelationshipData,
 } from '../../src/operations/enterprise/api/enterpriseRelationshipsClient';
 
-vi.mock('../../src/operations/enterprise/api/enterpriseRelationshipsClient', async () => {
-  const actual =
-    await vi.importActual<
+vi.mock(
+  '../../src/operations/enterprise/api/enterpriseRelationshipsClient',
+  async () => {
+    const actual = await vi.importActual<
       typeof import('../../src/operations/enterprise/api/enterpriseRelationshipsClient')
     >('../../src/operations/enterprise/api/enterpriseRelationshipsClient');
-  return {
-    ...actual,
-    loadEnterpriseRelationshipData: vi.fn(),
-  };
-});
+    return {
+      ...actual,
+      loadEnterpriseRelationshipData: vi.fn(),
+    };
+  },
+);
 
 const mockedLoadRelationshipData = vi.mocked(loadEnterpriseRelationshipData);
 
@@ -131,7 +133,9 @@ describe('Enterprise relationships route', () => {
       }),
     ).toBeVisible();
     expect(screen.getByText('Averda Recycling Center - Al Safa')).toBeVisible();
-    expect(screen.getByText('LOC_SAMPLE_COLLECTION_CENTRE_AVERDA_AL_SAFA')).toBeVisible();
+    expect(
+      screen.getByText('LOC_SAMPLE_COLLECTION_CENTRE_AVERDA_AL_SAFA'),
+    ).toBeVisible();
     expect(screen.getAllByText('1')).toHaveLength(3);
     expect(
       screen.getByText('Relationship view is assembled from owning module records.'),

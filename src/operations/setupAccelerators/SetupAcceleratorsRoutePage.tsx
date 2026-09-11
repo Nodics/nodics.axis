@@ -999,7 +999,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                 ) : status && preparationBlocked(status) ? (
                                   <Button
                                     disabled={pending}
-                                    onClick={() => navigate('/registry')}
+                                    onClick={() => void navigate('/registry')}
                                     size="small"
                                     sx={{
                                       minHeight: 40,

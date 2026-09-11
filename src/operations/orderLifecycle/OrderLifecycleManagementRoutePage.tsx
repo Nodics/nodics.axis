@@ -1,3 +1,4 @@
+import { OrderReviewPanel } from './OrderReviewPanel';
 import type {
   AxisAuthenticatedBootstrap,
   AxisNavigationItem,
@@ -29,6 +30,14 @@ interface OrderLifecycleManagementRoutePageProps {
 export function OrderLifecycleManagementRoutePage(
   props: OrderLifecycleManagementRoutePageProps,
 ) {
+  if (props.navigation.id === 'order-disputes')
+    return (
+      <OrderReviewPanel
+        bootstrap={props.bootstrap}
+        accessToken={props.accessToken}
+        runtime={props.runtime}
+      />
+    );
   if (!props.navigation.workbenchTarget) return null;
   const queues = orderLifecycleOperatorQueues(props.bootstrap.navigation);
   const guidance = orderLifecycleGuidance(

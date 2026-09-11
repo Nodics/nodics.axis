@@ -254,8 +254,83 @@ function workbenchController(
   };
 }
 
+async function openModelTab(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('tab', { name: 'Model' }));
+}
+
 describe('SchemaWorkbenchRenderer', () => {
-  it('keeps the record workspace and data-type navigator in independent scroll regions', () => {
+  it('exports the selected schema definition as JSON from the schema tab', async () => {
+    const user = userEvent.setup();
+    const originalCreateObjectURL = Object.getOwnPropertyDescriptor(
+      URL,
+      'createObjectURL',
+    );
+    const originalRevokeObjectURL = Object.getOwnPropertyDescriptor(
+      URL,
+      'revokeObjectURL',
+    );
+    let exportedBlob: Blob | undefined;
+    const createObjectURL = vi.fn((object: Blob | MediaSource) => {
+      exportedBlob = object as Blob;
+      return 'blob:schema-definition';
+    });
+    const revokeObjectURL = vi.fn();
+    const anchor = document.createElement('a');
+    const anchorClick = vi.fn();
+    const originalCreateElement = document.createElement.bind(document);
+    const createElement = vi
+      .spyOn(document, 'createElement')
+      .mockImplementation((tagName: string, options?: ElementCreationOptions) => {
+        if (tagName.toLowerCase() === 'a') {
+          Object.defineProperty(anchor, 'click', {
+            configurable: true,
+            value: anchorClick,
+          });
+          return anchor;
+        }
+        return originalCreateElement(tagName, options);
+      });
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: createObjectURL,
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: revokeObjectURL,
+    });
+
+    try {
+      render(
+        <SchemaWorkbenchRenderer
+          actions={{ workbench: workbenchController() }}
+          component={component}
+        />,
+      );
+
+      await user.click(screen.getByRole('tab', { name: 'Schema' }));
+      await user.click(
+        screen.getByRole('button', { name: 'Export schema definition' }),
+      );
+
+      expect(anchor.download).toBe('profile.address.schema.json');
+      expect(anchor.href).toBe('blob:schema-definition');
+      expect(anchorClick).toHaveBeenCalledTimes(1);
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:schema-definition');
+      expect(exportedBlob).toBeDefined();
+      await expect(exportedBlob!.text()).resolves.toContain('"schemaName": "address"');
+      await expect(exportedBlob!.text()).resolves.toContain('"fields"');
+    } finally {
+      createElement.mockRestore();
+      if (originalCreateObjectURL)
+        Object.defineProperty(URL, 'createObjectURL', originalCreateObjectURL);
+      else Reflect.deleteProperty(URL, 'createObjectURL');
+      if (originalRevokeObjectURL)
+        Object.defineProperty(URL, 'revokeObjectURL', originalRevokeObjectURL);
+      else Reflect.deleteProperty(URL, 'revokeObjectURL');
+    }
+  });
+
+  it('places the horizontal data-type navigator before the independently scrolling workspace', () => {
     render(
       <SchemaWorkbenchRenderer
         actions={{ workbench: workbenchController() }}
@@ -265,7 +340,14 @@ describe('SchemaWorkbenchRenderer', () => {
 
     expect(screen.getByTestId('workbench-pane-grid')).toHaveStyle({
       minHeight: 0,
+      gridTemplateColumns: 'minmax(0, 1fr)',
     });
+    expect(
+      screen
+        .getByTestId('workbench-schema-navigation-pane')
+        .compareDocumentPosition(screen.getByTestId('workbench-record-pane')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(screen.getByTestId('workbench-record-pane')).toHaveStyle({
       overflowY: 'auto',
       overscrollBehavior: 'contain',
@@ -275,6 +357,8 @@ describe('SchemaWorkbenchRenderer', () => {
       overflow: 'hidden',
     });
     expect(screen.getByTestId('workbench-schema-list-scroll-region')).toHaveStyle({
+      display: 'grid',
+      maxHeight: '144px',
       overflowY: 'auto',
       overscrollBehavior: 'contain',
       scrollbarGutter: 'stable',
@@ -311,11 +395,12 @@ describe('SchemaWorkbenchRenderer', () => {
       />,
     );
 
+    await openModelTab(user);
     expect(screen.getByText('Scope')).toBeVisible();
     expect(screen.getByText('City scope: Dubai')).toBeVisible();
     expect(screen.queryByText('Sort results')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Advanced query' }));
+    await user.click(screen.getByRole('button', { name: 'Advanced search' }));
 
     expect(screen.getByText('Sort results')).toBeVisible();
     expect(screen.queryByDisplayValue('Dubai')).not.toBeInTheDocument();
@@ -325,6 +410,7 @@ describe('SchemaWorkbenchRenderer', () => {
     const user = userEvent.setup();
     const selectSchema = vi.fn();
     const selectRecord = vi.fn();
+    const beginCreate = vi.fn();
     const setRecordFilters = vi.fn();
     const setRecordSortOverride = vi.fn();
     const { rerender } = render(
@@ -368,7 +454,7 @@ describe('SchemaWorkbenchRenderer', () => {
             saveView: vi.fn(),
             deleteView: vi.fn(),
             applyView: vi.fn(),
-            beginCreate: vi.fn(),
+            beginCreate,
             cancelCreate: vi.fn(),
             createRecord: vi.fn(),
             selectRecord,
@@ -432,7 +518,7 @@ describe('SchemaWorkbenchRenderer', () => {
             saveView: vi.fn(),
             deleteView: vi.fn(),
             applyView: vi.fn(),
-            beginCreate: vi.fn(),
+            beginCreate,
             cancelCreate: vi.fn(),
             createRecord: vi.fn(),
             selectRecord,
@@ -450,17 +536,26 @@ describe('SchemaWorkbenchRenderer', () => {
         component={component}
       />,
     );
+    await openModelTab(user);
     expect(screen.getByRole('columnheader', { name: 'Code' })).toBeVisible();
     expect(screen.getByRole('cell', { name: 'DXB-OFFICE' })).toBeVisible();
     expect(screen.getByRole('cell', { name: 'Dubai' })).toBeVisible();
-    expect(screen.getByText('Schema: address')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Create Address' })).toBeEnabled();
+    expect(screen.getByText('Schema: address')).not.toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Create Address' }),
+    ).not.toBeInTheDocument();
+    const createButton = screen.getByRole('button', { name: 'Create new model' });
+    expect(createButton).toBeEnabled();
+    await user.hover(createButton);
+    expect(await screen.findByText('Create new model')).toBeVisible();
+    await user.click(createButton);
+    expect(beginCreate).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole('button', { name: 'Code' }));
     expect(setRecordSortOverride).toHaveBeenCalledWith({
       field: 'code',
       direction: 'ASC',
     });
-    await user.click(screen.getByRole('button', { name: 'Advanced query' }));
+    await user.click(screen.getByRole('button', { name: 'Advanced search' }));
     await user.click(screen.getByRole('button', { name: 'Add condition' }));
     expect(setRecordFilters).not.toHaveBeenCalled();
     await user.type(screen.getByLabelText('Value'), 'Dubai');
@@ -551,6 +646,7 @@ describe('SchemaWorkbenchRenderer', () => {
       />,
     );
 
+    await openModelTab(user);
     await user.click(screen.getByRole('button', { name: 'Dubai records' }));
 
     expect(setRecordFilters).toHaveBeenCalledWith({
@@ -628,7 +724,7 @@ describe('SchemaWorkbenchRenderer', () => {
     expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
   });
 
-  it('collapses and restores the right-side data type browser', async () => {
+  it('collapses and restores the horizontal data type browser without losing its search', async () => {
     const user = userEvent.setup();
     render(
       <SchemaWorkbenchRenderer
@@ -692,17 +788,33 @@ describe('SchemaWorkbenchRenderer', () => {
     );
 
     expect(screen.getByRole('heading', { name: 'Available data types' })).toBeVisible();
+    await user.type(
+      screen.getByRole('textbox', { name: 'Find a data type' }),
+      'Address',
+    );
 
     await user.click(screen.getByRole('button', { name: 'Hide data types' }));
 
+    expect(screen.getByRole('heading', { name: 'Available data types' })).toBeVisible();
     expect(
-      screen.queryByRole('heading', { name: 'Available data types' }),
+      screen.queryByRole('textbox', { name: 'Find a data type' }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Show data types' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Show data types' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    expect(screen.getByRole('button', { name: 'Show data types' })).toHaveFocus();
 
     await user.click(screen.getByRole('button', { name: 'Show data types' }));
 
     expect(screen.getByRole('heading', { name: 'Available data types' })).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Find a data type' })).toHaveValue(
+      'Address',
+    );
+    expect(screen.getByRole('button', { name: 'Hide data types' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
   });
 
   it('filters the data type browser by backend-discovered module', async () => {
@@ -732,6 +844,110 @@ describe('SchemaWorkbenchRenderer', () => {
       screen.queryByRole('button', { name: /^Address profile$/ }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Product catalog$/ })).toBeVisible();
+  });
+
+  it('distinguishes real runtime copies while keeping one module filter option', async () => {
+    const user = userEvent.setup();
+    const selectSchema = vi.fn();
+    const online = {
+      ...address,
+      connectionInstanceId: 'online-1',
+      connectionServer: 'onlineServer',
+      connectionEnvironment: 'local',
+    };
+    const staged = {
+      ...address,
+      connectionInstanceId: 'staged-1',
+      connectionServer: 'stagedServer',
+      connectionEnvironment: 'local',
+    };
+    render(
+      <SchemaWorkbenchRenderer
+        component={component}
+        actions={{
+          workbench: workbenchController({
+            schemas: [online, staged],
+            selectedSchema: staged,
+            selectSchema,
+          }),
+        }}
+      />,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Address profile / onlineServer / local' }),
+    ).toBeVisible();
+    await user.click(
+      screen.getByRole('button', { name: 'Address profile / stagedServer / local' }),
+    );
+    expect(selectSchema).toHaveBeenCalledWith(staged);
+    await user.click(screen.getByRole('combobox', { name: 'Module' }));
+    expect(screen.getAllByRole('option', { name: 'profile' })).toHaveLength(1);
+    await user.click(screen.getByRole('option', { name: 'profile' }));
+    await user.type(
+      screen.getByRole('textbox', { name: 'Find a data type' }),
+      'onlineServer',
+    );
+    expect(
+      screen.getByRole('button', { name: 'Address profile / onlineServer / local' }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Address profile / stagedServer / local' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('lists only Staged authoring for publishable schemas and does not fall back to Online', async () => {
+    const user = userEvent.setup();
+    const selectSchema = vi.fn();
+    const online: WorkbenchSchema = {
+      ...address,
+      connectionInstanceId: 'online-1',
+      connectionServer: 'onlineServer',
+      connectionEnvironment: 'local',
+      authoring: { publishRequired: true, stage: 'ONLINE', authoringAllowed: false },
+      mutationMode: 'READ_ONLY',
+      operations: ['search', 'read'],
+    };
+    const staged: WorkbenchSchema = {
+      ...address,
+      connectionInstanceId: 'staged-1',
+      connectionServer: 'stagedServer',
+      connectionEnvironment: 'local',
+      authoring: { publishRequired: true, stage: 'STAGED', authoringAllowed: true },
+    };
+    const { rerender } = render(
+      <SchemaWorkbenchRenderer
+        component={component}
+        actions={{
+          workbench: workbenchController({
+            schemas: [online, staged],
+            selectedSchema: staged,
+            selectSchema,
+          }),
+        }}
+      />,
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Address profile / onlineServer / local' }),
+    ).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole('button', { name: 'Address profile / stagedServer / local' }),
+    );
+    expect(selectSchema).toHaveBeenCalledWith(staged);
+    rerender(
+      <SchemaWorkbenchRenderer
+        component={component}
+        actions={{
+          workbench: workbenchController({
+            schemas: [online],
+            selectedSchema: undefined,
+            selectSchema,
+          }),
+        }}
+      />,
+    );
+    expect(
+      screen.queryByRole('button', { name: /^Address profile/ }),
+    ).not.toBeInTheDocument();
   });
 
   it('loads long schema browser lists incrementally', async () => {
@@ -767,7 +983,8 @@ describe('SchemaWorkbenchRenderer', () => {
     expect(screen.getByRole('button', { name: /^Type 21 profile$/ })).toBeVisible();
   });
 
-  it('renders a route-scoped schema workspace without the global schema browser', () => {
+  it('renders a route-scoped schema workspace without the global schema browser', async () => {
+    const user = userEvent.setup();
     const selectRecord = vi.fn();
     render(
       <SchemaWorkbenchRenderer
@@ -848,7 +1065,7 @@ describe('SchemaWorkbenchRenderer', () => {
     expect(screen.queryByRole('button', { name: 'View' })).not.toBeInTheDocument();
     expect(screen.getByText('Web Content Management System')).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Websites' })).toBeVisible();
-    expect(screen.getByText('Schema: address')).toBeVisible();
+    expect(screen.getByText('Schema: address')).not.toBeVisible();
     expect(screen.getByRole('button', { name: 'Websites help' })).toBeVisible();
     expect(
       screen.getByRole('link', { name: 'Open Websites documentation' }),
@@ -856,6 +1073,7 @@ describe('SchemaWorkbenchRenderer', () => {
       'href',
       '/docs/capabilities/content-publishing/wcms-authoring-model#websites',
     );
+    await openModelTab(user);
     expect(screen.getByRole('cell', { name: 'axis-site' })).toBeVisible();
     expect(selectRecord).not.toHaveBeenCalled();
   });
@@ -1066,9 +1284,10 @@ describe('SchemaWorkbenchRenderer', () => {
 
     const selectedDetail = screen.getByRole('heading', {
       name: 'cmsPagesApprovalFlowHead',
+      hidden: true,
     });
     const referenceDetail = screen.getByRole('heading', {
-      name: 'Workflow Channel: reviewCmsPageChannel',
+      name: 'reviewCmsPageChannel',
     });
     expect(selectedDetail.compareDocumentPosition(referenceDetail)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,

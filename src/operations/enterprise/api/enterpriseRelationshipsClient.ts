@@ -247,19 +247,17 @@ export async function loadEnterpriseRelationshipData(
   const enterprise = (enterprisePage?.records ?? []).find(
     (record) => text(record.code) === requestedEnterpriseCode,
   );
-  const collectionCentres = collectionData.records.filter(
-    (record) => record.enterpriseRelationshipCodes.includes(requestedEnterpriseCode),
+  const collectionCentres = collectionData.records.filter((record) =>
+    record.enterpriseRelationshipCodes.includes(requestedEnterpriseCode),
   );
   const promotions = (promotionPage?.records ?? [])
-    .filter(
-      (record) =>
-        recordMatchesEnterprise(record, promotionSource, requestedEnterpriseCode),
+    .filter((record) =>
+      recordMatchesEnterprise(record, promotionSource, requestedEnterpriseCode),
     )
     .map((record) => linkedRecord(promotionSource, record));
   const coupons = (couponPage?.records ?? [])
-    .filter(
-      (record) =>
-        recordMatchesEnterprise(record, couponSource, requestedEnterpriseCode),
+    .filter((record) =>
+      recordMatchesEnterprise(record, couponSource, requestedEnterpriseCode),
     )
     .map((record) => linkedRecord(couponSource, record));
   const unavailableSources = [

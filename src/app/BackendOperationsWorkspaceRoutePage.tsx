@@ -1,3 +1,4 @@
+import { WorkspaceContainer } from './shell/ShellPrimitives';
 import {
   Alert,
   Box,
@@ -18,7 +19,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   AxisBackendWorkspace,
@@ -26,7 +27,11 @@ import type {
   AxisBackendWorkspaceField,
   AxisBackendWorkspaceSection,
 } from '../bootstrap/publicBootstrap';
-import { parseBackendWorkspace } from '../bootstrap/publicBootstrap';
+import {
+  envelopeData,
+  errorMessage,
+  loadPublicBackendWorkspace,
+} from './backendWorkspaceClient';
 import type { AxisRuntimeConfig } from '../runtime/runtimeConfig';
 
 interface BackendOperationsWorkspaceRoutePageProps {
@@ -38,15 +43,6 @@ interface BackendOperationsWorkspaceRoutePageProps {
 }
 
 type FormValues = Record<string, string | boolean | readonly string[]>;
-
-function envelopeData(value: unknown): unknown {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error('Backend workspace response is invalid');
-  }
-  if ('data' in value) return (value as { readonly data: unknown }).data;
-  if ('result' in value) return (value as { readonly result: unknown }).result;
-  return value;
-}
 
 function valueAtPath(value: unknown, path?: string): unknown {
   if (!path) return value;
@@ -66,7 +62,10 @@ function generatedIdempotencyKey(sectionId: string): string {
 }
 
 function displayCellValue(value: unknown): string {
-  return Array.isArray(value) ? value.join(', ') : String(value ?? '');
+  if (value === null || value === undefined) return '';
+  if (Array.isArray(value)) return value.map(displayCellValue).join(', ');
+  if (typeof value === 'object') return JSON.stringify(value);
+  return typeof value === 'string' ? value : (JSON.stringify(value) ?? '');
 }
 
 function initialValues(
@@ -76,6 +75,15 @@ function initialValues(
   return fields.reduce<FormValues>((values, field) => {
     if (field.type === 'IDEMPOTENCY') {
       values[field.name] = generatedIdempotencyKey(sectionId);
+    } else if (
+      field.type === 'TEXT' &&
+      field.defaultFromParameter &&
+      new URLSearchParams(window.location.search).has(field.defaultFromParameter)
+    ) {
+      values[field.name] = (
+        new URLSearchParams(window.location.search).get(field.defaultFromParameter) ??
+        ''
+      ).slice(0, field.maximumLength ?? 256);
     } else if (field.defaultValue !== undefined) {
       values[field.name] = field.defaultValue;
     } else if (field.type === 'CHECKBOX') {
@@ -104,21 +112,6 @@ function missingRequiredField(
   });
 }
 
-async function errorMessage(response: Response): Promise<string> {
-  try {
-    const value: unknown = await response.json();
-    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-      const message = (value as Record<string, unknown>).message;
-      if (typeof message === 'string' && message.trim() && message.length < 500) {
-        return message;
-      }
-    }
-  } catch {
-    // Preserve HTTP fallback.
-  }
-  return `Backend workspace request returned HTTP ${String(response.status)}`;
-}
-
 async function executeEndpoint(
   runtime: AxisRuntimeConfig,
   endpoint: AxisBackendWorkspaceEndpoint,
@@ -145,7 +138,7 @@ async function executeEndpoint(
     Object.entries(values).forEach(([key, value]) => {
       if (value === '' || value === false || value === undefined) return;
       if (Array.isArray(value)) {
-        value.forEach((item) => url.searchParams.append(key, item));
+        value.forEach((item) => url.searchParams.append(key, displayCellValue(item)));
       } else {
         url.searchParams.set(key, String(value));
       }
@@ -193,7 +186,7 @@ function FieldControl({
           labelId={labelId}
           multiple={field.type === 'MULTISELECT'}
           value={field.type === 'MULTISELECT' ? value || [] : String(value || '')}
-          onChange={(event) => onChange(event.target.value as FormValues[string])}
+          onChange={(event) => onChange(event.target.value)}
         >
           {(field.options ?? []).map((option) => (
             <MenuItem key={option.value} value={option.value}>
@@ -275,8 +268,10 @@ function ListingSection({
       setLoading(false);
     }
   };
+  // Load the initial filter snapshot once; Apply and Refresh use current edits.
+  const initialLoad = useRef(load);
   useEffect(() => {
-    void load();
+    void initialLoad.current();
   }, []);
   return (
     <Paper variant="outlined" sx={{ borderRadius: 2, p: 2 }}>
@@ -436,7 +431,7 @@ function FormSection({
           <Alert severity="success">
             {typeof result === 'object' && result !== null
               ? 'Request completed.'
-              : String(result)}
+              : displayCellValue(result)}
           </Alert>
         ) : null}
         <Box>
@@ -447,28 +442,6 @@ function FormSection({
       </Stack>
     </Paper>
   );
-}
-
-export async function loadPublicBackendWorkspace(
-  runtime: AxisRuntimeConfig,
-): Promise<AxisBackendWorkspace> {
-  const response = await fetch(
-    new URL(
-      '/nodics/profile/v0/enterprise-access/workspace',
-      runtime.backofficeBaseUrl,
-    ),
-    {
-      cache: 'no-store',
-      credentials: 'omit',
-      headers: {
-        Accept: 'application/json',
-        'x-enterprise-code': runtime.enterpriseCode,
-      },
-      redirect: 'error',
-    },
-  );
-  if (!response.ok) throw new Error(await errorMessage(response));
-  return parseBackendWorkspace(envelopeData(await response.json()));
 }
 
 export function BackendOperationsWorkspaceRoutePage({
@@ -490,66 +463,77 @@ export function BackendOperationsWorkspaceRoutePage({
         .filter((tab) => tab.sections.length > 0),
     [mode, workspace.tabs],
   );
+  const requestedTab = new URLSearchParams(window.location.search).get('tab');
   const initialTab =
-    tabs.find((tab) => tab.id === workspace.defaultTab)?.id ?? tabs[0]?.id ?? '';
-  const [tab, setTab] = useState(initialTab);
+    tabs.find((tab) => tab.id === requestedTab)?.id ??
+    tabs.find((tab) => tab.id === workspace.defaultTab)?.id ??
+    tabs[0]?.id ??
+    '';
+  const [selection, setSelection] = useState({ basis: initialTab, tab: initialTab });
+  if (selection.basis !== initialTab)
+    setSelection({ basis: initialTab, tab: initialTab });
+  const tab = selection.basis === initialTab ? selection.tab : initialTab;
+  const setTab = (next: string) => setSelection({ basis: initialTab, tab: next });
   const selected = tabs.find((item) => item.id === tab) ?? tabs[0];
-  useEffect(() => setTab(initialTab), [initialTab]);
   return (
-    <Stack spacing={2.5} sx={{ p: { xs: 2, md: 3 } }}>
-      <Stack spacing={1}>
-        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-          <Chip label={workspace.renderer} size="small" variant="outlined" />
-          <Chip
-            label={`v${String(workspace.contractVersion)}`}
-            size="small"
-            variant="outlined"
-          />
-        </Stack>
-        <Typography component="h1" variant="h4">
-          {workspace.title}
-        </Typography>
-        {workspace.description ? (
-          <Typography color="text.secondary" variant="body1">
-            {workspace.description}
+    <WorkspaceContainer>
+      <Stack spacing={2.5} sx={mode === 'public' ? { p: { xs: 2, md: 3 } } : undefined}>
+        <Stack spacing={1}>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+            <Chip label={workspace.renderer} size="small" variant="outlined" />
+            <Chip
+              label={`v${String(workspace.contractVersion)}`}
+              size="small"
+              variant="outlined"
+            />
+          </Stack>
+          <Typography component="h1" variant="h4">
+            {workspace.title}
           </Typography>
-        ) : null}
-      </Stack>
-      <Divider />
-      <Tabs
-        allowScrollButtonsMobile
-        value={selected?.id ?? false}
-        variant="scrollable"
-        onChange={(_, next) => setTab(String(next))}
-      >
-        {tabs.map((item) => (
-          <Tab key={item.id} label={item.label} value={item.id} />
-        ))}
-      </Tabs>
-      {selected ? (
-        <Stack spacing={2}>
-          {selected.sections.map((section) =>
-            section.type === 'listing' ? (
-              <ListingSection
-                key={section.id}
-                accessToken={accessToken}
-                runtime={runtime}
-                section={section}
-              />
-            ) : (
-              <FormSection
-                key={section.id}
-                accessToken={accessToken}
-                runtime={runtime}
-                section={section}
-              />
-            ),
-          )}
+          {workspace.description ? (
+            <Typography color="text.secondary" variant="body1">
+              {workspace.description}
+            </Typography>
+          ) : null}
         </Stack>
-      ) : (
-        <Alert severity="warning">Backend workspace has no renderable sections.</Alert>
-      )}
-    </Stack>
+        <Divider />
+        <Tabs
+          allowScrollButtonsMobile
+          value={selected?.id ?? false}
+          variant="scrollable"
+          onChange={(_, next) => setTab(String(next))}
+        >
+          {tabs.map((item) => (
+            <Tab key={item.id} label={item.label} value={item.id} />
+          ))}
+        </Tabs>
+        {selected ? (
+          <Stack spacing={2}>
+            {selected.sections.map((section) =>
+              section.type === 'listing' ? (
+                <ListingSection
+                  key={section.id}
+                  accessToken={accessToken}
+                  runtime={runtime}
+                  section={section}
+                />
+              ) : (
+                <FormSection
+                  key={section.id}
+                  accessToken={accessToken}
+                  runtime={runtime}
+                  section={section}
+                />
+              ),
+            )}
+          </Stack>
+        ) : (
+          <Alert severity="warning">
+            Backend workspace has no renderable sections.
+          </Alert>
+        )}
+      </Stack>
+    </WorkspaceContainer>
   );
 }
 

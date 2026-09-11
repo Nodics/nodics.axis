@@ -231,23 +231,42 @@ describe('AssistantWorkspaceRenderer', () => {
           assistant: {
             state: {
               scope: { enterpriseCode: 'default', employeeId: 'admin' },
-              status: 'IDLE', availableConversations: [], conversationPage: 1,
-              conversationsHaveMore: false, historyLoading: false, conversations: {},
+              status: 'IDLE',
+              availableConversations: [],
+              conversationPage: 1,
+              conversationsHaveMore: false,
+              historyLoading: false,
+              conversations: {},
             },
-            submit: vi.fn(), cancel: vi.fn(), selectConversation: vi.fn(),
-            newConversation: vi.fn(), loadMoreConversations: vi.fn(),
-            loadMoreHistory: vi.fn(), approveConfirmation: vi.fn(),
-            rejectConfirmation: vi.fn(), executeConfirmation: vi.fn(),
+            submit: vi.fn(),
+            cancel: vi.fn(),
+            selectConversation: vi.fn(),
+            newConversation: vi.fn(),
+            loadMoreConversations: vi.fn(),
+            loadMoreHistory: vi.fn(),
+            approveConfirmation: vi.fn(),
+            rejectConfirmation: vi.fn(),
+            executeConfirmation: vi.fn(),
             refreshKnowledgeSource,
             knowledgeStatus: {
-              enabled: true, ingestionEnabled: true,
+              enabled: true,
+              ingestionEnabled: true,
               lastRefreshAt: '2026-09-02T12:00:00.000Z',
-              sources: [{
-                code: 'nodics-framework-docs', repository: 'nodics.ai',
-                sourceType: 'FRAMEWORK_DOCUMENTATION', classification: 'INTERNAL',
-                version: 'local', refreshPolicy: 'ON_START', state: 'INDEXED',
-                filesRead: 10, filesAccepted: 10, filesRejected: 0, chunksProjected: 42,
-              }],
+              sources: [
+                {
+                  code: 'nodics-framework-docs',
+                  repository: 'nodics.ai',
+                  sourceType: 'FRAMEWORK_DOCUMENTATION',
+                  classification: 'INTERNAL',
+                  version: 'local',
+                  refreshPolicy: 'ON_START',
+                  state: 'INDEXED',
+                  filesRead: 10,
+                  filesAccepted: 10,
+                  filesRejected: 0,
+                  chunksProjected: 42,
+                },
+              ],
             },
           },
         }}
@@ -255,7 +274,9 @@ describe('AssistantWorkspaceRenderer', () => {
     );
     expect(screen.getByText('Sources: 1')).toBeVisible();
     expect(screen.getByText('Indexed chunks: 42')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Refresh nodics-framework-docs' }));
+    await user.click(
+      screen.getByRole('button', { name: 'Refresh nodics-framework-docs' }),
+    );
     expect(refreshKnowledgeSource).toHaveBeenCalledWith('nodics-framework-docs');
   });
 });

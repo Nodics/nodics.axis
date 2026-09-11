@@ -1,4 +1,10 @@
 import {
+  parseMapInteraction,
+  parseMapPresentation,
+  type MapInteraction,
+  type MapPresentation,
+} from './locationMapContract';
+import {
   selectModuleConnection,
   type AxisAuthenticatedBootstrap,
 } from '../../../bootstrap/publicBootstrap';
@@ -12,8 +18,7 @@ export interface LocationMapConfigurationRequest {
   readonly usageCode: string;
 }
 
-export interface LocationMapReverseGeocodeRequest
-  extends LocationMapConfigurationRequest {
+export interface LocationMapReverseGeocodeRequest extends LocationMapConfigurationRequest {
   readonly latitude: number;
   readonly locale: string;
   readonly longitude: number;
@@ -31,6 +36,9 @@ export interface SaveLocationMapConfigurationRequest extends LocationMapConfigur
 }
 
 export interface LocationMapConfigurationDraft {
+  readonly expectedRevision?: number | undefined;
+  readonly presentation?: MapPresentation | undefined;
+  readonly interaction?: MapInteraction | undefined;
   readonly code: string;
   readonly providerCode: string;
   readonly surfaceCode: string;
@@ -75,6 +83,12 @@ export interface LocationMapRenderDescriptor {
 }
 
 export interface LocationMapConfiguration {
+  readonly contractVersion?: number | undefined;
+  readonly revision?: number | undefined;
+  readonly refreshIntervalMs?: number | undefined;
+  readonly fallbackAllowed?: boolean | undefined;
+  readonly presentation?: MapPresentation | undefined;
+  readonly interaction?: MapInteraction | undefined;
   readonly code?: string;
   readonly providerCode: string;
   readonly surfaceCode: string;
@@ -175,8 +189,9 @@ function parseProviderOptions(value: unknown): readonly LocationMapProviderOptio
   if (!Array.isArray(value)) return Object.freeze([]);
   return Object.freeze(
     value
-      .filter((item): item is Record<string, unknown> =>
-        typeof item === 'object' && item !== null && !Array.isArray(item),
+      .filter(
+        (item): item is Record<string, unknown> =>
+          typeof item === 'object' && item !== null && !Array.isArray(item),
       )
       .map((item) =>
         Object.freeze({
@@ -207,6 +222,15 @@ function parseLocationMapConfiguration(value: unknown): LocationMapConfiguration
       ? (record.defaultCenter as Record<string, unknown>)
       : {};
   const configuration = {
+    contractVersion: finiteNumber(record.contractVersion, 1),
+    revision: finiteNumber(record.revision, 0),
+    refreshIntervalMs: Math.max(
+      5000,
+      Math.min(60000, finiteNumber(record.refreshIntervalMs, 15000)),
+    ),
+    fallbackAllowed: record.fallbackAllowed === true,
+    presentation: parseMapPresentation(record.presentation),
+    interaction: parseMapInteraction(record.interaction),
     code: text(record.code),
     providerCode: text(record.providerCode),
     surfaceCode: text(record.surfaceCode),

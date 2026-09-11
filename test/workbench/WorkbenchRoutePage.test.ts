@@ -19,7 +19,7 @@ import {
   workbenchReferenceLookupQuery,
   type WorkbenchDeepLinkTarget,
 } from '../../src/workbench/workbenchRouteModel';
-import { routePreferredServer } from '../../src/workbench/WorkbenchRoutePage';
+import { routePreferredServer } from '../../src/workbench/workbenchRouteModel';
 import type { WorkbenchSchema } from '../../src/workbench/api/workbenchContracts';
 
 function schema(
@@ -123,9 +123,9 @@ describe('resolveWorkbenchDeepLinkTarget', () => {
 
   it('carries the requested record search into the selected schema target', () => {
     const target = resolveWorkbenchDeepLinkTarget(
-        '?module=wasteCollection&schema=wasteCollectionPoint&search=WCP_SAMPLE',
-        [schema('wasteCollection', 'wasteCollectionPoint', ['search', 'read'])],
-      );
+      '?module=wasteCollection&schema=wasteCollectionPoint&search=WCP_SAMPLE',
+      [schema('wasteCollection', 'wasteCollectionPoint', ['search', 'read'])],
+    );
     expect(summarize(target)).toEqual({
       key: 'wasteCollection:wasteCollectionPoint:browse:WCP_SAMPLE',
       mode: undefined,
@@ -152,7 +152,10 @@ describe('resolveWorkbenchDeepLinkTarget', () => {
 
 describe('resolveWorkbenchRouteTarget', () => {
   it('keeps catalog routes on Staged and order lifecycle routes on Online Commerce', () => {
-    const ownerConnection = { server: 'commerceServer', environment: 'kickoffLocal' } as never;
+    const ownerConnection = {
+      server: 'commerceServer',
+      environment: 'kickoffLocal',
+    } as never;
 
     expect(
       routePreferredServer(

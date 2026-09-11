@@ -154,3 +154,8 @@ parallel registries, or store access or refresh credentials in browser storage.
 See `AGENTS.md` for placement, documentation, security, testing, and safe
 customization rules. Detailed backend-importable documentation content belongs
 to the backend module or project that owns the documented product or capability.
+
+Location map contributor guidance is in
+[src/operations/location/README.md](src/operations/location/README.md).
+
+Waste native views are selected by the authorized `backendWorkspace` workspace/view keys. Axis does not infer the renderer from `/waste/assets` prefixes; configuration links retain their real schema workbenches. The backend publishes the generic Waste group and independently registered accelerator subtrees. Shared view definitions and family/status filters remain backend-owned; unknown or mismatched contributor views fail closed.

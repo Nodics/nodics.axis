@@ -1,4 +1,43 @@
 export type WorkbenchOperation = 'search' | 'read' | 'create' | 'update' | 'delete';
+export type WorkbenchScalarValue = string | number | boolean | null;
+
+export interface WorkbenchOption {
+  readonly value: WorkbenchScalarValue;
+  readonly label: string;
+  readonly description: string;
+  readonly disabled: boolean;
+}
+
+export interface WorkbenchFieldValidation {
+  readonly min?: number | undefined;
+  readonly max?: number | undefined;
+  readonly minLength?: number | undefined;
+  readonly maxLength?: number | undefined;
+  readonly pattern?: string | undefined;
+  readonly format?: string | undefined;
+  readonly precision?: number | undefined;
+  readonly unique?: boolean | undefined;
+  readonly message?: string | undefined;
+}
+
+export interface WorkbenchSchemaOrigin {
+  readonly source: string;
+  readonly moduleName: string;
+  readonly schemaName?: string | undefined;
+  readonly layer: string;
+  readonly status: string;
+}
+
+export interface WorkbenchMutationPolicy {
+  readonly mode: string;
+  readonly savePath: string;
+  readonly lifecycle: string;
+  readonly createStrategy: string;
+  readonly updateStrategy: string;
+  readonly deleteStrategy: string;
+  readonly aggregateSave: boolean;
+  readonly publishRequired: boolean;
+}
 
 export interface WorkbenchField {
   readonly name: string;
@@ -9,7 +48,13 @@ export interface WorkbenchField {
   readonly primary: boolean;
   readonly description: string;
   readonly enum?: readonly string[] | undefined;
-  readonly default?: string | number | boolean | null | undefined;
+  readonly enumOptions?: readonly WorkbenchOption[] | undefined;
+  readonly default?: WorkbenchScalarValue | undefined;
+  readonly fixedValue?: WorkbenchScalarValue | undefined;
+  readonly component?: string | undefined;
+  readonly validation?: WorkbenchFieldValidation | undefined;
+  readonly origin?: WorkbenchSchemaOrigin | undefined;
+  readonly reference?: WorkbenchRelationship | undefined;
   readonly searchable: boolean;
 }
 
@@ -21,6 +66,7 @@ export interface WorkbenchRelationship {
   readonly targetSchema: string;
   readonly cardinality: 'ONE' | 'MANY';
   readonly referenceProperty: string;
+  readonly component?: string | undefined;
   readonly resolution: 'LOCAL_OR_REMOTE';
   readonly actions: readonly (
     | 'SELECT_EXISTING'
@@ -49,6 +95,7 @@ export interface WorkbenchConcurrency {
   readonly mode: 'NONE' | 'COMPARE_AND_SET';
   readonly field: string;
   readonly required: boolean;
+  readonly managed?: boolean;
 }
 
 export interface WorkbenchAggregateOperation {
@@ -120,6 +167,12 @@ export interface WorkbenchFilterGroup {
 }
 
 export interface WorkbenchSchema {
+  readonly form?: WorkbenchFormDefinition;
+  readonly authoring?: {
+    readonly publishRequired: boolean;
+    readonly stage: 'STAGED' | 'ONLINE' | 'OPERATIONAL' | 'UNASSIGNED';
+    readonly authoringAllowed: boolean;
+  };
   readonly moduleName: string;
   readonly connectionModuleName?: string | undefined;
   readonly connectionInstanceId?: string | undefined;
@@ -128,19 +181,95 @@ export interface WorkbenchSchema {
   readonly schemaName: string;
   readonly label: string;
   readonly description: string;
+  readonly origin?: WorkbenchSchemaOrigin | undefined;
+  readonly hierarchy?: readonly WorkbenchSchemaOrigin[] | undefined;
   readonly displayProperty: string;
   readonly displayProperties: readonly string[];
   readonly queryCapabilities: WorkbenchQueryCapabilities;
   readonly bulkCapabilities?: WorkbenchBulkCapabilities;
   readonly concurrency?: WorkbenchConcurrency;
   readonly aggregateOperations?: readonly WorkbenchAggregateOperation[];
-  readonly mutationMode: 'GENERATED_CRUD' | 'DOMAIN_OPERATION';
+  readonly mutationMode:
+    | 'GENERATED_CRUD'
+    | 'DOMAIN_OPERATION'
+    | 'VERSIONED'
+    | 'PUBLISHABLE'
+    | 'WORKFLOW_APPROVAL'
+    | 'READ_ONLY';
+  readonly mutationPolicy?: WorkbenchMutationPolicy | undefined;
   readonly operations: readonly WorkbenchOperation[];
   readonly fields: readonly WorkbenchField[];
   readonly relationships: readonly WorkbenchRelationship[];
 }
 
 export type WorkbenchRecord = Readonly<Record<string, unknown>>;
+
+export interface WorkbenchFormDefinition {
+  readonly contractVersion: 1;
+  readonly sections: readonly {
+    readonly id: string;
+    readonly label: string;
+    readonly fields: readonly string[];
+  }[];
+  readonly hiddenFields: readonly string[];
+  readonly managedCreateFields: readonly string[];
+  readonly defaultColumns: readonly string[];
+  readonly createOperation?: string | undefined;
+  readonly completionAction?:
+    | { readonly label: string; readonly path: string }
+    | undefined;
+  readonly copy: Readonly<Record<string, string>>;
+}
+
+/** Parses inert backend editor metadata; runtime handlers and executable content are never accepted. */
+function parseWorkbenchForm(value: unknown): WorkbenchFormDefinition {
+  const form = record(value, 'Workbench form');
+  if (form.contractVersion !== 1 || !Array.isArray(form.sections)) {
+    throw new Error('Workbench form version or sections are unsupported');
+  }
+  const copy = record(form.copy, 'Workbench form copy');
+  const completion =
+    form.completionAction === undefined
+      ? undefined
+      : record(form.completionAction, 'Workbench completion action');
+  if (
+    completion &&
+    (typeof completion.path !== 'string' || !/^\/(?!\/)[^\\]*$/.test(completion.path))
+  )
+    throw new Error('Workbench completion path must be internal');
+  if (Object.values(copy).some((value) => typeof value !== 'string')) {
+    throw new Error('Workbench form copy must contain text');
+  }
+  const sections = form.sections.map((value) => {
+    const section = record(value, 'Workbench form section');
+    return Object.freeze({
+      id: text(section.id, 'Form section id'),
+      label: text(section.label, 'Form section label'),
+      fields: stringList(section.fields, 'Form section fields'),
+    });
+  });
+  if (new Set(sections.map((section) => section.id)).size !== sections.length) {
+    throw new Error('Workbench form sections must have unique identities');
+  }
+  return Object.freeze({
+    contractVersion: 1,
+    sections: Object.freeze(sections),
+    hiddenFields: stringList(form.hiddenFields, 'Form hidden fields'),
+    managedCreateFields: stringList(form.managedCreateFields, 'Form managed fields'),
+    defaultColumns: stringList(form.defaultColumns, 'Form default columns'),
+    createOperation:
+      form.createOperation === undefined
+        ? undefined
+        : text(form.createOperation, 'Form create operation'),
+    completionAction: completion
+      ? {
+          label: text(completion.label, 'Completion label'),
+          path: text(completion.path, 'Completion path'),
+        }
+      : undefined,
+    copy: Object.freeze(copy as Record<string, string>),
+  });
+}
 
 export interface WorkbenchRecordQuery {
   readonly search: string;
@@ -187,11 +316,87 @@ function booleanValue(value: unknown, name: string): boolean {
   return value;
 }
 
+function scalarValue(value: unknown): WorkbenchScalarValue | undefined {
+  return ['string', 'number', 'boolean'].includes(typeof value) || value === null
+    ? (value as WorkbenchScalarValue)
+    : undefined;
+}
+
 function positiveInteger(value: unknown, name: string): number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
     throw new Error(`${name} must be a positive integer`);
   }
   return value;
+}
+
+function parseOrigin(value: unknown, fallbackModuleName = ''): WorkbenchSchemaOrigin {
+  const origin =
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  return Object.freeze({
+    source:
+      typeof origin.source === 'string' && origin.source.trim()
+        ? origin.source
+        : 'MODULE',
+    moduleName:
+      typeof origin.moduleName === 'string' && origin.moduleName.trim()
+        ? origin.moduleName
+        : fallbackModuleName,
+    schemaName:
+      typeof origin.schemaName === 'string' && origin.schemaName.trim()
+        ? origin.schemaName
+        : undefined,
+    layer: typeof origin.layer === 'string' ? origin.layer : '',
+    status:
+      typeof origin.status === 'string' && origin.status.trim()
+        ? origin.status
+        : 'EFFECTIVE',
+  });
+}
+
+function parseValidation(value: unknown): WorkbenchFieldValidation {
+  const input =
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  const numberProperty = (name: string) =>
+    typeof input[name] === 'number' && Number.isFinite(input[name])
+      ? input[name]
+      : undefined;
+  const textProperty = (name: string) =>
+    typeof input[name] === 'string' && input[name].trim() ? input[name] : undefined;
+  return Object.freeze({
+    min: numberProperty('min'),
+    max: numberProperty('max'),
+    minLength: numberProperty('minLength'),
+    maxLength: numberProperty('maxLength'),
+    pattern: textProperty('pattern'),
+    format: textProperty('format'),
+    precision: numberProperty('precision'),
+    unique: input.unique === true ? true : undefined,
+    message: textProperty('message'),
+  });
+}
+
+function parseOption(value: unknown): WorkbenchOption {
+  const option = record(value, 'Workbench option');
+  const optionValue = scalarValue(option.value);
+  if (optionValue === undefined) {
+    throw new Error('Workbench option value must be scalar');
+  }
+  return Object.freeze({
+    value: optionValue,
+    label:
+      typeof option.label === 'string' && option.label.trim()
+        ? option.label
+        : String(optionValue),
+    description: typeof option.description === 'string' ? option.description : '',
+    disabled:
+      option.disabled === undefined
+        ? false
+        : booleanValue(option.disabled, 'Workbench option disabled'),
+  });
 }
 
 function parseSort(value: unknown, name: string): WorkbenchRecordQuery['sort'] {
@@ -295,6 +500,11 @@ function parseField(value: unknown): WorkbenchField {
     field.enum === undefined
       ? undefined
       : stringList(field.enum, 'Workbench field enum');
+  if (field.enumOptions !== undefined && !Array.isArray(field.enumOptions)) {
+    throw new Error('Workbench field enum options must be a list');
+  }
+  const defaultValue = scalarValue(field.default);
+  const fixedValue = scalarValue(field.fixedValue);
   return Object.freeze({
     name: text(field.name, 'Workbench field name'),
     label: text(field.label, 'Workbench field label'),
@@ -304,11 +514,29 @@ function parseField(value: unknown): WorkbenchField {
     primary: booleanValue(field.primary, 'Workbench field primary'),
     description: typeof field.description === 'string' ? field.description : '',
     enum: enumValues,
-    default:
-      ['string', 'number', 'boolean'].includes(typeof field.default) ||
-      field.default === null
-        ? (field.default as string | number | boolean | null)
-        : undefined,
+    enumOptions:
+      field.enumOptions === undefined
+        ? enumValues?.map((option) =>
+            Object.freeze({
+              value: option,
+              label: option,
+              description: '',
+              disabled: false,
+            }),
+          )
+        : Object.freeze((field.enumOptions as unknown[]).map(parseOption)),
+    default: defaultValue,
+    fixedValue,
+    component:
+      typeof field.component === 'string' && field.component.trim()
+        ? field.component
+        : enumValues
+          ? 'select'
+          : 'text',
+    validation: parseValidation(field.validation),
+    origin: parseOrigin(field.origin),
+    reference:
+      field.reference === undefined ? undefined : parseRelationship(field.reference),
     searchable: booleanValue(field.searchable, 'Workbench field searchable'),
   });
 }
@@ -355,6 +583,12 @@ function parseRelationship(value: unknown): WorkbenchRelationship {
       relationship.referenceProperty,
       'Workbench relationship reference property',
     ),
+    component:
+      typeof relationship.component === 'string' && relationship.component.trim()
+        ? relationship.component
+        : cardinality === 'MANY'
+          ? 'multiReferenceSelector'
+          : 'referenceSelector',
     resolution: 'LOCAL_OR_REMOTE',
     actions: Object.freeze(
       actions as readonly (
@@ -397,6 +631,7 @@ function parseRelationship(value: unknown): WorkbenchRelationship {
 
 export function parseWorkbenchSchema(value: unknown): WorkbenchSchema {
   const schema = record(value, 'Workbench schema');
+  const moduleName = text(schema.moduleName, 'Workbench module name');
   const operations = stringList(schema.operations, 'Workbench operations');
   if (
     operations.some(
@@ -410,14 +645,46 @@ export function parseWorkbenchSchema(value: unknown): WorkbenchSchema {
     throw new Error('Workbench schema fields and relationships must be lists');
   }
   const mutationMode = text(schema.mutationMode, 'Workbench mutation mode');
-  if (!['GENERATED_CRUD', 'DOMAIN_OPERATION'].includes(mutationMode)) {
+  if (
+    ![
+      'GENERATED_CRUD',
+      'DOMAIN_OPERATION',
+      'VERSIONED',
+      'PUBLISHABLE',
+      'WORKFLOW_APPROVAL',
+      'READ_ONLY',
+    ].includes(mutationMode)
+  ) {
     throw new Error('Workbench mutation mode is unsupported');
   }
+  const mutationPolicy =
+    schema.mutationPolicy === undefined
+      ? {
+          mode: mutationMode,
+          savePath: mutationMode,
+          lifecycle: 'DIRECT',
+          createStrategy: 'TOP_LEVEL_WITH_REFERENCES',
+          updateStrategy: 'DIRECT_OR_REFERENCED',
+          deleteStrategy: 'TOP_LEVEL_ONLY',
+          aggregateSave: false,
+          publishRequired: false,
+        }
+      : record(schema.mutationPolicy, 'Workbench mutation policy');
   return Object.freeze({
-    moduleName: text(schema.moduleName, 'Workbench module name'),
+    moduleName,
+    ...(schema.form === undefined ? {} : { form: parseWorkbenchForm(schema.form) }),
+    ...(schema.authoring === undefined
+      ? {}
+      : { authoring: parseAuthoring(schema.authoring) }),
     schemaName: text(schema.schemaName, 'Workbench schema name'),
     label: text(schema.label, 'Workbench schema label'),
     description: typeof schema.description === 'string' ? schema.description : '',
+    origin: parseOrigin(schema.origin, moduleName),
+    hierarchy: Object.freeze(
+      (Array.isArray(schema.hierarchy) ? schema.hierarchy : []).map((value) =>
+        parseOrigin(value, moduleName),
+      ),
+    ),
     displayProperty: text(schema.displayProperty, 'Workbench display property'),
     displayProperties:
       schema.displayProperties === undefined
@@ -467,6 +734,7 @@ export function parseWorkbenchSchema(value: unknown): WorkbenchSchema {
         mode: mode as 'NONE' | 'COMPARE_AND_SET',
         field: typeof concurrency.field === 'string' ? concurrency.field : '',
         required: booleanValue(concurrency.required, 'Workbench concurrency required'),
+        ...(concurrency.managed === true ? { managed: true } : {}),
       });
     })(),
     aggregateOperations: Object.freeze(
@@ -489,11 +757,81 @@ export function parseWorkbenchSchema(value: unknown): WorkbenchSchema {
         },
       ),
     ),
-    mutationMode: mutationMode as 'GENERATED_CRUD' | 'DOMAIN_OPERATION',
+    mutationMode: mutationMode as WorkbenchSchema['mutationMode'],
+    mutationPolicy: Object.freeze({
+      mode:
+        typeof mutationPolicy.mode === 'string' && mutationPolicy.mode.trim()
+          ? mutationPolicy.mode
+          : mutationMode,
+      savePath:
+        typeof mutationPolicy.savePath === 'string' && mutationPolicy.savePath.trim()
+          ? mutationPolicy.savePath
+          : mutationMode,
+      lifecycle:
+        typeof mutationPolicy.lifecycle === 'string' && mutationPolicy.lifecycle.trim()
+          ? mutationPolicy.lifecycle
+          : 'DIRECT',
+      createStrategy:
+        typeof mutationPolicy.createStrategy === 'string' &&
+        mutationPolicy.createStrategy.trim()
+          ? mutationPolicy.createStrategy
+          : 'TOP_LEVEL_WITH_REFERENCES',
+      updateStrategy:
+        typeof mutationPolicy.updateStrategy === 'string' &&
+        mutationPolicy.updateStrategy.trim()
+          ? mutationPolicy.updateStrategy
+          : 'DIRECT_OR_REFERENCED',
+      deleteStrategy:
+        typeof mutationPolicy.deleteStrategy === 'string' &&
+        mutationPolicy.deleteStrategy.trim()
+          ? mutationPolicy.deleteStrategy
+          : 'TOP_LEVEL_ONLY',
+      aggregateSave:
+        mutationPolicy.aggregateSave === undefined
+          ? false
+          : booleanValue(mutationPolicy.aggregateSave, 'Workbench aggregate save'),
+      publishRequired:
+        mutationPolicy.publishRequired === undefined
+          ? false
+          : booleanValue(mutationPolicy.publishRequired, 'Workbench publish required'),
+    }),
     operations: Object.freeze(operations as readonly WorkbenchOperation[]),
     fields: Object.freeze(schema.fields.map(parseField)),
     relationships: Object.freeze(schema.relationships.map(parseRelationship)),
   });
+}
+
+/** Validates server-owned authoring scope without guessing from connection names. */
+function parseAuthoring(value: unknown): NonNullable<WorkbenchSchema['authoring']> {
+  const authority = record(value, 'Workbench authoring authority');
+  const stage = text(authority.stage, 'Workbench authoring stage');
+  if (!['STAGED', 'ONLINE', 'OPERATIONAL', 'UNASSIGNED'].includes(stage)) {
+    throw new Error('Workbench authoring stage is unsupported');
+  }
+  const publishRequired = booleanValue(
+    authority.publishRequired,
+    'Workbench publication required',
+  );
+  const authoringAllowed = booleanValue(
+    authority.authoringAllowed,
+    'Workbench authoring allowed',
+  );
+  if (publishRequired && stage !== 'STAGED' && authoringAllowed) {
+    throw new Error('Workbench publication authoring authority is inconsistent');
+  }
+  return Object.freeze({
+    publishRequired,
+    authoringAllowed,
+    stage: stage as NonNullable<WorkbenchSchema['authoring']>['stage'],
+  });
+}
+
+/** The default browser lists publishable source schemas only from their Staged authority. */
+export function isWorkbenchAuthoringSchema(schema: WorkbenchSchema): boolean {
+  return (
+    !(schema.authoring?.publishRequired || schema.mutationPolicy?.publishRequired) ||
+    schema.authoring?.stage === 'STAGED'
+  );
 }
 
 export function parseWorkbenchSchemaList(value: unknown): readonly WorkbenchSchema[] {

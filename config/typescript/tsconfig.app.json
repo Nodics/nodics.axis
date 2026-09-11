@@ -20,5 +20,5 @@
     "jsx": "react-jsx",
     "tsBuildInfoFile": "../../.cache/typescript/tsconfig.app.tsbuildinfo"
   },
-  "include": ["../../src"]
+  "include": ["../../src", "../../packages/location-map-ui/src"]
 }

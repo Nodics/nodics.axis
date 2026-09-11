@@ -72,6 +72,8 @@ export interface FunctionalModuleActivationData {
 }
 
 export interface FunctionalModuleDependencyState {
+  readonly reason?: string | undefined;
+  readonly resolution?: string | undefined;
   readonly functionalModule: string;
   readonly displayName: string;
   readonly registrationState: string;
@@ -118,7 +120,9 @@ function stringList(value: unknown, name: string): readonly string[] {
 }
 
 function optionalStringList(value: unknown, name: string): readonly string[] {
-  return value === undefined || value === null ? Object.freeze([]) : stringList(value, name);
+  return value === undefined || value === null
+    ? Object.freeze([])
+    : stringList(value, name);
 }
 
 function optionalString(value: unknown): string {
@@ -179,6 +183,8 @@ function parseDependencyState(
 ): FunctionalModuleDependencyState {
   const item = record(value, name);
   return Object.freeze({
+    reason: optionalString(item.reason),
+    resolution: optionalString(item.resolution),
     functionalModule: text(item.functionalModule, `${name} functional module`),
     displayName: text(item.displayName, `${name} display name`),
     registrationState: text(item.registrationState, `${name} registration state`),
@@ -203,7 +209,10 @@ function parseActivationData(value: unknown): FunctionalModuleActivationData {
         preflight.protectedModule,
         'Activation protected-module flag',
       ),
-      dependencies: optionalStringList(preflight.dependencies, 'Activation dependencies'),
+      dependencies: optionalStringList(
+        preflight.dependencies,
+        'Activation dependencies',
+      ),
       dependencyStates: Object.freeze(
         Array.isArray(preflight.dependencyStates)
           ? preflight.dependencyStates.map((dependency, index) =>

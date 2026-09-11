@@ -1,3 +1,4 @@
+import type { MapCategory } from './locationMapContract';
 import {
   selectModuleConnection,
   type AxisAuthenticatedBootstrap,
@@ -26,6 +27,7 @@ export interface CollectionCentreWorkspaceConfiguration {
 }
 
 export interface CollectionCentreRecord {
+  readonly mapCategory?: MapCategory | undefined;
   readonly code: string;
   readonly name: string;
   readonly collectionPointType: string;
@@ -93,7 +95,9 @@ function parseWasteCollectionCentrePage(value: unknown): WasteCollectionCentrePa
     : Object.freeze([]);
   return Object.freeze({
     records: Object.freeze(records),
-    totalCount: Number.isInteger(page.totalCount) ? Number(page.totalCount) : records.length,
+    totalCount: Number.isInteger(page.totalCount)
+      ? Number(page.totalCount)
+      : records.length,
     pageNumber: Number.isInteger(page.pageNumber) ? Number(page.pageNumber) : 1,
     pageSize: Number.isInteger(page.pageSize) ? Number(page.pageSize) : records.length,
     sourceCounts:
@@ -103,7 +107,11 @@ function parseWasteCollectionCentrePage(value: unknown): WasteCollectionCentrePa
         ? (page.sourceCounts as Partial<CollectionCentreWorkspaceData['sourceCounts']>)
         : Object.freeze({}),
     unavailableSources: Array.isArray(page.unavailableSources)
-      ? Object.freeze(page.unavailableSources.filter((item): item is string => typeof item === 'string'))
+      ? Object.freeze(
+          page.unavailableSources.filter(
+            (item): item is string => typeof item === 'string',
+          ),
+        )
       : Object.freeze([]),
   });
 }
@@ -253,7 +261,9 @@ function refCode(value: unknown): string {
   return text(record.code) || text(record.ref) || text(record.id);
 }
 
-function byCode(records: readonly WorkbenchRecord[] | undefined): Map<string, WorkbenchRecord> {
+function byCode(
+  records: readonly WorkbenchRecord[] | undefined,
+): Map<string, WorkbenchRecord> {
   const result = new Map<string, WorkbenchRecord>();
   (records ?? []).forEach((record) => {
     const code = text(record.code);
@@ -284,17 +294,23 @@ function collectionCentreRecord(
   const address = recordValue(point.address) ?? addresses.get(addressCode);
   const enterprise =
     recordValue(point.operatorEnterprise) ?? enterprises.get(operatorEnterpriseCode);
-  const latitude = numberValue(point.latitude ?? location?.latitude ?? address?.latitude);
-  const longitude = numberValue(point.longitude ?? location?.longitude ?? address?.longitude);
+  const latitude = numberValue(
+    point.latitude ?? location?.latitude ?? address?.latitude,
+  );
+  const longitude = numberValue(
+    point.longitude ?? location?.longitude ?? address?.longitude,
+  );
   if (latitude === undefined || longitude === undefined) return undefined;
   const enterpriseRelationshipCodes = Object.freeze([
     ...new Set([operatorEnterpriseCode, assetOwnerEnterpriseCode].filter(Boolean)),
   ]);
   const assetOwnerEnterprise =
-    recordValue(point.assetOwnerEnterprise) ?? enterprises.get(assetOwnerEnterpriseCode);
+    recordValue(point.assetOwnerEnterprise) ??
+    enterprises.get(assetOwnerEnterpriseCode);
   return Object.freeze({
     code: text(point.code),
-    name: localizedText(point.name) || localizedText(location?.name) || text(point.code),
+    name:
+      localizedText(point.name) || localizedText(location?.name) || text(point.code),
     collectionPointType: text(point.collectionPointType),
     locationCode,
     addressCode,
@@ -313,7 +329,9 @@ function collectionCentreRecord(
         : ''),
     enterpriseRelationshipCodes,
     addressLine:
-      text(point.addressLine) || text(address?.addressLine1) || text(address?.addressLine2),
+      text(point.addressLine) ||
+      text(address?.addressLine1) ||
+      text(address?.addressLine2),
     city: text(point.city) || text(address?.city),
     countryCode: text(point.countryCode) || text(address?.countryCode),
     latitude,
@@ -371,12 +389,12 @@ export async function loadCollectionCentreWorkspaceData(
     ),
   );
   const fallbackPointPage = await loadSchemaRecords(
-        bootstrap,
-        configuration,
-        schemas,
-        'wasteCollection',
-        'wasteCollectionPoint',
-      );
+    bootstrap,
+    configuration,
+    schemas,
+    'wasteCollection',
+    'wasteCollectionPoint',
+  );
   const pointRecords = fallbackPointPage?.records ?? [];
   const unavailableSources = [
     'wasteApi:wasteCollectionCentreSearch',

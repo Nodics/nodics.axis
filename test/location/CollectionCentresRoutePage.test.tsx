@@ -1,12 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import {
-  forwardRef,
-  useEffect,
-  useImperativeHandle,
-  type ReactNode,
-} from 'react';
+import { forwardRef, useEffect, useImperativeHandle, type ReactNode } from 'react';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -24,7 +19,9 @@ vi.mock('react-map-gl/mapbox', () => {
     readonly cooperativeGestures?: boolean;
     readonly onLoad?: (event: {
       readonly target: {
+        readonly getContainer: () => HTMLElement;
         readonly scrollZoom: {
+          readonly disable: () => void;
           readonly setWheelZoomRate: (rate: number) => void;
           readonly setZoomRate: (rate: number) => void;
         };
@@ -55,7 +52,9 @@ vi.mock('react-map-gl/mapbox', () => {
         useEffect(() => {
           onLoad?.({
             target: {
+              getContainer: () => document.createElement('div'),
               scrollZoom: {
+                disable: vi.fn(),
                 setWheelZoomRate: mapboxSetWheelZoomRateMock,
                 setZoomRate: mapboxSetZoomRateMock,
               },
@@ -269,6 +268,29 @@ const mockedLoadWorkspaceData = vi.mocked(loadCollectionCentreWorkspaceData);
 const mockedLoadMapConfiguration = vi.mocked(loadLocationMapConfiguration);
 
 const activeMapConfiguration: LocationMapConfiguration = Object.freeze({
+  contractVersion: 1,
+  revision: 1,
+  fallbackAllowed: true,
+  refreshIntervalMs: 15000,
+  presentation: {
+    defaultCategoryCode: 'recycling',
+    categories: [
+      { code: 'repair', label: 'Repair', color: '#4CAF50', matchTerms: ['repair'] },
+      { code: 'trade-in', label: 'Trade-in', color: '#2196F3', matchTerms: ['trade'] },
+      {
+        code: 'recycling',
+        label: 'Recycling',
+        color: '#ee9a08',
+        matchTerms: ['recycling'],
+      },
+    ],
+  },
+  interaction: {
+    wheelZoomMode: 'MODIFIER' as const,
+    wheelStep: 1,
+    wheelCooldownMs: 180,
+    zoomAnimationSeconds: 0.42,
+  },
   code: 'AXIS_COLLECTION_CENTRE_MAPBOX_STREETS',
   providerCode: 'MAPBOX',
   surfaceCode: 'AXIS',
@@ -582,14 +604,14 @@ describe('Collection Centres route', () => {
         getCurrentPosition: geolocationGetCurrentPositionMock,
         watchPosition: geolocationWatchPositionMock.mockImplementation(
           (success: PositionCallback) => {
-          success({
-            coords: {
-              latitude: 25.286,
-              longitude: 55.379,
-            },
-          } as GeolocationPosition);
-          return 7;
-        },
+            success({
+              coords: {
+                latitude: 25.286,
+                longitude: 55.379,
+              },
+            } as GeolocationPosition);
+            return 7;
+          },
         ),
       },
     });
@@ -604,14 +626,14 @@ describe('Collection Centres route', () => {
     expect(screen.getByLabelText('Collection centres map')).toBeVisible();
     expect(await screen.findByLabelText('Mapbox streets map')).toHaveAttribute(
       'data-scroll-zoom',
-      'true',
+      'false',
     );
     expect(await screen.findByLabelText('Mapbox streets map')).toHaveAttribute(
       'data-cooperative-gestures',
-      'true',
+      'false',
     );
-    expect(mapboxSetZoomRateMock).toHaveBeenCalledWith(1 / 260);
-    expect(mapboxSetWheelZoomRateMock).toHaveBeenCalledWith(1 / 900);
+    expect(mapboxSetZoomRateMock).not.toHaveBeenCalled();
+    expect(mapboxSetWheelZoomRateMock).not.toHaveBeenCalled();
     expect(
       await screen.findByRole('button', {
         name: 'Averda Recycling Center - Al Safa marker',
@@ -641,9 +663,7 @@ describe('Collection Centres route', () => {
     const userMarker = await screen.findByRole('button', {
       name: 'User location marker',
     });
-    expect(userMarker.firstElementChild).toHaveClass(
-      'current-location-marker__label',
-    );
+    expect(userMarker.firstElementChild).toHaveClass('current-location-marker__label');
     expect(userMarker).toHaveAttribute('data-latitude', '25.286');
     expect(screen.queryByText('Location Shared')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Share your location' })).toBeNull();
@@ -681,9 +701,10 @@ describe('Collection Centres route', () => {
     expect(screen.getByLabelText('Collection centres map')).toHaveClass(
       'collection-centres-map--with-warning',
     );
-    expect(
-      screen.getByRole('link', { name: 'Check configuration' }),
-    ).toHaveAttribute('href', '/location/maps');
+    expect(screen.getByRole('link', { name: 'Check configuration' })).toHaveAttribute(
+      'href',
+      '/location/maps',
+    );
     expect(screen.getByText('OpenStreetMap France, contributors')).toBeVisible();
   });
 
@@ -694,9 +715,7 @@ describe('Collection Centres route', () => {
     const osmMap = await screen.findByLabelText('Leaflet street map');
     expect(osmMap).toHaveAttribute('data-scroll-wheel-zoom', 'false');
     expect(osmMap).toHaveAttribute('data-zoom-snap', '1');
-    expect(
-      screen.getByText('OpenStreetMap France, contributors'),
-    ).toHaveAttribute(
+    expect(screen.getByText('OpenStreetMap France, contributors')).toHaveAttribute(
       'data-tile-url',
       'https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
     );
@@ -708,9 +727,7 @@ describe('Collection Centres route', () => {
     expect(screen.getByRole('button', { name: 'Trade-in' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Recycling' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Near Me' })).toBeVisible();
-    expect(
-      screen.getByRole('button', { name: 'Share your location' }),
-    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Share your location' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Zoom in' })).toBeVisible();
   });
 
@@ -802,9 +819,7 @@ describe('Collection Centres route', () => {
     expect(screen.queryByRole('link', { name: 'Asset owner' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Edit location' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Edit address' })).toBeNull();
-    expect(
-      screen.getByRole('link', { name: 'Edit in Workbench' }),
-    ).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Edit in Workbench' })).toHaveAttribute(
       'href',
       '/schema-workbench?module=wasteCollection&schema=wasteCollectionPoint&search=WCP_SAMPLE_COLLECTION_CENTRE_PARTNER_BIN',
     );
@@ -830,9 +845,7 @@ describe('Collection Centres route', () => {
   it('routes collection-centre creation to Schema Workbench create mode', async () => {
     renderPage();
 
-    expect(
-      await screen.findByRole('link', { name: 'Create centre' }),
-    ).toHaveAttribute(
+    expect(await screen.findByRole('link', { name: 'Create centre' })).toHaveAttribute(
       'href',
       '/schema-workbench?module=wasteCollection&schema=wasteCollectionPoint&mode=create',
     );

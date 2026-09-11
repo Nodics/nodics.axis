@@ -149,7 +149,9 @@ function releaseBelongsToConnection(
 
 function mergeReleases(releases: readonly DataRelease[]): readonly DataRelease[] {
   return Object.freeze(
-    Array.from(new Map(releases.map((release) => [releaseKey(release), release])).values()),
+    Array.from(
+      new Map(releases.map((release) => [releaseKey(release), release])).values(),
+    ),
   );
 }
 

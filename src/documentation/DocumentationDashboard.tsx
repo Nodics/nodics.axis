@@ -950,7 +950,6 @@ function CmsDocumentationReadinessCard({
     transientImportRunning,
   });
   const canOpenApprovalTasks = publication.data?.readiness === 'PUBLICATION_PENDING';
-  const approvalTaskCount = approvalTasks.data?.length ?? 0;
   const canDecideInline = Boolean(actionableApprovalTask);
   const canModifyStaged = Boolean(packOperation && !canOpenApprovalTasks);
   const pendingApprovalStatus = canOpenApprovalTasks

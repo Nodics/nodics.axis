@@ -646,6 +646,7 @@ export function PromotionsBuilderRoutePage(props: PromotionsBuilderRoutePageProp
         policy, and publication flow. Customer checkout receives only the approved
         Promotion preview/apply API.
       </Alert>
+
       <WorkbenchRoutePage
         accessToken={props.accessToken}
         bootstrap={props.bootstrap}

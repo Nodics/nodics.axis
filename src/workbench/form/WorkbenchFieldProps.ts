@@ -5,4 +5,5 @@ export interface WorkbenchFieldProps {
   readonly value: unknown;
   readonly error?: string | undefined;
   readonly onChange: (value: unknown) => void;
+  readonly onValidityChange?: ((valid: boolean) => void) | undefined;
 }

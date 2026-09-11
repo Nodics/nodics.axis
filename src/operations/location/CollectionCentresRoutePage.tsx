@@ -1,3 +1,12 @@
+import { WorkspaceContainer } from '../../app/shell/ShellPrimitives';
+import { LocationPopupContent } from '@nodics/location-map-ui';
+import '@nodics/location-map-ui/styles.css';
+import {
+  categoryForFeature,
+  shouldHandleMapWheel,
+  type MapInteraction,
+  type MapPresentation,
+} from './api/locationMapContract';
 import {
   Alert,
   Box,
@@ -19,13 +28,7 @@ import {
   Typography,
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Marker,
   NavigationControl,
@@ -44,9 +47,7 @@ import {
   useMap,
 } from 'react-leaflet';
 import { Link as RouterLink } from 'react-router';
-import L, {
-  type Map as LeafletMap,
-} from 'leaflet';
+import L, { type Map as LeafletMap } from 'leaflet';
 import type { RequestParameters } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import 'leaflet/dist/leaflet.css';
@@ -78,10 +79,7 @@ import {
   type LocationMapConfiguration,
   type LocationMapRenderDescriptor,
 } from './api/locationMapConfigurationClient';
-import {
-  AxisLocationMapFrame,
-  AxisMapboxCanvas,
-} from './components/AxisLocationMap';
+import { AxisLocationMapFrame, AxisMapboxCanvas } from './components/AxisLocationMap';
 
 interface CollectionCentresRoutePageProps {
   readonly accessToken: string;
@@ -99,46 +97,16 @@ const defaultDubaiLocation = Object.freeze({
   latitude: 25.3233379650232,
 });
 
-type CentreVisualType = 'repair' | 'trade-in' | 'recycling';
-
-interface MapFilterState {
-  readonly repairWorkshop: boolean;
-  readonly tradeInStore: boolean;
-  readonly recyclingContainer: boolean;
-}
-
-const defaultMapFilters: MapFilterState = Object.freeze({
-  repairWorkshop: false,
-  tradeInStore: false,
-  recyclingContainer: false,
-});
-const mapboxStreetsStyle = 'mapbox://styles/mapbox/streets-v12';
+type MapFilterState = Readonly<Record<string, boolean>>;
+const defaultMapFilters: MapFilterState = Object.freeze({});
 const fallbackTileSize = 256;
-const fallbackStreetMapAttribution = 'OpenStreetMap France, contributors';
-const defaultOsmRenderDescriptor: LocationMapRenderDescriptor = Object.freeze({
-  providerCode: 'OSM',
-  providerType: 'OSM',
-  rendererCode: 'axis.location.tile',
-  rendererType: 'XYZ_TILE',
-  styleUrl: 'https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
-  tileUrlTemplate: 'https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
-  attribution: fallbackStreetMapAttribution,
-  publicAccessToken: '',
-  endpointPolicy: Object.freeze({}),
-  frontendSafe: true,
-});
 
 interface MapCoordinate {
   readonly latitude: number;
   readonly longitude: number;
 }
 
-type UserLocationStatus =
-  | 'idle'
-  | 'requesting'
-  | 'granted'
-  | 'denied'
-  | 'unavailable';
+type UserLocationStatus = 'idle' | 'requesting' | 'granted' | 'denied' | 'unavailable';
 
 interface UserLocationState {
   readonly status: UserLocationStatus;
@@ -192,7 +160,7 @@ async function reverseGeocodeUserLocation(
       locationBaseUrl: request.locationBaseUrl,
       locale: request.locale,
       timeoutMs: request.timeoutMs,
-      surfaceCode: 'AXIS',
+      surfaceCode: 'SHARED',
       usageCode: 'COLLECTION_CENTRE_MAP',
       latitude: coordinate.latitude,
       longitude: coordinate.longitude,
@@ -210,10 +178,7 @@ function locationButtonLabel(status: UserLocationStatus): string {
 }
 
 function userLocationMessage(state: UserLocationState): string | undefined {
-  if (
-    state.message &&
-    (state.status === 'denied' || state.status === 'unavailable')
-  ) {
+  if (state.message && (state.status === 'denied' || state.status === 'unavailable')) {
     return state.message;
   }
   return undefined;
@@ -256,60 +221,30 @@ function searchRecord(record: CollectionCentreRecord, query: string): boolean {
   return haystack.includes(query.toLowerCase());
 }
 
-function centreVisualType(record: CollectionCentreRecord): CentreVisualType {
-  const text = [record.name, record.collectionPointType, ...record.serviceCapabilities]
-    .join(' ')
-    .toLowerCase();
-  if (text.includes('repair')) return 'repair';
-  if (text.includes('trade')) return 'trade-in';
-  return 'recycling';
+function centreVisualType(record: CollectionCentreRecord): string {
+  return record.mapCategory?.code || 'unknown';
 }
 
 function centreMatchesMapFilters(
   record: CollectionCentreRecord,
   filters: MapFilterState,
 ): boolean {
-  if (!filters.repairWorkshop && !filters.tradeInStore && !filters.recyclingContainer) {
-    return true;
-  }
-  const visualType = centreVisualType(record);
-  return (
-    (filters.repairWorkshop && visualType === 'repair') ||
-    (filters.tradeInStore && visualType === 'trade-in') ||
-    (filters.recyclingContainer && visualType === 'recycling')
-  );
+  const selected = Object.keys(filters).filter((code) => filters[code]);
+  return !selected.length || selected.includes(centreVisualType(record));
 }
 
 function markerColor(record: CollectionCentreRecord): string {
-  const visualType = centreVisualType(record);
-  if (visualType === 'repair') return '#4CAF50';
-  if (visualType === 'trade-in') return '#2196F3';
-  return '#ee9a08';
+  return record.mapCategory?.color || '#6c7970';
 }
 
 function markerTag(record: CollectionCentreRecord): {
   readonly className: string;
   readonly label: string;
 } {
-  const visualType = centreVisualType(record);
-  if (visualType === 'repair') {
-    return { className: 'location-tag location-tag--repair', label: 'Repair' };
-  }
-  if (visualType === 'trade-in') {
-    return { className: 'location-tag location-tag--trade-in', label: 'Trade-in' };
-  }
-  return { className: 'location-tag location-tag--recycling', label: 'Recycling' };
-}
-
-function customerCollectionMessage(record: CollectionCentreRecord): string {
-  const visualType = centreVisualType(record);
-  if (visualType === 'repair') {
-    return 'Bring your device here for repair or reuse support.';
-  }
-  if (visualType === 'trade-in') {
-    return 'Bring eligible e-waste here for trade-in support.';
-  }
-  return 'Drop off approved e-waste here for verified recycling.';
+  return {
+    className: 'location-tag',
+    label: record.mapCategory?.label || 'Collection centre',
+  };
 }
 
 function distanceInMeters(
@@ -378,12 +313,8 @@ function activeRenderDescriptor(
 
 function fallbackRenderDescriptor(
   mapConfiguration: LocationMapConfiguration | undefined,
-): LocationMapRenderDescriptor {
-  const configuredFallback = mapConfiguration?.fallbackRenderer;
-  if (configuredFallback && canUseTileRenderer(configuredFallback)) {
-    return configuredFallback;
-  }
-  return defaultOsmRenderDescriptor;
+): LocationMapRenderDescriptor | undefined {
+  return mapConfiguration?.fallbackRenderer;
 }
 
 function canUseMapboxRenderer(
@@ -418,9 +349,7 @@ function canUseConfiguredRenderer(
 function canUseBasicFallback(
   mapConfiguration: LocationMapConfiguration | undefined,
 ): boolean {
-  return ['ALLOW_BASIC_MAP', 'NON_PRODUCTION_ONLY', 'SETUP_REQUIRED'].includes(
-    mapConfiguration?.fallbackPolicy ?? '',
-  );
+  return mapConfiguration?.fallbackAllowed === true;
 }
 
 function transformMapboxRequest(url: string): RequestParameters {
@@ -428,15 +357,11 @@ function transformMapboxRequest(url: string): RequestParameters {
 }
 
 function tileRendererTileUrl(descriptor: LocationMapRenderDescriptor): string {
-  return (
-    descriptor.tileUrlTemplate ||
-    descriptor.styleUrl ||
-    defaultOsmRenderDescriptor.tileUrlTemplate
-  );
+  return descriptor.tileUrlTemplate || descriptor.styleUrl;
 }
 
 function tileRendererAttribution(descriptor: LocationMapRenderDescriptor): string {
-  return descriptor.attribution || fallbackStreetMapAttribution;
+  return descriptor.attribution || 'Map data attribution unavailable';
 }
 
 function siblingModuleEndpoint(
@@ -734,74 +659,6 @@ const legacyMapStyles = {
     color: '#d11f1f',
     padding: '3px 7px',
   },
-  '.location-popup': {
-    backgroundColor: 'white',
-    borderRadius: '8px',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-    maxWidth: '320px',
-    minWidth: '240px',
-    padding: '16px 32px 16px 16px',
-    position: 'relative',
-  },
-  '.location-popup__close': {
-    alignItems: 'center',
-    background: 'transparent',
-    border: 0,
-    color: '#1a1a1a',
-    cursor: 'pointer',
-    display: 'flex',
-    fontSize: '18px',
-    height: '24px',
-    justifyContent: 'center',
-    lineHeight: 1,
-    padding: 0,
-    position: 'absolute',
-    right: '8px',
-    top: '8px',
-    width: '24px',
-  },
-  '.location-popup__address': {
-    color: '#1a1a1a',
-    fontSize: '15px',
-    fontWeight: 500,
-    lineHeight: 1.35,
-    marginBottom: '12px',
-  },
-  '.location-popup__summary': {
-    color: '#555',
-    fontSize: '14px',
-    lineHeight: 1.4,
-    marginBottom: '12px',
-  },
-  '.location-popup__tags': {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: '6px',
-  },
-  '.location-popup__direction': {
-    alignItems: 'center',
-    backgroundColor: '#3c1dea',
-    border: 'none',
-    borderRadius: '16px',
-    color: 'white',
-    cursor: 'pointer',
-    display: 'flex',
-    font: 'inherit',
-    fontSize: '14px',
-    fontWeight: 500,
-    gap: '4px',
-    padding: '4px 10px',
-    transition: 'all 0.3s ease',
-  },
-  '.location-popup__direction:hover': {
-    backgroundColor: '#3c1dea',
-    opacity: 0.8,
-  },
-  '.location-tag': {
-    borderRadius: '16px',
-    fontSize: '13px',
-    padding: '4px 10px',
-  },
   '.location-tag--repair': {
     backgroundColor: '#4CAF5015',
     border: '1px solid #4CAF5030',
@@ -836,6 +693,8 @@ const legacyMapStyles = {
 } as const;
 
 function MapFilterControls({
+  presentation,
+  enabledControls,
   filters,
   locationMessage,
   locationStatus,
@@ -844,6 +703,8 @@ function MapFilterControls({
   onShareLocationClick,
   setFilters,
 }: {
+  readonly presentation: MapPresentation | undefined;
+  readonly enabledControls: readonly string[];
   readonly filters: MapFilterState;
   readonly locationMessage: string | undefined;
   readonly locationStatus: UserLocationStatus;
@@ -855,65 +716,60 @@ function MapFilterControls({
   return (
     <div className="map-controls__stack">
       <div className="map-controls__buttons">
-        <button
-          className={`filter-button filter-button--repair ${
-            filters.repairWorkshop ? 'active' : ''
-          }`}
-          onClick={() =>
-            setFilters((previous) => ({
-              ...previous,
-              repairWorkshop: !previous.repairWorkshop,
-            }))
-          }
-          type="button"
-        >
-          Repair
-        </button>
-        <button
-          className={`filter-button filter-button--trade-in ${
-            filters.tradeInStore ? 'active' : ''
-          }`}
-          onClick={() =>
-            setFilters((previous) => ({
-              ...previous,
-              tradeInStore: !previous.tradeInStore,
-            }))
-          }
-          type="button"
-        >
-          Trade-in
-        </button>
-        <button
-          className={`filter-button filter-button--recycling ${
-            filters.recyclingContainer ? 'active' : ''
-          }`}
-          onClick={() =>
-            setFilters((previous) => ({
-              ...previous,
-              recyclingContainer: !previous.recyclingContainer,
-            }))
-          }
-          type="button"
-        >
-          Recycling
-        </button>
-        <button
-          className={`filter-button filter-button--near-me ${nearMeActive ? 'active' : ''}`}
-          onClick={onNearMeClick}
-          type="button"
-        >
-          Near Me
-        </button>
-        {locationStatus === 'granted' ? null : (
-          <button
-            aria-label="Share your location"
-            className="filter-button filter-button--share-location"
-            disabled={locationStatus === 'requesting'}
-            onClick={onShareLocationClick}
-            type="button"
-          >
-            {locationButtonLabel(locationStatus)}
-          </button>
+        {enabledControls.includes('FILTERS') &&
+          presentation?.categories.map((category) => (
+            <button
+              key={category.code}
+              type="button"
+              aria-pressed={filters[category.code] === true}
+              className={`filter-button ${filters[category.code] ? 'active' : ''}`}
+              style={{
+                borderColor: category.color,
+                backgroundColor: filters[category.code] ? category.color : 'white',
+                color: filters[category.code] ? '#fff' : '#263b30',
+              }}
+              onClick={() =>
+                setFilters((previous) => ({
+                  ...previous,
+                  [category.code]: !previous[category.code],
+                }))
+              }
+            >
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: 9,
+                  height: 9,
+                  marginRight: 6,
+                  borderRadius: '50%',
+                  backgroundColor: category.color,
+                  border: '1px solid currentColor',
+                }}
+              />
+              {category.label}
+            </button>
+          ))}
+        {enabledControls.includes('GEOLOCATE') && (
+          <>
+            <button
+              className={`filter-button filter-button--near-me ${nearMeActive ? 'active' : ''}`}
+              onClick={onNearMeClick}
+              type="button"
+            >
+              Near Me
+            </button>
+            {locationStatus === 'granted' ? null : (
+              <button
+                aria-label="Share your location"
+                className="filter-button filter-button--share-location"
+                disabled={locationStatus === 'requesting'}
+                onClick={onShareLocationClick}
+                type="button"
+              >
+                {locationButtonLabel(locationStatus)}
+              </button>
+            )}
+          </>
         )}
       </div>
       {locationMessage ? (
@@ -924,6 +780,7 @@ function MapFilterControls({
 }
 
 function MapFilterButtons({
+  mapConfiguration,
   collectionPoints,
   filters,
   fallbackOrigin,
@@ -932,6 +789,7 @@ function MapFilterButtons({
   setFilters,
   userLocation,
 }: {
+  readonly mapConfiguration: LocationMapConfiguration | undefined;
   readonly collectionPoints: readonly CollectionCentreRecord[];
   readonly filters: MapFilterState;
   readonly fallbackOrigin: MapCoordinate;
@@ -973,6 +831,8 @@ function MapFilterButtons({
 
   return (
     <MapFilterControls
+      presentation={mapConfiguration?.presentation}
+      enabledControls={mapConfiguration?.enabledControls || []}
       filters={filters}
       locationMessage={userLocationMessage(userLocation)}
       locationStatus={userLocation.status}
@@ -988,57 +848,13 @@ function MapFilterButtons({
   );
 }
 
-function LocationPopupContent({
-  directionsOrigin,
-  location,
-  onClose,
-}: {
-  readonly directionsOrigin: MapCoordinate | undefined;
-  readonly location: CollectionCentreRecord;
-  readonly onClose: () => void;
-}) {
-  const tag = markerTag(location);
-  const handleDirectionsClick = () => {
-    const origin = directionsOrigin
-      ? `&origin=${directionsOrigin.latitude.toString()},${directionsOrigin.longitude.toString()}`
-      : '';
-    const url = `https://www.google.com/maps/dir/?api=1${origin}&destination=${location.latitude.toString()},${location.longitude.toString()}`;
-    window.open(url, '_blank');
-  };
-
-  return (
-    <div className="location-popup">
-      <button
-        aria-label="Close collection centre popup"
-        className="location-popup__close"
-        onClick={onClose}
-        type="button"
-      >
-        x
-      </button>
-      <div className="location-popup__address">{location.name}</div>
-      <div className="location-popup__summary">
-        {customerCollectionMessage(location)}
-      </div>
-      <div className="location-popup__tags">
-        <span className={tag.className}>{tag.label}</span>
-        <button
-          className="location-popup__direction"
-          onClick={handleDirectionsClick}
-          type="button"
-        >
-          Directions
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function LocationPopup({
+  directionsEnabled,
   directionsOrigin,
   location,
   onClose,
 }: {
+  readonly directionsEnabled: boolean;
   readonly directionsOrigin: MapCoordinate | undefined;
   readonly location: CollectionCentreRecord;
   readonly onClose: () => void;
@@ -1055,6 +871,7 @@ function LocationPopup({
       onClose={onClose}
     >
       <LocationPopupContent
+        directionsEnabled={directionsEnabled}
         directionsOrigin={directionsOrigin}
         location={location}
         onClose={onClose}
@@ -1149,43 +966,47 @@ function leafletUserLocationIcon(): L.DivIcon {
 }
 
 function LeafletModifierWheelZoom({
+  interaction,
   maximumZoom,
   minimumZoom,
 }: {
+  readonly interaction: MapInteraction | undefined;
   readonly maximumZoom: number;
   readonly minimumZoom: number;
 }) {
-  const lastZoomAtRef = useRef(0);
+  const lastZoomAtRef = useRef(-Infinity);
 
   const map = useMap();
   useEffect(() => {
     map.scrollWheelZoom.disable();
     const container = map.getContainer();
     const handleWheel = (originalEvent: WheelEvent) => {
-      const isMacPlatform = /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
-      const hasZoomModifier = isMacPlatform
-        ? originalEvent.metaKey
-        : originalEvent.metaKey || originalEvent.ctrlKey;
-      if (!hasZoomModifier) return;
+      if (
+        !interaction ||
+        !shouldHandleMapWheel(originalEvent, interaction, navigator.platform)
+      )
+        return;
       L.DomEvent.preventDefault(originalEvent);
       L.DomEvent.stopPropagation(originalEvent);
 
       if (originalEvent.deltaY === 0) return;
 
       const now = window.performance.now();
-      if (now - lastZoomAtRef.current < 180) return;
+      if (now - lastZoomAtRef.current < interaction.wheelCooldownMs) return;
 
       const direction = originalEvent.deltaY > 0 ? -1 : 1;
       const targetZoom = Math.max(
         minimumZoom,
-        Math.min(maximumZoom, Math.round(map.getZoom()) + direction),
+        Math.min(maximumZoom, map.getZoom() + direction * interaction.wheelStep),
       );
       if (targetZoom === map.getZoom()) return;
       lastZoomAtRef.current = now;
       map.stop();
       map.flyTo(map.getCenter(), targetZoom, {
-        animate: true,
-        duration: 0.42,
+        animate:
+          interaction.zoomAnimationSeconds > 0 &&
+          !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+        duration: interaction.zoomAnimationSeconds,
         easeLinearity: 0.25,
       });
     };
@@ -1194,7 +1015,7 @@ function LeafletModifierWheelZoom({
       passive: false,
     });
     return () => container.removeEventListener('wheel', handleWheel, true);
-  }, [map, maximumZoom, minimumZoom]);
+  }, [map, maximumZoom, minimumZoom, interaction]);
   return null;
 }
 
@@ -1228,9 +1049,7 @@ function CurrentLocationMarker({
 }: {
   readonly coordinate: MapCoordinate;
   readonly onClick: () => void;
-  readonly staticPosition?:
-    | { readonly left: number; readonly top: number }
-    | undefined;
+  readonly staticPosition?: { readonly left: number; readonly top: number } | undefined;
 }) {
   return (
     <button
@@ -1281,6 +1100,7 @@ function MapPanel({
   const leafletRef = useRef<LeafletMap | null>(null);
   const geolocationWatchIdRef = useRef<number | undefined>(undefined);
   const defaultCenter = mapDefaultLocation(mapConfiguration);
+  const configurationRevision = mapConfiguration?.revision;
   const focusMap = useCallback((coordinate: MapCoordinate, zoom: number) => {
     mapRef.current?.flyTo({
       center: [coordinate.longitude, coordinate.latitude],
@@ -1364,11 +1184,7 @@ function MapPanel({
         );
         return;
       }
-      navigator.geolocation.getCurrentPosition(
-        handleSuccess,
-        handleError,
-        options,
-      );
+      navigator.geolocation.getCurrentPosition(handleSuccess, handleError, options);
     });
   }, [focusMap]);
   const configuredDescriptor = activeRenderDescriptor(mapConfiguration);
@@ -1376,15 +1192,23 @@ function MapPanel({
   const activeRendererSupported = canUseConfiguredRenderer(mapConfiguration);
   const shouldUseFallback =
     useFallbackStyle ||
-    Boolean(mapConfiguration && !activeRendererSupported && canUseBasicFallback(mapConfiguration));
+    Boolean(
+      mapConfiguration &&
+      !activeRendererSupported &&
+      canUseBasicFallback(mapConfiguration),
+    );
   const effectiveMapboxDescriptor =
-    !shouldUseFallback && canUseMapboxRenderer(configuredDescriptor)
+    !shouldUseFallback &&
+    activeRendererSupported &&
+    canUseMapboxRenderer(configuredDescriptor)
       ? configuredDescriptor
       : undefined;
   const effectiveTileDescriptor =
     shouldUseFallback && canUseTileRenderer(fallbackDescriptor)
       ? fallbackDescriptor
-      : !shouldUseFallback && canUseTileRenderer(configuredDescriptor)
+      : !shouldUseFallback &&
+          activeRendererSupported &&
+          canUseTileRenderer(configuredDescriptor)
         ? configuredDescriptor
         : undefined;
   const rendererReady =
@@ -1395,8 +1219,22 @@ function MapPanel({
       ? 'The active map renderer is not available. Axis is showing the OSM fallback; check Map Configuration.'
       : '');
   const visibleRecords = useMemo(
-    () => records.filter((record) => centreMatchesMapFilters(record, filters)),
-    [filters, records],
+    () =>
+      records.filter((record) =>
+        centreMatchesMapFilters(
+          record,
+          mapConfiguration?.enabledControls.includes('FILTERS')
+            ? Object.fromEntries(
+                Object.entries(filters).filter(([code]) =>
+                  mapConfiguration?.presentation?.categories.some(
+                    (category) => category.code === code,
+                  ),
+                ),
+              )
+            : {},
+        ),
+      ),
+    [filters, records, mapConfiguration],
   );
   const selectedRecord =
     visibleRecords.find((record) => record.code === selectedCode) ??
@@ -1427,35 +1265,38 @@ function MapPanel({
   const closeUserLocationPopup = () => {
     setUserLocationAddress(initialUserLocationAddress);
   };
-  const openUserLocationPopup =
-    (coordinate: MapCoordinate): void => {
-      const key = coordinateKey(coordinate);
-      setUserLocationAddress((current) => {
-        if (
-          current.coordinateKey === key &&
-          (current.status === 'loading' || current.status === 'resolved')
-        ) {
-          return current;
-        }
-        return Object.freeze({ status: 'loading', coordinateKey: key });
-      });
-      void reverseGeocodeUserLocation(bootstrap, {
+  const openUserLocationPopup = (coordinate: MapCoordinate): void => {
+    const key = coordinateKey(coordinate);
+    setUserLocationAddress((current) => {
+      if (
+        current.coordinateKey === key &&
+        (current.status === 'loading' || current.status === 'resolved')
+      ) {
+        return current;
+      }
+      return Object.freeze({ status: 'loading', coordinateKey: key });
+    });
+    void reverseGeocodeUserLocation(
+      bootstrap,
+      {
         accessToken,
         enterpriseCode: runtime.enterpriseCode,
         locationBaseUrl: runtime.locationBaseUrl,
         locale,
         timeoutMs: runtime.requestTimeoutMs,
-      }, coordinate).then((address) => {
-        setUserLocationAddress((current) => {
-          if (current.coordinateKey !== key) return current;
-          return Object.freeze({
-            status: address ? 'resolved' : 'unavailable',
-            address: address || undefined,
-            coordinateKey: key,
-          });
+      },
+      coordinate,
+    ).then((address) => {
+      setUserLocationAddress((current) => {
+        if (current.coordinateKey !== key) return current;
+        return Object.freeze({
+          status: address ? 'resolved' : 'unavailable',
+          address: address || undefined,
+          coordinateKey: key,
         });
       });
-    };
+    });
+  };
 
   return (
     <AxisLocationMapFrame
@@ -1523,6 +1364,7 @@ function MapPanel({
       ) : effectiveTileDescriptor ? (
         <Box className="leaflet-street-map">
           <MapContainer
+            key={configurationRevision}
             attributionControl
             center={[initialViewState.latitude, initialViewState.longitude]}
             maxZoom={mapConfiguration?.maximumZoom ?? 18}
@@ -1533,8 +1375,8 @@ function MapPanel({
             zoom={initialViewState.zoom}
             zoomControl={false}
             zoomAnimation
-            zoomDelta={1}
-            zoomSnap={1}
+            zoomDelta={mapConfiguration?.interaction?.wheelStep || 1}
+            zoomSnap={mapConfiguration?.interaction?.wheelStep || 1}
           >
             <TileLayer
               attribution={tileRendererAttribution(effectiveTileDescriptor)}
@@ -1543,11 +1385,16 @@ function MapPanel({
             />
             <LeafletMapSizeController />
             <LeafletModifierWheelZoom
+              interaction={mapConfiguration?.interaction}
               maximumZoom={mapConfiguration?.maximumZoom ?? 18}
               minimumZoom={mapConfiguration?.minimumZoom ?? 3}
             />
-            <ZoomControl position="bottomright" />
-            <LeafletScaleControl />
+            {mapConfiguration?.enabledControls.includes('ZOOM') && (
+              <ZoomControl position="bottomright" />
+            )}
+            {mapConfiguration?.enabledControls.includes('SCALE') && (
+              <LeafletScaleControl />
+            )}
             {visibleRecords.map((record) => (
               <LeafletMarker
                 eventHandlers={{
@@ -1560,23 +1407,27 @@ function MapPanel({
                 key={record.code}
                 position={[record.latitude, record.longitude]}
                 title={`${record.name} marker`}
-              >
-                {popupRecord?.code === record.code ? (
-                  <LeafletPopup
-                    autoPan
-                    closeButton={false}
-                    closeOnClick={false}
-                    offset={[15, -45]}
-                  >
-                    <LocationPopupContent
-                      directionsOrigin={userLocation.coordinate}
-                      location={record}
-                      onClose={() => setPopupCode(undefined)}
-                    />
-                  </LeafletPopup>
-                ) : null}
-              </LeafletMarker>
+              />
             ))}
+            {/* Mount on the map so the selected popup opens on the first click. */}
+            {popupRecord ? (
+              <LeafletPopup
+                position={[popupRecord.latitude, popupRecord.longitude]}
+                autoPan
+                closeButton={false}
+                closeOnClick={false}
+                offset={[15, -45]}
+              >
+                <LocationPopupContent
+                  directionsEnabled={
+                    mapConfiguration?.enabledControls.includes('DIRECTIONS') === true
+                  }
+                  directionsOrigin={userLocation.coordinate}
+                  location={popupRecord}
+                  onClose={() => setPopupCode(undefined)}
+                />
+              </LeafletPopup>
+            ) : null}
             {userLocation.coordinate ? (
               <LeafletMarker
                 eventHandlers={{
@@ -1612,6 +1463,7 @@ function MapPanel({
           </MapContainer>
           <div className="map-controls">
             <MapFilterButtons
+              mapConfiguration={mapConfiguration}
               collectionPoints={records}
               fallbackOrigin={defaultCenter}
               focusMap={focusMap}
@@ -1643,9 +1495,13 @@ function MapPanel({
         </Box>
       ) : effectiveMapboxDescriptor ? (
         <AxisMapboxCanvas
+          key={configurationRevision}
+          interaction={mapConfiguration?.interaction}
+          minimumZoom={mapConfiguration?.minimumZoom}
+          maximumZoom={mapConfiguration?.maximumZoom}
           accessToken={effectiveMapboxDescriptor.publicAccessToken}
           initialViewState={initialViewState}
-          mapStyle={effectiveMapboxDescriptor.styleUrl || mapboxStreetsStyle}
+          mapStyle={effectiveMapboxDescriptor.styleUrl}
           onError={(event) => {
             const message = event.error?.message ?? '';
             if (canUseBasicFallback(mapConfiguration)) {
@@ -1662,6 +1518,7 @@ function MapPanel({
         >
           <div className="map-controls">
             <MapFilterButtons
+              mapConfiguration={mapConfiguration}
               collectionPoints={records}
               fallbackOrigin={defaultCenter}
               focusMap={focusMap}
@@ -1670,11 +1527,13 @@ function MapPanel({
               setFilters={setFilters}
               userLocation={userLocation}
             />
-            <NavigationControl
-              position="bottom-right"
-              style={{ marginBottom: '20px', marginRight: '20px' }}
-            />
-            <ScaleControl />
+            {mapConfiguration?.enabledControls.includes('ZOOM') && (
+              <NavigationControl
+                position="bottom-right"
+                style={{ marginBottom: '20px', marginRight: '20px' }}
+              />
+            )}
+            {mapConfiguration?.enabledControls.includes('SCALE') && <ScaleControl />}
           </div>
           {visibleRecords.map((record) => (
             <Marker
@@ -1691,6 +1550,9 @@ function MapPanel({
           ))}
           {popupRecord ? (
             <LocationPopup
+              directionsEnabled={
+                mapConfiguration?.enabledControls.includes('DIRECTIONS') === true
+              }
               directionsOrigin={userLocation.coordinate}
               location={popupRecord}
               onClose={() => setPopupCode(undefined)}
@@ -1810,11 +1672,7 @@ function SelectedCentrePanel({
             />
             <Chip label={record.operatingStatus} size="small" />
             <Chip label={record.publicVisibility} size="small" variant="outlined" />
-            <Chip
-              label="Operational master data"
-              size="small"
-              variant="outlined"
-            />
+            <Chip label="Operational master data" size="small" variant="outlined" />
           </Stack>
         </Stack>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
@@ -1827,7 +1685,9 @@ function SelectedCentrePanel({
           >
             Open Schema
           </Button>
-          <Tooltip title={summaryExpanded ? 'Hide centre details' : 'Show centre details'}>
+          <Tooltip
+            title={summaryExpanded ? 'Hide centre details' : 'Show centre details'}
+          >
             <IconButton
               aria-expanded={summaryExpanded}
               aria-label={
@@ -2037,7 +1897,7 @@ export function CollectionCentresRoutePage(props: CollectionCentresRoutePageProp
     queryKey: [
       'location-map-configuration',
       props.runtime.enterpriseCode,
-      'AXIS',
+      'SHARED',
       'COLLECTION_CENTRE_MAP',
     ],
     queryFn: () =>
@@ -2045,13 +1905,23 @@ export function CollectionCentresRoutePage(props: CollectionCentresRoutePageProp
         accessToken: props.accessToken,
         enterpriseCode: props.runtime.enterpriseCode,
         locationBaseUrl: props.runtime.locationBaseUrl,
-        surfaceCode: 'AXIS',
+        surfaceCode: 'SHARED',
         timeoutMs: props.runtime.requestTimeoutMs,
         usageCode: 'COLLECTION_CENTRE_MAP',
-    }),
+      }),
     retry: false,
+    refetchInterval: (query) => query.state.data?.refreshIntervalMs || 15000,
+    refetchOnWindowFocus: 'always',
   });
-  const records = workspace.data?.records ?? emptyCollectionCentreRecords;
+  const sourceRecords = workspace.data?.records ?? emptyCollectionCentreRecords;
+  const records = useMemo(
+    () =>
+      sourceRecords.map((record) => ({
+        ...record,
+        mapCategory: categoryForFeature(record, mapConfiguration.data?.presentation),
+      })),
+    [sourceRecords, mapConfiguration.data?.presentation],
+  );
   const enterpriseOptions = useMemo(
     () =>
       Object.freeze(
@@ -2084,148 +1954,153 @@ export function CollectionCentresRoutePage(props: CollectionCentresRoutePageProp
     filteredRecords[0];
 
   return (
-    <Stack spacing={dashboardContentGap}>
-      <Stack
-        direction={{ xs: 'column', md: 'row' }}
-        spacing={dashboardComponentGap}
-        sx={{ alignItems: { md: 'flex-end' }, justifyContent: 'space-between' }}
-      >
-        <Stack spacing={0.5}>
-          <Typography variant="h4">Collection centres</Typography>
-          <Typography color="text.secondary">
-            {records.length.toString()} centres from Waste, Location, Profile, and
-            Enterprise records.
-          </Typography>
-        </Stack>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-          <TextField
-            label="Search"
-            onChange={(event) => setQuery(event.target.value)}
-            size="small"
-            value={query}
-          />
-          <FormControl size="small" sx={{ minWidth: 240 }}>
-            <InputLabel id="collection-centre-enterprise-filter">Enterprise</InputLabel>
-            <Select
-              label="Enterprise"
-              labelId="collection-centre-enterprise-filter"
-              onChange={(event) => {
-                setEnterpriseCode(event.target.value);
-                setSelectedCode(undefined);
-              }}
-              value={enterpriseCode}
-            >
-              <MenuItem value={allEnterprises}>All enterprises</MenuItem>
-              {enterpriseOptions.map((option) => (
-                <MenuItem key={option.code} value={option.code}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <Button onClick={() => void workspace.refetch()} variant="outlined">
-            Refresh
-          </Button>
-          <Button
-            component={RouterLink}
-            startIcon={<ShellIcon name="add" />}
-            to="/schema-workbench?module=wasteCollection&schema=wasteCollectionPoint&mode=create"
-            variant="contained"
-          >
-            Create centre
-          </Button>
-        </Stack>
-      </Stack>
-      {workspace.isLoading ? (
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-          <CircularProgress size={18} />
-          <Typography color="text.secondary">Loading collection centres</Typography>
-        </Stack>
-      ) : null}
-      {workspace.error ? (
-        <Alert severity="error">
-          {workspace.error instanceof Error
-            ? workspace.error.message
-            : 'Collection centres could not be loaded.'}
-        </Alert>
-      ) : null}
-      {mapConfiguration.error ? (
-        <Alert
-          action={
-            <Button component={RouterLink} size="small" to="/location/maps">
-              Configure
-            </Button>
-          }
-          severity="warning"
+    <WorkspaceContainer>
+      <Stack spacing={dashboardContentGap}>
+        <Stack
+          direction={{ xs: 'column', md: 'row' }}
+          spacing={dashboardComponentGap}
+          sx={{ alignItems: { md: 'flex-end' }, justifyContent: 'space-between' }}
         >
-          {mapConfiguration.error instanceof Error
-            ? mapConfiguration.error.message
-            : 'Location map configuration could not be loaded.'}
-        </Alert>
-      ) : null}
-      {workspace.data?.unavailableSources.length ? (
-        <Alert severity="warning">
-          Missing workbench sources: {workspace.data.unavailableSources.join(', ')}
-        </Alert>
-      ) : null}
-      <MapPanel
-        accessToken={props.accessToken}
-        bootstrap={props.bootstrap}
-        locale={localization.locale}
-        mapConfiguration={mapConfiguration.data}
-        records={filteredRecords}
-        runtime={props.runtime}
-        selectedCode={selectedRecord?.code}
-        onSelect={(record) => {
-          setSelectedCode(record.code);
-        }}
-      />
-      <SelectedCentrePanel
-        record={selectedRecord}
-        summaryExpanded={summaryExpanded}
-        onToggleSummary={() => setSummaryExpanded((current) => !current)}
-      />
-      <AxisDataListing
-        ariaLabel="Collection centres"
-        columns={columns}
-        emptyMessage="No collection centres matched the current filters."
-        exportFileName="collection-centres"
-        getRowKey={(record) => record.code}
-        maxBodyHeight={420}
-        minTableWidth={1110}
-        onRowClick={(record) => {
-          setSelectedCode(record.code);
-        }}
-        records={filteredRecords}
-        selectedRowKey={selectedRecord?.code}
-        size="small"
-        toolbarStart={
-          <Stack
-            direction="row"
-            spacing={1}
-            sx={{ alignItems: 'center', flexWrap: 'wrap' }}
-          >
-            <Chip
-              label={`${filteredRecords.length.toString()} visible`}
-              size="small"
-              variant="outlined"
-            />
-            <Chip
-              label={`${(workspace.data?.sourceCounts.locations ?? 0).toString()} locations`}
-              size="small"
-              variant="outlined"
-            />
-            <Link
-              component={RouterLink}
-              to="/schema-workbench?module=profile&schema=enterprise"
-              underline="hover"
-              variant="body2"
-            >
-              Enterprise records
-            </Link>
+          <Stack spacing={0.5}>
+            <Typography variant="h4">Collection centres</Typography>
+            <Typography color="text.secondary">
+              {records.length.toString()} centres from Waste, Location, Profile, and
+              Enterprise records.
+            </Typography>
           </Stack>
-        }
-      />
-    </Stack>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            <TextField
+              label="Search"
+              onChange={(event) => setQuery(event.target.value)}
+              size="small"
+              value={query}
+            />
+            <FormControl size="small" sx={{ minWidth: 240 }}>
+              <InputLabel id="collection-centre-enterprise-filter">
+                Enterprise
+              </InputLabel>
+              <Select
+                label="Enterprise"
+                labelId="collection-centre-enterprise-filter"
+                onChange={(event) => {
+                  setEnterpriseCode(event.target.value);
+                  setSelectedCode(undefined);
+                }}
+                value={enterpriseCode}
+              >
+                <MenuItem value={allEnterprises}>All enterprises</MenuItem>
+                {enterpriseOptions.map((option) => (
+                  <MenuItem key={option.code} value={option.code}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Button onClick={() => void workspace.refetch()} variant="outlined">
+              Refresh
+            </Button>
+            <Button
+              component={RouterLink}
+              startIcon={<ShellIcon name="add" />}
+              to="/schema-workbench?module=wasteCollection&schema=wasteCollectionPoint&mode=create"
+              variant="contained"
+            >
+              Create centre
+            </Button>
+          </Stack>
+        </Stack>
+        {workspace.isLoading ? (
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+            <CircularProgress size={18} />
+            <Typography color="text.secondary">Loading collection centres</Typography>
+          </Stack>
+        ) : null}
+        {workspace.error ? (
+          <Alert severity="error">
+            {workspace.error instanceof Error
+              ? workspace.error.message
+              : 'Collection centres could not be loaded.'}
+          </Alert>
+        ) : null}
+        {mapConfiguration.error ? (
+          <Alert
+            action={
+              <Button component={RouterLink} size="small" to="/location/maps">
+                Configure
+              </Button>
+            }
+            severity="warning"
+          >
+            {mapConfiguration.error instanceof Error
+              ? mapConfiguration.error.message
+              : 'Location map configuration could not be loaded.'}
+          </Alert>
+        ) : null}
+        {workspace.data?.unavailableSources.length ? (
+          <Alert severity="warning">
+            Missing workbench sources: {workspace.data.unavailableSources.join(', ')}
+          </Alert>
+        ) : null}
+        <MapPanel
+          key={mapConfiguration.data?.revision}
+          accessToken={props.accessToken}
+          bootstrap={props.bootstrap}
+          locale={localization.locale}
+          mapConfiguration={mapConfiguration.data}
+          records={filteredRecords}
+          runtime={props.runtime}
+          selectedCode={selectedRecord?.code}
+          onSelect={(record) => {
+            setSelectedCode(record.code);
+          }}
+        />
+        <SelectedCentrePanel
+          record={selectedRecord}
+          summaryExpanded={summaryExpanded}
+          onToggleSummary={() => setSummaryExpanded((current) => !current)}
+        />
+        <AxisDataListing
+          ariaLabel="Collection centres"
+          columns={columns}
+          emptyMessage="No collection centres matched the current filters."
+          exportFileName="collection-centres"
+          getRowKey={(record) => record.code}
+          maxBodyHeight={420}
+          minTableWidth={1110}
+          onRowClick={(record) => {
+            setSelectedCode(record.code);
+          }}
+          records={filteredRecords}
+          selectedRowKey={selectedRecord?.code}
+          size="small"
+          toolbarStart={
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+            >
+              <Chip
+                label={`${filteredRecords.length.toString()} visible`}
+                size="small"
+                variant="outlined"
+              />
+              <Chip
+                label={`${(workspace.data?.sourceCounts.locations ?? 0).toString()} locations`}
+                size="small"
+                variant="outlined"
+              />
+              <Link
+                component={RouterLink}
+                to="/schema-workbench?module=profile&schema=enterprise"
+                underline="hover"
+                variant="body2"
+              >
+                Enterprise records
+              </Link>
+            </Stack>
+          }
+        />
+      </Stack>
+    </WorkspaceContainer>
   );
 }

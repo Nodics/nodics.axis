@@ -42,9 +42,9 @@ describe('application initialization client', () => {
     const request = client.getStatus();
 
     await vi.advanceTimersByTimeAsync(59_999);
-    await expect(Promise.race([request, Promise.resolve('still waiting')])).resolves.toBe(
-      'still waiting',
-    );
+    await expect(
+      Promise.race([request, Promise.resolve('still waiting')]),
+    ).resolves.toBe('still waiting');
 
     await vi.advanceTimersByTimeAsync(1);
     await expect(request).rejects.toThrow(
@@ -68,9 +68,9 @@ describe('application initialization client', () => {
     const request = client.initiate();
 
     await vi.advanceTimersByTimeAsync(179_999);
-    await expect(Promise.race([request, Promise.resolve('still waiting')])).resolves.toBe(
-      'still waiting',
-    );
+    await expect(
+      Promise.race([request, Promise.resolve('still waiting')]),
+    ).resolves.toBe('still waiting');
 
     await vi.advanceTimersByTimeAsync(1);
     await expect(request).rejects.toThrow(

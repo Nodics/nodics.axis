@@ -121,7 +121,8 @@ function parseResolvedComponent(value: unknown): WcmsExperienceResolvedComponent
     componentCode,
     rendererKey,
     contractVersion:
-      typeof source.contractVersion === 'number' && Number.isFinite(source.contractVersion)
+      typeof source.contractVersion === 'number' &&
+      Number.isFinite(source.contractVersion)
         ? source.contractVersion
         : 1,
     properties:
@@ -153,7 +154,9 @@ export function parseWcmsExperienceResolveResult(
       ? (source.diagnostics as Record<string, unknown>)
       : {};
   const rawSlots =
-    typeof source.slots === 'object' && source.slots !== null && !Array.isArray(source.slots)
+    typeof source.slots === 'object' &&
+    source.slots !== null &&
+    !Array.isArray(source.slots)
       ? (source.slots as Record<string, unknown>)
       : {};
   const slots = Object.fromEntries(
@@ -236,9 +239,7 @@ async function wcmsExperienceRequest(
     if (controller.signal.aborted) {
       throw new Error('WCMS Experience request timed out');
     }
-    throw error instanceof Error
-      ? error
-      : new Error('WCMS Experience request failed');
+    throw error instanceof Error ? error : new Error('WCMS Experience request failed');
   } finally {
     globalThis.clearTimeout(timeout);
   }
