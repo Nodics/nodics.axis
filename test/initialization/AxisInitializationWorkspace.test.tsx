@@ -6,6 +6,35 @@ import { AxisInitializationWorkspace } from '../../src/initialization/AxisInitia
 import { BundledLoginPage } from '../../src/initialization/BundledLoginPage';
 
 describe('bundled Axis initialization experience', () => {
+  it('offers the authorized registry recovery action and disables it while initialization is running', async () => {
+    const user = userEvent.setup();
+    const onManageModules = vi.fn();
+    const props = {
+      onApprove: vi.fn(),
+      onInitiate: vi.fn(),
+      onLogout: vi.fn(),
+      onRefresh: vi.fn(),
+    };
+    const view = render(<AxisInitializationWorkspace {...props} busy={false} />);
+    expect(
+      screen.queryByRole('button', { name: 'Prepare required modules' }),
+    ).toBeNull();
+    view.rerender(
+      <AxisInitializationWorkspace
+        {...props}
+        busy={false}
+        onManageModules={onManageModules}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Prepare required modules' }));
+    expect(onManageModules).toHaveBeenCalledOnce();
+    view.rerender(
+      <AxisInitializationWorkspace {...props} busy onManageModules={onManageModules} />,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Prepare required modules' }),
+    ).toBeDisabled();
+  });
   it('authenticates through the supplied existing Profile action without storing credentials', async () => {
     const user = userEvent.setup();
     const onLogin = vi.fn();

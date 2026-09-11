@@ -28,6 +28,7 @@ interface AxisInitializationWorkspaceProps {
   readonly onApprove: () => void;
   readonly onRefresh: () => void;
   readonly onLogout: () => void;
+  readonly onManageModules?: (() => void) | undefined;
 }
 
 const setupWizardSteps = Object.freeze([
@@ -494,6 +495,15 @@ export function AxisInitializationWorkspace(props: AxisInitializationWorkspacePr
             <Button disabled={props.busy} onClick={props.onRefresh} variant="outlined">
               Refresh status
             </Button>
+            {props.onManageModules ? (
+              <Button
+                disabled={props.busy}
+                onClick={props.onManageModules}
+                variant="outlined"
+              >
+                Prepare required modules
+              </Button>
+            ) : null}
             <Button disabled={props.busy} onClick={props.onLogout} variant="text">
               Sign out
             </Button>

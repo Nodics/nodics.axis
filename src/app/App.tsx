@@ -2,6 +2,7 @@ import { wasteOverviewAliases } from '../operations/wasteManagement/wasteOvervie
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router';
 import { useQueries, useQueryClient, type Query } from '@tanstack/react-query';
+import { Box, Button, Stack, Typography } from '@mui/material';
 
 import {
   authenticateEmployee,
@@ -447,14 +448,15 @@ export function App() {
     }
   }, [initializationStatus, refreshInitialization, runtime, session]);
 
+  const hasAuthenticatedBootstrap = Boolean(authenticatedBootstrap);
   useEffect(() => {
-    if (!session || !authenticatedBootstrap) {
+    if (!session || !hasAuthenticatedBootstrap) {
       setInitializationStatus(undefined);
       setInitializationError(undefined);
       return;
     }
     void refreshInitialization();
-  }, [authenticatedBootstrap, refreshInitialization, session]);
+  }, [hasAuthenticatedBootstrap, refreshInitialization, session]);
 
   const documentationAdministrationConnection = authenticatedBootstrap
     ? selectModuleConnection(authenticatedBootstrap, 'backoffice')
@@ -1383,6 +1385,16 @@ export function App() {
         onApprove={() => void approveInitialization()}
         onLogout={logout}
         onRefresh={() => void refreshInitialization()}
+        onManageModules={
+          session &&
+          !locked &&
+          moduleRegistryNavigation &&
+          ['UP', 'DEGRADED'].includes(moduleRegistryNavigation.availability)
+            ? () => {
+                void navigate('/registry');
+              }
+            : undefined
+        }
         status={initializationStatus}
       />
     );
@@ -1394,6 +1406,49 @@ export function App() {
       <AxisLocalizationBoundary value={localization}>
         <Routes>
           <Route path={axisInitializationRoute} element={initializationElement} />
+          <Route
+            path="/registry"
+            element={
+              session &&
+              !locked &&
+              authenticatedBootstrap &&
+              moduleRegistryNavigation &&
+              ['UP', 'DEGRADED'].includes(moduleRegistryNavigation.availability) ? (
+                <Box
+                  component="main"
+                  sx={{ mx: 'auto', maxWidth: 1440, p: { xs: 2, md: 4 } }}
+                >
+                  <Stack spacing={2} sx={{ mb: 3 }}>
+                    <Typography component="h1" variant="h5">
+                      Prepare Axis dependencies
+                    </Typography>
+                    <Typography color="text.secondary">
+                      Register and activate Process to make governed publication
+                      approvals available, then return to Axis setup.
+                    </Typography>
+                    <Button
+                      onClick={() => {
+                        void navigate(axisInitializationRoute);
+                        void refreshInitialization();
+                      }}
+                      sx={{ alignSelf: 'flex-start' }}
+                    >
+                      Return to Axis setup
+                    </Button>
+                  </Stack>
+                  <FunctionalModuleRegistryRoutePage
+                    accessToken={session.accessToken}
+                    bootstrap={authenticatedBootstrap}
+                    onBootstrapRefresh={refreshAuthenticatedBootstrap}
+                    routeNavigation={moduleRegistryNavigation}
+                    runtime={runtime}
+                  />
+                </Box>
+              ) : (
+                <Navigate replace to={axisInitializationRoute} />
+              )
+            }
+          />
           <Route path="*" element={<Navigate replace to={axisInitializationRoute} />} />
         </Routes>
       </AxisLocalizationBoundary>
