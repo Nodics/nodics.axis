@@ -186,7 +186,6 @@ typed client. Do not maintain a frontend module/path map. Tests in
 routes, unsafe targets, revisions and one-request failure handling. The detailed
 backend contract is the Foundation schema-data-modeling documentation. Domain provisioning and confirmation retain their existing backend owners.
 
-
 ### Canonical schema discovery
 
 Axis collection discovery now uses module-relative `GET /schemas`; detail uses

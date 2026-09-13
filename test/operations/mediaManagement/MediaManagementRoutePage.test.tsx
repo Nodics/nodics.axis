@@ -1442,8 +1442,7 @@ describe('MediaManagementRoutePage', () => {
         fetchMock.mock.calls.some(([input, init]) => {
           const url = fetchInputUrl(input);
           return (
-            url.pathname === '/nodics/media/v0/mediaFolder' &&
-            init?.method === 'DELETE'
+            url.pathname === '/nodics/media/v0/mediaFolder' && init?.method === 'DELETE'
           );
         }),
       ).toBe(true);

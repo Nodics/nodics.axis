@@ -101,7 +101,6 @@ changing owner-enforced fixed filters. Query capabilities and typed AND/OR
 semantics remain supplied by the backend descriptor. Shared shell extension and
 verification guidance is in [Axis search](../app/search/README.md).
 
-
 ## Canonical schema discovery
 
 The shared client loads the selected module's `v0/schemas` collection. Details use
