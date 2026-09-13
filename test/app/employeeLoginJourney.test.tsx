@@ -1814,7 +1814,7 @@ describe('employee login journey', () => {
           ),
         );
       }
-      if (url.includes('/schema/workbench')) {
+      if (url.endsWith('/schemas')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({ result: { schemas: [cmsPageWorkbenchSchema] } }),
@@ -2243,7 +2243,7 @@ describe('employee login journey', () => {
           ),
         );
       }
-      if (url.includes('/schema/workbench')) {
+      if (url.endsWith('/schemas')) {
         const schemas = url.includes('cms.example.com')
           ? [cmsPageWorkbenchSchema]
           : url.includes('product.example.com')

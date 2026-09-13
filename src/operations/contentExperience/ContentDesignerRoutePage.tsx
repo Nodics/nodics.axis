@@ -210,69 +210,8 @@ const designerSteps: readonly DesignerStep[] = Object.freeze([
   }),
 ]);
 
-const fallbackDraftDefaults: ContentDesignerDraftDefaults = Object.freeze({
-  accessMode: 'PUBLIC',
-  catalogCode: 'nexusContentCatalog',
-  pageRenderer: 'nexus.page.standard',
-  pageTypeCode: 'nexusCorporateStandardPageType',
-  routePath: '/axis-e2e/content-designer-draft',
-  siteCode: 'nexusCorporateSite',
-  slots: Object.freeze(['main']),
-  templateCode: 'nexusCorporatePageTemplate',
-});
-
-const fallbackComponentKinds: readonly ContentDesignerComponentKind[] = Object.freeze([
-  Object.freeze({
-    label: 'Nexus hero',
-    typeCode: 'nexusPageHeroType',
-    renderer: 'nexus.hero',
-  }),
-  Object.freeze({
-    label: 'Nexus content section',
-    typeCode: 'nexusContentSectionType',
-    renderer: 'nexus.contentSection',
-  }),
-  Object.freeze({
-    label: 'Nexus card grid',
-    typeCode: 'nexusCardGridType',
-    renderer: 'nexus.cardGrid',
-  }),
-  Object.freeze({
-    label: 'Hero banner',
-    typeCode: 'heroBannerComponentType',
-    renderer: 'axis.heroBanner',
-  }),
-  Object.freeze({
-    label: 'Rich text',
-    typeCode: 'richTextComponentType',
-    renderer: 'axis.richText',
-  }),
-  Object.freeze({
-    label: 'Image card',
-    typeCode: 'imageCardComponentType',
-    renderer: 'axis.imageCard',
-  }),
-  Object.freeze({
-    label: 'Media gallery',
-    typeCode: 'mediaGalleryComponentType',
-    renderer: 'axis.mediaGallery',
-  }),
-  Object.freeze({
-    label: 'Call to action',
-    typeCode: 'callToActionComponentType',
-    renderer: 'axis.callToAction',
-  }),
-  Object.freeze({
-    label: 'Documentation article',
-    typeCode: 'documentationArticleComponentType',
-    renderer: 'axis.documentationArticle',
-  }),
-  Object.freeze({
-    label: 'Dashboard widget',
-    typeCode: 'dashboardWidgetComponentType',
-    renderer: 'axis.dashboardWidget',
-  }),
-]);
+const emptyDraftDefaults: ContentDesignerDraftDefaults = Object.freeze({});
+const emptyComponentKinds: readonly ContentDesignerComponentKind[] = Object.freeze([]);
 
 function DesignerStepCard({
   step,
@@ -349,12 +288,10 @@ function parseSlots(value: string): readonly string[] {
 function selectedComponentKind(
   label: string,
   componentKinds: readonly ContentDesignerComponentKind[],
-): ContentDesignerComponentKind {
+): ContentDesignerComponentKind | undefined {
   const selected = componentKinds.find((kind) => kind.label === label);
   if (selected) return selected;
-  const fallback = componentKinds.find((kind) => kind.label === 'Hero banner');
-  if (!fallback) throw new Error('Content Designer component kind catalog is empty');
-  return fallback;
+  return componentKinds[0];
 }
 
 function optionLabel(option: ContentDesignerReference): string {
@@ -378,6 +315,7 @@ function componentHint(
   componentTypes: readonly ContentDesignerReference[],
 ): string {
   const kind = selectedComponentKind(componentIntent, componentKinds);
+  if (!kind) return 'No component types are configured for this authoring application.';
   const type = componentTypes.find((item) => item.code === kind.typeCode);
   const name = type ? optionLabel(type) : kind.typeCode;
   return `Creates ${name} with renderer ${kind.renderer}. You can refine properties after the draft is saved.`;
@@ -420,12 +358,9 @@ function buildDraft({
     draftDefaults.accessMode ?? 'AUTHENTICATED',
   ).toUpperCase();
   return Object.freeze({
-    catalogCode: safeCode(catalogIntent, draftDefaults.catalogCode ?? 'contentCatalog'),
-    siteCode: safeCode(siteIntent, draftDefaults.siteCode ?? 'contentSite'),
-    templateCode: safeCode(
-      templateIntent,
-      draftDefaults.templateCode ?? 'pageTemplate',
-    ),
+    catalogCode: safeCode(catalogIntent, draftDefaults.catalogCode ?? ''),
+    siteCode: safeCode(siteIntent, draftDefaults.siteCode ?? ''),
+    templateCode: safeCode(templateIntent, draftDefaults.templateCode ?? ''),
     page: Object.freeze({
       code: pageCode,
       name:
@@ -434,8 +369,8 @@ function buildDraft({
           .replace(/([A-Z])/g, ' $1')
           .trim()
           .replace(/^./, (letter) => letter.toUpperCase()) || pageCode,
-      renderer: draftDefaults.pageRenderer ?? 'axis.page',
-      typeCode: draftDefaults.pageTypeCode ?? 'contentPageType',
+      renderer: draftDefaults.pageRenderer ?? '',
+      typeCode: draftDefaults.pageTypeCode ?? '',
     }),
     sections: Object.freeze(
       slots.map((slot, index) =>
@@ -445,13 +380,13 @@ function buildDraft({
           components: Object.freeze([
             Object.freeze({
               code: `${pageCode}${slot.charAt(0).toUpperCase()}${slot.slice(1)}Component`,
-              renderer: kind.renderer,
-              typeCode: kind.typeCode,
+              renderer: kind?.renderer ?? '',
+              typeCode: kind?.typeCode ?? '',
               accessMode,
               properties: Object.freeze({
                 trackingId: `${pageCode}-${slot}`,
                 title: `${pageCode} ${slot}`,
-                body: `Draft ${kind.label.toLowerCase()} content for ${slot}.`,
+                body: `Draft ${(kind?.label ?? 'component').toLowerCase()} content for ${slot}.`,
               }),
               localizations: Object.freeze([]),
             }),
@@ -463,7 +398,7 @@ function buildDraft({
       accessMode,
       channel: 'web',
       locale: selectedLocale,
-      path: safeRoute(routeIntent, `/docs/${pageCode}`),
+      path: safeRoute(routeIntent, `/${pageCode}`),
     }),
   });
 }
@@ -901,9 +836,7 @@ export function ContentDesignerRoutePage({
   const [slotIntent, setSlotIntent] = useState('');
   const [routeIntent, setRouteIntent] = useState('');
   const [accessModeIntent, setAccessModeIntent] = useState('');
-  const [componentIntent, setComponentIntent] = useState(
-    selectedComponentKind('Nexus hero', fallbackComponentKinds).label,
-  );
+  const [componentIntent, setComponentIntent] = useState('');
   const [selectedLocale, setSelectedLocale] = useState('en');
   const [validatedDraftSignature, setValidatedDraftSignature] = useState('');
   const [savedDraftSignature, setSavedDraftSignature] = useState('');
@@ -939,18 +872,16 @@ export function ContentDesignerRoutePage({
   });
   const componentKinds = authoringModel.data?.defaults.componentKinds.length
     ? authoringModel.data.defaults.componentKinds
-    : fallbackComponentKinds;
+    : emptyComponentKinds;
   const effectiveComponentIntent = componentKinds.some(
     (kind) => kind.label === componentIntent,
   )
     ? componentIntent
-    : componentKinds[0]?.label || fallbackComponentKinds[0]?.label || '';
+    : componentKinds[0]?.label || emptyComponentKinds[0]?.label || '';
   const draftDefaults =
-    authoringModel.data?.defaults.draftDefaults ?? fallbackDraftDefaults;
-  const effectiveCatalogIntent =
-    catalogIntent || draftDefaults.catalogCode || 'contentCatalog';
-  const effectiveTemplateIntent =
-    templateIntent || draftDefaults.templateCode || 'pageTemplate';
+    authoringModel.data?.defaults.draftDefaults ?? emptyDraftDefaults;
+  const effectiveCatalogIntent = catalogIntent || draftDefaults.catalogCode || '';
+  const effectiveTemplateIntent = templateIntent || draftDefaults.templateCode || '';
   const metadata = authoringModel.data?.metadata;
   const supportedLocales = metadata?.localization.supportedLocales.length
     ? metadata.localization.supportedLocales
@@ -971,8 +902,19 @@ export function ContentDesignerRoutePage({
     (siteOptions.some((site) => site.code === draftDefaults.siteCode)
       ? draftDefaults.siteCode
       : siteOptions[0]?.code) ||
-    'contentSite';
+    '';
   const templateOptions = metadata?.pageTemplates ?? [];
+  const selectedTemplate = templateOptions.find(
+    (template) => template.code === effectiveTemplateIntent,
+  );
+  const templateDraftDefaults = useMemo(
+    () => ({
+      ...draftDefaults,
+      pageRenderer: selectedTemplate?.renderer ?? draftDefaults.pageRenderer,
+      pageTypeCode: selectedTemplate?.typeCode ?? draftDefaults.pageTypeCode,
+    }),
+    [draftDefaults, selectedTemplate],
+  );
   const slotOptions = useMemo(
     () =>
       (metadata?.slotDefinitions ?? []).filter(
@@ -987,7 +929,7 @@ export function ContentDesignerRoutePage({
   const effectiveSlotIntent =
     slotIntent || slotsFromReferences(slotOptions, draftDefaults);
   const effectiveRouteIntent =
-    routeIntent || draftDefaults.routePath || '/axis-e2e/content-designer-draft';
+    routeIntent || draftDefaults.routePath || `/${safeCode(pageIntent, 'newPage')}`;
   const effectiveAccessModeIntent = (
     accessModeIntent ||
     draftDefaults.accessMode ||
@@ -1006,7 +948,7 @@ export function ContentDesignerRoutePage({
         catalogIntent: effectiveCatalogIntent,
         componentIntent: effectiveComponentIntent,
         componentKinds,
-        draftDefaults,
+        draftDefaults: templateDraftDefaults,
         pageIntent,
         routeIntent: effectiveRouteIntent,
         selectedLocale,
@@ -1016,7 +958,7 @@ export function ContentDesignerRoutePage({
       }),
     [
       componentKinds,
-      draftDefaults,
+      templateDraftDefaults,
       effectiveAccessModeIntent,
       effectiveComponentIntent,
       effectiveCatalogIntent,
@@ -1028,11 +970,23 @@ export function ContentDesignerRoutePage({
       selectedLocale,
     ],
   );
+  const authoringReady = Boolean(
+    authoringModel.data &&
+    componentKinds.length &&
+    draft.catalogCode &&
+    draft.siteCode &&
+    draft.templateCode &&
+    draft.page.typeCode &&
+    draft.page.renderer,
+  );
   const draftSignature = useMemo(() => JSON.stringify(draft), [draft]);
 
   const validateMutation = useMutation({
     mutationFn: () => {
-      if (!designerConnection) throw new Error('CMS connection is not available');
+      if (!designerConnection || !authoringReady)
+        throw new Error(
+          'Choose the configured authoring references before validating a draft',
+        );
       return validateContentDesignerDraft(designerConnection, configuration, draft);
     },
     onSuccess: (result) => {
@@ -1367,7 +1321,9 @@ export function ContentDesignerRoutePage({
               ) : null}
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
                 <Button
-                  disabled={!designerConnection || validateMutation.isPending}
+                  disabled={
+                    !designerConnection || !authoringReady || validateMutation.isPending
+                  }
                   onClick={() => validateMutation.mutate()}
                   variant="contained"
                 >
@@ -1405,7 +1361,7 @@ export function ContentDesignerRoutePage({
                     setTemplateIntent('');
                     setSlotIntent('');
                     setRouteIntent('');
-                    setComponentIntent(componentKinds[0]?.label ?? 'Hero banner');
+                    setComponentIntent(componentKinds[0]?.label ?? '');
                   }}
                   variant="text"
                 >

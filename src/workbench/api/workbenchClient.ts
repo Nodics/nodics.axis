@@ -2,8 +2,9 @@ import type { AxisModuleConnection } from '../../bootstrap/publicBootstrap';
 import { workbenchCommandKey } from '../record/workbenchCommand';
 import type { AxisNavigationLifecycleAction } from '../../bootstrap/publicBootstrap';
 import {
-  parseWorkbenchRecords,
   parseWorkbenchRecordPage,
+  parseWorkbenchApiOperations,
+  type WorkbenchApiOperations,
   parseWorkbenchDeleteImpact,
   parseWorkbenchSchema,
   type WorkbenchDeleteImpact,
@@ -76,13 +77,6 @@ function safeSegment(value: string, name: string): string {
   return encodeURIComponent(value);
 }
 
-function shouldFallbackToGenericWorkbench(error: unknown): boolean {
-  return (
-    error instanceof WorkbenchRequestError &&
-    (error.status === 404 || error.status === 405)
-  );
-}
-
 function normalizeDateValue(value: unknown): unknown {
   if (typeof value !== 'string') return value;
   const trimmed = value.trim();
@@ -118,6 +112,54 @@ function normalizeGeneratedCrudModel(
   return Object.freeze(normalized);
 }
 
+/**
+ * Accept one persisted model from the owner's supported mutation envelopes.
+ * Counts and acknowledgements cannot replace the selected record or its revision.
+ * An invalid success response is not retried: the write may already have applied.
+ */
+function mutationRecord(schema: WorkbenchSchema, result: unknown): WorkbenchRecord {
+  const invalid = () =>
+    new Error(
+      'Write response did not return one usable persisted record; reload before retrying',
+    );
+  const identityField =
+    schema.fields.find((field) => field.primary)?.name ?? schema.displayProperty;
+  const hasIdentity = (value: Record<string, unknown>) => {
+    const identity = value[identityField];
+    return (
+      (typeof identity === 'string' && identity.trim().length > 0) ||
+      (typeof identity === 'number' && Number.isFinite(identity)) ||
+      typeof identity === 'boolean'
+    );
+  };
+  let record: unknown = result;
+  if (Array.isArray(result)) {
+    if (result.length !== 1) throw invalid();
+    record = result[0];
+  } else if (typeof result === 'object' && result !== null) {
+    const wrapper = result as Record<string, unknown>;
+    if (!hasIdentity(wrapper) && 'models' in wrapper) {
+      if (
+        !Array.isArray(wrapper.models) ||
+        wrapper.models.length !== 1 ||
+        wrapper.matchedCount === 0
+      )
+        throw invalid();
+      record = wrapper.models[0];
+    }
+  }
+  if (typeof record !== 'object' || record === null || Array.isArray(record))
+    throw invalid();
+  const persisted = record as Record<string, unknown>;
+  if (!hasIdentity(persisted)) throw invalid();
+  if (schema.concurrency?.managed) {
+    const revision = persisted[schema.concurrency.field];
+    if (typeof revision !== 'number' || !Number.isSafeInteger(revision) || revision < 0)
+      throw invalid();
+  }
+  return Object.freeze({ ...persisted });
+}
+
 async function request(
   connection: AxisModuleConnection,
   path: string,
@@ -125,6 +167,7 @@ async function request(
   options: RequestInit = {},
   fetchImplementation: typeof fetch = fetch,
   allowEmptyResult = false,
+  apiVersion = 'v0',
 ): Promise<unknown> {
   const endpoint = new URL(connection.endpoint);
   if (!['http:', 'https:'].includes(endpoint.protocol)) {
@@ -145,7 +188,7 @@ async function request(
   try {
     const callerHeaders = new Headers(options.headers);
     const response = await fetchImplementation(
-      new URL(`${endpoint.toString().replace(/\/$/, '')}/v0${path}`),
+      new URL(`${endpoint.toString().replace(/\/$/, '')}/${apiVersion}${path}`),
       {
         ...options,
         headers: new Headers({
@@ -183,13 +226,7 @@ export async function loadWorkbenchSchemas(
   const results = await Promise.allSettled(
     connections.map(async (connection) => {
       const schemas = parseWorkbenchSchemaList(
-        await request(
-          connection,
-          '/schema/workbench',
-          configuration,
-          {},
-          fetchImplementation,
-        ),
+        await request(connection, '/schemas', configuration, {}, fetchImplementation),
       );
       return schemas.map((schema) =>
         Object.freeze({
@@ -241,32 +278,49 @@ export async function loadWorkbenchSchemas(
   );
 }
 
+/** Use an advertised route exactly once; compatibility fallback applies only to absent metadata. */
+function generatedRequest(
+  connection: AxisModuleConnection,
+  schema: Pick<WorkbenchSchema, 'apiOperations'>,
+  operation: keyof WorkbenchApiOperations,
+  defaultPath: string,
+  configuration: WorkbenchClientConfiguration,
+  options: RequestInit,
+  fetchImplementation: typeof fetch,
+  allowEmptyResult = false,
+): Promise<unknown> {
+  const route =
+    schema.apiOperations === undefined
+      ? undefined
+      : parseWorkbenchApiOperations(schema.apiOperations)[operation];
+  if (route?.active === false) throw new Error('Schema API operation is unavailable');
+  return request(
+    connection,
+    route?.path ?? defaultPath,
+    configuration,
+    { ...options, ...(route ? { method: route.method } : {}) },
+    fetchImplementation,
+    allowEmptyResult,
+    route?.apiVersion ?? 'v0',
+  );
+}
+
 export async function loadGeneratedSchemaCapabilities(
   connection: AxisModuleConnection,
-  schema: Pick<WorkbenchSchema, 'schemaName'>,
+  schema: Pick<WorkbenchSchema, 'schemaName' | 'apiOperations'>,
   configuration: WorkbenchClientConfiguration,
   fetchImplementation: typeof fetch = fetch,
 ): Promise<WorkbenchSchema> {
   const schemaName = safeSegment(schema.schemaName, 'Workbench schema name');
-  let capabilitiesResult: unknown;
-  try {
-    capabilitiesResult = await request(
-      connection,
-      `/${schemaName}/capabilities`,
-      configuration,
-      {},
-      fetchImplementation,
-    );
-  } catch (error: unknown) {
-    if (!shouldFallbackToGenericWorkbench(error)) throw error;
-    capabilitiesResult = await request(
-      connection,
-      `/schema/workbench/${schemaName}`,
-      configuration,
-      {},
-      fetchImplementation,
-    );
-  }
+  const capabilitiesResult = await generatedRequest(
+    connection,
+    schema,
+    'capabilities',
+    `/schemas/${schemaName}`,
+    configuration,
+    {},
+    fetchImplementation,
+  );
   const capabilities = parseWorkbenchSchema(capabilitiesResult);
   return Object.freeze({
     ...capabilities,
@@ -286,36 +340,21 @@ export async function loadWorkbenchRecords(
   signal?: AbortSignal,
 ): Promise<WorkbenchRecordPage> {
   const schemaName = safeSegment(schema.schemaName, 'Workbench schema name');
-  try {
-    return parseWorkbenchRecordPage(
-      await request(
-        connection,
-        `/${schemaName}/safe-search`,
-        configuration,
-        {
-          method: 'POST',
-          body: JSON.stringify({ query }),
-          ...(signal ? { signal } : {}),
-        },
-        fetchImplementation,
-      ),
-    );
-  } catch (error: unknown) {
-    if (!shouldFallbackToGenericWorkbench(error)) throw error;
-    return parseWorkbenchRecordPage(
-      await request(
-        connection,
-        `/schema/workbench/${schemaName}/records`,
-        configuration,
-        {
-          method: 'POST',
-          body: JSON.stringify({ query }),
-          ...(signal ? { signal } : {}),
-        },
-        fetchImplementation,
-      ),
-    );
-  }
+  return parseWorkbenchRecordPage(
+    await generatedRequest(
+      connection,
+      schema,
+      'search',
+      `/${schemaName}/safe-search`,
+      configuration,
+      {
+        method: 'POST',
+        body: JSON.stringify({ query }),
+        ...(signal ? { signal } : {}),
+      },
+      fetchImplementation,
+    ),
+  );
 }
 
 export async function createWorkbenchRecord(
@@ -346,36 +385,16 @@ export async function createWorkbenchRecord(
     throw new Error('This schema does not allow generated record creation');
   }
   const normalizedModel = normalizeGeneratedCrudModel(schema, model);
-  let result: unknown;
-  try {
-    result = await request(
-      connection,
-      `/${safeSegment(schema.schemaName, 'Workbench schema name')}`,
-      configuration,
-      { method: 'PUT', body: JSON.stringify(normalizedModel) },
-      fetchImplementation,
-    );
-  } catch (error: unknown) {
-    if (!shouldFallbackToGenericWorkbench(error)) throw error;
-    result = await request(
-      connection,
-      `/schema/workbench/${safeSegment(schema.schemaName, 'Workbench schema name')}/record`,
-      configuration,
-      { method: 'POST', body: JSON.stringify({ model: normalizedModel }) },
-      fetchImplementation,
-    );
-  }
-  if (Array.isArray(result)) {
-    if (result.length !== 1) throw new Error('Workbench create result is invalid');
-    return parseWorkbenchRecords(result)[0]!;
-  }
-  return Object.freeze({
-    ...(typeof result === 'object' && result !== null
-      ? (result as Record<string, unknown>)
-      : (() => {
-          throw new Error('Workbench create result is invalid');
-        })()),
-  });
+  const result = await generatedRequest(
+    connection,
+    schema,
+    'create',
+    `/${safeSegment(schema.schemaName, 'Workbench schema name')}`,
+    configuration,
+    { method: 'PUT', body: JSON.stringify(normalizedModel) },
+    fetchImplementation,
+  );
+  return mutationRecord(schema, result);
 }
 
 export async function updateWorkbenchRecord(
@@ -394,50 +413,23 @@ export async function updateWorkbenchRecord(
   }
   const identity = recordIdentity(schema, original);
   const normalizedModel = normalizeGeneratedCrudModel(schema, model);
-  let result: unknown;
-  try {
-    result = await request(
-      connection,
-      `/${safeSegment(schema.schemaName, 'Workbench schema name')}`,
-      configuration,
-      {
-        method: 'PATCH',
-        body: JSON.stringify({
-          model: normalizedModel,
-          options: { recursive: false, returnModified: true },
-          query: identity,
-        }),
-      },
-      fetchImplementation,
-    );
-  } catch (error: unknown) {
-    if (!shouldFallbackToGenericWorkbench(error)) throw error;
-    result = await request(
-      connection,
-      `/schema/workbench/${safeSegment(schema.schemaName, 'Workbench schema name')}/record`,
-      configuration,
-      {
-        method: 'PATCH',
-        body: JSON.stringify({
-          identity,
-          model: normalizedModel,
-        }),
-      },
-      fetchImplementation,
-    );
-  }
-  if (Array.isArray(result)) {
-    if (result.length !== 1) throw new Error('Workbench update result is invalid');
-    return parseWorkbenchRecords(result)[0]!;
-  }
-  if (typeof result !== 'object' || result === null) {
-    throw new Error('Workbench update result is invalid');
-  }
-  const updateResult = result as Record<string, unknown>;
-  if (Array.isArray(updateResult.models) && updateResult.models.length === 1) {
-    return parseWorkbenchRecords(updateResult.models)[0]!;
-  }
-  return Object.freeze(updateResult);
+  const result = await generatedRequest(
+    connection,
+    schema,
+    'update',
+    `/${safeSegment(schema.schemaName, 'Workbench schema name')}`,
+    configuration,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({
+        query: identity,
+        model: normalizedModel,
+        options: { recursive: false, returnModified: true },
+      }),
+    },
+    fetchImplementation,
+  );
+  return mutationRecord(schema, result);
 }
 
 export async function deleteWorkbenchRecord(
@@ -454,16 +446,16 @@ export async function deleteWorkbenchRecord(
   ) {
     throw new Error('This schema does not allow generated record deletion');
   }
-  await request(
+  await generatedRequest(
     connection,
-    `/schema/workbench/${safeSegment(schema.schemaName, 'Workbench schema name')}/record`,
+    schema,
+    'delete',
+    `/${safeSegment(schema.schemaName, 'Workbench schema name')}`,
     configuration,
     {
       method: 'DELETE',
       headers: { 'Idempotency-Key': idempotencyKey },
-      body: JSON.stringify({
-        identity: recordIdentity(schema, original),
-      }),
+      body: JSON.stringify({ query: recordIdentity(schema, original) }),
     },
     fetchImplementation,
     true,
@@ -508,34 +500,17 @@ export async function previewWorkbenchDeleteImpact(
 ): Promise<WorkbenchDeleteImpact> {
   const schemaName = safeSegment(schema.schemaName, 'Workbench schema name');
   const body = JSON.stringify({ identity: recordIdentity(schema, original) });
-  try {
-    return parseWorkbenchDeleteImpact(
-      await request(
-        connection,
-        `/${schemaName}/delete-impact`,
-        configuration,
-        {
-          method: 'POST',
-          body,
-        },
-        fetchImplementation,
-      ),
-    );
-  } catch (error: unknown) {
-    if (!shouldFallbackToGenericWorkbench(error)) throw error;
-    return parseWorkbenchDeleteImpact(
-      await request(
-        connection,
-        `/schema/workbench/${schemaName}/delete-impact`,
-        configuration,
-        {
-          method: 'POST',
-          body,
-        },
-        fetchImplementation,
-      ),
-    );
-  }
+  return parseWorkbenchDeleteImpact(
+    await generatedRequest(
+      connection,
+      schema,
+      'deleteImpact',
+      `/${schemaName}/delete-impact`,
+      configuration,
+      { method: 'POST', body },
+      fetchImplementation,
+    ),
+  );
 }
 
 export async function bulkDeleteWorkbenchRecords(
@@ -553,9 +528,11 @@ export async function bulkDeleteWorkbenchRecords(
   ) {
     throw new Error('Bulk delete is not available for this selection');
   }
-  await request(
+  await generatedRequest(
     connection,
-    `/schema/workbench/${safeSegment(schema.schemaName, 'Workbench schema name')}/bulk`,
+    schema,
+    'bulk',
+    `/${safeSegment(schema.schemaName, 'Workbench schema name')}/bulk`,
     configuration,
     {
       method: 'POST',
@@ -637,18 +614,23 @@ export async function executeWorkbenchAggregate(
   idempotencyKey: string,
   fetchImplementation: typeof fetch = fetch,
 ): Promise<unknown> {
-  if (!schema.aggregateOperations?.some((candidate) => candidate.name === operation)) {
-    throw new Error('Aggregate operation is not available');
-  }
+  const operationDefinition = schema.aggregateOperations?.find(
+    (candidate) => candidate.name === operation,
+  );
+  if (!operationDefinition?.api) throw new Error('Owning business API is unavailable');
+  const route = parseWorkbenchApiOperations({ bulk: operationDefinition.api }).bulk;
+  if (!route || !route.active) throw new Error('Owning business API is unavailable');
   return request(
     connection,
-    `/schema/workbench/${safeSegment(schema.schemaName, 'Workbench schema name')}/aggregate`,
+    route.path,
     configuration,
     {
-      method: 'POST',
+      method: route.method,
       headers: { 'Idempotency-Key': idempotencyKey },
-      body: JSON.stringify({ operation, payload }),
+      body: JSON.stringify(payload),
     },
     fetchImplementation,
+    false,
+    route.apiVersion,
   );
 }

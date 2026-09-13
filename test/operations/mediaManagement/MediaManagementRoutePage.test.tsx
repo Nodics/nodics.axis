@@ -537,7 +537,7 @@ describe('MediaManagementRoutePage', () => {
     };
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = fetchInputUrl(input);
-      if (url.pathname === '/nodics/media/v0/schema/workbench') {
+      if (url.pathname === '/nodics/media/v0/schemas') {
         return Promise.resolve(
           json({
             moduleName: 'media',
@@ -596,7 +596,7 @@ describe('MediaManagementRoutePage', () => {
       .spyOn(globalThis, 'fetch')
       .mockImplementation((input, init) => {
         const url = fetchInputUrl(input);
-        if (url.pathname === '/nodics/media/v0/schema/workbench') {
+        if (url.pathname === '/nodics/media/v0/schemas') {
           return Promise.resolve(
             json({
               moduleName: 'media',
@@ -1025,7 +1025,7 @@ describe('MediaManagementRoutePage', () => {
   it('shows media folder policy impact without exposing provider internals', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = fetchInputUrl(input);
-      if (url.pathname === '/nodics/media/v0/schema/workbench') {
+      if (url.pathname === '/nodics/media/v0/schemas') {
         return Promise.resolve(
           json({
             moduleName: 'media',
@@ -1197,7 +1197,7 @@ describe('MediaManagementRoutePage', () => {
       .spyOn(globalThis, 'fetch')
       .mockImplementation((input, init) => {
         const url = fetchInputUrl(input);
-        if (url.pathname === '/nodics/media/v0/schema/workbench') {
+        if (url.pathname === '/nodics/media/v0/schemas') {
           return Promise.resolve(
             json({
               moduleName: 'media',
@@ -1325,7 +1325,7 @@ describe('MediaManagementRoutePage', () => {
       .spyOn(globalThis, 'fetch')
       .mockImplementation((input, init) => {
         const url = fetchInputUrl(input);
-        if (url.pathname === '/nodics/media/v0/schema/workbench') {
+        if (url.pathname === '/nodics/media/v0/schemas') {
           return Promise.resolve(
             json({
               moduleName: 'media',
@@ -1383,7 +1383,7 @@ describe('MediaManagementRoutePage', () => {
           );
         }
         if (
-          url.pathname === '/nodics/media/v0/schema/workbench/mediaFolder/record' &&
+          url.pathname === '/nodics/media/v0/mediaFolder' &&
           init?.method === 'DELETE'
         ) {
           return Promise.resolve(json(undefined));
@@ -1442,7 +1442,7 @@ describe('MediaManagementRoutePage', () => {
         fetchMock.mock.calls.some(([input, init]) => {
           const url = fetchInputUrl(input);
           return (
-            url.pathname === '/nodics/media/v0/schema/workbench/mediaFolder/record' &&
+            url.pathname === '/nodics/media/v0/mediaFolder' &&
             init?.method === 'DELETE'
           );
         }),
@@ -1453,7 +1453,7 @@ describe('MediaManagementRoutePage', () => {
   it('shows media format context usage from backend-owned source contexts', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = fetchInputUrl(input);
-      if (url.pathname === '/nodics/media/v0/schema/workbench') {
+      if (url.pathname === '/nodics/media/v0/schemas') {
         return Promise.resolve(
           json({
             moduleName: 'media',
@@ -1523,7 +1523,7 @@ describe('MediaManagementRoutePage', () => {
       .spyOn(globalThis, 'fetch')
       .mockImplementation((input, init) => {
         const url = fetchInputUrl(input);
-        if (url.pathname === '/nodics/media/v0/schema/workbench') {
+        if (url.pathname === '/nodics/media/v0/schemas') {
           return Promise.resolve(
             json({
               moduleName: 'media',

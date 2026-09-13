@@ -459,13 +459,13 @@ function GovernancePanel({
   const projection = useMutation({
     mutationFn: async () => {
       if (!client) throw new Error('CMS documentation governance is unavailable');
-      return client.renderProjection(recordPack, 'AXIS');
+      return client.renderProjection(recordPack, 'EMPLOYEE');
     },
   });
   const search = useMutation({
     mutationFn: async () => {
       if (!client) throw new Error('CMS documentation governance is unavailable');
-      return client.search(query, recordPack, 'AXIS');
+      return client.search(query, recordPack, 'EMPLOYEE');
     },
   });
   const handoff = useMutation({
@@ -3214,13 +3214,13 @@ function PreviewPanel({
   const axisPreview = useMutation({
     mutationFn: async () => {
       if (!client) throw new Error('Staged preview is unavailable');
-      return client.renderProjection(recordPack, 'AXIS');
+      return client.renderProjection(recordPack, 'EMPLOYEE');
     },
   });
   const nexusPreview = useMutation({
     mutationFn: async () => {
       if (!client) throw new Error('Staged preview is unavailable');
-      return client.renderProjection(recordPack, 'NEXUS');
+      return client.renderProjection(recordPack, 'PUBLIC');
     },
   });
   const busy = axisPreview.isPending || nexusPreview.isPending;

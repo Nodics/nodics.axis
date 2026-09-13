@@ -155,7 +155,43 @@ See `AGENTS.md` for placement, documentation, security, testing, and safe
 customization rules. Detailed backend-importable documentation content belongs
 to the backend module or project that owns the documented product or capability.
 
+Workbench's typed client accepts one saved record from a direct record, a
+single-item array, or the generated `models` envelope. Counts, empty/multiple
+records and unusable managed revisions raise an error without retrying the write.
+Reload the owning data before deciding whether to retry, because persistence may
+have succeeded despite an invalid response. A project-owned client extension must
+preserve this rule and the backend identity/revision contract; cover its response
+adapter in `test/workbench/api/workbenchClient.test.ts`. All old Workbench transports are removed. Discovery, resource operations and
+explicit bounded bulk use canonical schema APIs; aggregate commands use the
+advertised owning business API.
+
 Location map contributor guidance is in
 [src/operations/location/README.md](src/operations/location/README.md).
 
 Waste native views are selected by the authorized `backendWorkspace` workspace/view keys. Axis does not infer the renderer from `/waste/assets` prefixes; configuration links retain their real schema workbenches. The backend publishes the generic Waste group and independently registered accelerator subtrees. Shared view definitions and family/status filters remain backend-owned; unknown or mismatched contributor views fail closed.
+
+### Backend-published schema routes
+
+The Workbench client now consumes optional backend `apiOperations` for selective
+capabilities/search/create/update/delete/delete-impact/bulk APIs. It validates relative paths, versions and
+methods, follows the selected module connection, and treats disabled declarations
+as unavailable. Advertised-route failures never trigger Workbench fallback.
+Absent capability routes use canonical schema discovery. Absent optional operation metadata uses the standard canonical resource path.
+An error never triggers another transport.
+Model responses must still identify one persisted record and a usable managed revision.
+
+For customization, change the owning backend route metadata and use the existing
+typed client. Do not maintain a frontend module/path map. Tests in
+`test/workbench/api/workbenchClient.test.ts` cover custom paths/versions, disabled
+routes, unsafe targets, revisions and one-request failure handling. The detailed
+backend contract is the Foundation schema-data-modeling documentation. Domain provisioning and confirmation retain their existing backend owners.
+
+
+### Canonical schema discovery
+
+Axis collection discovery now uses module-relative `GET /schemas`; detail uses
+an advertised capability route or `GET /schemas/:schema`. Both use the existing
+module connection and version contract. Workbench discovery is no longer a
+fallback; the backend discovery adapters are removed. Deploy backend discovery routes before upgrading Axis; partial successes
+retain exact connection identity and cannot replace a missing Staged authority.
+See [the feature contract](src/workbench/README.md#canonical-schema-discovery).

@@ -108,6 +108,13 @@ backend.
   enough that a future developer or AI tool can understand ownership,
   customization, failure behavior, and test expectations without reading the
   entire application.
+- Schema mutation responses must contain exactly one persisted record with its
+  effective identity and, when managed, a usable revision. Never render update
+  counts or acknowledgements as a record. Preserve the draft and surface an
+  invalid response; the write may already have applied, so do not automatically
+  retry or fabricate a record from submitted fields. Keep owning domain commands
+  separate from generic CRUD and verify transport migration against backend
+  runtime route, exposure and permission contracts.
 
 ## Documentation and verification
 
@@ -138,3 +145,16 @@ capabilities, supported setup and verification entry points, the safe extension
 boundary, and links to canonical detailed documentation.
 
 Native business workspaces use explicit, validated `backendWorkspace` keys from the authorized navigation item. Never infer their owner or renderer from a route prefix. Preserve each accelerator's publishing module when displaying cross-module navigation trees; do not create placeholder business links in Axis.
+
+- Consume inert backend `apiOperations` for capabilities/search/create/update/delete/delete-impact/bulk.
+  Validate static relative paths, method/version and activation before credentials
+  are attached. Use advertised operations once, with no 404/405 fallback; disabled
+  declarations send no request. Absent optional metadata uses the standard canonical resource path; never retry
+  an old route. Aggregate actions require a validated, active owning API.
+  Never hardcode Product/Pricing selection or create a parallel operation registry.
+
+- Collection discovery uses `/schemas`; details use an advertised capability or
+  `/schemas/:schema`. Never fallback to Workbench discovery after missing routes,
+  denied requests or invalid metadata. Keep shared discovery callers and fixtures
+  aligned, preserve exact connection identity and Staged authority, and deploy the
+  backend contract before this client. No frontend schema registry is permitted.

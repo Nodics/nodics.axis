@@ -100,3 +100,22 @@ scope remain visible. Clear all clears text and optional conditions without
 changing owner-enforced fixed filters. Query capabilities and typed AND/OR
 semantics remain supplied by the backend descriptor. Shared shell extension and
 verification guidance is in [Axis search](../app/search/README.md).
+
+
+## Canonical schema discovery
+
+The shared client loads the selected module's `v0/schemas` collection. Details use
+an explicitly advertised capability route or `v0/schemas/:schema`. There is no
+Workbench discovery fallback after a missing route, denied request or invalid
+metadata. An advertised inactive capability sends no request. These calls are
+shared by import/export, media, documentation editing and other business screens;
+keep their test fixtures on the same backend contract.
+
+Preserve connection identity, partial discovery, Staged-only authoring selection
+and the backend's effective fields/forms/relationships. Configure backend schemas
+and grants through their existing owners; do not add a browser schema catalogue.
+The backend must expose the canonical routes before this client is deployed.
+Changing the bootstrap path/version requires an explicit typed-client contract
+change. Resource mutations and bounded bulk use canonical schema APIs. Aggregate
+metadata resolves the existing owning business command. All Workbench HTTP
+transports are removed; do not restore them for assumed old clients.

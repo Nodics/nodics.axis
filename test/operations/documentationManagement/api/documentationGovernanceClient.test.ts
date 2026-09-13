@@ -106,7 +106,7 @@ describe('documentation governance client', () => {
         return Promise.resolve(
           ok({
             contract: 'cms.documentation.render/v1',
-            channel: 'AXIS',
+            channel: 'EMPLOYEE',
             navigation: [{ code: 'docs.home' }],
             pages: [{ code: 'docs.page' }],
             dashboards: [],
@@ -163,7 +163,7 @@ describe('documentation governance client', () => {
     await expect(client.validateAuthoringRecords()).resolves.toMatchObject({
       status: 'READY',
     });
-    await expect(client.renderProjection({}, 'AXIS')).resolves.toMatchObject({
+    await expect(client.renderProjection({}, 'EMPLOYEE')).resolves.toMatchObject({
       navigation: [{ code: 'docs.home' }],
     });
     await expect(client.search('cache')).resolves.toMatchObject({

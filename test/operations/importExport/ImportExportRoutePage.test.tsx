@@ -196,7 +196,7 @@ describe('ImportExportRoutePage', () => {
   it('opens the requested import-export area from URL state and preserves tab changes', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = fetchInputUrl(input);
-      if (url.includes('/schema/workbench')) {
+      if (url.endsWith('/schemas')) {
         return Promise.resolve(
           jsonResponse({
             schemas: [tenantSchema],
@@ -1287,7 +1287,7 @@ describe('ImportExportRoutePage', () => {
   it('renders backend-owned generic file import workflow from discovered schemas', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = fetchInputUrl(input);
-      if (url.includes('/schema/workbench')) {
+      if (url.endsWith('/schemas')) {
         return Promise.resolve(
           jsonResponse({
             schemas: [tenantSchema],
@@ -1321,7 +1321,7 @@ describe('ImportExportRoutePage', () => {
   it('shows export models when export and media services are environment-scoped', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = fetchInputUrl(input);
-      if (url.includes('/schema/workbench')) {
+      if (url.endsWith('/schemas')) {
         return Promise.resolve(
           jsonResponse({
             schemas: [tenantSchema],
@@ -1362,7 +1362,7 @@ describe('ImportExportRoutePage', () => {
   it('enables file validation only after explicit target model selection', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = fetchInputUrl(input);
-      if (url.includes('/schema/workbench')) {
+      if (url.endsWith('/schemas')) {
         return Promise.resolve(
           jsonResponse({
             schemas: [addressSchema, tenantSchema],

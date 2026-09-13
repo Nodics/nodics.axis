@@ -99,6 +99,7 @@ export interface WorkbenchConcurrency {
 }
 
 export interface WorkbenchAggregateOperation {
+  readonly api?: WorkbenchApiOperations['bulk'];
   readonly name: string;
   readonly label: string;
   readonly purpose: string;
@@ -166,7 +167,64 @@ export interface WorkbenchFilterGroup {
   readonly items: readonly (WorkbenchFilterCondition | WorkbenchFilterGroup)[];
 }
 
+/** Backend route projection; an advertised operation is authoritative even when unavailable. */
+export type WorkbenchApiOperations = Readonly<
+  Partial<
+    Record<
+      | 'capabilities'
+      | 'search'
+      | 'create'
+      | 'update'
+      | 'delete'
+      | 'deleteImpact'
+      | 'bulk',
+      Readonly<{ method: string; path: string; apiVersion: string; active: boolean }>
+    >
+  >
+>;
+
+/** Accept only relative, static module routes with the known generated body contract. */
+export function parseWorkbenchApiOperations(value: unknown): WorkbenchApiOperations {
+  const source = record(value, 'Schema API operations');
+  const methods = {
+    capabilities: 'GET',
+    search: 'POST',
+    create: 'PUT',
+    update: 'PATCH',
+    delete: 'DELETE',
+    deleteImpact: 'POST',
+    bulk: 'POST',
+  };
+  return Object.freeze(
+    Object.fromEntries(
+      Object.entries(source).map(([name, value]) => {
+        const route = record(value, 'Schema API route');
+        if (
+          !Object.hasOwn(methods, name) ||
+          route.method !== methods[name as keyof typeof methods] ||
+          typeof route.path !== 'string' ||
+          !/^\/[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(route.path) ||
+          typeof route.apiVersion !== 'string' ||
+          !/^v[0-9]+$/.test(route.apiVersion) ||
+          typeof route.active !== 'boolean'
+        )
+          throw new Error('Schema API route is invalid');
+        return [
+          name,
+          Object.freeze({
+            method: route.method,
+            path: route.path,
+            apiVersion: route.apiVersion,
+            active: route.active,
+          }),
+        ];
+      }),
+    ),
+  );
+}
+
 export interface WorkbenchSchema {
+  readonly apiOperations?: WorkbenchApiOperations;
   readonly form?: WorkbenchFormDefinition;
   readonly authoring?: {
     readonly publishRequired: boolean;
@@ -672,6 +730,9 @@ export function parseWorkbenchSchema(value: unknown): WorkbenchSchema {
       : record(schema.mutationPolicy, 'Workbench mutation policy');
   return Object.freeze({
     moduleName,
+    ...(schema.apiOperations === undefined
+      ? {}
+      : { apiOperations: parseWorkbenchApiOperations(schema.apiOperations) }),
     ...(schema.form === undefined ? {} : { form: parseWorkbenchForm(schema.form) }),
     ...(schema.authoring === undefined
       ? {}
@@ -742,6 +803,9 @@ export function parseWorkbenchSchema(value: unknown): WorkbenchSchema {
         (value) => {
           const operation = record(value, 'Workbench aggregate operation');
           return Object.freeze({
+            ...(operation.api === undefined
+              ? {}
+              : { api: parseWorkbenchApiOperations({ bulk: operation.api }).bulk }),
             name: text(operation.name, 'Workbench aggregate operation name'),
             label: text(operation.label, 'Workbench aggregate operation label'),
             purpose: text(operation.purpose, 'Workbench aggregate operation purpose'),

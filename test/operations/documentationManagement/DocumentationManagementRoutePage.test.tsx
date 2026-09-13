@@ -362,29 +362,29 @@ function documentationDesignerFetch() {
   return vi.fn<typeof fetch>().mockImplementation((input, options) => {
     const path = new URL(requestUrl(input)).pathname;
     if (path.endsWith('/model')) return Promise.resolve(response(authoringModel()));
-    if (path.endsWith('/cmsDocumentationPage/capabilities')) {
+    if (path.endsWith('/schemas/cmsDocumentationPage')) {
       return Promise.resolve(
         response(
           documentationWorkbenchSchema('cmsDocumentationPage', 'Documentation Page'),
         ),
       );
     }
-    if (path.endsWith('/cmsPageRoute/capabilities')) {
+    if (path.endsWith('/schemas/cmsPageRoute')) {
       return Promise.resolve(
         response(documentationWorkbenchSchema('cmsPageRoute', 'Page Route')),
       );
     }
-    if (path.endsWith('/cmsComponent/capabilities')) {
+    if (path.endsWith('/schemas/cmsComponent')) {
       return Promise.resolve(
         response(documentationWorkbenchSchema('cmsComponent', 'CMS Component')),
       );
     }
-    if (path.endsWith('/cmsPage/capabilities')) {
+    if (path.endsWith('/schemas/cmsPage')) {
       return Promise.resolve(
         response(documentationWorkbenchSchema('cmsPage', 'CMS Page')),
       );
     }
-    if (path.endsWith('/cmsDocumentationNode/capabilities')) {
+    if (path.endsWith('/schemas/cmsDocumentationNode')) {
       return Promise.resolve(
         response(
           documentationWorkbenchSchema('cmsDocumentationNode', 'Documentation Node'),
@@ -833,7 +833,7 @@ describe('DocumentationManagementRoutePage', () => {
         return Promise.resolve(
           response({
             contract: 'cms.documentation.render/v1',
-            channel: 'AXIS',
+            channel: 'EMPLOYEE',
             navigation: [{ code: 'docs.framework', title: 'Framework' }],
             pages: [
               {
@@ -874,7 +874,7 @@ describe('DocumentationManagementRoutePage', () => {
       requestUrl(input).includes('/documentation/governance/render-projection'),
     );
     expect(requestJsonBody(previewCall?.[1])).toMatchObject({
-      channel: 'AXIS',
+      channel: 'EMPLOYEE',
       packCode: 'nodicsDocumentation',
     });
   });
@@ -892,7 +892,7 @@ describe('DocumentationManagementRoutePage', () => {
         return Promise.resolve(
           response({
             contract: 'cms.documentation.render/v1',
-            channel: 'AXIS',
+            channel: 'EMPLOYEE',
             navigation: [{ code: 'docs.home' }],
             pages: [{ code: 'docs.page' }],
             dashboards: [{ code: 'docs.dashboard' }],

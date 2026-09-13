@@ -371,7 +371,7 @@ function parseRenderProjection(value: unknown): DocumentationRenderProjection {
   const source = record(value, 'Documentation render projection');
   return Object.freeze({
     contract: text(source.contract, 'cms.documentation.render/v1'),
-    channel: text(source.channel, 'AXIS'),
+    channel: text(source.channel, 'EMPLOYEE'),
     product:
       typeof source.product === 'object' &&
       source.product !== null &&
@@ -557,7 +557,7 @@ export function createDocumentationGovernanceClient(
       ),
     renderProjection: async (
       records: DocumentationRecordPack = {},
-      channel: 'AXIS' | 'NEXUS' = 'AXIS',
+      channel: 'EMPLOYEE' | 'PUBLIC' = 'EMPLOYEE',
     ) =>
       parseRenderProjection(
         await request(
@@ -571,7 +571,7 @@ export function createDocumentationGovernanceClient(
     search: async (
       query: string,
       records: DocumentationRecordPack = {},
-      channel: 'AXIS' | 'NEXUS' = 'AXIS',
+      channel: 'EMPLOYEE' | 'PUBLIC' = 'EMPLOYEE',
     ) =>
       parseSearchProjection(
         await request(

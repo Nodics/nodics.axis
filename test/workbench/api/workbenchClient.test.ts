@@ -87,12 +87,104 @@ function json(result: unknown, status = 200): Response {
 }
 
 describe('Schema Workbench API client', () => {
+  it.each([
+    { matchedCount: 1, modifiedCount: 1 },
+    { models: [] },
+    { models: [{ code: 'DXB' }, { code: 'OTHER' }] },
+    { models: { code: 'DXB' } },
+    { matchedCount: 0, models: [{ code: 'DXB' }] },
+    { models: [{ name: 'Missing identity' }] },
+    [],
+    null,
+  ])('rejects an update response without one persisted record: %j', async (result) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json(result));
+    await expect(
+      updateWorkbenchRecord(
+        connection,
+        address,
+        { code: 'DXB' },
+        { city: 'Dubai' },
+        configuration,
+        fetcher,
+      ),
+    ).rejects.toThrow(/persisted record/);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects create acknowledgement counts instead of presenting them as a record', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(json({ acknowledged: true, insertedCount: 1 }));
+    await expect(
+      createWorkbenchRecord(
+        connection,
+        address,
+        { code: 'DXB' },
+        configuration,
+        fetcher,
+      ),
+    ).rejects.toThrow(/persisted record/);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts a returned record using the effective custom primary field', async () => {
+    const schema = {
+      ...address,
+      displayProperty: 'reference',
+      fields: [{ ...address.fields[0]!, name: 'reference' }],
+    };
+    const saved = { reference: 42, city: 'Dubai' };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(json({ matchedCount: 1, modifiedCount: 0, models: [saved] }));
+    await expect(
+      updateWorkbenchRecord(
+        connection,
+        schema,
+        { reference: 42 },
+        { city: 'Dubai' },
+        configuration,
+        fetcher,
+      ),
+    ).resolves.toEqual(saved);
+  });
+
+  it.each([undefined, '2', -1, 1.5])(
+    'rejects an unusable managed revision in the saved response: %j',
+    async (revision) => {
+      const schema: WorkbenchSchema = {
+        ...address,
+        concurrency: {
+          mode: 'COMPARE_AND_SET',
+          field: 'revision',
+          required: true,
+          managed: true,
+        },
+      };
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(json({ models: [{ code: 'DXB', revision }] }));
+      await expect(
+        updateWorkbenchRecord(
+          connection,
+          schema,
+          { code: 'DXB', revision: 1 },
+          { city: 'Dubai' },
+          configuration,
+          fetcher,
+        ),
+      ).rejects.toThrow(/persisted record/);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it('uses the declared owning create command and retains its key on retry without generic fallback', async () => {
     const schema: WorkbenchSchema = {
       ...address,
       aggregateOperations: [
         {
           name: 'setup',
+          api: { method: 'POST', path: '/enterprises', apiVersion: 'v0', active: true },
           label: 'Set up',
           purpose: 'CREATE',
           consistency: 'MODULE_OWNED',
@@ -123,12 +215,9 @@ describe('Schema Workbench API client', () => {
     ).resolves.toEqual(model);
     const first = fetcher.mock.calls[0]!;
     const second = fetcher.mock.calls[1]!;
-    expect((first[0] as URL).pathname).toBe(
-      '/nodics/profile/v0/schema/workbench/address/aggregate',
-    );
+    expect((first[0] as URL).pathname).toBe('/nodics/profile/v0/enterprises');
     expect(parseRequestBody(first[1]?.body)).toEqual({
-      operation: 'setup',
-      payload: { model },
+      model,
     });
     expect(new Headers(first[1]?.headers).get('Idempotency-Key')).toBeTruthy();
     expect(new Headers(first[1]?.headers).get('Idempotency-Key')).toBe(
@@ -399,9 +488,7 @@ describe('Schema Workbench API client', () => {
     const firstRequestCall = request.mock.calls[0];
     expect(firstRequestCall).toBeDefined();
     const [url, options] = firstRequestCall as [URL, RequestInit?];
-    expect(url.href).toBe(
-      'https://profile.example.com/nodics/profile/v0/schema/workbench',
-    );
+    expect(url.href).toBe('https://profile.example.com/nodics/profile/v0/schemas');
     const headers = new Headers(options?.headers);
     expect(headers.get('Authorization')).toBe('Bearer memory-only-token');
     expect(headers.get('x-enterprise-code')).toBe('default');
@@ -535,7 +622,7 @@ describe('Schema Workbench API client', () => {
     });
   });
 
-  it('loads schema capabilities through the generated schema utility route', async () => {
+  it('loads unadvertised schema details through the canonical discovery route', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(json(address));
 
     const capabilities = await loadGeneratedSchemaCapabilities(
@@ -555,7 +642,7 @@ describe('Schema Workbench API client', () => {
     const firstRequestCall = request.mock.calls[0];
     expect(firstRequestCall).toBeDefined();
     const [url, options] = firstRequestCall as [URL, RequestInit?];
-    expect(url.pathname).toBe('/nodics/profile/v0/address/capabilities');
+    expect(url.pathname).toBe('/nodics/profile/v0/schemas/address');
     expect(options?.method).toBeUndefined();
     expect(url.pathname).not.toContain('/schema/workbench');
   });
@@ -590,7 +677,7 @@ describe('Schema Workbench API client', () => {
     );
   });
 
-  it('falls back to the generic Workbench create contract when generated save is unavailable', async () => {
+  it('rejects missing canonical create without attempting a fallback', async () => {
     const request = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(json({ message: 'not found' }, 404))
@@ -604,19 +691,12 @@ describe('Schema Workbench API client', () => {
         configuration,
         request,
       ),
-    ).resolves.toEqual({ code: 'STYLE-PASS', type: 'COUPON_CODE' });
+    ).rejects.toThrow(/HTTP 404/);
 
     expect((request.mock.calls[0]?.[0] as URL).pathname).toBe(
       '/nodics/profile/v0/address',
     );
-    const [fallbackUrl, fallbackOptions] = request.mock.calls[1] ?? [];
-    expect((fallbackUrl as URL).pathname).toBe(
-      '/nodics/profile/v0/schema/workbench/address/record',
-    );
-    expect(fallbackOptions?.method).toBe('POST');
-    expect(parseRequestBody(fallbackOptions?.body)).toEqual({
-      model: { code: 'STYLE-PASS', type: 'COUPON_CODE' },
-    });
+    expect(request).toHaveBeenCalledTimes(1);
   });
 
   it('normalizes descriptor-declared date fields before generated create/update', async () => {
@@ -705,7 +785,7 @@ describe('Schema Workbench API client', () => {
     });
   });
 
-  it('falls back to the generic Workbench update contract when generated update is unavailable', async () => {
+  it('rejects missing canonical update without attempting a fallback', async () => {
     const request = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(json({ message: 'not found' }, 404))
@@ -720,20 +800,12 @@ describe('Schema Workbench API client', () => {
         configuration,
         request,
       ),
-    ).resolves.toEqual({ code: 'STYLE-PASS', type: 'PHYSICAL' });
+    ).rejects.toThrow(/HTTP 404/);
 
-    const [fallbackUrl, fallbackOptions] = request.mock.calls[1] ?? [];
-    expect((fallbackUrl as URL).pathname).toBe(
-      '/nodics/profile/v0/schema/workbench/address/record',
-    );
-    expect(fallbackOptions?.method).toBe('PATCH');
-    expect(parseRequestBody(fallbackOptions?.body)).toEqual({
-      identity: { code: 'STYLE-PASS' },
-      model: { type: 'PHYSICAL' },
-    });
+    expect(request).toHaveBeenCalledTimes(1);
   });
 
-  it('deletes through the bounded Workbench selected-record contract', async () => {
+  it('deletes through the canonical schema API with a selected-record identity', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify({ code: 'SUC_DBS_00000' }), {
         status: 200,
@@ -753,9 +825,7 @@ describe('Schema Workbench API client', () => {
     ).resolves.toBeUndefined();
 
     const [url, options] = request.mock.calls[0] ?? [];
-    expect((url as URL).pathname).toBe(
-      '/nodics/profile/v0/schema/workbench/address/record',
-    );
+    expect((url as URL).pathname).toBe('/nodics/profile/v0/address');
     expect(options?.method).toBe('DELETE');
     expect(new Headers(options?.headers).get('Idempotency-Key')).toBe(
       'axis-delete-0001',
@@ -763,7 +833,7 @@ describe('Schema Workbench API client', () => {
     const body = options?.body;
     if (typeof body !== 'string') throw new Error('Expected a JSON request body');
     expect(JSON.parse(body)).toEqual({
-      identity: { code: 'DXB-OFFICE' },
+      query: { code: 'DXB-OFFICE' },
     });
   });
 
@@ -810,7 +880,7 @@ describe('Schema Workbench API client', () => {
     if (typeof deleteBody !== 'string') throw new Error('Expected delete body');
     expect(JSON.parse(deleteBody)).toEqual(
       partial({
-        identity: { code: 'DXB', revision: 7 },
+        query: { code: 'DXB', revision: 7 },
       }),
     );
   });
@@ -1192,3 +1262,271 @@ function parseRequestBody(body: RequestInit['body']): Record<string, unknown> {
 function partial(value: Record<string, unknown>): unknown {
   return expect.objectContaining(value);
 }
+
+describe('backend-published schema APIs', () => {
+  const route = {
+    method: 'PUT',
+    path: '/custom-addresses',
+    apiVersion: 'v2',
+    active: true,
+  };
+  it('uses the backend route and version without a frontend module map', async () => {
+    const schema = parseWorkbenchSchema({
+      ...address,
+      apiOperations: { create: route },
+    });
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json({ code: 'ONE' }));
+    await expect(
+      createWorkbenchRecord(
+        connection,
+        schema,
+        { code: 'ONE' },
+        configuration,
+        fetcher,
+      ),
+    ).resolves.toEqual({ code: 'ONE' });
+    expect((fetcher.mock.calls[0]?.[0] as URL).pathname).toBe(
+      '/nodics/profile/v2/custom-addresses',
+    );
+    expect(fetcher.mock.calls[0]?.[1]?.method).toBe('PUT');
+    expect(fetcher.mock.calls[0]?.[1]?.body).toBe(JSON.stringify({ code: 'ONE' }));
+  });
+  it.each([400, 401, 403, 404, 405, 409, 428, 500])(
+    'does not fallback after advertised create returns %s',
+    async (status) => {
+      const schema = { ...address, apiOperations: { create: route } };
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(json({ message: 'Rejected' }, status));
+      await expect(
+        createWorkbenchRecord(
+          connection,
+          schema,
+          { code: 'ONE' },
+          configuration,
+          fetcher,
+        ),
+      ).rejects.toThrow();
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    },
+  );
+  it('does not call any API when its declared operation is disabled', async () => {
+    const schema = {
+      ...address,
+      apiOperations: { create: { ...route, active: false } },
+    };
+    const fetcher = vi.fn<typeof fetch>();
+    await expect(
+      createWorkbenchRecord(connection, schema, {}, configuration, fetcher),
+    ).rejects.toThrow('unavailable');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('uses published update routes and preserves the original revision query', async () => {
+    const schema = {
+      ...address,
+      concurrency: {
+        mode: 'COMPARE_AND_SET' as const,
+        field: 'revision',
+        required: true,
+        managed: true,
+      },
+      apiOperations: { update: { ...route, method: 'PATCH' } },
+    };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(json({ models: [{ code: 'ONE', revision: 3 }] }));
+    await updateWorkbenchRecord(
+      connection,
+      schema,
+      { code: 'ONE', revision: 2 },
+      { city: 'Dubai' },
+      configuration,
+      fetcher,
+    );
+    expect((fetcher.mock.calls[0]?.[0] as URL).pathname).toBe(
+      '/nodics/profile/v2/custom-addresses',
+    );
+    expect(
+      (
+        JSON.parse(fetcher.mock.calls[0]?.[1]?.body as string) as Record<
+          string,
+          unknown
+        >
+      ).query,
+    ).toEqual({
+      code: 'ONE',
+      revision: 2,
+    });
+    fetcher.mockClear().mockResolvedValue(json({}, 404));
+    await expect(
+      updateWorkbenchRecord(
+        connection,
+        schema,
+        { code: 'ONE', revision: 2 },
+        {},
+        configuration,
+        fetcher,
+      ),
+    ).rejects.toThrow();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('uses published capability and search routes without retrying unavailable routes', async () => {
+    const schema = {
+      ...address,
+      apiOperations: {
+        capabilities: { ...route, method: 'GET', path: '/addresses/metadata' },
+        search: { ...route, method: 'POST', path: '/addresses/query' },
+      },
+    };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json(schema));
+    await loadGeneratedSchemaCapabilities(connection, schema, configuration, fetcher);
+    expect((fetcher.mock.calls[0]?.[0] as URL).pathname).toBe(
+      '/nodics/profile/v2/addresses/metadata',
+    );
+    fetcher.mockClear().mockResolvedValue(json({}, 404));
+    await expect(
+      loadGeneratedSchemaCapabilities(connection, schema, configuration, fetcher),
+    ).rejects.toThrow();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    fetcher.mockClear();
+    await expect(
+      loadWorkbenchRecords(
+        connection,
+        schema,
+        configuration,
+        {
+          search: '',
+          pageNumber: 1,
+          pageSize: 25,
+          sort: { field: 'code', direction: 'ASC' },
+          filters: { operator: 'AND', items: [] },
+        },
+        fetcher,
+      ),
+    ).rejects.toThrow();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect((fetcher.mock.calls[0]?.[0] as URL).pathname).toBe(
+      '/nodics/profile/v2/addresses/query',
+    );
+  });
+  it.each([
+    'https://outside.test',
+    '//outside.test',
+    '/a/../token',
+    '/a?token=x',
+    '/a/:id',
+    '/%2e%2e/token',
+  ])('rejects unsafe backend paths %s', (path) => {
+    expect(() =>
+      parseWorkbenchSchema({
+        ...address,
+        apiOperations: { create: { ...route, path } },
+      }),
+    ).toThrow();
+  });
+  it('rejects unsupported methods, versions and operations', () => {
+    for (const apiOperations of [
+      { create: { ...route, method: 'POST' } },
+      { create: { ...route, apiVersion: '../v0' } },
+      { runScript: route },
+    ])
+      expect(() => parseWorkbenchSchema({ ...address, apiOperations })).toThrow();
+  });
+});
+
+describe('canonical schema discovery', () => {
+  it.each([401, 403, 404, 405, 500])(
+    'does not fall back when collection discovery returns %s',
+    async (status) => {
+      const fetcher = vi.fn<typeof fetch>().mockImplementation((input) => {
+        const url =
+          input instanceof URL
+            ? input
+            : new URL(typeof input === 'string' ? input : input.url);
+        return Promise.resolve(
+          url.pathname.endsWith('/schemas')
+            ? json({}, status)
+            : json({ moduleName: 'profile', schemas: [address] }),
+        );
+      });
+      await expect(
+        loadWorkbenchSchemas([connection], configuration, fetcher),
+      ).rejects.toThrow('discovery');
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect((fetcher.mock.calls[0]?.[0] as URL).pathname).toBe(
+        '/nodics/profile/v0/schemas',
+      );
+    },
+  );
+  it.each([401, 403, 404, 405, 500])(
+    'does not guess another route when schema details return %s',
+    async (status) => {
+      const fetcher = vi.fn<typeof fetch>().mockImplementation((input) => {
+        const url =
+          input instanceof URL
+            ? input
+            : new URL(typeof input === 'string' ? input : input.url);
+        return Promise.resolve(
+          url.pathname.endsWith('/schemas/address') ? json({}, status) : json(address),
+        );
+      });
+      await expect(
+        loadGeneratedSchemaCapabilities(
+          connection,
+          { schemaName: 'address' },
+          configuration,
+          fetcher,
+        ),
+      ).rejects.toThrow();
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect((fetcher.mock.calls[0]?.[0] as URL).pathname).toBe(
+        '/nodics/profile/v0/schemas/address',
+      );
+    },
+  );
+  it('preserves successful partial discovery with its exact connection identity', async () => {
+    const unavailable = {
+      ...connection,
+      instanceId: 'unavailable',
+      endpoint: 'https://unavailable.example.com/nodics/profile',
+    };
+    const fetcher = vi.fn<typeof fetch>().mockImplementation((input) => {
+      const url =
+        input instanceof URL
+          ? input
+          : new URL(typeof input === 'string' ? input : input.url);
+      return Promise.resolve(
+        url.hostname === 'unavailable.example.com'
+          ? json({}, 503)
+          : json({ moduleName: 'profile', schemas: [address] }),
+      );
+    });
+    const result = await loadWorkbenchSchemas(
+      [unavailable, connection],
+      configuration,
+      fetcher,
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]?.connectionInstanceId).toBe(connection.instanceId);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(
+      fetcher.mock.calls.every((call) =>
+        (call[0] as URL).pathname.endsWith('/schemas'),
+      ),
+    ).toBe(true);
+  });
+  it('rejects an invalid metadata envelope without retrying an old route', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(json({ acknowledged: true }));
+    await expect(
+      loadGeneratedSchemaCapabilities(
+        connection,
+        { schemaName: 'address' },
+        configuration,
+        fetcher,
+      ),
+    ).rejects.toThrow();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});
