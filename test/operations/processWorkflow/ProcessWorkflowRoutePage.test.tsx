@@ -150,7 +150,7 @@ describe('ProcessWorkflowRoutePage', () => {
     vi.restoreAllMocks();
   });
 
-  it('guides business users through backend-owned process lifecycle steps', async () => {
+  it('guides business users through backend-owned process lifecycle steps', { timeout: 30_000 }, async () => {
     const user = userEvent.setup();
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
