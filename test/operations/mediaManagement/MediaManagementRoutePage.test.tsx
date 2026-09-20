@@ -947,7 +947,22 @@ describe('MediaManagementRoutePage', () => {
     expect(
       screen.queryByText('private/internal/private-export.json'),
     ).not.toBeInTheDocument();
-    await user.click(screen.getAllByText('private-product-image.png')[0]!);
+    const privateProductRow = screen
+      .getAllByText('private-product-image.png')[0]!
+      .closest('tr');
+    expect(privateProductRow).not.toBeNull();
+    await user.click(privateProductRow!);
+    await waitFor(
+      () =>
+        expect(
+          fetchMock.mock.calls.some(
+            ([input]) =>
+              fetchInputUrl(input).pathname ===
+              '/nodics/media/v0/content/private-product-image',
+          ),
+        ).toBe(true),
+      { timeout: 5_000 },
+    );
     const privatePreview = await screen.findByAltText(
       'Preview of private-product-image.png',
       {},
