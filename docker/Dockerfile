@@ -1,0 +1,26 @@
+FROM node:24.20.0-bookworm-slim AS build
+WORKDIR /workspace/frontend
+COPY . ./
+RUN npm ci --ignore-scripts
+ENV AXIS_BACKOFFICE_BASE_URL=http://localhost:5300 \
+    AXIS_LOCATION_BASE_URL=http://localhost:5380/nodics/locationMap \
+    AXIS_WASTE_API_BASE_URL=http://localhost:5370/nodics/wasteApi \
+    AXIS_ENTERPRISE_CODE=default \
+    AXIS_PROJECT_CODE=nodics.kickoff \
+    AXIS_CLIENT_CONTRACT_VERSION=1 \
+    AXIS_REQUEST_TIMEOUT_MS=10000 \
+    AXIS_BROWSER_SESSION_CSRF_COOKIE_NAME=nodics_docker_axis_csrf \
+    AXIS_ASSISTANT_MAXIMUM_EVENT_BYTES=65536 \
+    AXIS_ASSISTANT_RECONNECT_WINDOW_MS=120000 \
+    AXIS_ASSISTANT_IDLE_TIMEOUT_MS=45000 \
+    AXIS_DEV_HOST=0.0.0.0 \
+    AXIS_DEV_PORT=4100 \
+    AXIS_STRICT_PORT=true \
+    AXIS_BUILD_SOURCEMAP=false
+RUN npm run build
+
+FROM nginx:1.29.8-alpine3.23
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /workspace/frontend/dist /usr/share/nginx/html
+RUN chown -R nginx:nginx /usr/share/nginx/html /var/cache/nginx /var/run
+USER nginx

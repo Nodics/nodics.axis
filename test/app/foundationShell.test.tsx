@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AxisThemeProvider } from '../../src/app/AxisThemeProvider';
 import { RecoveryScreen } from '../../src/app/RecoveryScreen';
@@ -44,6 +44,26 @@ describe('Axis Phase 2 foundation', () => {
     expect(screen.getByText(/axis-correlation-1/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry module' })).toBeInTheDocument();
   });
+
+  it.each<RecoveryKind>(['profile', 'backoffice', 'cms'])(
+    'explains an unreachable %s API and lets the customer retry',
+    (kind) => {
+      const onRetry = vi.fn();
+      render(
+        <AxisThemeProvider>
+          <RecoveryScreen
+            state={{ kind, detail: 'Failed to fetch', retryable: true }}
+            onRetry={onRetry}
+          />
+        </AxisThemeProvider>,
+      );
+      expect(screen.getByRole('alert')).toHaveTextContent(/could not reach/);
+      fireEvent.click(
+        screen.getByRole('button', { name: getRecoveryContent(kind).action }),
+      );
+      expect(onRetry).toHaveBeenCalledOnce();
+    },
+  );
 
   it('blocks schema-backed workbench navigation without the owning module endpoint', () => {
     const bootstrap = {

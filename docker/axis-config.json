@@ -1,0 +1,13 @@
+{
+  "backofficeBaseUrl": "http://localhost:5300",
+  "enterpriseCode": "default",
+  "projectCode": "nodics.kickoff",
+  "clientContractVersion": 1,
+  "requestTimeoutMs": 10000,
+  "browserSessionCsrfCookieName": "nodics_docker_axis_csrf",
+  "assistantMaximumEventBytes": 65536,
+  "assistantReconnectWindowMs": 120000,
+  "assistantIdleTimeoutMs": 45000,
+  "locationBaseUrl": "http://localhost:5380/nodics/locationMap",
+  "wasteApiBaseUrl": "http://localhost:5370/nodics/wasteApi"
+}

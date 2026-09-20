@@ -158,3 +158,7 @@ Native business workspaces use explicit, validated `backendWorkspace` keys from 
   denied requests or invalid metadata. Keep shared discovery callers and fixtures
   aligned, preserve exact connection identity and Staged authority, and deploy the
   backend contract before this client. No frontend schema registry is permitted.
+
+Frontend startup is independent of backend health. Keep unavailable/retry UI and
+frontend tests in this application. Backend API acceptance must never start or
+test this frontend. Container deployment is owned by [docker/README.md](docker/README.md).
