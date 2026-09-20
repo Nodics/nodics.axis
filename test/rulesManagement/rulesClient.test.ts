@@ -2,6 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   loadRuleDefinitions,
+  loadRuleVersions,
+  loadPropertyCatalogue,
+  loadScoreBandSets,
+  saveScoreBandDraft,
   saveRuleDraft,
   simulateRuleDraft,
 } from '../../src/operations/rulesManagement/api/rulesClient';
@@ -68,5 +72,48 @@ describe('Rules owner client', () => {
     ).resolves.toEqual({ finalScore: 80, scoreBandCode: 'HIGH' });
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(String(fetch.mock.calls[0]?.[0])).toContain('/draft/simulate');
+  });
+
+  it('loads versions and property catalogues through Rules API owner endpoints', async () => {
+    const fetch = respond([{ version: 2 }]);
+    await expect(loadRuleVersions(configuration, 'EWASTE_REWARD')).resolves.toEqual([
+      { version: 2 },
+    ]);
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(
+      'https://rules.example/nodics/rulesApi/v0/definitions/EWASTE_REWARD/versions',
+    );
+
+    const catalogueFetch = respond({ code: 'EWASTE_REWARD_PROPERTIES' });
+    await expect(
+      loadPropertyCatalogue(configuration, 'eWaste.reward'),
+    ).resolves.toEqual({ code: 'EWASTE_REWARD_PROPERTIES' });
+    expect(String(catalogueFetch.mock.calls[0]?.[0])).toBe(
+      'https://rules.example/nodics/rulesApi/v0/property-catalogues/eWaste.reward',
+    );
+  });
+
+  it('loads and updates score-band drafts only through the band-set owner API', async () => {
+    const fetch = respond([{ code: 'EWASTE_BANDS' }]);
+    await expect(loadScoreBandSets(configuration)).resolves.toEqual([
+      { code: 'EWASTE_BANDS' },
+    ]);
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(
+      'https://rules.example/nodics/rulesApi/v0/band-sets',
+    );
+
+    const saveFetch = respond({ code: 'EWASTE_BANDS', status: 'DRAFT' });
+    await saveScoreBandDraft(configuration, 'EWASTE_BANDS', {
+      bands: [{ code: 'HIGH', minScore: 80, maxScore: null, outcome: {} }],
+      gapBehavior: 'REJECT',
+    });
+    expect(saveFetch).toHaveBeenCalledTimes(1);
+    expect(String(saveFetch.mock.calls[0]?.[0])).toBe(
+      'https://rules.example/nodics/rulesApi/v0/band-sets/EWASTE_BANDS/draft',
+    );
+    expect(saveFetch.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        method: 'PATCH',
+      }),
+    );
   });
 });
