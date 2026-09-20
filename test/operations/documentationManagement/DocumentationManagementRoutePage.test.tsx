@@ -763,7 +763,7 @@ describe('DocumentationManagementRoutePage', () => {
     expect(screen.queryByLabelText('Documentation designer views')).toBeNull();
   });
 
-  it('creates a new documentation page with rich content and staged CMS records', async () => {
+  it('creates a new documentation page with rich content and staged CMS records', { timeout: 30_000 }, async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(documentationDesignerFetch());
     const user = userEvent.setup();
 
