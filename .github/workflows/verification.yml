@@ -42,5 +42,10 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Show canonical workflow formatting
+        run: |
+          npx prettier .github/workflows/verification.yml --write
+          git diff -- .github/workflows/verification.yml
+          exit 1
       - name: Run repository verification
         run: npm run verify
