@@ -713,7 +713,7 @@ describe('MediaManagementRoutePage', () => {
             'Bearer employee-token',
           );
           return Promise.resolve(
-            new Response(new Blob(['private image bytes'], { type: 'image/png' }), {
+            new Response('private image bytes', {
               status: 200,
               headers: { 'Content-Type': 'image/png' },
             }),
