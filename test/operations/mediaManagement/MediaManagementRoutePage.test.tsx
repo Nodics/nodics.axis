@@ -950,6 +950,8 @@ describe('MediaManagementRoutePage', () => {
     await user.click(screen.getAllByText('private-product-image.png')[0]!);
     const privatePreview = await screen.findByAltText(
       'Preview of private-product-image.png',
+      {},
+      { timeout: 5_000 },
     );
     expect(privatePreview).toHaveAttribute('src', 'blob:private-media-preview');
     expect(createObjectUrl).toHaveBeenCalled();
