@@ -640,7 +640,7 @@ export function RulesManagementRoutePage(props: RulesManagementRoutePageProps) {
                       </Stack>
                       {!selectedBandSet ? (
                         <Alert severity="info">
-                          No authorized score-band set is bound or discoverable.
+                          No governed score-band set is available for this policy.
                         </Alert>
                       ) : (
                         <Paper variant="outlined" sx={{ p: 2 }}>

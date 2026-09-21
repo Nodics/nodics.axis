@@ -96,6 +96,7 @@ export function RuntimeConfigurationRoutePage(
       accessToken: props.accessToken,
       enterpriseCode: props.runtime.enterpriseCode,
       timeoutMs: props.runtime.requestTimeoutMs,
+      ownerSelector: { runtimeRoleCode: 'PLATFORM' },
     }),
     [
       props.accessToken,

@@ -7,6 +7,7 @@ export interface OperationalOwnerConfiguration {
   accessToken: string;
   enterpriseCode: string;
   timeoutMs: number;
+  ownerSelector?: Parameters<typeof selectModuleConnection>[2];
 }
 function unwrap(value: unknown): unknown {
   for (
@@ -29,7 +30,11 @@ export async function invokeOperationalOwner<T>(
   body?: unknown,
   method?: 'GET' | 'POST' | 'PATCH',
 ): Promise<T> {
-  const connection = selectModuleConnection(configuration.bootstrap, moduleName);
+  const connection = selectModuleConnection(
+    configuration.bootstrap,
+    moduleName,
+    configuration.ownerSelector,
+  );
   if (!connection?.endpoint)
     throw new Error(
       'The owning service is unavailable in the current BackOffice catalogue.',
