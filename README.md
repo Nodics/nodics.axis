@@ -61,6 +61,9 @@ test. The Axis component and favicon tests are the current executable reference.
   release identity, Staged-to-Online scope, entity changes, validation evidence,
   operational impact, recovery guidance, and post-publication capabilities.
 - Dynamic Framework, Swagger, Axis, and future project documentation products.
+- Backend-declared Business Rules workspace for definition discovery, draft-only
+  JSON authoring, server validation and simulation, and Process submission through
+  the discovered Rules API connection.
 
 ## Local setup
 
@@ -167,6 +170,9 @@ advertised owning business API.
 
 Location map contributor guidance is in
 [src/operations/location/README.md](src/operations/location/README.md).
+
+Business Rules guidance is in
+[src/operations/rulesManagement/README.md](src/operations/rulesManagement/README.md).
 
 Waste native views are selected by the authorized `backendWorkspace` workspace/view keys. Axis does not infer the renderer from `/waste/assets` prefixes; configuration links retain their real schema workbenches. The backend publishes the generic Waste group and independently registered accelerator subtrees. Shared view definitions and family/status filters remain backend-owned; unknown or mismatched contributor views fail closed.
 

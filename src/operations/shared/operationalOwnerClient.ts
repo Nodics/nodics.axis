@@ -27,20 +27,21 @@ export async function invokeOperationalOwner<T>(
   moduleName: string,
   path: string,
   body?: unknown,
+  method?: 'GET' | 'POST' | 'PATCH',
 ): Promise<T> {
   const connection = selectModuleConnection(configuration.bootstrap, moduleName);
   if (!connection?.endpoint)
     throw new Error(
-      'The review service is unavailable in the current BackOffice catalogue.',
+      'The owning service is unavailable in the current BackOffice catalogue.',
     );
   const url = new URL(connection.endpoint.replace(/\/$/, '') + '/v0' + path);
   if (!['http:', 'https:'].includes(url.protocol))
-    throw new Error('The review service endpoint is invalid.');
+    throw new Error('The owning service endpoint is invalid.');
   const controller = new AbortController(),
     timer = globalThis.setTimeout(() => controller.abort(), configuration.timeoutMs);
   try {
     const response = await fetch(url, {
-      method: body === undefined ? 'GET' : 'POST',
+      method: method || (body === undefined ? 'GET' : 'POST'),
       headers: {
         Authorization: `Bearer ${configuration.accessToken}`,
         'Content-Type': 'application/json',
@@ -57,7 +58,7 @@ export async function invokeOperationalOwner<T>(
       throw new Error(
         typeof envelope.message === 'string'
           ? envelope.message
-          : 'The review request failed.',
+          : 'The owner request failed.',
       );
     return unwrap(envelope) as T;
   } finally {

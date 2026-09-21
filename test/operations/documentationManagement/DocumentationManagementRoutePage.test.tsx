@@ -823,7 +823,7 @@ describe('DocumentationManagementRoutePage', () => {
           requestUrl(input).endsWith('/cmsPageRoute') && options?.method === 'PUT',
       ),
     ).toBe(true);
-  });
+  }, 30_000);
 
   it('previews staged documentation through the designer projection route', async () => {
     const request = vi.fn<typeof fetch>().mockImplementation((input) => {

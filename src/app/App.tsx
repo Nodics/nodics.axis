@@ -55,6 +55,7 @@ import { SetupAcceleratorsRoutePage } from '../operations/setupAccelerators/Setu
 import { CollectionCentresRoutePage } from '../operations/location/CollectionCentresRoutePage';
 import { LocationMapConfigurationRoutePage } from '../operations/location/LocationMapConfigurationRoutePage';
 import { WasteManagementRoutePage } from '../operations/wasteManagement/WasteManagementRoutePage';
+import { RulesManagementRoutePage } from '../operations/rulesManagement/RulesManagementRoutePage';
 import { EnterpriseRelationshipsRoutePage } from '../operations/enterprise/EnterpriseRelationshipsRoutePage';
 import { AxisDashboardRoutePage } from '../dashboard/AxisDashboardRoutePage';
 import { useIdleScreenLock } from '../auth/useIdleScreenLock';
@@ -818,6 +819,15 @@ export function App() {
                 accessToken={session.accessToken}
                 bootstrap={authenticatedBootstrap}
                 employeeId={session.loginId}
+                navigation={navigationItem}
+                runtime={runtime}
+              />
+            ) : navigationItem.backendWorkspace.workspaceCode === 'rules.policy' &&
+              ['UP', 'DEGRADED'].includes(navigationItem.availability) ? (
+              <RulesManagementRoutePage
+                key={`${navigationItem.moduleName}:${navigationItem.id}`}
+                accessToken={session.accessToken}
+                bootstrap={authenticatedBootstrap}
                 navigation={navigationItem}
                 runtime={runtime}
               />

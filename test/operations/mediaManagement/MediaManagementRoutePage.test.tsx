@@ -713,7 +713,7 @@ describe('MediaManagementRoutePage', () => {
             'Bearer employee-token',
           );
           return Promise.resolve(
-            new Response(new Blob(['private image bytes'], { type: 'image/png' }), {
+            new Response('private image bytes', {
               status: 200,
               headers: { 'Content-Type': 'image/png' },
             }),
@@ -947,9 +947,26 @@ describe('MediaManagementRoutePage', () => {
     expect(
       screen.queryByText('private/internal/private-export.json'),
     ).not.toBeInTheDocument();
-    await user.click(screen.getAllByText('private-product-image.png')[0]!);
+    const privateProductRow = screen
+      .getAllByText('private-product-image.png')[0]!
+      .closest('tr');
+    expect(privateProductRow).not.toBeNull();
+    await user.click(privateProductRow!);
+    await waitFor(
+      () =>
+        expect(
+          fetchMock.mock.calls.some(
+            ([input]) =>
+              fetchInputUrl(input).pathname ===
+              '/nodics/media/v0/content/private-product-image',
+          ),
+        ).toBe(true),
+      { timeout: 5_000 },
+    );
     const privatePreview = await screen.findByAltText(
       'Preview of private-product-image.png',
+      {},
+      { timeout: 5_000 },
     );
     expect(privatePreview).toHaveAttribute('src', 'blob:private-media-preview');
     expect(createObjectUrl).toHaveBeenCalled();

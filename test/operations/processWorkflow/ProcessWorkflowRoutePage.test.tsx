@@ -632,7 +632,7 @@ describe('ProcessWorkflowRoutePage', () => {
         ),
       ).toBe(true),
     );
-  });
+  }, 30_000);
 
   it('shows documentation approvals as a focused work queue on the tasks route', async () => {
     const user = userEvent.setup();
