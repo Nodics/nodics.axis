@@ -32,6 +32,8 @@ function release(
       owningModule: 'circa.ewaste',
       capabilityType: 'ACCELERATOR',
       group: 'PROJECT_ACCELERATOR',
+      extendsCapability: 'eWaste',
+      businessOutcome: 'Publish Circa eWaste customer journey data.',
       businessStatus: status === 'CURRENT' ? 'PREPARED_STAGED' : 'NOT_PREPARED',
       technicalStatus: status,
       releaseStatus: status,
@@ -97,6 +99,10 @@ describe('DataReleaseWorkbench', () => {
     expect(screen.getByText('Preparation readiness')).toBeInTheDocument();
     expect(screen.getByText('Circa eWaste')).toBeInTheDocument();
     expect(screen.getByText('Project accelerator')).toBeInTheDocument();
+    expect(
+      screen.getByText('Outcome: Publish Circa eWaste customer journey data.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/extends eWaste/u)).toBeInTheDocument();
     expect(
       screen.getByText(/Import into the staged runtime first/iu),
     ).toBeInTheDocument();

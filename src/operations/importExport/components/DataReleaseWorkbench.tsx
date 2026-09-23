@@ -852,11 +852,20 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                         {group.releases[0]?.description}
                       </Typography>
                     )}
+                    {group.readiness.businessOutcome ? (
+                      <Typography color="text.secondary" variant="body2">
+                        Outcome: {group.readiness.businessOutcome}
+                      </Typography>
+                    ) : null}
                     <Typography color="text.secondary" variant="body2">
                       {readinessGroupHelp(group.readiness.group)}
                     </Typography>
                     <Typography color="text.secondary" variant="caption">
-                      Owner {group.readiness.owningModule} · {group.readiness.capabilityCode}
+                      Owner {group.readiness.owningModule} ·{' '}
+                      {group.readiness.extendsCapability
+                        ? `extends ${group.readiness.extendsCapability} · `
+                        : ''}
+                      {group.readiness.capabilityCode}
                     </Typography>
                   </Stack>
                   <Stack
