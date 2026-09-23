@@ -474,7 +474,24 @@ function readinessGroupLabel(group: string): string {
   if (group === 'APPLICATION_CONTENT') return 'Application content';
   if (group === 'PUBLISHING_PROFILE') return 'Publishing profile';
   if (group === 'MEDIA_LIBRARY') return 'Media library';
+  if (group === 'PROJECT_ACCELERATOR') return 'Project accelerator';
   return readinessStatusLabel(group);
+}
+
+function readinessGroupHelp(group: string): string {
+  if (group === 'FOUNDATION_DATA') {
+    return 'Framework-owned baseline records. Repair or install these from the owning module release before dependent runtimes start relying on them.';
+  }
+  if (group === 'APPLICATION_CONTENT' || group === 'PROJECT_ACCELERATOR') {
+    return 'Business content and accelerator data. Import into the staged runtime first, then complete publication approval before expecting customer-facing pages.';
+  }
+  if (group === 'PUBLISHING_PROFILE') {
+    return 'Publication control data. Repair this before approving Staged-to-Online movement, documentation packs, or accelerator go-live.';
+  }
+  if (group === 'MEDIA_LIBRARY') {
+    return 'Media-owned assets. Validate the media object, physical artifact movement, and consuming-module reference binding before publishing.';
+  }
+  return 'Resolve the owning module readiness blockers before selecting or importing this release group.';
 }
 
 function readinessGroupKey(release: DataRelease): string {
@@ -835,6 +852,9 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                         {group.releases[0]?.description}
                       </Typography>
                     )}
+                    <Typography color="text.secondary" variant="body2">
+                      {readinessGroupHelp(group.readiness.group)}
+                    </Typography>
                     <Typography color="text.secondary" variant="caption">
                       Owner {group.readiness.owningModule} · {group.readiness.capabilityCode}
                     </Typography>

@@ -96,6 +96,10 @@ describe('DataReleaseWorkbench', () => {
 
     expect(screen.getByText('Preparation readiness')).toBeInTheDocument();
     expect(screen.getByText('Circa eWaste')).toBeInTheDocument();
+    expect(screen.getByText('Project accelerator')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Import into the staged runtime first/iu),
+    ).toBeInTheDocument();
     expect(screen.getByText('1/2 current')).toBeInTheDocument();
     expect(screen.getByText('Repair available')).toBeInTheDocument();
     expect(screen.getByText(/PREPARE_CAPABILITY · dataRelease\.install/u)).toBeInTheDocument();
