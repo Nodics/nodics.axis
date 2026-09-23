@@ -107,13 +107,25 @@ export interface ApplicationCapabilityReadiness {
   readonly technicalStatus: string;
   readonly releaseStatus?: string | undefined;
   readonly nextAction: string;
-  readonly blockers: readonly Readonly<{
-    readonly code: string;
-    readonly severity: string;
-    readonly owner: string;
-    readonly message: string;
-    readonly action: string;
-  }>[];
+  readonly blockers: readonly ApplicationCapabilityBlocker[];
+}
+
+export interface ApplicationCapabilityBlocker {
+  readonly code: string;
+  readonly severity: string;
+  readonly owner: string;
+  readonly message: string;
+  readonly action: string;
+  readonly repair?: ApplicationCapabilityRepairAction | undefined;
+}
+
+export interface ApplicationCapabilityRepairAction {
+  readonly available: boolean;
+  readonly label: string;
+  readonly operation: string;
+  readonly action: string;
+  readonly idempotent: boolean;
+  readonly requiresConfirmation: boolean;
 }
 
 interface ApplicationInitializationClientOptions {
@@ -157,6 +169,21 @@ function optionalText(value: unknown): string | undefined {
 
 function booleanValue(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
+}
+
+function parseCapabilityRepairAction(
+  value: unknown,
+): ApplicationCapabilityRepairAction | undefined {
+  if (value === undefined) return undefined;
+  const repair = record(value, 'Capability blocker repair');
+  return Object.freeze({
+    available: booleanValue(repair.available, false),
+    label: text(repair.label, 'Capability blocker repair label'),
+    operation: text(repair.operation, 'Capability blocker repair operation'),
+    action: text(repair.action, 'Capability blocker repair action'),
+    idempotent: booleanValue(repair.idempotent, false),
+    requiresConfirmation: booleanValue(repair.requiresConfirmation, true),
+  });
 }
 
 async function safeError(response: Response): Promise<string> {
@@ -431,6 +458,9 @@ function parse(value: unknown): ApplicationInitializationStatus {
                       owner: text(blocker.owner, 'Capability blocker owner'),
                       message: text(blocker.message, 'Capability blocker message'),
                       action: text(blocker.action, 'Capability blocker action'),
+                      ...(blocker.repair !== undefined
+                        ? { repair: parseCapabilityRepairAction(blocker.repair) }
+                        : {}),
                     });
                   })
                 : [],

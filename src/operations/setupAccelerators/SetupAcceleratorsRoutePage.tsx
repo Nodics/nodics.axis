@@ -40,6 +40,7 @@ import {
   loadProcessTasks,
   type ProcessHumanTask,
 } from '../processWorkflow/api/processDefinitionClient';
+import { ReadinessRepairMetadata } from '../readiness/ReadinessRepairMetadata';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
   createApplicationInitializationClient,
@@ -1450,11 +1451,14 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                               sx={{ fontWeight: 700 }}
                                               variant="body2"
                                             >
-                                              {blocker.action}
+                                              {blocker.repair?.label ?? blocker.action}
                                             </Typography>
                                             <Typography variant="caption">
                                               {blocker.message}
                                             </Typography>
+                                            <ReadinessRepairMetadata
+                                              repair={blocker.repair}
+                                            />
                                           </Alert>
                                         ))}
                                       </Stack>

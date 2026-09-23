@@ -29,6 +29,38 @@ export interface DocumentationPublicationStatus {
     workflowRef?: string;
     correlationId?: string;
   }>;
+  readonly capability?: DocumentationCapabilityReadiness | undefined;
+}
+
+export interface DocumentationCapabilityReadiness {
+  readonly capabilityCode: string;
+  readonly displayName: string;
+  readonly owningModule: string;
+  readonly capabilityType: string;
+  readonly group: string;
+  readonly businessStatus: string;
+  readonly technicalStatus: string;
+  readonly releaseStatus?: string | undefined;
+  readonly nextAction: string;
+  readonly blockers: readonly DocumentationCapabilityBlocker[];
+}
+
+export interface DocumentationCapabilityBlocker {
+  readonly code: string;
+  readonly severity: string;
+  readonly owner: string;
+  readonly message: string;
+  readonly action: string;
+  readonly repair?: DocumentationCapabilityRepairAction | undefined;
+}
+
+export interface DocumentationCapabilityRepairAction {
+  readonly available: boolean;
+  readonly label: string;
+  readonly operation: string;
+  readonly action: string;
+  readonly idempotent: boolean;
+  readonly requiresConfirmation: boolean;
 }
 
 interface Options {
@@ -54,6 +86,78 @@ function text(value: unknown, name: string): string {
   if (typeof value !== 'string' || !value.trim())
     throw new Error(`${name} must be a non-empty string`);
   return value;
+}
+
+function optionalText(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function booleanValue(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+function parseCapabilityRepairAction(
+  value: unknown,
+): DocumentationCapabilityRepairAction | undefined {
+  if (value === undefined) return undefined;
+  const repair = record(value, 'Documentation capability blocker repair');
+  return Object.freeze({
+    available: booleanValue(repair.available, false),
+    label: text(repair.label, 'Documentation capability blocker repair label'),
+    operation: text(repair.operation, 'Documentation capability blocker repair operation'),
+    action: text(repair.action, 'Documentation capability blocker repair action'),
+    idempotent: booleanValue(repair.idempotent, false),
+    requiresConfirmation: booleanValue(repair.requiresConfirmation, true),
+  });
+}
+
+function parseCapabilityReadiness(
+  value: unknown,
+): DocumentationCapabilityReadiness | undefined {
+  if (value === undefined) return undefined;
+  const capability = record(value, 'Documentation capability readiness');
+  return Object.freeze({
+    capabilityCode: text(capability.capabilityCode, 'Documentation capability code'),
+    displayName: text(capability.displayName, 'Documentation capability display name'),
+    owningModule: text(capability.owningModule, 'Documentation capability owner'),
+    capabilityType: text(capability.capabilityType, 'Documentation capability type'),
+    group: text(capability.group, 'Documentation capability group'),
+    businessStatus: text(
+      capability.businessStatus,
+      'Documentation capability business status',
+    ),
+    technicalStatus: text(
+      capability.technicalStatus,
+      'Documentation capability technical status',
+    ),
+    ...(optionalText(capability.releaseStatus)
+      ? { releaseStatus: optionalText(capability.releaseStatus) }
+      : {}),
+    nextAction: text(capability.nextAction, 'Documentation capability next action'),
+    blockers: Object.freeze(
+      Array.isArray(capability.blockers)
+        ? capability.blockers.map((item) => {
+            const blocker = record(item, 'Documentation capability blocker');
+            return Object.freeze({
+              code: text(blocker.code, 'Documentation capability blocker code'),
+              severity: text(
+                blocker.severity,
+                'Documentation capability blocker severity',
+              ),
+              owner: text(blocker.owner, 'Documentation capability blocker owner'),
+              message: text(
+                blocker.message,
+                'Documentation capability blocker message',
+              ),
+              action: text(blocker.action, 'Documentation capability blocker action'),
+              ...(blocker.repair !== undefined
+                ? { repair: parseCapabilityRepairAction(blocker.repair) }
+                : {}),
+            });
+          })
+        : [],
+    ),
+  });
 }
 
 function parse(value: unknown): DocumentationPublicationStatus {
@@ -114,6 +218,9 @@ function parse(value: unknown): DocumentationPublicationStatus {
               : {}),
           }),
         }
+      : {}),
+    ...(data.capability !== undefined
+      ? { capability: parseCapabilityReadiness(data.capability) }
       : {}),
   };
   return Object.freeze(result);
