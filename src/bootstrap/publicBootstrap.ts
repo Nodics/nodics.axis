@@ -315,6 +315,32 @@ export interface AxisDocumentationDashboardMetadata {
   readonly coverage?: AxisDocumentationCoverage | undefined;
 }
 
+export interface AxisStartupValidationFinding {
+  readonly code: string;
+  readonly severity: 'ERROR' | 'WARNING' | 'INFO';
+  readonly owner: string;
+  readonly ownerType: string;
+  readonly propertyPath?: string | undefined;
+  readonly message: string;
+  readonly action: string;
+  readonly dismissible: boolean;
+  readonly auditRequired: boolean;
+}
+
+export interface AxisStartupValidationReport {
+  readonly state: 'READY' | 'NEEDS_ATTENTION' | 'NOT_READY';
+  readonly checkedAt: string;
+  readonly source: string;
+  readonly summary: Readonly<{
+    readonly total: number;
+    readonly errors: number;
+    readonly warnings: number;
+    readonly info: number;
+    readonly dismissible: number;
+  }>;
+  readonly findings: readonly AxisStartupValidationFinding[];
+}
+
 export interface AxisAuthenticatedBootstrap {
   readonly axisPolicy: AxisEmployeePolicy;
   readonly navigation: readonly AxisNavigationItem[];
@@ -328,6 +354,7 @@ export interface AxisAuthenticatedBootstrap {
     | readonly AxisApplicationInitializationProfile[]
     | undefined;
   readonly documentationSources: readonly AxisDocumentationSource[];
+  readonly startupValidation?: AxisStartupValidationReport | undefined;
   readonly tenantCode: string;
 }
 
@@ -489,6 +516,24 @@ function availabilityState(value: unknown): AxisModuleAvailability {
   return ['UP', 'DEGRADED', 'UNAVAILABLE', 'UNKNOWN'].includes(String(value))
     ? (value as AxisModuleAvailability)
     : 'UNKNOWN';
+}
+
+function startupValidationSeverity(
+  value: unknown,
+  name: string,
+): AxisStartupValidationFinding['severity'] {
+  if (value === 'ERROR' || value === 'WARNING' || value === 'INFO') return value;
+  throw new Error(`${name} severity is unsupported`);
+}
+
+function startupValidationState(
+  value: unknown,
+  name: string,
+): AxisStartupValidationReport['state'] {
+  if (value === 'READY' || value === 'NEEDS_ATTENTION' || value === 'NOT_READY') {
+    return value;
+  }
+  throw new Error(`${name} state is unsupported`);
 }
 
 function optionalText(value: unknown, name: string): string | undefined {
@@ -2025,6 +2070,50 @@ function parseApplicationInitializationProfiles(
   );
 }
 
+function parseStartupValidationReport(value: unknown): AxisStartupValidationReport {
+  const source = record(value, 'startup validation');
+  const summary = record(source.summary, 'startup validation summary');
+  return Object.freeze({
+    state: startupValidationState(source.state, 'startup validation'),
+    checkedAt: text(source.checkedAt, 'startup validation checked at'),
+    source: text(source.source, 'startup validation source'),
+    summary: Object.freeze({
+      total: nonNegativeInteger(summary.total, 'startup validation total'),
+      errors: nonNegativeInteger(summary.errors, 'startup validation errors'),
+      warnings: nonNegativeInteger(summary.warnings, 'startup validation warnings'),
+      info: nonNegativeInteger(summary.info, 'startup validation info'),
+      dismissible: nonNegativeInteger(
+        summary.dismissible,
+        'startup validation dismissible',
+      ),
+    }),
+    findings: Object.freeze(
+      array(source.findings, 'startup validation findings').map((finding, index) => {
+        const parsed = record(finding, `startup validation finding ${String(index)}`);
+        return Object.freeze({
+          code: text(parsed.code, 'startup validation finding code'),
+          severity: startupValidationSeverity(
+            parsed.severity,
+            'startup validation finding',
+          ),
+          owner: text(parsed.owner, 'startup validation finding owner'),
+          ownerType: text(parsed.ownerType, 'startup validation finding owner type'),
+          propertyPath: optionalText(
+            parsed.propertyPath,
+            'startup validation finding property path',
+          ),
+          message: text(parsed.message, 'startup validation finding message'),
+          action: text(parsed.action, 'startup validation finding action'),
+          dismissible:
+            typeof parsed.dismissible === 'boolean' ? parsed.dismissible : false,
+          auditRequired:
+            typeof parsed.auditRequired === 'boolean' ? parsed.auditRequired : false,
+        });
+      }),
+    ),
+  });
+}
+
 export async function loadAuthenticatedBootstrap(
   backofficeBaseUrl: string,
   clientContractVersion: number,
@@ -2079,6 +2168,7 @@ export async function loadAuthenticatedBootstrap(
         data.applicationInitializationProfiles,
       ),
       documentationSources: parseDocumentationSources(data.documentationSources),
+      startupValidation: parseStartupValidationReport(data.startupValidation),
       tenantCode: text(data.tenantCode, 'BackOffice employee tenant code'),
     });
   } finally {

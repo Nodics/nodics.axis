@@ -25,6 +25,7 @@ import {
   type AxisAuthenticatedBootstrap,
   type AxisDocumentationSource,
   type AxisModuleConnection,
+  type AxisStartupValidationReport,
 } from '../bootstrap/publicBootstrap';
 import {
   createDocumentationPublicationClient,
@@ -73,6 +74,19 @@ interface ActionCardModel {
 const overviewPanelMinWidth = 320;
 const overviewPanelDefaultWidth = 380;
 const overviewPanelMaxWidth = 560;
+const readyStartupValidation: AxisStartupValidationReport = Object.freeze({
+  state: 'READY',
+  checkedAt: new Date(0).toISOString(),
+  source: 'backoffice.operationalReadiness',
+  summary: Object.freeze({
+    total: 0,
+    errors: 0,
+    warnings: 0,
+    info: 0,
+    dismissible: 0,
+  }),
+  findings: Object.freeze([]),
+});
 
 function boundedOverviewPanelWidth(width: number): number {
   return Math.min(
@@ -245,6 +259,25 @@ function applicationNeedsSetupAction(status: ApplicationInitializationStatus): b
   return status.readiness !== 'READY' || status.releaseStatus === 'UPDATE_AVAILABLE';
 }
 
+function startupValidationNeedsAction(
+  startupValidation: AxisStartupValidationReport,
+): boolean {
+  return (
+    startupValidation.state !== 'READY' || startupValidation.summary.total > 0
+  );
+}
+
+function startupValidationRoute(bootstrap: AxisAuthenticatedBootstrap): string {
+  return (
+    bootstrap.navigation.find(
+      (item) =>
+        item.backendWorkspace?.workspaceCode === 'system.runtimeConfiguration' &&
+        item.featureState !== 'HIDDEN' &&
+        ['UP', 'DEGRADED'].includes(item.availability),
+    )?.route ?? '/dashboard'
+  );
+}
+
 function progressPercent(ready: number, total: number): number {
   if (total <= 0) return 0;
   return Math.round((ready / total) * 100);
@@ -286,7 +319,16 @@ export function AxisDashboardRoutePage({
 }: AxisDashboardRoutePageProps) {
   const navigate = useNavigate();
   const [expandedPanels, setExpandedPanels] = useState<ReadonlySet<string>>(
-    () => new Set(['modules', 'data', 'publishing', 'setup', 'overview', 'work-areas']),
+    () =>
+      new Set([
+        'startup',
+        'modules',
+        'data',
+        'publishing',
+        'setup',
+        'overview',
+        'work-areas',
+      ]),
   );
   const [overviewPanelWidth, setOverviewPanelWidth] = useState(
     overviewPanelDefaultWidth,
@@ -428,12 +470,19 @@ export function AxisDashboardRoutePage({
   const registeredModuleActionCount =
     registeredModules.filter(moduleNeedsAction).length;
   const moduleActionCount = availableModuleActionCount + registeredModuleActionCount;
+  const startupValidationReported = Boolean(bootstrap.startupValidation);
+  const startupValidation = bootstrap.startupValidation ?? readyStartupValidation;
   const initReleaseCount = releases.filter((release) => release.dataType === 'init');
   const coreReleaseCount = releases.filter((release) => release.dataType === 'core');
   const sampleReleaseCount = releases.filter(
     (release) => release.dataType === 'sample',
   );
   const dataActionCount = releases.filter(dataReleaseNeedsAction).length;
+  const startupActionCount = startupValidationNeedsAction(startupValidation)
+    ? startupValidation.summary.total
+    : 0;
+  const startupErrorCount = startupValidation.summary.errors;
+  const startupWarningCount = startupValidation.summary.warnings;
   const approvalCount = allPublicationStatuses.filter(publicationNeedsApproval).length;
   const publicationActionCount =
     allPublicationStatuses.filter(publicationNeedsAction).length;
@@ -459,6 +508,9 @@ export function AxisDashboardRoutePage({
   const visibleRouteCount = bootstrap.navigation.filter(
     (item) => item.featureState !== 'HIDDEN',
   ).length;
+  const primaryStartupFinding = startupValidation.findings[0];
+  const totalActionCount =
+    startupActionCount + moduleActionCount + dataActionCount + approvalCount;
   const loading =
     registeredModulesQuery.isLoading ||
     availableModulesQuery.isLoading ||
@@ -472,6 +524,71 @@ export function AxisDashboardRoutePage({
     applicationStatusQueries.find((query) => query.error)?.error ??
     documentationStatusQueries.find((query) => query.error)?.error;
   const actionCards: readonly ActionCardModel[] = [
+    startupActionCount > 0
+      ? {
+          id: 'startup',
+          title: 'Review startup configuration',
+          description:
+            'Server bootstrap detected configuration values or policies that need operator review before this environment is treated as ready.',
+          icon: 'settings',
+          route: startupValidationRoute(bootstrap),
+          primaryAction: 'Open Runtime Configuration',
+          severity: startupErrorCount > 0 ? 'error' : 'warning',
+          count: startupActionCount,
+          meta: primaryStartupFinding
+            ? `${primaryStartupFinding.owner}: ${primaryStartupFinding.message}`
+            : undefined,
+          detailRows: [
+            {
+              label: 'Blocking errors',
+              value: String(startupErrorCount),
+              severity: startupErrorCount > 0 ? 'error' : 'success',
+            },
+            {
+              label: 'Warnings',
+              value: String(startupWarningCount),
+              severity: startupWarningCount > 0 ? 'warning' : 'success',
+            },
+            {
+              label: 'Dismissible with audit',
+              value: String(startupValidation.summary.dismissible),
+              severity:
+                startupValidation.summary.dismissible > 0
+                  ? 'warning'
+                  : 'info',
+            },
+          ],
+        }
+      : {
+          id: 'startup',
+          title: 'Startup checks are clear',
+          description:
+            'BackOffice did not report startup configuration blockers for this operator workspace.',
+          icon: 'settings',
+          route: startupValidationRoute(bootstrap),
+          primaryAction: 'Review Configuration',
+          severity: 'success',
+          meta: startupValidationReported
+            ? `Checked ${new Date(startupValidation.checkedAt).toLocaleString()}`
+            : undefined,
+          detailRows: [
+            {
+              label: 'Blocking errors',
+              value: '0',
+              severity: 'success',
+            },
+            {
+              label: 'Warnings',
+              value: '0',
+              severity: 'success',
+            },
+            {
+              label: 'Source',
+              value: startupValidation.source,
+              severity: 'info',
+            },
+          ],
+        },
     moduleActionCount > 0
       ? {
           id: 'modules',
@@ -775,7 +892,7 @@ export function AxisDashboardRoutePage({
             {[
               {
                 label: 'Actions',
-                value: moduleActionCount + dataActionCount + approvalCount,
+                value: totalActionCount,
               },
               { label: 'Routes', value: visibleRouteCount },
               { label: 'Live', value: liveConnections.length },
@@ -853,13 +970,13 @@ export function AxisDashboardRoutePage({
             </Stack>
             <Chip
               color={
-                moduleActionCount + dataActionCount + approvalCount > 0
+                totalActionCount > 0
                   ? 'warning'
                   : 'success'
               }
               label={
-                moduleActionCount + dataActionCount + approvalCount > 0
-                  ? `${String(moduleActionCount + dataActionCount + approvalCount)} actions`
+                totalActionCount > 0
+                  ? `${String(totalActionCount)} actions`
                   : 'Ready'
               }
               sx={{ alignSelf: { xs: 'flex-start', md: 'center' }, fontWeight: 800 }}

@@ -32,6 +32,25 @@ const bootstrap: AxisAuthenticatedBootstrap = {
   },
   navigation: [
     {
+      id: 'runtime-configuration',
+      label: 'Runtime Configuration',
+      route: '/administration/runtime-configuration',
+      order: 5,
+      moduleName: 'system',
+      category: 'platform',
+      icon: 'settings',
+      availability: 'UP',
+      backendWorkspace: {
+        contractVersion: 1,
+        renderer: 'axis.workspace.native',
+        workspaceCode: 'system.runtimeConfiguration',
+        viewCode: 'runtimeConfiguration.overview',
+        title: 'Runtime Configuration',
+        description: 'Review module-owned runtime configuration schemas.',
+        tabs: [],
+      },
+    },
+    {
       id: 'registry',
       label: 'Module Registry',
       route: '/registry',
@@ -128,6 +147,13 @@ const bootstrap: AxisAuthenticatedBootstrap = {
       dashboard: { audiences: ['developer'] },
     },
   ],
+  startupValidation: {
+    state: 'READY',
+    checkedAt: '2026-09-23T00:00:00.000Z',
+    source: 'backoffice.operationalReadiness',
+    summary: { total: 0, errors: 0, warnings: 0, info: 0, dismissible: 0 },
+    findings: [],
+  },
   tenantCode: 'default',
 };
 
@@ -352,6 +378,87 @@ describe('AxisDashboardRoutePage', () => {
       screen.getByRole('button', { name: /Open Publishing/u }),
     ).toBeInTheDocument();
     expect(screen.getByText('Work areas')).toBeInTheDocument();
+  });
+
+  it('surfaces backend-owned startup configuration warnings', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>((input) => {
+        const url = urlOf(input);
+        if (url.includes('/runtime/modules/available'))
+          return Promise.resolve(response({ items: [] }));
+        if (url.includes('/runtime/modules/registrations')) {
+          return Promise.resolve(
+            response({ items: [moduleItem('nodics.platform', 'REGISTERED', true)] }),
+          );
+        }
+        if (url.endsWith('/v0/init') || url.endsWith('/v0/core')) {
+          return Promise.resolve(response([release('CURRENT', 'core')]));
+        }
+        if (url.endsWith('/v0/sample')) return Promise.resolve(response([]));
+        if (url.includes('/applications/')) {
+          return Promise.resolve(
+            response({
+              profileCode: 'agoraapparel',
+              siteCode: 'agora-apparel',
+              readiness: 'READY',
+              releaseCode: 'agoraapparel-v001',
+              releaseVersion: '0.1.0',
+              releaseStatus: 'CURRENT',
+              allowedActions: ['ROLLBACK'],
+            }),
+          );
+        }
+        return Promise.resolve(response({}));
+      }),
+    );
+    const warnedBootstrap: AxisAuthenticatedBootstrap = {
+      ...bootstrap,
+      startupValidation: {
+        state: 'NEEDS_ATTENTION',
+        checkedAt: '2026-09-23T00:00:00.000Z',
+        source: 'backoffice.operationalReadiness',
+        summary: { total: 1, errors: 0, warnings: 1, info: 0, dismissible: 1 },
+        findings: [
+          {
+            code: 'LOCAL_SAMPLE_ADMIN_PASSWORD',
+            severity: 'WARNING',
+            owner: 'nAuth',
+            ownerType: 'AUTHENTICATION',
+            propertyPath: 'bootstrapIdentity.adminPassword',
+            message: 'A local or sample bootstrap admin password is active.',
+            action:
+              'Rotate the bootstrap admin password through the owning configuration layer.',
+            dismissible: true,
+            auditRequired: true,
+          },
+        ],
+      },
+    };
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <AxisThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <AxisDashboardRoutePage
+              accessToken="employee-token"
+              bootstrap={warnedBootstrap}
+              runtime={runtime}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </AxisThemeProvider>,
+    );
+
+    expect(await screen.findByText('Review startup configuration')).toBeInTheDocument();
+    expect(
+      screen.getByText('nAuth: A local or sample bootstrap admin password is active.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Open Runtime Configuration/u }),
+    ).toBeInTheDocument();
   });
 
   it('deduplicates the same release across runtime catalogue projections', async () => {
