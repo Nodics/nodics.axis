@@ -243,6 +243,49 @@ function parseDryRunSummary(value: unknown): DataReleaseDryRunSummary | undefine
     throw new Error('Data release dry-run summary is incompatible');
   }
   const summarySource = record(source.summary, 'Data release dry-run counters');
+  const publicationFollowUps = boundedArray(
+    source.publicationFollowUps,
+    (item): DataReleaseDryRunSummary['publicationFollowUps'][number] | undefined => {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+        return undefined;
+      }
+      const followUp = item as Record<string, unknown>;
+      return Object.freeze({
+        ...(optionalText(followUp.releaseCode)
+          ? { releaseCode: optionalText(followUp.releaseCode) }
+          : {}),
+        displayName: text(followUp.displayName, 'Publication follow-up display name'),
+        moduleName: text(followUp.moduleName, 'Publication follow-up module'),
+        publicationPolicy: text(
+          followUp.publicationPolicy,
+          'Publication follow-up policy',
+        ),
+        ...(optionalText(followUp.initialPublicationPolicy)
+          ? {
+              initialPublicationPolicy: optionalText(
+                followUp.initialPublicationPolicy,
+              ),
+            }
+          : {}),
+        ...(optionalText(followUp.targetRole)
+          ? { targetRole: optionalText(followUp.targetRole) }
+          : {}),
+        ...(optionalText(followUp.sourceRole)
+          ? { sourceRole: optionalText(followUp.sourceRole) }
+          : {}),
+        ...(optionalText(followUp.siteCode)
+          ? { siteCode: optionalText(followUp.siteCode) }
+          : {}),
+        ...(optionalText(followUp.catalogCode)
+          ? { catalogCode: optionalText(followUp.catalogCode) }
+          : {}),
+        workflowRequired: followUp.workflowRequired === true,
+        nextAction: text(followUp.nextAction, 'Publication follow-up next action'),
+        impact: text(followUp.impact, 'Publication follow-up impact'),
+      });
+    },
+    256,
+  );
   const outcomes = boundedArray(
     source.outcomes,
     (item): DataReleaseDryRunSummary['outcomes'][number] | undefined => {
@@ -313,6 +356,7 @@ function parseDryRunSummary(value: unknown): DataReleaseDryRunSummary | undefine
       wait: optionalNumber(summarySource.wait) ?? 0,
     }),
     outcomes: outcomes ?? Object.freeze([]),
+    publicationFollowUps: publicationFollowUps ?? Object.freeze([]),
     messages: boundedArray(source.messages, optionalText, 20) ?? Object.freeze([]),
   });
 }

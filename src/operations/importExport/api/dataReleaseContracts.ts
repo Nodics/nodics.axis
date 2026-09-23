@@ -99,6 +99,21 @@ export interface DataReleaseDryRunOutcome {
   readonly blockers: readonly DataReleaseReadinessBlocker[];
 }
 
+export interface DataReleasePublicationFollowUp {
+  readonly releaseCode?: string | undefined;
+  readonly displayName: string;
+  readonly moduleName: string;
+  readonly publicationPolicy: string;
+  readonly initialPublicationPolicy?: string | undefined;
+  readonly targetRole?: string | undefined;
+  readonly sourceRole?: string | undefined;
+  readonly siteCode?: string | undefined;
+  readonly catalogCode?: string | undefined;
+  readonly workflowRequired: boolean;
+  readonly nextAction: string;
+  readonly impact: string;
+}
+
 export interface DataReleaseDryRunSummary {
   readonly mode: 'VALIDATE';
   readonly validationOnly: boolean;
@@ -118,6 +133,7 @@ export interface DataReleaseDryRunSummary {
     readonly wait: number;
   };
   readonly outcomes: readonly DataReleaseDryRunOutcome[];
+  readonly publicationFollowUps: readonly DataReleasePublicationFollowUp[];
   readonly messages: readonly string[];
 }
 

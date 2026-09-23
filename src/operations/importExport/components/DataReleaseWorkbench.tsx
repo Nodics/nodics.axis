@@ -385,6 +385,85 @@ function DryRunSummaryPanel(props: {
             ))}
           </Stack>
         ) : null}
+        {props.dryRun.publicationFollowUps.length > 0 ? (
+          <Box
+            sx={(theme) => ({
+              bgcolor: alpha(theme.palette.warning.main, 0.055),
+              border: 1,
+              borderColor: alpha(theme.palette.warning.main, 0.22),
+              borderRadius: '8px',
+              p: { xs: 1, md: 1.25 },
+            })}
+          >
+            <Stack spacing={0.75}>
+              <Stack
+                direction="row"
+                sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 0.75 }}
+              >
+                <ShellIcon fontSize="small" name="workflow" />
+                <Typography component="h3" variant="subtitle2">
+                  Publication follow-up required
+                </Typography>
+                <Chip
+                  color="warning"
+                  label={`${props.dryRun.publicationFollowUps.length.toString()} publishable`}
+                  size="small"
+                  variant="outlined"
+                />
+              </Stack>
+              {props.dryRun.publicationFollowUps.slice(0, 6).map((followUp) => (
+                <Box
+                  key={
+                    followUp.releaseCode ??
+                    `${followUp.moduleName}:${followUp.displayName}`
+                  }
+                  sx={(theme) => ({
+                    bgcolor: alpha(theme.palette.background.paper, 0.75),
+                    border: 1,
+                    borderColor: alpha(theme.palette.divider, 0.82),
+                    borderRadius: '8px',
+                    px: 1,
+                    py: 0.85,
+                  })}
+                >
+                  <Stack
+                    direction={{ xs: 'column', md: 'row' }}
+                    sx={{ alignItems: { md: 'center' }, gap: 1, justifyContent: 'space-between' }}
+                  >
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography sx={{ fontWeight: 700 }} variant="body2">
+                        {followUp.displayName}
+                      </Typography>
+                      <Typography color="text.secondary" variant="caption">
+                        {followUp.impact}
+                      </Typography>
+                    </Box>
+                    <Stack
+                      direction="row"
+                      sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 0.6 }}
+                    >
+                      {followUp.sourceRole ? (
+                        <Chip label={`From ${followUp.sourceRole}`} size="small" />
+                      ) : null}
+                      {followUp.targetRole ? (
+                        <Chip label={`To ${followUp.targetRole}`} size="small" />
+                      ) : null}
+                      {followUp.siteCode ? (
+                        <Chip label={followUp.siteCode} size="small" />
+                      ) : null}
+                      <Chip
+                        color="warning"
+                        label={followUp.nextAction}
+                        size="small"
+                        variant="outlined"
+                      />
+                    </Stack>
+                  </Stack>
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        ) : null}
       </Stack>
     </Paper>
   );

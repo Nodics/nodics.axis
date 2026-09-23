@@ -138,6 +138,22 @@ describe('DataReleaseWorkbench', () => {
           blockers: [],
         },
       ],
+      publicationFollowUps: [
+        {
+          releaseCode: 'circa.ewaste:content',
+          displayName: 'Circa content',
+          moduleName: 'circa.ewaste',
+          publicationPolicy: 'REQUIRED',
+          initialPublicationPolicy: 'ADMIN_INITIATED',
+          sourceRole: 'WCMS_STAGED',
+          targetRole: 'WCMS_ONLINE',
+          siteCode: 'circa',
+          workflowRequired: true,
+          nextAction: 'Import release, then request publication approval',
+          impact:
+            'Imported data remains staged until governed publication makes it Online.',
+        },
+      ],
       messages: [
         'Dry-run validated the selected release plan. No data was imported.',
       ],
@@ -175,6 +191,8 @@ describe('DataReleaseWorkbench', () => {
     expect(screen.getByText('Dry-run result')).toBeInTheDocument();
     expect(screen.getByText(/No data was imported/u)).toBeInTheDocument();
     expect(screen.getAllByText('Install').length).toBeGreaterThan(0);
-    expect(screen.getByText('Circa content')).toBeInTheDocument();
+    expect(screen.getAllByText('Circa content').length).toBeGreaterThan(0);
+    expect(screen.getByText('Publication follow-up required')).toBeInTheDocument();
+    expect(screen.getByText('To WCMS_ONLINE')).toBeInTheDocument();
   });
 });

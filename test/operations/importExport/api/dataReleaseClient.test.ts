@@ -213,6 +213,23 @@ describe('data release client', () => {
                   blockers: release.readiness.blockers,
                 },
               ],
+              publicationFollowUps: [
+                {
+                  releaseCode: 'profile:core',
+                  displayName: 'Employee Profiles',
+                  moduleName: 'profile',
+                  publicationPolicy: 'REQUIRED',
+                  initialPublicationPolicy: 'ADMIN_INITIATED',
+                  sourceRole: 'WCMS_STAGED',
+                  targetRole: 'WCMS_ONLINE',
+                  siteCode: 'axis',
+                  catalogCode: 'axis',
+                  workflowRequired: true,
+                  nextAction: 'Import release, then request publication approval',
+                  impact:
+                    'Imported data remains staged until governed publication makes it Online.',
+                },
+              ],
               messages: [
                 'Dry-run validated the selected release plan. No data was imported.',
               ],
@@ -238,6 +255,9 @@ describe('data release client', () => {
 
     expect(dryRunResult.dryRun?.summary.update).toBe(1);
     expect(dryRunResult.dryRun?.outcomes[0]?.operation).toBe('UPDATE');
+    expect(dryRunResult.dryRun?.publicationFollowUps[0]?.targetRole).toBe(
+      'WCMS_ONLINE',
+    );
     expect(dryRunResult.dryRun?.messages[0]).toContain('No data was imported');
     expect((fetchImplementation.mock.calls[0]?.[0] as URL).pathname).toBe(
       '/nodics/import/v0/core/validate',

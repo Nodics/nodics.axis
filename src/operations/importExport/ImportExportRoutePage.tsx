@@ -267,6 +267,9 @@ function mergeDataReleaseDryRuns(
       wait: dryRuns.reduce((total, dryRun) => total + dryRun.summary.wait, 0),
     }),
     outcomes: Object.freeze(dryRuns.flatMap((dryRun) => dryRun.outcomes)),
+    publicationFollowUps: Object.freeze(
+      dryRuns.flatMap((dryRun) => dryRun.publicationFollowUps),
+    ),
     messages: Object.freeze(
       Array.from(new Set(dryRuns.flatMap((dryRun) => dryRun.messages))),
     ),
