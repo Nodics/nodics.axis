@@ -1090,6 +1090,11 @@ export function AxisDashboardRoutePage({
           severity:
             startupValidation.bootstrapChecks.missing > 0 ? 'warning' : 'success',
         },
+        {
+          label: 'CLI evidence',
+          value: 'project:post-reset-readiness --live --json',
+          severity: startupValidation.state === 'READY' ? 'success' : 'info',
+        },
       ],
     },
   ];
