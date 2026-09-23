@@ -281,12 +281,14 @@ describe('FunctionalModuleRegistryRoutePage', () => {
     renderPage();
     await screen.findByText('Accelerators');
     await userEvent.click(screen.getByRole('button', { name: 'Expand Accelerators' }));
-    expect(screen.getByText('Commerce is not registered.')).toBeInTheDocument();
-    expect(screen.getByText('Register and activate Commerce.')).toBeInTheDocument();
+    expect(screen.getAllByText('Commerce is not registered.')[0]).toBeInTheDocument();
     expect(
-      screen.getByText('Discovery is registered but not activated.'),
+      screen.getAllByText('Register and activate Commerce.')[0],
     ).toBeInTheDocument();
-    expect(screen.getByText('Activate Discovery.')).toBeInTheDocument();
+    expect(
+      screen.getAllByText('Discovery is registered but not activated.')[0],
+    ).toBeInTheDocument();
+    expect(screen.getAllByText('Activate Discovery.')[0]).toBeInTheDocument();
     expect(screen.getByText('Readiness: BLOCKED')).toBeInTheDocument();
     expect(screen.queryByText('Readiness: READY')).not.toBeInTheDocument();
     expect(screen.queryByText(/Activation is waiting for/)).not.toBeInTheDocument();
@@ -353,5 +355,44 @@ describe('FunctionalModuleRegistryRoutePage', () => {
     expect(screen.getByText('Runtime observations')).toBeInTheDocument();
     expect(screen.getAllByText('platformServer').length).toBeGreaterThan(0);
     expect(screen.getByText('Data packages')).toBeInTheDocument();
+  });
+
+  it('explains no-runtime module state with shared capability readiness guidance', async () => {
+    const offlineModule = {
+      ...moduleItem('nodics.loyalty', 'Loyalty', {
+        enabled: true,
+        registrationState: 'REGISTERED',
+      }),
+      runtimeState: 'OFFLINE',
+      observedServers: [],
+      runtimeObservations: [],
+      lastObservedAt: undefined,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>((input) =>
+        Promise.resolve(
+          response({
+            items: urlOf(input).includes('/runtime/modules/registrations')
+              ? [offlineModule]
+              : [],
+          }),
+        ),
+      ),
+    );
+
+    renderPage();
+
+    await screen.findByText('Loyalty');
+    expect(screen.getByText('No runtime')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Expand Loyalty' }));
+
+    expect(screen.getByText('Capability readiness')).toBeInTheDocument();
+    expect(screen.getByText('MODULE_RUNTIME_nodics.loyalty')).toBeInTheDocument();
+    expect(screen.getByText('RUNTIME_HEARTBEAT')).toBeInTheDocument();
+    expect(screen.getByText('Restore target runtime')).toBeInTheDocument();
+    expect(
+      screen.getAllByText(/runtime heartbeat evidence is missing or not active/)[0],
+    ).toBeInTheDocument();
   });
 });

@@ -764,12 +764,12 @@ describe('ImportExportRoutePage', () => {
     await user.click(await screen.findByRole('tab', { name: 'Core data' }));
 
     expect(await screen.findByRole('heading', { name: 'Needs action' })).toBeVisible();
-    const platformHeading = screen.getByRole('heading', {
+    const platformHeading = screen.getAllByRole('heading', {
       name: 'Local Platform foundation',
-    });
-    const commerceHeading = screen.getByRole('heading', {
+    })[0]!;
+    const commerceHeading = screen.getAllByRole('heading', {
       name: 'Local Commerce foundation',
-    });
+    })[0]!;
 
     expect(platformHeading.compareDocumentPosition(commerceHeading)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
@@ -1072,9 +1072,9 @@ describe('ImportExportRoutePage', () => {
 
     expect(await screen.findByText('Requires repair')).toBeVisible();
     expect(screen.getByText(/Repair the owning module data release/iu)).toBeVisible();
-    expect(screen.getByText('Agora Customer Review Source')).toBeVisible();
+    expect(screen.getAllByText('Agora Customer Review Source')[0]).toBeVisible();
     expect(
-      screen.getByText(/Publishable data must target a Staged runtime/iu),
+      screen.getAllByText(/Publishable data must target a Staged runtime/iu)[0],
     ).toBeVisible();
     expect(
       screen.getByRole('checkbox', {
@@ -1090,10 +1090,18 @@ describe('ImportExportRoutePage', () => {
     });
     await user.click(repairGroupToggle);
     expect(repairGroupToggle).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByText('Agora Customer Review Source')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('checkbox', {
+        name: 'Agora Customer Review Source has an invalid release manifest',
+      }),
+    ).not.toBeInTheDocument();
     await user.click(repairGroupToggle);
     expect(repairGroupToggle).toHaveAttribute('aria-expanded', 'true');
-    expect(await screen.findByText('Agora Customer Review Source')).toBeVisible();
+    expect(
+      await screen.findByRole('checkbox', {
+        name: 'Agora Customer Review Source has an invalid release manifest',
+      }),
+    ).toBeDisabled();
   });
 
   it('supports visible select and deselect controls for all data release tabs', async () => {

@@ -41,7 +41,7 @@ import {
   loadProcessTasks,
   type ProcessHumanTask,
 } from '../operations/processWorkflow/api/processDefinitionClient';
-import { ReadinessRepairMetadata } from '../operations/readiness/ReadinessRepairMetadata';
+import { CapabilityReadinessPanel } from '../operations/readiness/CapabilityReadinessPanel';
 import type { AxisRuntimeConfig } from '../runtime/runtimeConfig';
 import { createDocumentationContentPackClient } from './api/documentationContentPackClient';
 import {
@@ -1273,90 +1273,7 @@ function CmsDocumentationReadinessCard({
               </Alert>
             ) : null}
             {publication.data?.capability?.blockers.length ? (
-              <Box>
-                <Typography color="text.secondary" variant="caption">
-                  Capability readiness
-                </Typography>
-                <Stack spacing={0.75} sx={{ mt: 0.5 }}>
-                  {publication.data.capability.blockers.map((blocker) => (
-                    <Alert
-                      key={`${blocker.blockerCode ?? blocker.code}:${blocker.owner}`}
-                      severity={
-                        ['BLOCKED', 'REPAIR_REQUIRED'].includes(blocker.severity)
-                          ? 'warning'
-                          : 'info'
-                      }
-                      sx={{ py: 0.5 }}
-                    >
-                      <Typography sx={{ fontWeight: 700 }} variant="body2">
-                        {blocker.repair?.label ?? blocker.action}
-                      </Typography>
-                      <Typography variant="caption">{blocker.message}</Typography>
-                      <Stack
-                        direction="row"
-                        spacing={0.75}
-                        sx={{
-                          alignItems: 'center',
-                          flexWrap: 'wrap',
-                          mt: 0.75,
-                        }}
-                      >
-                        <Chip
-                          label={blocker.blockerCode ?? blocker.code}
-                          size="small"
-                          variant="outlined"
-                        />
-                        <Chip
-                          label={blocker.severity}
-                          size="small"
-                          variant="outlined"
-                        />
-                        {blocker.ownerType ? (
-                          <Chip
-                            label={blocker.ownerType}
-                            size="small"
-                            variant="outlined"
-                          />
-                        ) : null}
-                        {blocker.source ? (
-                          <Chip
-                            label={blocker.source}
-                            size="small"
-                            variant="outlined"
-                          />
-                        ) : null}
-                        {blocker.targetServer ? (
-                          <Chip
-                            label={blocker.targetServer}
-                            size="small"
-                            variant="outlined"
-                          />
-                        ) : null}
-                        {blocker.technicalStatus ? (
-                          <Chip
-                            label={blocker.technicalStatus}
-                            size="small"
-                            variant="outlined"
-                          />
-                        ) : null}
-                      </Stack>
-                      {blocker.disabledReason ? (
-                        <Typography
-                          color="text.secondary"
-                          sx={{ display: 'block', mt: 0.5 }}
-                          variant="caption"
-                        >
-                          {blocker.disabledReason}
-                        </Typography>
-                      ) : null}
-                      <ReadinessRepairMetadata
-                        repair={blocker.repair}
-                        runtimeDiagnostic={blocker.runtimeDiagnostic}
-                      />
-                    </Alert>
-                  ))}
-                </Stack>
-              </Box>
+              <CapabilityReadinessPanel readiness={publication.data.capability} />
             ) : null}
 
             <Box

@@ -32,6 +32,11 @@ import {
   type AxisModuleConnection,
   type AxisNavigationItem,
 } from '../../bootstrap/publicBootstrap';
+import {
+  CapabilityReadinessPanel,
+  type CapabilityReadinessBlocker,
+  type CapabilityReadinessSummary,
+} from '../readiness/CapabilityReadinessPanel';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
   applyFunctionalModuleLifecycleAction,
@@ -330,6 +335,134 @@ function runtimeSmokeReadiness(
     issueCount: issues.length,
     issues: Object.freeze(issues),
   });
+}
+
+function moduleCapabilityReadiness(
+  module: FunctionalModuleRegistration,
+): CapabilityReadinessSummary {
+  const blockers: CapabilityReadinessBlocker[] = [];
+  if (module.runtimeState !== 'ACTIVE') {
+    blockers.push({
+      blockerCode: `MODULE_RUNTIME_${module.functionalModule}`,
+      code: 'RUNTIME_UNAVAILABLE',
+      severity: module.enabled ? 'BLOCKED' : 'WARNING',
+      owner: module.functionalModule,
+      ownerType: 'MODULE_REGISTRY',
+      source: 'RUNTIME_HEARTBEAT',
+      message:
+        module.observedServers.length > 0
+          ? `Observed server(s): ${module.observedServers.join(', ')}.`
+          : 'No runtime server has reported this module.',
+      action: 'Start or repair target runtime',
+      disabledReason:
+        'The module is registered in Axis, but runtime heartbeat evidence is missing or not active.',
+      technicalStatus: module.runtimeState,
+      repair: {
+        available: false,
+        label: 'Restore target runtime',
+        operation: 'runtimeTopology.restoreRuntime',
+        action: 'RESTORE_RUNTIME',
+        idempotent: true,
+        requiresConfirmation: true,
+        eligibility: 'NOT_AVAILABLE',
+        unavailableReason:
+          'The owning runtime must start and register heartbeat evidence.',
+      },
+    });
+  } else if (module.observedServers.length === 0) {
+    blockers.push({
+      blockerCode: `MODULE_NO_SERVER_${module.functionalModule}`,
+      code: 'RUNTIME_OWNER_UNLOCATED',
+      severity: 'WARNING',
+      owner: module.functionalModule,
+      ownerType: 'MODULE_REGISTRY',
+      source: 'RUNTIME_HEARTBEAT',
+      message: 'The module is active but Axis cannot show which server owns it.',
+      action: 'Refresh runtime registration',
+      disabledReason:
+        'The runtime is active, but owner/server evidence is incomplete.',
+      technicalStatus: module.runtimeState,
+      repair: {
+        available: false,
+        label: 'Refresh runtime registration',
+        operation: 'runtimeTopology.refreshRegistration',
+        action: 'REFRESH_RUNTIME_REGISTRATION',
+        idempotent: true,
+        requiresConfirmation: false,
+        eligibility: 'NOT_AVAILABLE',
+        unavailableReason:
+          'Runtime registration is backend-owned and refreshed by heartbeat.',
+      },
+    });
+  }
+  (module.activationData?.preflight.dependencyStates ?? [])
+    .filter((dependency) => !dependency.satisfied)
+    .forEach((dependency) => {
+      blockers.push({
+        blockerCode: `MODULE_DEPENDENCY_${module.functionalModule}_${dependency.functionalModule}`,
+        code: 'MISSING_DEPENDENCY',
+        severity: 'BLOCKED',
+        owner: dependency.functionalModule,
+        ownerType: 'MODULE_REGISTRY',
+        source: 'MODULE_REGISTRY',
+        message:
+          dependency.reason ||
+          `${dependency.displayName} must be registered, active, and enabled first.`,
+        action: dependency.resolution || 'Prepare required dependency',
+        disabledReason:
+          'A required framework or accelerator capability is not ready.',
+        technicalStatus: dependency.runtimeState,
+        repair: {
+          available: false,
+          label: dependency.resolution || 'Prepare required dependency',
+          operation: 'moduleRegistry.prepareDependency',
+          action: 'PREPARE_DEPENDENCY',
+          idempotent: true,
+          requiresConfirmation: true,
+          eligibility: 'NOT_AVAILABLE',
+          unavailableReason:
+            'Register and activate the dependency from Module Registry.',
+        },
+      });
+    });
+  (module.activationData?.preflight.blockedReasons ?? []).forEach((reason, index) => {
+    blockers.push({
+      blockerCode: `MODULE_BLOCKED_${module.functionalModule}_${String(index + 1)}`,
+      code: 'MODULE_ACTIVATION_BLOCKED',
+      severity: 'BLOCKED',
+      owner: module.functionalModule,
+      ownerType: 'MODULE_REGISTRY',
+      source: 'ACTIVATION_PREFLIGHT',
+      message: reason,
+      action: 'Review module activation preflight',
+      disabledReason:
+        'Module activation preflight reported a blocking condition.',
+      technicalStatus: module.activationData?.readiness,
+    });
+  });
+  return {
+    capabilityCode: module.functionalModule,
+    displayName: module.displayName,
+    owningModule: module.functionalModule,
+    capabilityType: 'FUNCTIONAL_MODULE',
+    group: 'MODULE_REGISTRY',
+    businessStatus:
+      blockers.length > 0
+        ? blockers.some((blocker) => blocker.severity === 'BLOCKED')
+          ? 'NEEDS_ATTENTION'
+          : 'ACTIVE_WITH_WARNINGS'
+        : module.enabled
+          ? 'ONLINE'
+          : 'NOT_ACTIVE',
+    technicalStatus: module.runtimeState,
+    releaseStatus: module.registrationState,
+    lastEvaluatedAt: module.lastObservedAt,
+    source: 'backoffice.functionalModuleRegistry',
+    stale: false,
+    disabledReason: blockers[0]?.disabledReason,
+    nextAction: blockers[0]?.action ?? 'Monitor module readiness',
+    blockers,
+  };
 }
 
 function sampleReceipt(module: FunctionalModuleRegistration) {
@@ -878,6 +1011,7 @@ function ModuleCard({
   const routeTotal =
     visibility.activeRoutes + visibility.hiddenRoutes + visibility.unavailableRoutes;
   const dataPackageCount = activationData?.packages.length ?? 0;
+  const capabilityReadiness = moduleCapabilityReadiness(module);
   const runtimeObservationCount = Math.max(
     module.runtimeObservations.length,
     module.observedServers.length,
@@ -1154,6 +1288,9 @@ function ModuleCard({
                 pt: 2,
               }}
             >
+              {capabilityReadiness.blockers.length ? (
+                <CapabilityReadinessPanel readiness={capabilityReadiness} />
+              ) : null}
               <Grid container spacing={2}>
                 <Grid size={{ xs: 12, md: 4 }}>
                   <Typography color="text.secondary" variant="caption">

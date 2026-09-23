@@ -40,7 +40,7 @@ import {
   loadProcessTasks,
   type ProcessHumanTask,
 } from '../processWorkflow/api/processDefinitionClient';
-import { ReadinessRepairMetadata } from '../readiness/ReadinessRepairMetadata';
+import { CapabilityReadinessPanel } from '../readiness/CapabilityReadinessPanel';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
   createApplicationInitializationClient,
@@ -1586,138 +1586,46 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                     </Box>
                                   ) : null}
                                   {status.capability?.blockers.length ? (
-                                    <Box>
-                                      <Typography
-                                        color="text.secondary"
-                                        variant="caption"
-                                      >
-                                        Capability readiness
-                                      </Typography>
-                                      <Stack spacing={0.75} sx={{ mt: 0.5 }}>
-                                        {status.capability.blockers.map((blocker) => (
-                                          <Alert
-                                            key={`${blocker.blockerCode ?? blocker.code}:${blocker.owner}`}
-                                            severity={
-                                              ['BLOCKED', 'REPAIR_REQUIRED'].includes(
-                                                blocker.severity,
-                                              )
-                                                ? 'warning'
-                                                : 'info'
-                                            }
-                                            sx={{ py: 0.5 }}
-                                          >
-                                            <Typography
-                                              sx={{ fontWeight: 700 }}
-                                              variant="body2"
+                                    <CapabilityReadinessPanel
+                                      readiness={status.capability}
+                                      actionSlot={(blocker) =>
+                                        supportedRepairOperation(blocker) ? (
+                                          <Box sx={{ mt: 1 }}>
+                                            <Button
+                                              color="warning"
+                                              disabled={pending}
+                                              onClick={() => {
+                                                const operation =
+                                                  supportedRepairOperation(blocker);
+                                                if (!operation) return;
+                                                blocker.repair?.requiresConfirmation
+                                                  ? setRepairConfirmation({
+                                                      blocker,
+                                                      operation,
+                                                      profile,
+                                                      status,
+                                                    })
+                                                  : mutation.mutate({
+                                                      operation,
+                                                      profile,
+                                                      status,
+                                                    });
+                                              }}
+                                              size="small"
+                                              startIcon={
+                                                <ShellIcon
+                                                  fontSize="small"
+                                                  name="operations"
+                                                />
+                                              }
+                                              variant="outlined"
                                             >
                                               {blocker.repair?.label ?? blocker.action}
-                                            </Typography>
-                                            <Typography variant="caption">
-                                              {blocker.message}
-                                            </Typography>
-                                            <Stack
-                                              direction="row"
-                                              spacing={0.75}
-                                              sx={{
-                                                alignItems: 'center',
-                                                flexWrap: 'wrap',
-                                                mt: 0.75,
-                                              }}
-                                            >
-                                              <Chip
-                                                label={blocker.blockerCode ?? blocker.code}
-                                                size="small"
-                                                variant="outlined"
-                                              />
-                                              <Chip
-                                                label={blocker.severity}
-                                                size="small"
-                                                variant="outlined"
-                                              />
-                                              {blocker.ownerType ? (
-                                                <Chip
-                                                  label={blocker.ownerType}
-                                                  size="small"
-                                                  variant="outlined"
-                                                />
-                                              ) : null}
-                                              {blocker.source ? (
-                                                <Chip
-                                                  label={blocker.source}
-                                                  size="small"
-                                                  variant="outlined"
-                                                />
-                                              ) : null}
-                                              {blocker.targetServer ? (
-                                                <Chip
-                                                  label={blocker.targetServer}
-                                                  size="small"
-                                                  variant="outlined"
-                                                />
-                                              ) : null}
-                                              {blocker.technicalStatus ? (
-                                                <Chip
-                                                  label={blocker.technicalStatus}
-                                                  size="small"
-                                                  variant="outlined"
-                                                />
-                                              ) : null}
-                                            </Stack>
-                                            {blocker.disabledReason ? (
-                                              <Typography
-                                                color="text.secondary"
-                                                sx={{ display: 'block', mt: 0.5 }}
-                                                variant="caption"
-                                              >
-                                                {blocker.disabledReason}
-                                              </Typography>
-                                            ) : null}
-                                            <ReadinessRepairMetadata
-                                              repair={blocker.repair}
-                                              runtimeDiagnostic={
-                                                blocker.runtimeDiagnostic
-                                              }
-                                            />
-                                            {supportedRepairOperation(blocker) ? (
-                                              <Box sx={{ mt: 1 }}>
-                                                <Button
-                                                  color="warning"
-                                                  disabled={pending}
-                                                  onClick={() => {
-                                                    const operation =
-                                                      supportedRepairOperation(blocker);
-                                                    if (!operation) return;
-                                                    blocker.repair?.requiresConfirmation
-                                                      ? setRepairConfirmation({
-                                                          blocker,
-                                                          operation,
-                                                          profile,
-                                                          status,
-                                                        })
-                                                      : mutation.mutate({
-                                                          operation,
-                                                          profile,
-                                                          status,
-                                                        });
-                                                  }}
-                                                  size="small"
-                                                  startIcon={
-                                                    <ShellIcon
-                                                      fontSize="small"
-                                                      name="operations"
-                                                    />
-                                                  }
-                                                  variant="outlined"
-                                                >
-                                                  {blocker.repair?.label ??
-                                                    blocker.action}
-                                                </Button>
-                                              </Box>
-                                            ) : null}
-                                          </Alert>
-                                        ))}
-                                      </Stack>
-                                    </Box>
+                                            </Button>
+                                          </Box>
+                                        ) : null
+                                      }
+                                    />
                                   ) : null}
                                   {status.publication ? (
                                     <Box>

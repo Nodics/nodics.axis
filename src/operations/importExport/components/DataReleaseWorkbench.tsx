@@ -15,7 +15,7 @@ import {
 import { useState } from 'react';
 
 import { ShellIcon } from '../../../app/shell/ShellIcon';
-import { ReadinessRepairMetadata } from '../../readiness/ReadinessRepairMetadata';
+import { CapabilityReadinessPanel } from '../../readiness/CapabilityReadinessPanel';
 import type {
   DataRelease,
   DataReleaseReadiness,
@@ -133,8 +133,8 @@ function releaseFallbackReadiness(release: DataRelease): DataReleaseReadiness {
             release.status === 'RUNNING'
               ? 'INFO'
               : release.status === 'INVALID_RELEASE' || release.status === 'FAILED'
-                ? 'BLOCKER'
-                : 'ACTION',
+                ? 'BLOCKED'
+                : 'REPAIR_REQUIRED',
           owner: release.releaseCode ?? release.moduleName,
           message: releaseDisabledReason(release) ?? 'Data preparation is required.',
           action:
@@ -247,6 +247,12 @@ function readinessGroupSort(
   if (leftNeedsAction !== rightNeedsAction) return leftNeedsAction - rightNeedsAction;
   const byGroup = left.readiness.group.localeCompare(right.readiness.group);
   if (byGroup !== 0) return byGroup;
+  const leftRelease = left.releases[0];
+  const rightRelease = right.releases[0];
+  if (leftRelease && rightRelease) {
+    const byReleaseOrder = compareDataReleases(leftRelease, rightRelease);
+    if (byReleaseOrder !== 0) return byReleaseOrder;
+  }
   return left.readiness.displayName.localeCompare(right.readiness.displayName);
 }
 
@@ -537,7 +543,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                   border: 1,
                   borderColor: alpha(
                     theme.palette[
-                      firstBlocker?.severity === 'BLOCKER' ? 'error' : 'warning'
+                      firstBlocker?.severity === 'BLOCKED' ? 'error' : 'warning'
                     ].main,
                     0.24,
                   ),
@@ -571,10 +577,16 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                         variant="outlined"
                       />
                     </Stack>
-                    <Typography color="text.secondary" variant="body2">
-                      {firstBlocker?.message ?? group.releases[0]?.description}
-                    </Typography>
-                    <ReadinessRepairMetadata repair={firstBlocker?.repair} />
+                    {group.readiness.blockers.length ? (
+                      <CapabilityReadinessPanel
+                        caption="Readiness blocker"
+                        readiness={group.readiness}
+                      />
+                    ) : (
+                      <Typography color="text.secondary" variant="body2">
+                        {group.releases[0]?.description}
+                      </Typography>
+                    )}
                     <Typography color="text.secondary" variant="caption">
                       Owner {group.readiness.owningModule} · {group.readiness.capabilityCode}
                     </Typography>
@@ -585,7 +597,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                   >
                     <Chip
                       color={
-                        firstBlocker?.severity === 'BLOCKER'
+                        firstBlocker?.severity === 'BLOCKED'
                           ? 'error'
                           : firstBlocker?.severity === 'INFO'
                             ? 'info'
