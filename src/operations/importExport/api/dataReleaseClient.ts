@@ -128,11 +128,32 @@ function parseReleaseReadiness(value: unknown): DataReleaseReadiness | undefined
       if (!code || !severity || !owner || !message || !action) return undefined;
       const repair = parseReadinessRepairAction(blocker.repair);
       return Object.freeze({
+        ...(optionalText(blocker.blockerCode)
+          ? { blockerCode: optionalText(blocker.blockerCode) }
+          : {}),
         code,
         severity,
         owner,
+        ...(optionalText(blocker.ownerType)
+          ? { ownerType: optionalText(blocker.ownerType) }
+          : {}),
+        ...(optionalText(blocker.source)
+          ? { source: optionalText(blocker.source) }
+          : {}),
         message,
         action,
+        ...(optionalText(blocker.disabledReason)
+          ? { disabledReason: optionalText(blocker.disabledReason) }
+          : {}),
+        ...(optionalText(blocker.targetServer)
+          ? { targetServer: optionalText(blocker.targetServer) }
+          : {}),
+        ...(optionalText(blocker.targetRuntimeRole)
+          ? { targetRuntimeRole: optionalText(blocker.targetRuntimeRole) }
+          : {}),
+        ...(optionalText(blocker.technicalStatus)
+          ? { technicalStatus: optionalText(blocker.technicalStatus) }
+          : {}),
         ...(repair ? { repair } : {}),
       });
     },

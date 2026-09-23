@@ -115,20 +115,22 @@ function releaseSelectionLabel(release: DataRelease): string {
 }
 
 function releaseFallbackReadiness(release: DataRelease): DataReleaseReadiness {
+  const blockerCode =
+    release.status === 'NOT_INSTALLED'
+      ? 'IMPORT_NOT_STARTED'
+      : release.status === 'RUNNING'
+        ? 'IMPORT_IN_PROGRESS'
+        : release.status === 'FAILED'
+          ? 'IMPORT_FAILED'
+          : release.status === 'INVALID_RELEASE'
+            ? 'INVALID_MANIFEST'
+            : 'VERSION_MISMATCH';
   const blocker =
     release.status === 'CURRENT'
       ? undefined
       : {
-          code:
-            release.status === 'NOT_INSTALLED'
-              ? 'IMPORT_NOT_STARTED'
-              : release.status === 'RUNNING'
-                ? 'IMPORT_IN_PROGRESS'
-                : release.status === 'FAILED'
-                  ? 'IMPORT_FAILED'
-                  : release.status === 'INVALID_RELEASE'
-                    ? 'INVALID_MANIFEST'
-                    : 'VERSION_MISMATCH',
+          blockerCode,
+          code: blockerCode,
           severity:
             release.status === 'RUNNING'
               ? 'INFO'
@@ -136,6 +138,8 @@ function releaseFallbackReadiness(release: DataRelease): DataReleaseReadiness {
                 ? 'BLOCKED'
                 : 'REPAIR_REQUIRED',
           owner: release.releaseCode ?? release.moduleName,
+          ownerType: 'DATA_RELEASE',
+          source: 'IMPORT_RELEASE_CATALOGUE',
           message: releaseDisabledReason(release) ?? 'Data preparation is required.',
           action:
             release.status === 'NOT_INSTALLED'
@@ -147,6 +151,9 @@ function releaseFallbackReadiness(release: DataRelease): DataReleaseReadiness {
                   : release.status === 'INVALID_RELEASE'
                     ? 'Repair release manifest'
                   : 'Update release',
+          disabledReason:
+            releaseDisabledReason(release) ?? 'Data release readiness requires review.',
+          technicalStatus: release.status,
           repair:
             release.status === 'INVALID_RELEASE'
               ? {

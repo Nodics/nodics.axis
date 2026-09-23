@@ -64,11 +64,16 @@ const release = {
     nextAction: 'Update release',
     blockers: [
       {
+        blockerCode: 'VERSION_MISMATCH',
         code: 'VERSION_MISMATCH',
-        severity: 'ACTION',
+        severity: 'REPAIR_REQUIRED',
         owner: 'profile:core',
+        ownerType: 'DATA_RELEASE',
+        source: 'IMPORT_RELEASE_CATALOGUE',
         message: 'A newer immutable data release is available.',
         action: 'Update release',
+        disabledReason: 'The installed release is behind the available source release.',
+        technicalStatus: 'UPDATE_AVAILABLE',
         repair: {
           available: true,
           label: 'Update release',
@@ -112,6 +117,18 @@ describe('data release client', () => {
       'Prepare employee identity baseline records.',
     );
     expect(result[0]?.readiness?.blockers[0]?.action).toBe('Update release');
+    expect(result[0]?.readiness?.blockers[0]?.blockerCode).toBe('VERSION_MISMATCH');
+    expect(result[0]?.readiness?.blockers[0]?.severity).toBe('REPAIR_REQUIRED');
+    expect(result[0]?.readiness?.blockers[0]?.ownerType).toBe('DATA_RELEASE');
+    expect(result[0]?.readiness?.blockers[0]?.source).toBe(
+      'IMPORT_RELEASE_CATALOGUE',
+    );
+    expect(result[0]?.readiness?.blockers[0]?.disabledReason).toContain(
+      'installed release is behind',
+    );
+    expect(result[0]?.readiness?.blockers[0]?.technicalStatus).toBe(
+      'UPDATE_AVAILABLE',
+    );
     expect(result[0]?.readiness?.blockers[0]?.repair?.operation).toBe(
       'dataRelease.install',
     );

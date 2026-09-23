@@ -49,11 +49,18 @@ export interface DataReleaseReadiness {
 }
 
 export interface DataReleaseReadinessBlocker {
+  readonly blockerCode?: string | undefined;
   readonly code: string;
   readonly severity: string;
   readonly owner: string;
+  readonly ownerType?: string | undefined;
+  readonly source?: string | undefined;
   readonly message: string;
   readonly action: string;
+  readonly disabledReason?: string | undefined;
+  readonly targetServer?: string | undefined;
+  readonly targetRuntimeRole?: string | undefined;
+  readonly technicalStatus?: string | undefined;
   readonly repair?: DataReleaseReadinessRepairAction | undefined;
 }
 
