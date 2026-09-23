@@ -78,6 +78,49 @@ describe('application initialization client', () => {
     );
   });
 
+  it('calls the governed prepare-only operation for capability preparation', async () => {
+    const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: 'SUC_BOF_00021',
+          data: {
+            profileCode: 'agoraapparel',
+            type: 'STOREFRONT_DOMAIN_BUNDLE',
+            owner: 'agora.apparel',
+            applicationCode: 'agora',
+            siteCode: 'agoraApparelSite',
+            readiness: 'IMPORTED',
+            releaseCode: 'agora.apparel:agoraApparelContentCatalog',
+            releaseVersion: '0.0.8',
+            allowedActions: ['INITIALIZE'],
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    const client = createApplicationInitializationClient(
+      {
+        connection,
+        enterpriseCode: 'default',
+        accessToken: 'employee-token',
+        timeoutMs: 1_000,
+        profileCode: 'agoraapparel',
+      },
+      fetchImplementation,
+    );
+
+    await client.prepare({ reason: 'Prepare setup only' });
+
+    const [url, init] = fetchImplementation.mock.calls[0]!;
+    expect((url as URL).pathname).toBe(
+      '/nodics/backoffice/v0/applications/agoraapparel/initialization/prepare',
+    );
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      reason: 'Prepare setup only',
+    });
+  });
+
   it('parses backend-owned capability readiness projection', async () => {
     const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
@@ -110,6 +153,14 @@ describe('application initialization client', () => {
                   owner: 'nodics.commerce',
                   message: 'Commerce must be registered and activated.',
                   action: 'Prepare required dependency',
+                  repair: {
+                    available: false,
+                    label: 'Prepare required dependency',
+                    operation: 'moduleRegistry.prepareDependency',
+                    action: 'PREPARE_DEPENDENCY',
+                    idempotent: true,
+                    requiresConfirmation: true,
+                  },
                 },
               ],
             },
@@ -133,6 +184,9 @@ describe('application initialization client', () => {
 
     expect(status.capability?.businessStatus).toBe('NEEDS_ATTENTION');
     expect(status.capability?.blockers[0]?.code).toBe('MISSING_DEPENDENCY');
+    expect(status.capability?.blockers[0]?.repair?.operation).toBe(
+      'moduleRegistry.prepareDependency',
+    );
     expect(status.capability?.nextAction).toBe('Prepare required dependency');
   });
 });

@@ -45,13 +45,25 @@ export interface DataReleaseReadiness {
   readonly technicalStatus: string;
   readonly releaseStatus?: string | undefined;
   readonly nextAction: string;
-  readonly blockers: readonly Readonly<{
-    readonly code: string;
-    readonly severity: string;
-    readonly owner: string;
-    readonly message: string;
-    readonly action: string;
-  }>[];
+  readonly blockers: readonly DataReleaseReadinessBlocker[];
+}
+
+export interface DataReleaseReadinessBlocker {
+  readonly code: string;
+  readonly severity: string;
+  readonly owner: string;
+  readonly message: string;
+  readonly action: string;
+  readonly repair?: DataReleaseReadinessRepairAction | undefined;
+}
+
+export interface DataReleaseReadinessRepairAction {
+  readonly available: boolean;
+  readonly label: string;
+  readonly operation: string;
+  readonly action: string;
+  readonly idempotent: boolean;
+  readonly requiresConfirmation: boolean;
 }
 
 export interface DataReleasePlan {

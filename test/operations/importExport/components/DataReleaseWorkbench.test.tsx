@@ -43,6 +43,14 @@ function release(
                 owner: releaseCode,
                 message: 'Data release has not been installed for this runtime.',
                 action: 'Prepare capability',
+                repair: {
+                  available: true,
+                  label: 'Prepare capability',
+                  operation: 'dataRelease.install',
+                  action: 'PREPARE_CAPABILITY',
+                  idempotent: true,
+                  requiresConfirmation: false,
+                },
               },
             ],
     },
@@ -86,6 +94,8 @@ describe('DataReleaseWorkbench', () => {
     expect(screen.getByText('Preparation readiness')).toBeInTheDocument();
     expect(screen.getByText('Circa eWaste')).toBeInTheDocument();
     expect(screen.getByText('1/2 current')).toBeInTheDocument();
+    expect(screen.getByText('Repair available')).toBeInTheDocument();
+    expect(screen.getByText(/PREPARE_CAPABILITY · dataRelease\.install/u)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'Select 1' }));
 

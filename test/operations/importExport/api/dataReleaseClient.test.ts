@@ -69,6 +69,14 @@ const release = {
         owner: 'profile:core',
         message: 'A newer immutable data release is available.',
         action: 'Update release',
+        repair: {
+          available: true,
+          label: 'Update release',
+          operation: 'dataRelease.install',
+          action: 'UPDATE_RELEASE',
+          idempotent: true,
+          requiresConfirmation: false,
+        },
       },
     ],
   },
@@ -104,6 +112,9 @@ describe('data release client', () => {
       'Prepare employee identity baseline records.',
     );
     expect(result[0]?.readiness?.blockers[0]?.action).toBe('Update release');
+    expect(result[0]?.readiness?.blockers[0]?.repair?.operation).toBe(
+      'dataRelease.install',
+    );
     const [, options] = fetchImplementation.mock.calls[0]!;
     expect(fetchImplementation).toHaveBeenCalledTimes(3);
     expect(

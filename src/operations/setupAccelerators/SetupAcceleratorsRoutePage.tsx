@@ -44,6 +44,7 @@ import { ReadinessRepairMetadata } from '../readiness/ReadinessRepairMetadata';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
   createApplicationInitializationClient,
+  type ApplicationCapabilityBlocker,
   type ApplicationInitializationProfile,
   type ApplicationInitializationStatus,
   type ApplicationPreparationStep,
@@ -57,7 +58,14 @@ interface SetupAcceleratorsRoutePageProps {
   readonly runtime: AxisRuntimeConfig;
 }
 
-type AcceleratorOperation = 'initiate' | 'rollback' | 'retire' | 'approve' | 'reject';
+type AcceleratorOperation =
+  | 'initiate'
+  | 'prepare'
+  | 'reconcileApproval'
+  | 'rollback'
+  | 'retire'
+  | 'approve'
+  | 'reject';
 
 type AcceleratorFilter =
   | 'ALL'
@@ -77,6 +85,16 @@ interface DestructiveConfirmationState {
   readonly status: ApplicationInitializationStatus;
 }
 
+interface RepairConfirmationState {
+  readonly operation: Extract<
+    AcceleratorOperation,
+    'prepare' | 'reconcileApproval'
+  >;
+  readonly blocker: ApplicationCapabilityBlocker;
+  readonly profile: ApplicationInitializationProfile;
+  readonly status: ApplicationInitializationStatus;
+}
+
 const queryRoot = ['setup-accelerators'] as const;
 
 function stateColor(
@@ -92,6 +110,8 @@ function stateColor(
 
 function operationLabel(operation: AcceleratorOperation): string {
   if (operation === 'initiate') return 'Initialize';
+  if (operation === 'prepare') return 'Prepare setup';
+  if (operation === 'reconcileApproval') return 'Repair approval';
   if (operation === 'rollback') return 'Rollback';
   if (operation === 'retire') return 'Retire';
   if (operation === 'reject') return 'Reject';
@@ -103,6 +123,27 @@ function canApprove(status: ApplicationInitializationStatus | undefined): boolea
     status?.readiness === 'PUBLICATION_PENDING' &&
     status.publication?.state === 'PENDING_APPROVAL' &&
     status.publication.workflowRef,
+  );
+}
+
+function supportedRepairOperation(
+  blocker: ApplicationCapabilityBlocker | undefined,
+): RepairConfirmationState['operation'] | undefined {
+  if (!blocker?.repair?.available) return undefined;
+  if (blocker.repair.operation === 'applicationInitialization.prepareCapability') {
+    return 'prepare';
+  }
+  if (blocker.repair.operation === 'applicationInitialization.reconcileApproval') {
+    return 'reconcileApproval';
+  }
+  return undefined;
+}
+
+function firstExecutableRepair(
+  status: ApplicationInitializationStatus | undefined,
+): ApplicationCapabilityBlocker | undefined {
+  return status?.capability?.blockers.find((blocker) =>
+    Boolean(supportedRepairOperation(blocker)),
   );
 }
 
@@ -571,6 +612,8 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
   const [destructiveConfirmation, setDestructiveConfirmation] =
     useState<DestructiveConfirmationState>();
   const [destructiveReason, setDestructiveReason] = useState('');
+  const [repairConfirmation, setRepairConfirmation] =
+    useState<RepairConfirmationState>();
   const backofficeConnection = selectModuleConnection(props.bootstrap, 'backoffice');
   const processConnection = selectModuleConnection(props.bootstrap, 'workflow', {
     server: 'processServer',
@@ -690,6 +733,22 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
         );
         return client.getStatus();
       }
+      if (operation === 'prepare') {
+        return client.prepare({
+          forceRefresh: true,
+          reason:
+            reason ??
+            `${profile.title} setup preparation repair requested from Setup & Accelerators`,
+        });
+      }
+      if (operation === 'reconcileApproval') {
+        return client.reconcileApproval({
+          forceRefresh: true,
+          reason:
+            reason ??
+            `${profile.title} approval reconciliation repair requested from Setup & Accelerators`,
+        });
+      }
       if (operation === 'rollback') return client.rollback({ reason });
       if (operation === 'retire') return client.retire({ reason });
       return client.initiate();
@@ -698,6 +757,12 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
       if (variables.operation === 'rollback' || variables.operation === 'retire') {
         setDestructiveConfirmation(undefined);
         setDestructiveReason('');
+      }
+      if (
+        variables.operation === 'prepare' ||
+        variables.operation === 'reconcileApproval'
+      ) {
+        setRepairConfirmation(undefined);
       }
       queryClient.setQueryData([...queryRoot, variables.profile.code], status);
       await Promise.all([
@@ -953,6 +1018,9 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                         const approvalActionsVisible = Boolean(
                           status && canApprove(status),
                         );
+                        const executableRepair = firstExecutableRepair(status);
+                        const executableRepairOperation =
+                          supportedRepairOperation(executableRepair);
                         const lifecycleActionCount = [
                           status?.allowedActions.includes('ROLLBACK'),
                           status?.allowedActions.includes('RETIRE'),
@@ -1071,7 +1139,46 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                   width: { xs: '100%', md: 'auto' },
                                 }}
                               >
-                                {status && canInitialize ? (
+                                {status &&
+                                executableRepair &&
+                                executableRepairOperation ? (
+                                  <Button
+                                    color="warning"
+                                    disabled={pending}
+                                    onClick={() =>
+                                      executableRepair.repair?.requiresConfirmation
+                                        ? setRepairConfirmation({
+                                            blocker: executableRepair,
+                                            operation: executableRepairOperation,
+                                            profile,
+                                            status,
+                                          })
+                                        : mutation.mutate({
+                                            operation: executableRepairOperation,
+                                            profile,
+                                            status,
+                                          })
+                                    }
+                                    size="small"
+                                    startIcon={
+                                      <ShellIcon fontSize="small" name="operations" />
+                                    }
+                                    sx={{
+                                      minHeight: 40,
+                                      minWidth: 148,
+                                      whiteSpace: 'nowrap',
+                                      width: '100%',
+                                    }}
+                                    variant="contained"
+                                  >
+                                    {pending &&
+                                    mutation.variables?.operation ===
+                                      executableRepairOperation
+                                      ? 'Repairing...'
+                                      : executableRepair.repair?.label ??
+                                        operationLabel(executableRepairOperation)}
+                                  </Button>
+                                ) : status && canInitialize ? (
                                   <Button
                                     disabled={pending}
                                     onClick={() =>
@@ -1459,6 +1566,42 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                             <ReadinessRepairMetadata
                                               repair={blocker.repair}
                                             />
+                                            {supportedRepairOperation(blocker) ? (
+                                              <Box sx={{ mt: 1 }}>
+                                                <Button
+                                                  color="warning"
+                                                  disabled={pending}
+                                                  onClick={() => {
+                                                    const operation =
+                                                      supportedRepairOperation(blocker);
+                                                    if (!operation) return;
+                                                    blocker.repair?.requiresConfirmation
+                                                      ? setRepairConfirmation({
+                                                          blocker,
+                                                          operation,
+                                                          profile,
+                                                          status,
+                                                        })
+                                                      : mutation.mutate({
+                                                          operation,
+                                                          profile,
+                                                          status,
+                                                        });
+                                                  }}
+                                                  size="small"
+                                                  startIcon={
+                                                    <ShellIcon
+                                                      fontSize="small"
+                                                      name="operations"
+                                                    />
+                                                  }
+                                                  variant="outlined"
+                                                >
+                                                  {blocker.repair?.label ??
+                                                    blocker.action}
+                                                </Button>
+                                              </Box>
+                                            ) : null}
                                           </Alert>
                                         ))}
                                       </Stack>
@@ -1594,6 +1737,93 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                     ? operationLabel(destructiveConfirmation.operation).toLowerCase()
                     : 'operation'
                 }`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
+        fullWidth
+        maxWidth="sm"
+        onClose={() => {
+          if (!mutation.isPending) setRepairConfirmation(undefined);
+        }}
+        open={Boolean(repairConfirmation)}
+      >
+        <DialogTitle>
+          Confirm{' '}
+          {repairConfirmation
+            ? operationLabel(repairConfirmation.operation).toLowerCase()
+            : 'repair'}
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Alert severity="info">
+              Axis will invoke the governed backend repair operation declared by
+              readiness. Source, runtime, and publishing-only repairs remain guidance
+              until their owning backend exposes an executable operation.
+            </Alert>
+            {repairConfirmation ? (
+              <Box>
+                <Typography variant="subtitle2">
+                  {repairConfirmation.profile.title}
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  {repairConfirmation.blocker.repair?.label ??
+                    repairConfirmation.blocker.action}
+                </Typography>
+                <Typography
+                  color="text.secondary"
+                  sx={{ mt: 0.75, overflowWrap: 'anywhere' }}
+                  variant="caption"
+                >
+                  {repairConfirmation.blocker.message}
+                </Typography>
+              </Box>
+            ) : null}
+            {repairConfirmation ? (
+              <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
+                <Chip
+                  label={repairConfirmation.blocker.code}
+                  size="small"
+                  variant="outlined"
+                />
+                <Chip
+                  label={repairConfirmation.blocker.owner}
+                  size="small"
+                  variant="outlined"
+                />
+                <Chip
+                  label={repairConfirmation.blocker.repair?.operation}
+                  size="small"
+                  variant="outlined"
+                />
+              </Stack>
+            ) : null}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            disabled={mutation.isPending}
+            onClick={() => setRepairConfirmation(undefined)}
+          >
+            Cancel
+          </Button>
+          <Button
+            color="warning"
+            disabled={!repairConfirmation || mutation.isPending}
+            onClick={() => {
+              if (!repairConfirmation) return;
+              mutation.mutate({
+                operation: repairConfirmation.operation,
+                profile: repairConfirmation.profile,
+                reason: `${repairConfirmation.profile.title} ${operationLabel(
+                  repairConfirmation.operation,
+                ).toLowerCase()} requested for ${repairConfirmation.blocker.code}`,
+                status: repairConfirmation.status,
+              });
+            }}
+            variant="contained"
+          >
+            {mutation.isPending ? 'Submitting...' : 'Confirm repair'}
           </Button>
         </DialogActions>
       </Dialog>

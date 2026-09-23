@@ -143,7 +143,13 @@ interface ApplicationInitializationOperationInput {
 
 function requestTimeoutMs(
   options: ApplicationInitializationClientOptions,
-  operation: 'initiate' | 'rollback' | 'retire' | 'reconcile-approval' | undefined,
+  operation:
+    | 'initiate'
+    | 'prepare'
+    | 'rollback'
+    | 'retire'
+    | 'reconcile-approval'
+    | undefined,
 ): number {
   if (!operation) return Math.max(options.timeoutMs, 60_000);
   return Math.max(options.timeoutMs, 180_000);
@@ -474,7 +480,13 @@ function parse(value: unknown): ApplicationInitializationStatus {
 async function invoke(
   options: ApplicationInitializationClientOptions,
   method: 'GET' | 'POST',
-  operation: 'initiate' | 'rollback' | 'retire' | 'reconcile-approval' | undefined,
+  operation:
+    | 'initiate'
+    | 'prepare'
+    | 'rollback'
+    | 'retire'
+    | 'reconcile-approval'
+    | undefined,
   fetchImplementation: typeof fetch,
   input: ApplicationInitializationOperationInput = {},
 ): Promise<ApplicationInitializationStatus> {
@@ -546,6 +558,8 @@ export function createApplicationInitializationClient(
     getStatus: () => invoke(options, 'GET', undefined, fetchImplementation),
     initiate: (input?: ApplicationInitializationOperationInput) =>
       invoke(options, 'POST', 'initiate', fetchImplementation, input),
+    prepare: (input?: ApplicationInitializationOperationInput) =>
+      invoke(options, 'POST', 'prepare', fetchImplementation, input),
     rollback: (input?: ApplicationInitializationOperationInput) =>
       invoke(options, 'POST', 'rollback', fetchImplementation, input),
     retire: (input?: ApplicationInitializationOperationInput) =>

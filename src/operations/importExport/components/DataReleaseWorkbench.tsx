@@ -15,6 +15,7 @@ import {
 import { useState } from 'react';
 
 import { ShellIcon } from '../../../app/shell/ShellIcon';
+import { ReadinessRepairMetadata } from '../../readiness/ReadinessRepairMetadata';
 import type {
   DataRelease,
   DataReleaseReadiness,
@@ -145,7 +146,37 @@ function releaseFallbackReadiness(release: DataRelease): DataReleaseReadiness {
                   ? 'Retry failed import'
                   : release.status === 'INVALID_RELEASE'
                     ? 'Repair release manifest'
-                    : 'Update release',
+                  : 'Update release',
+          repair:
+            release.status === 'INVALID_RELEASE'
+              ? {
+                  available: false,
+                  label: 'Repair release manifest source',
+                  operation: 'source.releaseManifest.repair',
+                  action: 'REPAIR_RELEASE_MANIFEST_SOURCE',
+                  idempotent: false,
+                  requiresConfirmation: true,
+                }
+              : isInstallableStatus(release.status)
+                ? {
+                    available: true,
+                    label:
+                      release.status === 'FAILED'
+                        ? 'Retry failed import'
+                        : release.status === 'UPDATE_AVAILABLE'
+                          ? 'Update release'
+                          : 'Prepare capability',
+                    operation: 'dataRelease.install',
+                    action:
+                      release.status === 'FAILED'
+                        ? 'RETRY_FAILED_IMPORT'
+                        : release.status === 'UPDATE_AVAILABLE'
+                          ? 'UPDATE_RELEASE'
+                          : 'PREPARE_CAPABILITY',
+                    idempotent: true,
+                    requiresConfirmation: false,
+                  }
+                : undefined,
         };
   return {
     capabilityCode: release.sectionCode ?? release.releaseCode ?? release.moduleName,
@@ -543,6 +574,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                     <Typography color="text.secondary" variant="body2">
                       {firstBlocker?.message ?? group.releases[0]?.description}
                     </Typography>
+                    <ReadinessRepairMetadata repair={firstBlocker?.repair} />
                     <Typography color="text.secondary" variant="caption">
                       Owner {group.readiness.owningModule} · {group.readiness.capabilityCode}
                     </Typography>

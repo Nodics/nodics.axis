@@ -83,6 +83,31 @@ function boundedArray<T>(
   );
 }
 
+function booleanValue(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+function parseReadinessRepairAction(
+  value: unknown,
+): DataReleaseReadiness['blockers'][number]['repair'] {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const source = value as Record<string, unknown>;
+  const label = optionalText(source.label);
+  const operation = optionalText(source.operation);
+  const action = optionalText(source.action);
+  if (!label || !operation || !action) return undefined;
+  return Object.freeze({
+    available: booleanValue(source.available, false),
+    label,
+    operation,
+    action,
+    idempotent: booleanValue(source.idempotent, false),
+    requiresConfirmation: booleanValue(source.requiresConfirmation, true),
+  });
+}
+
 function parseReleaseReadiness(value: unknown): DataReleaseReadiness | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return undefined;
@@ -101,7 +126,15 @@ function parseReleaseReadiness(value: unknown): DataReleaseReadiness | undefined
       const message = optionalText(blocker.message);
       const action = optionalText(blocker.action);
       if (!code || !severity || !owner || !message || !action) return undefined;
-      return Object.freeze({ code, severity, owner, message, action });
+      const repair = parseReadinessRepairAction(blocker.repair);
+      return Object.freeze({
+        code,
+        severity,
+        owner,
+        message,
+        action,
+        ...(repair ? { repair } : {}),
+      });
     },
     20,
   );
