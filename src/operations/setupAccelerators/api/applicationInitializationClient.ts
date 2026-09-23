@@ -126,6 +126,7 @@ interface ApplicationInitializationClientOptions {
 
 interface ApplicationInitializationOperationInput {
   readonly reason?: string | undefined;
+  readonly forceRefresh?: boolean | undefined;
 }
 
 function requestTimeoutMs(
@@ -480,6 +481,7 @@ async function invoke(
                 (operation === 'initiate'
                   ? 'Axis Setup & Accelerators initialization requested'
                   : `Axis Setup & Accelerators ${operation} requested`),
+              forceRefresh: input.forceRefresh === true ? true : undefined,
             }),
           }
         : {}),

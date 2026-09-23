@@ -39,6 +39,11 @@ interface Options {
   readonly profileCode: string;
 }
 
+interface DocumentationPublicationOperationInput {
+  readonly reason?: string | undefined;
+  readonly forceRefresh?: boolean | undefined;
+}
+
 function record(value: unknown, name: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw new Error(`${name} must be an object`);
@@ -166,6 +171,7 @@ async function invoke(
   method: 'GET' | 'POST',
   fetchImplementation: typeof fetch,
   operation?: 'initiate' | 'rollback' | 'retire',
+  input: DocumentationPublicationOperationInput = {},
 ) {
   if (!/^[a-z][a-z0-9_-]{0,63}$/.test(options.profileCode))
     throw new Error('Documentation profile is invalid');
@@ -189,7 +195,10 @@ async function invoke(
       ...(operation === 'initiate'
         ? {
             body: JSON.stringify({
-              reason: 'Axis administrator requested documentation publication',
+              reason:
+                input.reason ??
+                'Axis administrator requested documentation publication',
+              forceRefresh: input.forceRefresh === true ? true : undefined,
             }),
           }
         : {}),
@@ -213,7 +222,8 @@ export function createDocumentationPublicationClient(
 ) {
   return Object.freeze({
     getStatus: () => invoke(options, 'GET', fetchImplementation),
-    initiate: () => invoke(options, 'POST', fetchImplementation, 'initiate'),
+    initiate: (input?: DocumentationPublicationOperationInput) =>
+      invoke(options, 'POST', fetchImplementation, 'initiate', input),
     rollback: () => invoke(options, 'POST', fetchImplementation, 'rollback'),
     retire: () => invoke(options, 'POST', fetchImplementation, 'retire'),
   });

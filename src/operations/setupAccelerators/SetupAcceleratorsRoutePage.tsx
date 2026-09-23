@@ -38,6 +38,7 @@ import {
 import {
   completeProcessTask,
   loadProcessTasks,
+  type ProcessHumanTask,
 } from '../processWorkflow/api/processDefinitionClient';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
@@ -102,6 +103,12 @@ function canApprove(status: ApplicationInitializationStatus | undefined): boolea
     status.publication?.state === 'PENDING_APPROVAL' &&
     status.publication.workflowRef,
   );
+}
+
+function actionableApprovalTask(
+  tasks: readonly ProcessHumanTask[],
+): ProcessHumanTask | undefined {
+  return tasks.find((item) => ['OPEN', 'CLAIMED', 'ESCALATED'].includes(item.status));
 }
 
 function statusRefreshesAutomatically(
@@ -638,26 +645,35 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
         if (!processConnection || !status?.publication?.workflowRef) {
           throw new Error('The governed Process approval task is unavailable');
         }
-        const tasks = await loadProcessTasks(
+        const configuration = {
+          accessToken: props.accessToken,
+          enterpriseCode: props.runtime.enterpriseCode,
+          timeoutMs: props.runtime.requestTimeoutMs,
+        };
+        let workflowRef = status.publication.workflowRef;
+        let tasks = await loadProcessTasks(
           processConnection,
-          {
-            accessToken: props.accessToken,
-            enterpriseCode: props.runtime.enterpriseCode,
-            timeoutMs: props.runtime.requestTimeoutMs,
-          },
-          status.publication.workflowRef,
+          configuration,
+          workflowRef,
         );
-        const task = tasks.find((item) =>
-          ['OPEN', 'CLAIMED', 'ESCALATED'].includes(item.status),
-        );
-        if (!task) throw new Error('No actionable Process approval task was found');
+        let task = actionableApprovalTask(tasks);
+        if (!task) {
+          const repaired = await client.initiate({
+            forceRefresh: true,
+            reason: `${profile.title} approval task reconciliation requested from Setup & Accelerators`,
+          });
+          workflowRef = repaired.publication?.workflowRef ?? workflowRef;
+          tasks = await loadProcessTasks(processConnection, configuration, workflowRef);
+          task = actionableApprovalTask(tasks);
+        }
+        if (!task) {
+          throw new Error(
+            'No actionable Process approval task was found after reconciliation. Open Process tasks to review workflow state.',
+          );
+        }
         await completeProcessTask(
           processConnection,
-          {
-            accessToken: props.accessToken,
-            enterpriseCode: props.runtime.enterpriseCode,
-            timeoutMs: props.runtime.requestTimeoutMs,
-          },
+          configuration,
           task.code,
           {
             approved: operation === 'approve',

@@ -39,6 +39,7 @@ import {
 import {
   completeProcessTask,
   loadProcessTasks,
+  type ProcessHumanTask,
 } from '../operations/processWorkflow/api/processDefinitionClient';
 import type { AxisRuntimeConfig } from '../runtime/runtimeConfig';
 import { createDocumentationContentPackClient } from './api/documentationContentPackClient';
@@ -418,6 +419,12 @@ function publicationReadinessColor(
 
 function isActionablePublicationTask(task: { readonly status: string }): boolean {
   return ['OPEN', 'CLAIMED', 'ESCALATED'].includes(task.status);
+}
+
+function findActionablePublicationTask(
+  tasks: readonly ProcessHumanTask[],
+): ProcessHumanTask | undefined {
+  return tasks.find(isActionablePublicationTask);
 }
 
 function documentationApprovalDecision(
@@ -861,24 +868,42 @@ function CmsDocumentationReadinessCard({
       if (!processConnection || !workflowRef) {
         throw new Error('The governed Process approval task is unavailable');
       }
-      const tasks = await loadProcessTasks(
+      const configuration = {
+        accessToken,
+        enterpriseCode: runtime.enterpriseCode,
+        timeoutMs: runtime.requestTimeoutMs,
+      };
+      let publicationWorkflowRef = workflowRef;
+      let tasks = await loadProcessTasks(
         processConnection,
-        {
-          accessToken,
-          enterpriseCode: runtime.enterpriseCode,
-          timeoutMs: runtime.requestTimeoutMs,
-        },
-        workflowRef,
+        configuration,
+        publicationWorkflowRef,
       );
-      const task = tasks.find(isActionablePublicationTask);
-      if (!task) throw new Error('No actionable Process approval task was found');
+      let task = findActionablePublicationTask(tasks);
+      if (!task) {
+        if (!publicationClient) {
+          throw new Error('Documentation publication is unavailable');
+        }
+        const repaired = await publicationClient.initiate({
+          forceRefresh: true,
+          reason: `${source.label} approval task reconciliation requested from Documentation Dashboard`,
+        });
+        publicationWorkflowRef = repaired.publication?.workflowRef ?? publicationWorkflowRef;
+        tasks = await loadProcessTasks(
+          processConnection,
+          configuration,
+          publicationWorkflowRef,
+        );
+        task = findActionablePublicationTask(tasks);
+      }
+      if (!task) {
+        throw new Error(
+          'No actionable Process approval task was found after reconciliation. Open Process tasks to review workflow state.',
+        );
+      }
       await completeProcessTask(
         processConnection,
-        {
-          accessToken,
-          enterpriseCode: runtime.enterpriseCode,
-          timeoutMs: runtime.requestTimeoutMs,
-        },
+        configuration,
         task.code,
         documentationApprovalDecision(approved, source),
       );
