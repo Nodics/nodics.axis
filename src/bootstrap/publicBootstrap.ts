@@ -325,6 +325,16 @@ export interface AxisStartupValidationFinding {
   readonly action: string;
   readonly dismissible: boolean;
   readonly auditRequired: boolean;
+  readonly repair?: Readonly<{
+    readonly available: boolean;
+    readonly operation: string;
+    readonly actionCode: string;
+    readonly eligibility: 'AUTOMATIC' | 'MANUAL' | 'NOT_AVAILABLE';
+    readonly label: string;
+    readonly idempotent: boolean;
+    readonly requiresConfirmation: boolean;
+    readonly unavailableReason?: string | undefined;
+  }> | undefined;
 }
 
 export interface AxisStartupBootstrapCheck {
@@ -564,6 +574,16 @@ function startupBootstrapCheckState(
     return value;
   }
   throw new Error(`${name} state is unsupported`);
+}
+
+function startupRepairEligibility(
+  value: unknown,
+  name: string,
+): NonNullable<AxisStartupValidationFinding['repair']>['eligibility'] {
+  if (value === 'AUTOMATIC' || value === 'MANUAL' || value === 'NOT_AVAILABLE') {
+    return value;
+  }
+  throw new Error(`${name} eligibility is unsupported`);
 }
 
 function optionalText(value: unknown, name: string): string | undefined {
@@ -2190,6 +2210,10 @@ function parseStartupValidationReport(value: unknown): AxisStartupValidationRepo
     findings: Object.freeze(
       array(source.findings, 'startup validation findings').map((finding, index) => {
         const parsed = record(finding, `startup validation finding ${String(index)}`);
+        const repair =
+          parsed.repair === undefined
+            ? undefined
+            : record(parsed.repair, `startup validation finding ${String(index)} repair`);
         return Object.freeze({
           code: text(parsed.code, 'startup validation finding code'),
           severity: startupValidationSeverity(
@@ -2208,6 +2232,39 @@ function parseStartupValidationReport(value: unknown): AxisStartupValidationRepo
             typeof parsed.dismissible === 'boolean' ? parsed.dismissible : false,
           auditRequired:
             typeof parsed.auditRequired === 'boolean' ? parsed.auditRequired : false,
+          ...(repair
+            ? {
+                repair: Object.freeze({
+                  available:
+                    typeof repair.available === 'boolean' ? repair.available : false,
+                  operation: text(
+                    repair.operation,
+                    'startup validation finding repair operation',
+                  ),
+                  actionCode: text(
+                    repair.actionCode,
+                    'startup validation finding repair action code',
+                  ),
+                  eligibility: startupRepairEligibility(
+                    repair.eligibility,
+                    'startup validation finding repair',
+                  ),
+                  label: text(repair.label, 'startup validation finding repair label'),
+                  idempotent:
+                    typeof repair.idempotent === 'boolean'
+                      ? repair.idempotent
+                      : false,
+                  requiresConfirmation:
+                    typeof repair.requiresConfirmation === 'boolean'
+                      ? repair.requiresConfirmation
+                      : true,
+                  unavailableReason: optionalText(
+                    repair.unavailableReason,
+                    'startup validation finding repair unavailable reason',
+                  ),
+                }),
+              }
+            : {}),
         });
       }),
     ),

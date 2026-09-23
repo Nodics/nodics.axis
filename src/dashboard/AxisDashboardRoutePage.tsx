@@ -608,6 +608,12 @@ export function AxisDashboardRoutePage({
     : primaryStartupFinding
       ? `${primaryStartupFinding.owner}: ${primaryStartupFinding.message}`
       : undefined;
+  const startupRepairLabel = primaryStartupFinding?.repair
+    ? primaryStartupFinding.repair.available
+      ? `${primaryStartupFinding.repair.label} · ${primaryStartupFinding.repair.operation}`
+      : primaryStartupFinding.repair.unavailableReason ??
+        `${primaryStartupFinding.repair.label} unavailable`
+    : undefined;
   const totalActionCount =
     startupActionCount +
     moduleActionCount +
@@ -675,6 +681,17 @@ export function AxisDashboardRoutePage({
                   ? 'warning'
                   : 'info',
             },
+            ...(startupRepairLabel
+              ? [
+                  {
+                    label: 'Repair guidance',
+                    value: startupRepairLabel,
+                    severity: primaryStartupFinding?.repair?.available
+                      ? 'info'
+                      : 'warning',
+                  } as const,
+                ]
+              : []),
           ],
         }
       : {
