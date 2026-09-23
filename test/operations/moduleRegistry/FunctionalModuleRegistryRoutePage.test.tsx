@@ -385,6 +385,9 @@ describe('FunctionalModuleRegistryRoutePage', () => {
 
     await screen.findByText('Loyalty');
     expect(screen.getByText('No runtime')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Start the owning runtime server, verify heartbeat evidence/iu),
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Expand Loyalty' }));
 
     expect(screen.getByText('Capability readiness')).toBeInTheDocument();

@@ -465,6 +465,22 @@ function moduleCapabilityReadiness(
   };
 }
 
+function runtimeCardHint(module: FunctionalModuleRegistration): string | undefined {
+  if (module.runtimeState === 'ACTIVE' && module.observedServers.length > 0) {
+    return undefined;
+  }
+  if (module.registrationState !== 'REGISTERED') {
+    return 'Register and activate this module before expecting runtime heartbeat evidence.';
+  }
+  if (!module.enabled) {
+    return 'Activate this registered module, then refresh bootstrap after the owning runtime reports heartbeat evidence.';
+  }
+  if (module.runtimeState === 'ACTIVE') {
+    return 'Runtime is active, but server ownership evidence is missing. Refresh Module Registry after all servers boot.';
+  }
+  return 'Start the owning runtime server, verify heartbeat evidence, then refresh Axis bootstrap.';
+}
+
 function sampleReceipt(module: FunctionalModuleRegistration) {
   return module.activationData?.receipts.find(
     (receipt) => receipt.dataType === 'sample' && receipt.trigger === 'USER',
@@ -1016,6 +1032,7 @@ function ModuleCard({
     module.runtimeObservations.length,
     module.observedServers.length,
   );
+  const runtimeHint = runtimeCardHint(module);
   const serverSummary =
     runtimeObservationCount > 0
       ? `${String(runtimeObservationCount)} runtime`
@@ -1277,6 +1294,12 @@ function ModuleCard({
               />
             </Grid>
           </Grid>
+
+          {runtimeHint ? (
+            <Alert severity={module.runtimeState === 'ACTIVE' ? 'warning' : 'info'}>
+              {runtimeHint}
+            </Alert>
+          ) : null}
 
           <Collapse id={detailId} in={expanded} timeout="auto" unmountOnExit>
             <Stack
