@@ -65,6 +65,14 @@ describe('CapabilityReadinessPanel', () => {
               },
             ],
           },
+          publicationSummary: {
+            installed: 'BLOCKED',
+            staged: 'PREPARATION_BLOCKED',
+            approval: 'TASK_REFERENCE_MISSING',
+            online: 'NOT_ONLINE',
+            runtime: 'NEEDS_ATTENTION',
+            media: 'READY_OR_NOT_REQUIRED',
+          },
           blockers: [
             {
               code: 'RUNTIME_UNAVAILABLE',
@@ -79,6 +87,13 @@ describe('CapabilityReadinessPanel', () => {
     );
 
     expect(screen.getByText('Dependencies')).toBeVisible();
+    expect(screen.getByText('Publication readiness checklist')).toBeVisible();
+    expect(screen.getByText('Installed BLOCKED')).toBeVisible();
+    expect(screen.getByText('Staged PREPARATION_BLOCKED')).toBeVisible();
+    expect(screen.getByText('Approval TASK_REFERENCE_MISSING')).toBeVisible();
+    expect(screen.getByText('Online NOT_ONLINE')).toBeVisible();
+    expect(screen.getByText('Runtime NEEDS_ATTENTION')).toBeVisible();
+    expect(screen.getByText('Media READY_OR_NOT_REQUIRED')).toBeVisible();
     expect(screen.getByText('Commerce')).toBeVisible();
     expect(screen.getAllByText('FUNCTIONAL_MODULE').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Package FUNCTIONAL_MODULE').length).toBeGreaterThan(0);

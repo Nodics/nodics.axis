@@ -40,6 +40,7 @@ export interface CapabilityReadinessSummary {
   readonly disabledReason?: string | undefined;
   readonly dependencies?: readonly CapabilityReadinessDependency[] | undefined;
   readonly dependencyGraph?: CapabilityReadinessDependencyGraph | undefined;
+  readonly publicationSummary?: CapabilityReadinessPublicationSummary | undefined;
   readonly approvalDiagnostic?: CapabilityApprovalDiagnostic | undefined;
   readonly nextAction: string;
   readonly blockers: readonly CapabilityReadinessBlocker[];
@@ -95,6 +96,15 @@ export interface CapabilityReadinessDependencyEvidence {
     | undefined;
   readonly runtimeDiagnostic?: ReadinessRuntimeDiagnostic | undefined;
   readonly approvalDiagnostic?: CapabilityApprovalDiagnostic | undefined;
+}
+
+export interface CapabilityReadinessPublicationSummary {
+  readonly installed?: string | undefined;
+  readonly staged?: string | undefined;
+  readonly approval?: string | undefined;
+  readonly online?: string | undefined;
+  readonly runtime?: string | undefined;
+  readonly media?: string | undefined;
 }
 
 export interface CapabilityApprovalDiagnostic {
@@ -211,6 +221,53 @@ function graphPathLabel(
   return `${node.label} · ${node.kind}`;
 }
 
+function publicationStatusTone(
+  status: string | undefined,
+): 'success' | 'warning' | 'error' | 'info' | 'default' {
+  if (!status) return 'default';
+  if (
+    status === 'READY' ||
+    status === 'CURRENT' ||
+    status === 'ONLINE' ||
+    status === 'APPROVED' ||
+    status === 'READY_OR_NOT_REQUIRED'
+  )
+    return 'success';
+  if (
+    status === 'PENDING_APPROVAL' ||
+    status === 'APPROVAL_IN_PROGRESS' ||
+    status === 'IN_PROGRESS'
+  )
+    return 'info';
+  if (
+    status === 'BLOCKED' ||
+    status === 'PREPARATION_BLOCKED' ||
+    status === 'TASK_REFERENCE_MISSING' ||
+    status === 'UNAVAILABLE' ||
+    status === 'NEEDS_ATTENTION'
+  )
+    return 'error';
+  if (status === 'NOT_ONLINE' || status === 'NOT_INSTALLED' || status === 'UNKNOWN')
+    return 'warning';
+  return 'default';
+}
+
+function publicationChecklistItems(
+  summary: CapabilityReadinessPublicationSummary | undefined,
+): readonly Readonly<{ label: string; value: string }>[] {
+  if (!summary) return [];
+  return [
+    ['Installed', summary.installed],
+    ['Staged', summary.staged],
+    ['Approval', summary.approval],
+    ['Online', summary.online],
+    ['Runtime', summary.runtime],
+    ['Media', summary.media],
+  ]
+    .filter((item): item is [string, string] => Boolean(item[1]))
+    .map(([label, value]) => Object.freeze({ label, value }));
+}
+
 export function CapabilityReadinessPanel({
   actionSlot,
   caption = 'Capability readiness',
@@ -257,6 +314,36 @@ export function CapabilityReadinessPanel({
         >
           {readiness.disabledReason}
         </Typography>
+      ) : null}
+      {publicationChecklistItems(readiness.publicationSummary).length ? (
+        <Stack
+          spacing={0.5}
+          sx={{
+            border: (theme) => `1px solid ${theme.palette.divider}`,
+            borderRadius: 1,
+            mb: 0.75,
+            p: 1,
+          }}
+        >
+          <Typography color="text.secondary" variant="caption">
+            Publication readiness checklist
+          </Typography>
+          <Stack
+            direction="row"
+            spacing={0.75}
+            sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+          >
+            {publicationChecklistItems(readiness.publicationSummary).map((item) => (
+              <Chip
+                key={item.label}
+                color={publicationStatusTone(item.value)}
+                label={`${item.label} ${item.value}`}
+                size="small"
+                variant="outlined"
+              />
+            ))}
+          </Stack>
+        </Stack>
       ) : null}
       {readiness.dependencies?.length ? (
         <Stack
