@@ -327,6 +327,25 @@ export interface AxisStartupValidationFinding {
   readonly auditRequired: boolean;
 }
 
+export interface AxisStartupBootstrapCheck {
+  readonly code: string;
+  readonly state: 'READY' | 'MISSING' | 'NEEDS_ATTENTION';
+  readonly owner: string;
+  readonly ownerType: string;
+  readonly propertyPath?: string | undefined;
+  readonly message: string;
+  readonly action: string;
+  readonly auditRequired: boolean;
+}
+
+export interface AxisStartupBootstrapChecks {
+  readonly total: number;
+  readonly ready: number;
+  readonly missing: number;
+  readonly needsAttention: number;
+  readonly checks: readonly AxisStartupBootstrapCheck[];
+}
+
 export interface AxisStartupValidationReport {
   readonly state: 'READY' | 'NEEDS_ATTENTION' | 'NOT_READY';
   readonly checkedAt: string;
@@ -338,6 +357,7 @@ export interface AxisStartupValidationReport {
     readonly info: number;
     readonly dismissible: number;
   }>;
+  readonly bootstrapChecks: AxisStartupBootstrapChecks;
   readonly findings: readonly AxisStartupValidationFinding[];
 }
 
@@ -531,6 +551,16 @@ function startupValidationState(
   name: string,
 ): AxisStartupValidationReport['state'] {
   if (value === 'READY' || value === 'NEEDS_ATTENTION' || value === 'NOT_READY') {
+    return value;
+  }
+  throw new Error(`${name} state is unsupported`);
+}
+
+function startupBootstrapCheckState(
+  value: unknown,
+  name: string,
+): AxisStartupBootstrapCheck['state'] {
+  if (value === 'READY' || value === 'MISSING' || value === 'NEEDS_ATTENTION') {
     return value;
   }
   throw new Error(`${name} state is unsupported`);
@@ -2073,6 +2103,20 @@ function parseApplicationInitializationProfiles(
 function parseStartupValidationReport(value: unknown): AxisStartupValidationReport {
   const source = record(value, 'startup validation');
   const summary = record(source.summary, 'startup validation summary');
+  const rawBootstrapChecks =
+    source.bootstrapChecks === undefined
+      ? {
+          total: 0,
+          ready: 0,
+          missing: 0,
+          needsAttention: 0,
+          checks: [],
+        }
+      : source.bootstrapChecks;
+  const bootstrapChecks = record(
+    rawBootstrapChecks,
+    'startup validation bootstrap checks',
+  );
   return Object.freeze({
     state: startupValidationState(source.state, 'startup validation'),
     checkedAt: text(source.checkedAt, 'startup validation checked at'),
@@ -2085,6 +2129,62 @@ function parseStartupValidationReport(value: unknown): AxisStartupValidationRepo
       dismissible: nonNegativeInteger(
         summary.dismissible,
         'startup validation dismissible',
+      ),
+    }),
+    bootstrapChecks: Object.freeze({
+      total: nonNegativeInteger(
+        bootstrapChecks.total,
+        'startup validation bootstrap total',
+      ),
+      ready: nonNegativeInteger(
+        bootstrapChecks.ready,
+        'startup validation bootstrap ready',
+      ),
+      missing: nonNegativeInteger(
+        bootstrapChecks.missing,
+        'startup validation bootstrap missing',
+      ),
+      needsAttention: nonNegativeInteger(
+        bootstrapChecks.needsAttention,
+        'startup validation bootstrap needs attention',
+      ),
+      checks: Object.freeze(
+        array(bootstrapChecks.checks, 'startup validation bootstrap checks').map(
+          (check, index) => {
+            const parsed = record(
+              check,
+              `startup validation bootstrap check ${String(index)}`,
+            );
+            return Object.freeze({
+              code: text(parsed.code, 'startup validation bootstrap check code'),
+              state: startupBootstrapCheckState(
+                parsed.state,
+                'startup validation bootstrap check',
+              ),
+              owner: text(parsed.owner, 'startup validation bootstrap check owner'),
+              ownerType: text(
+                parsed.ownerType,
+                'startup validation bootstrap check owner type',
+              ),
+              propertyPath: optionalText(
+                parsed.propertyPath,
+                'startup validation bootstrap check property path',
+              ),
+              message: text(
+                parsed.message,
+                'startup validation bootstrap check message',
+              ),
+              action: text(
+                parsed.action,
+                'startup validation bootstrap check action',
+              ),
+              auditRequired:
+                typeof parsed.auditRequired === 'boolean'
+                  ? parsed.auditRequired
+                  : false,
+            });
+          },
+        ),
       ),
     }),
     findings: Object.freeze(

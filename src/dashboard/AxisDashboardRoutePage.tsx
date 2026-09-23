@@ -85,6 +85,13 @@ const readyStartupValidation: AxisStartupValidationReport = Object.freeze({
     info: 0,
     dismissible: 0,
   }),
+  bootstrapChecks: Object.freeze({
+    total: 0,
+    ready: 0,
+    missing: 0,
+    needsAttention: 0,
+    checks: Object.freeze([]),
+  }),
   findings: Object.freeze([]),
 });
 
@@ -263,7 +270,10 @@ function startupValidationNeedsAction(
   startupValidation: AxisStartupValidationReport,
 ): boolean {
   return (
-    startupValidation.state !== 'READY' || startupValidation.summary.total > 0
+    startupValidation.state !== 'READY' ||
+    startupValidation.summary.total > 0 ||
+    startupValidation.bootstrapChecks.missing > 0 ||
+    startupValidation.bootstrapChecks.needsAttention > 0
   );
 }
 
@@ -483,6 +493,9 @@ export function AxisDashboardRoutePage({
     : 0;
   const startupErrorCount = startupValidation.summary.errors;
   const startupWarningCount = startupValidation.summary.warnings;
+  const startupBootstrapMissingCount = startupValidation.bootstrapChecks.missing;
+  const startupBootstrapAttentionCount =
+    startupValidation.bootstrapChecks.needsAttention;
   const approvalCount = allPublicationStatuses.filter(publicationNeedsApproval).length;
   const publicationActionCount =
     allPublicationStatuses.filter(publicationNeedsAction).length;
@@ -508,7 +521,15 @@ export function AxisDashboardRoutePage({
   const visibleRouteCount = bootstrap.navigation.filter(
     (item) => item.featureState !== 'HIDDEN',
   ).length;
+  const primaryStartupBootstrapCheck = startupValidation.bootstrapChecks.checks.find(
+    (check) => check.state === 'MISSING' || check.state === 'NEEDS_ATTENTION',
+  );
   const primaryStartupFinding = startupValidation.findings[0];
+  const startupPrimaryMeta = primaryStartupBootstrapCheck
+    ? `${primaryStartupBootstrapCheck.owner}: ${primaryStartupBootstrapCheck.message}`
+    : primaryStartupFinding
+      ? `${primaryStartupFinding.owner}: ${primaryStartupFinding.message}`
+      : undefined;
   const totalActionCount =
     startupActionCount + moduleActionCount + dataActionCount + approvalCount;
   const loading =
@@ -535,10 +556,23 @@ export function AxisDashboardRoutePage({
           primaryAction: 'Open Runtime Configuration',
           severity: startupErrorCount > 0 ? 'error' : 'warning',
           count: startupActionCount,
-          meta: primaryStartupFinding
-            ? `${primaryStartupFinding.owner}: ${primaryStartupFinding.message}`
-            : undefined,
+          meta: startupPrimaryMeta,
           detailRows: [
+            {
+              label: 'Bootstrap prerequisites',
+              value:
+                startupBootstrapMissingCount > 0
+                  ? `${String(startupBootstrapMissingCount)} missing`
+                  : startupBootstrapAttentionCount > 0
+                    ? `${String(startupBootstrapAttentionCount)} needs attention`
+                    : `${String(startupValidation.bootstrapChecks.ready)} ready`,
+              severity:
+                startupBootstrapMissingCount > 0
+                  ? 'error'
+                  : startupBootstrapAttentionCount > 0
+                    ? 'warning'
+                    : 'success',
+            },
             {
               label: 'Blocking errors',
               value: String(startupErrorCount),
@@ -572,6 +606,15 @@ export function AxisDashboardRoutePage({
             ? `Checked ${new Date(startupValidation.checkedAt).toLocaleString()}`
             : undefined,
           detailRows: [
+            {
+              label: 'Bootstrap prerequisites',
+              value:
+                startupValidation.bootstrapChecks.total > 0
+                  ? `${String(startupValidation.bootstrapChecks.ready)} ready`
+                  : 'Not reported',
+              severity:
+                startupValidation.bootstrapChecks.total > 0 ? 'success' : 'info',
+            },
             {
               label: 'Blocking errors',
               value: '0',

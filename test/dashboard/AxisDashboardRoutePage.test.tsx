@@ -152,6 +152,25 @@ const bootstrap: AxisAuthenticatedBootstrap = {
     checkedAt: '2026-09-23T00:00:00.000Z',
     source: 'backoffice.operationalReadiness',
     summary: { total: 0, errors: 0, warnings: 0, info: 0, dismissible: 0 },
+    bootstrapChecks: {
+      total: 3,
+      ready: 3,
+      missing: 0,
+      needsAttention: 0,
+      checks: [
+        {
+          code: 'BOOTSTRAP_ADMIN_PASSWORD_PRESENT',
+          state: 'READY',
+          owner: 'nAuth',
+          ownerType: 'AUTHENTICATION',
+          propertyPath: 'bootstrapIdentity.adminPassword',
+          message: 'Bootstrap administrator password path is resolved.',
+          action:
+            'Repair the profile init data or owning private configuration before Axis login.',
+          auditRequired: false,
+        },
+      ],
+    },
     findings: [],
   },
   tenantCode: 'default',
@@ -419,6 +438,25 @@ describe('AxisDashboardRoutePage', () => {
         checkedAt: '2026-09-23T00:00:00.000Z',
         source: 'backoffice.operationalReadiness',
         summary: { total: 1, errors: 0, warnings: 1, info: 0, dismissible: 1 },
+        bootstrapChecks: {
+          total: 3,
+          ready: 2,
+          missing: 1,
+          needsAttention: 0,
+          checks: [
+            {
+              code: 'BOOTSTRAP_ADMIN_PASSWORD_PRESENT',
+              state: 'MISSING',
+              owner: 'nAuth',
+              ownerType: 'AUTHENTICATION',
+              propertyPath: 'bootstrapIdentity.adminPassword',
+              message: 'Bootstrap administrator password path is missing.',
+              action:
+                'Repair the profile init data or owning private configuration before Axis login.',
+              auditRequired: true,
+            },
+          ],
+        },
         findings: [
           {
             code: 'LOCAL_SAMPLE_ADMIN_PASSWORD',
@@ -454,8 +492,10 @@ describe('AxisDashboardRoutePage', () => {
 
     expect(await screen.findByText('Review startup configuration')).toBeInTheDocument();
     expect(
-      screen.getByText('nAuth: A local or sample bootstrap admin password is active.'),
+      screen.getByText('nAuth: Bootstrap administrator password path is missing.'),
     ).toBeInTheDocument();
+    expect(screen.getByText('Bootstrap prerequisites')).toBeInTheDocument();
+    expect(screen.getByText('1 missing')).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: /Open Runtime Configuration/u }),
     ).toBeInTheDocument();
