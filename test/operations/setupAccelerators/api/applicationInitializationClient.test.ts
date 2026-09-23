@@ -191,8 +191,10 @@ describe('application initialization client', () => {
                   code: 'nodics.commerce',
 	                  label: 'Commerce',
 	                  required: true,
+	                  classification: 'FUNCTIONAL_MODULE',
 	                  status: 'NOT_STARTED',
 	                  evidence: {
+	                    classification: 'FUNCTIONAL_MODULE',
 	                    runtimeState: 'OFFLINE',
 	                    registrationState: 'REGISTERED',
 	                    observedServers: [],
@@ -206,6 +208,21 @@ describe('application initialization client', () => {
 	                    },
 	                  },
 	                },
+                {
+                  kind: 'PROCESS',
+                  code: 'publicationApproval',
+                  label: 'Governed publication approval',
+                  required: true,
+                  status: 'UNAVAILABLE',
+                  evidence: {
+                    approvalDiagnostic: {
+                      source: 'PUBLICATION_APPROVAL',
+                      status: 'TASK_REFERENCE_MISSING',
+                      publicationState: 'PENDING_APPROVAL',
+                      suggestedAction: 'Reconcile publication approval.',
+                    },
+                  },
+                },
 	              ],
 	              dependencyGraph: {
                 nodes: [
@@ -239,10 +256,16 @@ describe('application initialization client', () => {
               publicationSummary: {
                 installed: 'BLOCKED',
                 staged: 'PREPARATION_BLOCKED',
-                approval: 'NOT_STARTED',
+                approval: 'TASK_REFERENCE_MISSING',
                 online: 'NOT_ONLINE',
                 runtime: 'NEEDS_ATTENTION',
                 media: 'READY_OR_NOT_REQUIRED',
+              },
+              approvalDiagnostic: {
+                source: 'PUBLICATION_APPROVAL',
+                status: 'TASK_REFERENCE_MISSING',
+                publicationState: 'PENDING_APPROVAL',
+                suggestedAction: 'Reconcile publication approval.',
               },
               disabledReason: 'A required framework capability is not ready.',
               nextAction: 'Prepare required dependency',
@@ -269,6 +292,11 @@ describe('application initialization client', () => {
                     targetRuntimeRole: 'COMMERCE_STAGED',
                     failureCode: 'REMOTE_ENDPOINT_UNAVAILABLE',
                     suggestedAction: 'Start commerceStagedServer.',
+                  },
+                  approvalDiagnostic: {
+                    source: 'PUBLICATION_APPROVAL',
+                    status: 'TASK_REFERENCE_MISSING',
+                    publicationState: 'PENDING_APPROVAL',
                   },
                   repair: {
                     available: false,
@@ -325,7 +353,9 @@ describe('application initialization client', () => {
 	      kind: 'MODULE',
 	      code: 'nodics.commerce',
 	      status: 'NOT_STARTED',
+	      classification: 'FUNCTIONAL_MODULE',
 	      evidence: {
+	        classification: 'FUNCTIONAL_MODULE',
 	        runtimeState: 'OFFLINE',
 	        runtimeEvidence: {
 	          source: 'FUNCTIONAL_MODULE_CATALOGUE',
@@ -333,6 +363,16 @@ describe('application initialization client', () => {
 	        },
 	      },
 	    });
+    expect(status.capability?.dependencies?.[1]).toMatchObject({
+      kind: 'PROCESS',
+      status: 'UNAVAILABLE',
+      evidence: {
+        approvalDiagnostic: {
+          status: 'TASK_REFERENCE_MISSING',
+          publicationState: 'PENDING_APPROVAL',
+        },
+      },
+    });
 	    expect(status.capability?.dependencyGraph?.nodes[1]?.evidence).toMatchObject({
 	      runtimeEvidence: {
 	        source: 'FUNCTIONAL_MODULE_CATALOGUE',
@@ -343,6 +383,13 @@ describe('application initialization client', () => {
       relationship: 'REQUIRED_FOR',
     });
     expect(status.capability?.publicationSummary?.runtime).toBe('NEEDS_ATTENTION');
+    expect(status.capability?.publicationSummary?.approval).toBe(
+      'TASK_REFERENCE_MISSING',
+    );
+    expect(status.capability?.approvalDiagnostic).toMatchObject({
+      status: 'TASK_REFERENCE_MISSING',
+      publicationState: 'PENDING_APPROVAL',
+    });
     expect(status.capability?.disabledReason).toContain('required framework');
     expect(status.capability?.blockers[0]?.code).toBe('MISSING_DEPENDENCY');
     expect(status.capability?.blockers[0]?.blockerCode).toBe('MISSING_DEPENDENCY');
@@ -367,6 +414,10 @@ describe('application initialization client', () => {
       targetModule: 'import',
       targetRuntimeRole: 'COMMERCE_STAGED',
       failureCode: 'REMOTE_ENDPOINT_UNAVAILABLE',
+    });
+    expect(status.capability?.blockers[0]?.approvalDiagnostic).toMatchObject({
+      status: 'TASK_REFERENCE_MISSING',
+      publicationState: 'PENDING_APPROVAL',
     });
     expect(status.capability?.nextAction).toBe('Prepare required dependency');
   });

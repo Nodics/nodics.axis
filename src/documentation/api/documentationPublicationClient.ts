@@ -51,6 +51,7 @@ export interface DocumentationCapabilityReadiness {
   readonly dependencyGraph?: DocumentationCapabilityDependencyGraph | undefined;
   readonly repairActions?: readonly DocumentationCapabilityRepairAction[] | undefined;
   readonly publicationSummary?: DocumentationCapabilityPublicationSummary | undefined;
+  readonly approvalDiagnostic?: DocumentationApprovalDiagnostic | undefined;
   readonly disabledReason?: string | undefined;
   readonly nextAction: string;
   readonly blockers: readonly DocumentationCapabilityBlocker[];
@@ -71,6 +72,9 @@ export interface DocumentationCapabilityDependency {
   readonly required: boolean;
   readonly server?: string | undefined;
   readonly runtimeRole?: string | undefined;
+  readonly trigger?: string | undefined;
+  readonly dataType?: string | undefined;
+  readonly classification?: string | undefined;
   readonly status: string;
   readonly evidence?: DocumentationCapabilityDependencyEvidence | undefined;
 }
@@ -81,6 +85,9 @@ export interface DocumentationCapabilityDependencyEvidence {
   readonly observedServers?: readonly string[] | undefined;
   readonly targetServer?: string | undefined;
   readonly targetRuntimeRole?: string | undefined;
+  readonly trigger?: string | undefined;
+  readonly dataType?: string | undefined;
+  readonly classification?: string | undefined;
   readonly runtimeEvidence?: Readonly<{
     readonly source?: string | undefined;
     readonly status?: string | undefined;
@@ -90,6 +97,7 @@ export interface DocumentationCapabilityDependencyEvidence {
     readonly observedServers?: readonly string[] | undefined;
   }> | undefined;
   readonly runtimeDiagnostic?: DocumentationRuntimeDiagnostic | undefined;
+  readonly approvalDiagnostic?: DocumentationApprovalDiagnostic | undefined;
 }
 
 export interface DocumentationCapabilityDependencyGraph {
@@ -131,6 +139,7 @@ export interface DocumentationCapabilityBlocker {
   readonly technicalStatus?: string | undefined;
   readonly repair?: DocumentationCapabilityRepairAction | undefined;
   readonly runtimeDiagnostic?: DocumentationRuntimeDiagnostic | undefined;
+  readonly approvalDiagnostic?: DocumentationApprovalDiagnostic | undefined;
 }
 
 export interface DocumentationRuntimeDiagnostic {
@@ -167,6 +176,21 @@ export interface DocumentationApprovalRepairEvidence {
   readonly workflowRef?: string | undefined;
   readonly publicationCode?: string | undefined;
   readonly message?: string | undefined;
+}
+
+export interface DocumentationApprovalDiagnostic {
+  readonly source?: string | undefined;
+  readonly status?: string | undefined;
+  readonly publicationCode?: string | undefined;
+  readonly publicationState?: string | undefined;
+  readonly workflowRef?: string | undefined;
+  readonly taskCode?: string | undefined;
+  readonly taskStatus?: string | undefined;
+  readonly assignee?: string | undefined;
+  readonly queue?: string | undefined;
+  readonly message?: string | undefined;
+  readonly suggestedAction?: string | undefined;
+  readonly disabledReason?: string | undefined;
 }
 
 interface Options {
@@ -288,11 +312,19 @@ function parseCapabilityDependencyEvidence(
     ...(optionalText(evidence.targetRuntimeRole)
       ? { targetRuntimeRole: optionalText(evidence.targetRuntimeRole) }
       : {}),
+    ...(optionalText(evidence.trigger) ? { trigger: optionalText(evidence.trigger) } : {}),
+    ...(optionalText(evidence.dataType) ? { dataType: optionalText(evidence.dataType) } : {}),
+    ...(optionalText(evidence.classification)
+      ? { classification: optionalText(evidence.classification) }
+      : {}),
     ...(parseDependencyRuntimeEvidence(evidence.runtimeEvidence)
       ? { runtimeEvidence: parseDependencyRuntimeEvidence(evidence.runtimeEvidence) }
       : {}),
     ...(parseRuntimeDiagnostic(evidence.runtimeDiagnostic)
       ? { runtimeDiagnostic: parseRuntimeDiagnostic(evidence.runtimeDiagnostic) }
+      : {}),
+    ...(parseApprovalDiagnostic(evidence.approvalDiagnostic)
+      ? { approvalDiagnostic: parseApprovalDiagnostic(evidence.approvalDiagnostic) }
       : {}),
   });
 }
@@ -349,6 +381,49 @@ function parseApprovalRepairEvidence(
   });
 }
 
+function parseApprovalDiagnostic(
+  value: unknown,
+): DocumentationApprovalDiagnostic | undefined {
+  const diagnostic = optionalRecord(value);
+  if (!diagnostic) return undefined;
+  return Object.freeze({
+    ...(optionalText(diagnostic.source)
+      ? { source: optionalText(diagnostic.source) }
+      : {}),
+    ...(optionalText(diagnostic.status)
+      ? { status: optionalText(diagnostic.status) }
+      : {}),
+    ...(optionalText(diagnostic.publicationCode)
+      ? { publicationCode: optionalText(diagnostic.publicationCode) }
+      : {}),
+    ...(optionalText(diagnostic.publicationState)
+      ? { publicationState: optionalText(diagnostic.publicationState) }
+      : {}),
+    ...(optionalText(diagnostic.workflowRef)
+      ? { workflowRef: optionalText(diagnostic.workflowRef) }
+      : {}),
+    ...(optionalText(diagnostic.taskCode)
+      ? { taskCode: optionalText(diagnostic.taskCode) }
+      : {}),
+    ...(optionalText(diagnostic.taskStatus)
+      ? { taskStatus: optionalText(diagnostic.taskStatus) }
+      : {}),
+    ...(optionalText(diagnostic.assignee)
+      ? { assignee: optionalText(diagnostic.assignee) }
+      : {}),
+    ...(optionalText(diagnostic.queue) ? { queue: optionalText(diagnostic.queue) } : {}),
+    ...(optionalText(diagnostic.message)
+      ? { message: optionalText(diagnostic.message) }
+      : {}),
+    ...(optionalText(diagnostic.suggestedAction)
+      ? { suggestedAction: optionalText(diagnostic.suggestedAction) }
+      : {}),
+    ...(optionalText(diagnostic.disabledReason)
+      ? { disabledReason: optionalText(diagnostic.disabledReason) }
+      : {}),
+  });
+}
+
 function parseCapabilitySubject(
   value: unknown,
 ): DocumentationCapabilitySubject | undefined {
@@ -381,6 +456,15 @@ function parseCapabilityDependency(
       : {}),
     ...(optionalText(dependency.runtimeRole)
       ? { runtimeRole: optionalText(dependency.runtimeRole) }
+      : {}),
+    ...(optionalText(dependency.trigger)
+      ? { trigger: optionalText(dependency.trigger) }
+      : {}),
+    ...(optionalText(dependency.dataType)
+      ? { dataType: optionalText(dependency.dataType) }
+      : {}),
+    ...(optionalText(dependency.classification)
+      ? { classification: optionalText(dependency.classification) }
       : {}),
     status: text(dependency.status, 'Documentation capability dependency status'),
     ...(parseCapabilityDependencyEvidence(dependency.evidence)
@@ -511,6 +595,9 @@ function parseCapabilityReadiness(
           ),
         }
       : {}),
+    ...(parseApprovalDiagnostic(capability.approvalDiagnostic)
+      ? { approvalDiagnostic: parseApprovalDiagnostic(capability.approvalDiagnostic) }
+      : {}),
     ...(optionalText(capability.disabledReason)
       ? { disabledReason: optionalText(capability.disabledReason) }
       : {}),
@@ -559,6 +646,13 @@ function parseCapabilityReadiness(
                 ? {
                     runtimeDiagnostic: parseRuntimeDiagnostic(
                       blocker.runtimeDiagnostic,
+                    ),
+                  }
+                : {}),
+              ...(parseApprovalDiagnostic(blocker.approvalDiagnostic)
+                ? {
+                    approvalDiagnostic: parseApprovalDiagnostic(
+                      blocker.approvalDiagnostic,
                     ),
                   }
                 : {}),

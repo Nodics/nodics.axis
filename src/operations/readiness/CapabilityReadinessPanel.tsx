@@ -22,6 +22,7 @@ export interface CapabilityReadinessBlocker {
   readonly technicalStatus?: string | undefined;
   readonly repair?: ReadinessRepairAction | undefined;
   readonly runtimeDiagnostic?: ReadinessRuntimeDiagnostic | undefined;
+  readonly approvalDiagnostic?: CapabilityApprovalDiagnostic | undefined;
 }
 
 export interface CapabilityReadinessSummary {
@@ -38,6 +39,7 @@ export interface CapabilityReadinessSummary {
   readonly stale?: boolean | undefined;
   readonly disabledReason?: string | undefined;
   readonly dependencies?: readonly CapabilityReadinessDependency[] | undefined;
+  readonly approvalDiagnostic?: CapabilityApprovalDiagnostic | undefined;
   readonly nextAction: string;
   readonly blockers: readonly CapabilityReadinessBlocker[];
 }
@@ -49,6 +51,9 @@ export interface CapabilityReadinessDependency {
   readonly required: boolean;
   readonly server?: string | undefined;
   readonly runtimeRole?: string | undefined;
+  readonly trigger?: string | undefined;
+  readonly dataType?: string | undefined;
+  readonly classification?: string | undefined;
   readonly status: string;
   readonly evidence?: CapabilityReadinessDependencyEvidence | undefined;
 }
@@ -59,6 +64,9 @@ export interface CapabilityReadinessDependencyEvidence {
   readonly observedServers?: readonly string[] | undefined;
   readonly targetServer?: string | undefined;
   readonly targetRuntimeRole?: string | undefined;
+  readonly trigger?: string | undefined;
+  readonly dataType?: string | undefined;
+  readonly classification?: string | undefined;
   readonly runtimeEvidence?:
     | Readonly<{
         readonly source?: string | undefined;
@@ -70,6 +78,22 @@ export interface CapabilityReadinessDependencyEvidence {
       }>
     | undefined;
   readonly runtimeDiagnostic?: ReadinessRuntimeDiagnostic | undefined;
+  readonly approvalDiagnostic?: CapabilityApprovalDiagnostic | undefined;
+}
+
+export interface CapabilityApprovalDiagnostic {
+  readonly source?: string | undefined;
+  readonly status?: string | undefined;
+  readonly publicationCode?: string | undefined;
+  readonly publicationState?: string | undefined;
+  readonly workflowRef?: string | undefined;
+  readonly taskCode?: string | undefined;
+  readonly taskStatus?: string | undefined;
+  readonly assignee?: string | undefined;
+  readonly queue?: string | undefined;
+  readonly message?: string | undefined;
+  readonly suggestedAction?: string | undefined;
+  readonly disabledReason?: string | undefined;
 }
 
 interface CapabilityReadinessPanelProps {
@@ -122,6 +146,11 @@ function dependencyEvidenceLabels(
 ): readonly string[] {
   if (!evidence) return [];
   const labels: string[] = [];
+  if (evidence.classification) labels.push(`Package ${evidence.classification}`);
+  if (evidence.trigger) labels.push(`Trigger ${evidence.trigger}`);
+  if (evidence.dataType) labels.push(`Data ${evidence.dataType}`);
+  if (evidence.approvalDiagnostic?.status)
+    labels.push(`Approval ${evidence.approvalDiagnostic.status}`);
   if (evidence.runtimeState) labels.push(`Runtime ${evidence.runtimeState}`);
   if (evidence.registrationState) labels.push(`Registry ${evidence.registrationState}`);
   if (evidence.runtimeEvidence?.stale === true) labels.push('Stale runtime evidence');
@@ -130,6 +159,19 @@ function dependencyEvidenceLabels(
   const observedServers =
     evidence.observedServers ?? evidence.runtimeEvidence?.observedServers ?? [];
   observedServers.slice(0, 3).forEach((server) => labels.push(`Observed ${server}`));
+  return labels;
+}
+
+function approvalEvidenceLabels(
+  diagnostic: CapabilityApprovalDiagnostic | undefined,
+): readonly string[] {
+  if (!diagnostic) return [];
+  const labels: string[] = [];
+  if (diagnostic.status) labels.push(`Approval ${diagnostic.status}`);
+  if (diagnostic.publicationState)
+    labels.push(`Publication ${diagnostic.publicationState}`);
+  if (diagnostic.taskStatus) labels.push(`Task ${diagnostic.taskStatus}`);
+  if (diagnostic.queue) labels.push(`Queue ${diagnostic.queue}`);
   return labels;
 }
 
@@ -167,6 +209,9 @@ export function CapabilityReadinessPanel({
         {evaluated ? (
           <Chip label={`Checked ${evaluated}`} size="small" variant="outlined" />
         ) : null}
+        {approvalEvidenceLabels(readiness.approvalDiagnostic).map((label) => (
+          <Chip key={label} label={label} size="small" variant="outlined" />
+        ))}
       </Stack>
       {readiness.disabledReason ? (
         <Typography
@@ -212,6 +257,27 @@ export function CapabilityReadinessPanel({
               ) : null}
               {dependency.runtimeRole ? (
                 <Chip label={dependency.runtimeRole} size="small" variant="outlined" />
+              ) : null}
+              {dependency.classification ? (
+                <Chip
+                  label={dependency.classification}
+                  size="small"
+                  variant="outlined"
+                />
+              ) : null}
+              {dependency.trigger ? (
+                <Chip
+                  label={`Trigger ${dependency.trigger}`}
+                  size="small"
+                  variant="outlined"
+                />
+              ) : null}
+              {dependency.dataType ? (
+                <Chip
+                  label={`Data ${dependency.dataType}`}
+                  size="small"
+                  variant="outlined"
+                />
               ) : null}
               {dependencyEvidenceLabels(dependency.evidence).map((label) => (
                 <Chip key={label} label={label} size="small" variant="outlined" />
@@ -262,7 +328,19 @@ export function CapabilityReadinessPanel({
                   variant="outlined"
                 />
               ) : null}
+              {approvalEvidenceLabels(blocker.approvalDiagnostic).map((label) => (
+                <Chip key={label} label={label} size="small" variant="outlined" />
+              ))}
             </Stack>
+            {blocker.approvalDiagnostic?.message ? (
+              <Typography
+                color="text.secondary"
+                sx={{ display: 'block', mt: 0.5 }}
+                variant="caption"
+              >
+                {blocker.approvalDiagnostic.message}
+              </Typography>
+            ) : null}
             {blocker.disabledReason ? (
               <Typography
                 color="text.secondary"

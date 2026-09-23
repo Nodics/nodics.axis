@@ -149,10 +149,12 @@ describe('documentation publication client', () => {
           required: true,
           server: 'wcmsStaged',
 	          runtimeRole: 'WCMS_STAGED',
+	          classification: 'RUNTIME_CONFIG',
 	          status: 'UNAVAILABLE',
 	          evidence: {
 	            targetServer: 'wcmsStagedServer',
 	            targetRuntimeRole: 'WCMS_STAGED',
+	            classification: 'RUNTIME_CONFIG',
 	            runtimeDiagnostic: {
 	              phase: 'transport',
 	              targetModule: 'import',
@@ -161,6 +163,21 @@ describe('documentation publication client', () => {
 	            },
 	          },
 	        },
+        {
+          kind: 'PROCESS',
+          code: 'publicationApproval',
+          label: 'Governed publication approval',
+          required: true,
+          status: 'UNAVAILABLE',
+          evidence: {
+            approvalDiagnostic: {
+              source: 'PUBLICATION_APPROVAL',
+              status: 'TASK_REFERENCE_MISSING',
+              publicationState: 'PENDING_APPROVAL',
+              suggestedAction: 'Reconcile publication approval.',
+            },
+          },
+        },
 	      ],
       dependencyGraph: {
         nodes: [
@@ -194,7 +211,14 @@ describe('documentation publication client', () => {
       publicationSummary: {
         installed: 'BLOCKED',
         staged: 'PREPARATION_BLOCKED',
+        approval: 'TASK_REFERENCE_MISSING',
         runtime: 'UNAVAILABLE',
+      },
+      approvalDiagnostic: {
+        source: 'PUBLICATION_APPROVAL',
+        status: 'TASK_REFERENCE_MISSING',
+        publicationState: 'PENDING_APPROVAL',
+        suggestedAction: 'Reconcile publication approval.',
       },
       disabledReason: 'No active runtime currently owns the required module route.',
       nextAction: 'Restore target runtime',
@@ -222,6 +246,11 @@ describe('documentation publication client', () => {
             failureCode: 'ETIMEDOUT',
             suggestedAction: 'Start wcmsStagedServer.',
           },
+          approvalDiagnostic: {
+            source: 'PUBLICATION_APPROVAL',
+            status: 'TASK_REFERENCE_MISSING',
+            publicationState: 'PENDING_APPROVAL',
+          },
         },
       ],
     };
@@ -245,14 +274,26 @@ describe('documentation publication client', () => {
 	    expect(status.capability?.dependencies?.[0]).toMatchObject({
 	      kind: 'RUNTIME',
 	      status: 'UNAVAILABLE',
+	      classification: 'RUNTIME_CONFIG',
 	      evidence: {
 	        targetServer: 'wcmsStagedServer',
+	        classification: 'RUNTIME_CONFIG',
 	        runtimeDiagnostic: {
 	          targetModule: 'import',
 	          failureCode: 'ETIMEDOUT',
 	        },
 	      },
 	    });
+    expect(status.capability?.dependencies?.[1]).toMatchObject({
+      kind: 'PROCESS',
+      status: 'UNAVAILABLE',
+      evidence: {
+        approvalDiagnostic: {
+          status: 'TASK_REFERENCE_MISSING',
+          publicationState: 'PENDING_APPROVAL',
+        },
+      },
+    });
 	    expect(status.capability?.dependencyGraph?.nodes[1]).toMatchObject({
 	      id: 'RUNTIME:wcmsStaged',
 	      evidence: {
@@ -263,6 +304,13 @@ describe('documentation publication client', () => {
 	      },
 	    });
     expect(status.capability?.publicationSummary?.runtime).toBe('UNAVAILABLE');
+    expect(status.capability?.publicationSummary?.approval).toBe(
+      'TASK_REFERENCE_MISSING',
+    );
+    expect(status.capability?.approvalDiagnostic).toMatchObject({
+      status: 'TASK_REFERENCE_MISSING',
+      publicationState: 'PENDING_APPROVAL',
+    });
     expect(status.capability?.blockers[0]?.blockerCode).toBe(
       'RUNTIME_UNAVAILABLE',
     );
@@ -276,6 +324,10 @@ describe('documentation publication client', () => {
       targetModule: 'import',
       targetRuntimeRole: 'WCMS_STAGED',
       failureCode: 'ETIMEDOUT',
+    });
+    expect(status.capability?.blockers[0]?.approvalDiagnostic).toMatchObject({
+      status: 'TASK_REFERENCE_MISSING',
+      publicationState: 'PENDING_APPROVAL',
     });
   });
 });
