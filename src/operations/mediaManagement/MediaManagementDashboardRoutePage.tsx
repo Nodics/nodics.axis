@@ -213,6 +213,30 @@ const productionMediaEvidenceStates = Object.freeze([
   'REFERENCE_ACTIVATED',
 ]);
 
+const mediaReadinessLanes = Object.freeze([
+  {
+    title: 'Physical artifact movement',
+    owner: 'Media',
+    detail:
+      'Move or reconcile the binary through media publication manifests, target-local import receipts, and replication queues. Content, product, and accelerator modules never point directly at source files.',
+    proof: ['physical artifact', 'transfer manifest', 'target receipt'],
+  },
+  {
+    title: 'Media object creation',
+    owner: 'Media',
+    detail:
+      'Create the canonical media, placement, format, folder, checksum, source, and lifecycle records before any business module can bind the file.',
+    proof: ['media record', 'placement', 'checksum'],
+  },
+  {
+    title: 'Module reference binding',
+    owner: 'Owning business module',
+    detail:
+      'Bind approved media references to CMS components, product records, documentation pages, or accelerator records through the consuming module revision and approval lifecycle.',
+    proof: ['media reference', 'target revision', 'activation audit'],
+  },
+]);
+
 const productionMediaControls = Object.freeze([
   {
     title: 'Rights policy check',
@@ -479,6 +503,25 @@ export function MediaManagementDashboardRoutePage({
               headingVariant="h4"
               title="Approved media activation flow"
             />
+            <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
+              {mediaReadinessLanes.map((lane) => (
+                <Paper
+                  component="article"
+                  key={lane.title}
+                  sx={{ minWidth: 260, p: 1.5 }}
+                  variant="outlined"
+                >
+                  <strong>{lane.title}</strong>
+                  <p>{lane.detail}</p>
+                  <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
+                    <Chip label={`Owner: ${lane.owner}`} size="small" />
+                    {lane.proof.map((proof) => (
+                      <Chip key={proof} label={proof} size="small" variant="outlined" />
+                    ))}
+                  </Stack>
+                </Paper>
+              ))}
+            </Stack>
             <Stack component="ol" spacing={1} sx={{ m: 0, pl: 3 }}>
               {productionMediaIntakeSteps.map((step) => (
                 <li key={step}>{step}</li>

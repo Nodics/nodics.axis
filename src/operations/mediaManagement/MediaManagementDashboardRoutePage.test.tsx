@@ -53,6 +53,13 @@ describe('MediaManagementDashboardRoutePage', () => {
     expect(
       screen.getByRole('heading', { name: 'Approved media activation flow' }),
     ).toBeTruthy();
+    expect(screen.getByText('Physical artifact movement')).toBeTruthy();
+    expect(screen.getByText('Media object creation')).toBeTruthy();
+    expect(screen.getByText('Module reference binding')).toBeTruthy();
+    expect(screen.getAllByText('Owner: Media').length).toBeGreaterThan(1);
+    expect(screen.getByText('Owner: Owning business module')).toBeTruthy();
+    expect(screen.getByText('target receipt')).toBeTruthy();
+    expect(screen.getByText('activation audit')).toBeTruthy();
     expect(screen.getByText('Upload or select Nodics-owned asset')).toBeTruthy();
     expect(screen.getByText('Capture checksum and source evidence')).toBeTruthy();
     expect(screen.getByText('Reviewer approves rights and target usage')).toBeTruthy();
