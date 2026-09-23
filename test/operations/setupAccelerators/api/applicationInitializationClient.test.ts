@@ -153,6 +153,14 @@ describe('application initialization client', () => {
             releaseVersion: '0.0.8',
             allowedActions: [],
             capability: {
+              subject: {
+                type: 'APPLICATION_CAPABILITY',
+                code: 'agoraapparel',
+                owner: 'agora.apparel',
+                applicationCode: 'agora',
+                siteCode: 'agoraApparelSite',
+              },
+              status: 'NEEDS_ATTENTION',
               capabilityCode: 'agoraapparel',
               displayName: 'Agora Apparel',
               owningModule: 'agora.apparel',
@@ -161,14 +169,64 @@ describe('application initialization client', () => {
               businessStatus: 'NEEDS_ATTENTION',
               technicalStatus: 'BLOCKED',
               releaseStatus: 'PREPARATION_BLOCKED',
+              lastEvaluatedAt: '2026-09-23T10:00:00.000Z',
+              source: 'backoffice.applicationInitialization',
+              stale: false,
+              dependencies: [
+                {
+                  kind: 'MODULE',
+                  code: 'nodics.commerce',
+                  label: 'Commerce',
+                  required: true,
+                  status: 'NOT_STARTED',
+                },
+              ],
+              dependencyGraph: {
+                nodes: [
+                  {
+                    id: 'agoraapparel',
+                    kind: 'CAPABILITY',
+                    label: 'Agora Apparel',
+                  },
+                  {
+                    id: 'MODULE:nodics.commerce',
+                    kind: 'MODULE',
+                    label: 'Commerce',
+                    status: 'NOT_STARTED',
+                  },
+                ],
+                edges: [
+                  {
+                    from: 'MODULE:nodics.commerce',
+                    to: 'agoraapparel',
+                    relationship: 'REQUIRED_FOR',
+                  },
+                ],
+              },
+              publicationSummary: {
+                installed: 'BLOCKED',
+                staged: 'PREPARATION_BLOCKED',
+                approval: 'NOT_STARTED',
+                online: 'NOT_ONLINE',
+                runtime: 'NEEDS_ATTENTION',
+                media: 'READY_OR_NOT_REQUIRED',
+              },
+              disabledReason: 'A required framework capability is not ready.',
               nextAction: 'Prepare required dependency',
               blockers: [
                 {
+                  blockerCode: 'MISSING_DEPENDENCY',
                   code: 'MISSING_DEPENDENCY',
-                  severity: 'BLOCKER',
+                  severity: 'BLOCKED',
                   owner: 'nodics.commerce',
+                  ownerType: 'MODULE_REGISTRY',
+                  source: 'MODULE_REGISTRY',
                   message: 'Commerce must be registered and activated.',
                   action: 'Prepare required dependency',
+                  disabledReason: 'A required framework capability is not ready.',
+                  targetServer: 'platform',
+                  targetRuntimeRole: 'PLATFORM',
+                  technicalStatus: 'NOT_REGISTERED',
                   runtimeDiagnostic: {
                     phase: 'runtimeResolution',
                     sourceServer: 'platformServer',
@@ -186,7 +244,22 @@ describe('application initialization client', () => {
                     action: 'PREPARE_DEPENDENCY',
                     idempotent: true,
                     requiresConfirmation: true,
+                    owner: 'nodics.commerce',
+                    eligibility: 'NOT_AVAILABLE',
+                    unavailableReason:
+                      'The owning module authority must perform this repair.',
                   },
+                },
+              ],
+              repairActions: [
+                {
+                  available: false,
+                  label: 'Prepare required dependency',
+                  operation: 'moduleRegistry.prepareDependency',
+                  action: 'PREPARE_DEPENDENCY',
+                  idempotent: true,
+                  requiresConfirmation: true,
+                  eligibility: 'NOT_AVAILABLE',
                 },
               ],
             },
@@ -209,9 +282,38 @@ describe('application initialization client', () => {
     const status = await client.getStatus();
 
     expect(status.capability?.businessStatus).toBe('NEEDS_ATTENTION');
+    expect(status.capability?.subject?.owner).toBe('agora.apparel');
+    expect(status.capability?.status).toBe('NEEDS_ATTENTION');
+    expect(status.capability?.source).toBe(
+      'backoffice.applicationInitialization',
+    );
+    expect(status.capability?.stale).toBe(false);
+    expect(status.capability?.dependencies?.[0]).toMatchObject({
+      kind: 'MODULE',
+      code: 'nodics.commerce',
+      status: 'NOT_STARTED',
+    });
+    expect(status.capability?.dependencyGraph?.edges[0]).toMatchObject({
+      relationship: 'REQUIRED_FOR',
+    });
+    expect(status.capability?.publicationSummary?.runtime).toBe('NEEDS_ATTENTION');
+    expect(status.capability?.disabledReason).toContain('required framework');
     expect(status.capability?.blockers[0]?.code).toBe('MISSING_DEPENDENCY');
+    expect(status.capability?.blockers[0]?.blockerCode).toBe('MISSING_DEPENDENCY');
+    expect(status.capability?.blockers[0]?.severity).toBe('BLOCKED');
+    expect(status.capability?.blockers[0]?.ownerType).toBe('MODULE_REGISTRY');
+    expect(status.capability?.blockers[0]?.source).toBe('MODULE_REGISTRY');
+    expect(status.capability?.blockers[0]?.disabledReason).toContain(
+      'required framework',
+    );
     expect(status.capability?.blockers[0]?.repair?.operation).toBe(
       'moduleRegistry.prepareDependency',
+    );
+    expect(status.capability?.blockers[0]?.repair?.eligibility).toBe(
+      'NOT_AVAILABLE',
+    );
+    expect(status.capability?.repairActions?.[0]?.action).toBe(
+      'PREPARE_DEPENDENCY',
     );
     expect(status.capability?.blockers[0]?.runtimeDiagnostic).toMatchObject({
       phase: 'runtimeResolution',

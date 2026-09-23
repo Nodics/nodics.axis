@@ -108,6 +108,14 @@ describe('documentation publication client', () => {
       };
     };
     payload.data.capability = {
+      subject: {
+        type: 'APPLICATION_CAPABILITY',
+        code: 'frameworkdocs',
+        owner: 'nodics.docs',
+        applicationCode: 'axis',
+        siteCode: 'nodicsDocumentationSite',
+      },
+      status: 'NEEDS_ATTENTION',
       capabilityCode: 'frameworkdocs',
       displayName: 'Framework docs',
       owningModule: 'nodics.docs',
@@ -115,14 +123,64 @@ describe('documentation publication client', () => {
       group: 'DOCUMENTATION_PACK',
       businessStatus: 'NEEDS_ATTENTION',
       technicalStatus: 'BLOCKED',
+      lastEvaluatedAt: '2026-09-23T10:00:00.000Z',
+      source: 'backoffice.applicationInitialization',
+      stale: false,
+      dependencies: [
+        {
+          kind: 'RUNTIME',
+          code: 'wcmsStaged',
+          label: 'Publication target runtime',
+          required: true,
+          server: 'wcmsStaged',
+          runtimeRole: 'WCMS_STAGED',
+          status: 'UNAVAILABLE',
+        },
+      ],
+      dependencyGraph: {
+        nodes: [
+          {
+            id: 'frameworkdocs',
+            kind: 'CAPABILITY',
+            label: 'Framework docs',
+          },
+          {
+            id: 'RUNTIME:wcmsStaged',
+            kind: 'RUNTIME',
+            label: 'Publication target runtime',
+            status: 'UNAVAILABLE',
+          },
+        ],
+        edges: [
+          {
+            from: 'RUNTIME:wcmsStaged',
+            to: 'frameworkdocs',
+            relationship: 'REQUIRED_FOR',
+          },
+        ],
+      },
+      publicationSummary: {
+        installed: 'BLOCKED',
+        staged: 'PREPARATION_BLOCKED',
+        runtime: 'UNAVAILABLE',
+      },
+      disabledReason: 'No active runtime currently owns the required module route.',
       nextAction: 'Restore target runtime',
       blockers: [
         {
+          blockerCode: 'RUNTIME_UNAVAILABLE',
           code: 'RUNTIME_UNAVAILABLE',
-          severity: 'BLOCKER',
+          severity: 'BLOCKED',
           owner: 'frameworkdocs',
+          ownerType: 'DATA_RELEASE',
+          source: 'IMPORT_PREFLIGHT',
           message: 'Target runtime is unavailable.',
           action: 'Restore target runtime',
+          disabledReason:
+            'No active runtime currently owns the required module route.',
+          targetServer: 'wcmsStagedServer',
+          targetRuntimeRole: 'WCMS_STAGED',
+          technicalStatus: 'UNAVAILABLE',
           runtimeDiagnostic: {
             phase: 'transport',
             sourceServer: 'platformServer',
@@ -150,6 +208,23 @@ describe('documentation publication client', () => {
 
     const status = await client.getStatus();
 
+    expect(status.capability?.subject?.code).toBe('frameworkdocs');
+    expect(status.capability?.status).toBe('NEEDS_ATTENTION');
+    expect(status.capability?.dependencies?.[0]).toMatchObject({
+      kind: 'RUNTIME',
+      status: 'UNAVAILABLE',
+    });
+    expect(status.capability?.dependencyGraph?.nodes[1]).toMatchObject({
+      id: 'RUNTIME:wcmsStaged',
+    });
+    expect(status.capability?.publicationSummary?.runtime).toBe('UNAVAILABLE');
+    expect(status.capability?.blockers[0]?.blockerCode).toBe(
+      'RUNTIME_UNAVAILABLE',
+    );
+    expect(status.capability?.blockers[0]?.ownerType).toBe('DATA_RELEASE');
+    expect(status.capability?.blockers[0]?.disabledReason).toContain(
+      'No active runtime',
+    );
     expect(status.capability?.blockers[0]?.runtimeDiagnostic).toMatchObject({
       phase: 'transport',
       sourceServer: 'platformServer',

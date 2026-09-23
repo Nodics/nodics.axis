@@ -1596,9 +1596,11 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                       <Stack spacing={0.75} sx={{ mt: 0.5 }}>
                                         {status.capability.blockers.map((blocker) => (
                                           <Alert
-                                            key={`${blocker.code}:${blocker.owner}`}
+                                            key={`${blocker.blockerCode ?? blocker.code}:${blocker.owner}`}
                                             severity={
-                                              blocker.severity === 'BLOCKER'
+                                              ['BLOCKED', 'REPAIR_REQUIRED'].includes(
+                                                blocker.severity,
+                                              )
                                                 ? 'warning'
                                                 : 'info'
                                             }
@@ -1613,6 +1615,63 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                             <Typography variant="caption">
                                               {blocker.message}
                                             </Typography>
+                                            <Stack
+                                              direction="row"
+                                              spacing={0.75}
+                                              sx={{
+                                                alignItems: 'center',
+                                                flexWrap: 'wrap',
+                                                mt: 0.75,
+                                              }}
+                                            >
+                                              <Chip
+                                                label={blocker.blockerCode ?? blocker.code}
+                                                size="small"
+                                                variant="outlined"
+                                              />
+                                              <Chip
+                                                label={blocker.severity}
+                                                size="small"
+                                                variant="outlined"
+                                              />
+                                              {blocker.ownerType ? (
+                                                <Chip
+                                                  label={blocker.ownerType}
+                                                  size="small"
+                                                  variant="outlined"
+                                                />
+                                              ) : null}
+                                              {blocker.source ? (
+                                                <Chip
+                                                  label={blocker.source}
+                                                  size="small"
+                                                  variant="outlined"
+                                                />
+                                              ) : null}
+                                              {blocker.targetServer ? (
+                                                <Chip
+                                                  label={blocker.targetServer}
+                                                  size="small"
+                                                  variant="outlined"
+                                                />
+                                              ) : null}
+                                              {blocker.technicalStatus ? (
+                                                <Chip
+                                                  label={blocker.technicalStatus}
+                                                  size="small"
+                                                  variant="outlined"
+                                                />
+                                              ) : null}
+                                            </Stack>
+                                            {blocker.disabledReason ? (
+                                              <Typography
+                                                color="text.secondary"
+                                                sx={{ display: 'block', mt: 0.5 }}
+                                                variant="caption"
+                                              >
+                                                {blocker.disabledReason}
+                                              </Typography>
+                                            ) : null}
                                             <ReadinessRepairMetadata
                                               repair={blocker.repair}
                                               runtimeDiagnostic={

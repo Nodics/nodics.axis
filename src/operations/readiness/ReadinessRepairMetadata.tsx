@@ -8,6 +8,8 @@ export interface ReadinessRepairAction {
   readonly action: string;
   readonly idempotent: boolean;
   readonly requiresConfirmation: boolean;
+  readonly eligibility?: string | undefined;
+  readonly unavailableReason?: string | undefined;
 }
 
 export interface ReadinessRuntimeDiagnostic {
@@ -55,8 +57,10 @@ export function ReadinessRepairMetadata({
             variant="caption"
           >
             {repair.action} · {repair.operation}
+            {repair.eligibility ? ` · ${repair.eligibility}` : ''}
             {repair.idempotent ? ' · idempotent' : ''}
             {repair.requiresConfirmation ? ' · confirmation required' : ''}
+            {repair.unavailableReason ? ` · ${repair.unavailableReason}` : ''}
           </Typography>
         </Stack>
       ) : null}

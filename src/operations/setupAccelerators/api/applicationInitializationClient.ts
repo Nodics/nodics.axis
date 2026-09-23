@@ -110,6 +110,8 @@ export interface ApplicationPreparationOperationEvidence {
 }
 
 export interface ApplicationCapabilityReadiness {
+  readonly subject?: ApplicationCapabilitySubject | undefined;
+  readonly status?: string | undefined;
   readonly capabilityCode: string;
   readonly displayName: string;
   readonly owningModule: string;
@@ -118,16 +120,72 @@ export interface ApplicationCapabilityReadiness {
   readonly businessStatus: string;
   readonly technicalStatus: string;
   readonly releaseStatus?: string | undefined;
+  readonly lastEvaluatedAt?: string | undefined;
+  readonly source?: string | undefined;
+  readonly stale?: boolean | undefined;
+  readonly dependencies?: readonly ApplicationCapabilityDependency[] | undefined;
+  readonly dependencyGraph?: ApplicationCapabilityDependencyGraph | undefined;
+  readonly repairActions?: readonly ApplicationCapabilityRepairAction[] | undefined;
+  readonly publicationSummary?: ApplicationCapabilityPublicationSummary | undefined;
+  readonly disabledReason?: string | undefined;
   readonly nextAction: string;
   readonly blockers: readonly ApplicationCapabilityBlocker[];
 }
 
+export interface ApplicationCapabilitySubject {
+  readonly type: string;
+  readonly code: string;
+  readonly owner: string;
+  readonly applicationCode?: string | undefined;
+  readonly siteCode?: string | undefined;
+}
+
+export interface ApplicationCapabilityDependency {
+  readonly kind: string;
+  readonly code: string;
+  readonly label: string;
+  readonly required: boolean;
+  readonly server?: string | undefined;
+  readonly runtimeRole?: string | undefined;
+  readonly status: string;
+}
+
+export interface ApplicationCapabilityDependencyGraph {
+  readonly nodes: readonly Readonly<{
+    readonly id: string;
+    readonly kind: string;
+    readonly label: string;
+    readonly status?: string | undefined;
+  }>[];
+  readonly edges: readonly Readonly<{
+    readonly from: string;
+    readonly to: string;
+    readonly relationship: string;
+  }>[];
+}
+
+export interface ApplicationCapabilityPublicationSummary {
+  readonly installed?: string | undefined;
+  readonly staged?: string | undefined;
+  readonly approval?: string | undefined;
+  readonly online?: string | undefined;
+  readonly runtime?: string | undefined;
+  readonly media?: string | undefined;
+}
+
 export interface ApplicationCapabilityBlocker {
+  readonly blockerCode?: string | undefined;
   readonly code: string;
   readonly severity: string;
   readonly owner: string;
+  readonly ownerType?: string | undefined;
+  readonly source?: string | undefined;
   readonly message: string;
   readonly action: string;
+  readonly disabledReason?: string | undefined;
+  readonly targetServer?: string | undefined;
+  readonly targetRuntimeRole?: string | undefined;
+  readonly technicalStatus?: string | undefined;
   readonly repair?: ApplicationCapabilityRepairAction | undefined;
   readonly runtimeDiagnostic?: ApplicationRuntimeDiagnostic | undefined;
 }
@@ -151,6 +209,11 @@ export interface ApplicationCapabilityRepairAction {
   readonly action: string;
   readonly idempotent: boolean;
   readonly requiresConfirmation: boolean;
+  readonly owner?: string | undefined;
+  readonly targetServer?: string | undefined;
+  readonly targetRuntimeRole?: string | undefined;
+  readonly eligibility?: string | undefined;
+  readonly unavailableReason?: string | undefined;
 }
 
 interface ApplicationInitializationClientOptions {
@@ -252,6 +315,110 @@ function parseCapabilityRepairAction(
     action: text(repair.action, 'Capability blocker repair action'),
     idempotent: booleanValue(repair.idempotent, false),
     requiresConfirmation: booleanValue(repair.requiresConfirmation, true),
+    ...(optionalText(repair.owner) ? { owner: optionalText(repair.owner) } : {}),
+    ...(optionalText(repair.targetServer)
+      ? { targetServer: optionalText(repair.targetServer) }
+      : {}),
+    ...(optionalText(repair.targetRuntimeRole)
+      ? { targetRuntimeRole: optionalText(repair.targetRuntimeRole) }
+      : {}),
+    ...(optionalText(repair.eligibility)
+      ? { eligibility: optionalText(repair.eligibility) }
+      : {}),
+    ...(optionalText(repair.unavailableReason)
+      ? { unavailableReason: optionalText(repair.unavailableReason) }
+      : {}),
+  });
+}
+
+function parseCapabilitySubject(
+  value: unknown,
+): ApplicationCapabilitySubject | undefined {
+  const subject = optionalRecord(value);
+  if (!subject) return undefined;
+  return Object.freeze({
+    type: text(subject.type, 'Capability subject type'),
+    code: text(subject.code, 'Capability subject code'),
+    owner: text(subject.owner, 'Capability subject owner'),
+    ...(optionalText(subject.applicationCode)
+      ? { applicationCode: optionalText(subject.applicationCode) }
+      : {}),
+    ...(optionalText(subject.siteCode)
+      ? { siteCode: optionalText(subject.siteCode) }
+      : {}),
+  });
+}
+
+function parseCapabilityDependency(
+  value: unknown,
+): ApplicationCapabilityDependency {
+  const dependency = record(value, 'Capability dependency');
+  return Object.freeze({
+    kind: text(dependency.kind, 'Capability dependency kind'),
+    code: text(dependency.code, 'Capability dependency code'),
+    label: text(dependency.label, 'Capability dependency label'),
+    required: booleanValue(dependency.required, true),
+    ...(optionalText(dependency.server)
+      ? { server: optionalText(dependency.server) }
+      : {}),
+    ...(optionalText(dependency.runtimeRole)
+      ? { runtimeRole: optionalText(dependency.runtimeRole) }
+      : {}),
+    status: text(dependency.status, 'Capability dependency status'),
+  });
+}
+
+function parseCapabilityDependencyGraph(
+  value: unknown,
+): ApplicationCapabilityDependencyGraph | undefined {
+  const graph = optionalRecord(value);
+  if (!graph) return undefined;
+  return Object.freeze({
+    nodes: Object.freeze(
+      Array.isArray(graph.nodes)
+        ? graph.nodes.map((item) => {
+            const node = record(item, 'Capability dependency graph node');
+            return Object.freeze({
+              id: text(node.id, 'Capability dependency graph node'),
+              kind: text(node.kind, 'Capability dependency graph node kind'),
+              label: text(node.label, 'Capability dependency graph node label'),
+              ...(optionalText(node.status)
+                ? { status: optionalText(node.status) }
+                : {}),
+            });
+          })
+        : [],
+    ),
+    edges: Object.freeze(
+      Array.isArray(graph.edges)
+        ? graph.edges.map((item) => {
+            const edge = record(item, 'Capability dependency graph edge');
+            return Object.freeze({
+              from: text(edge.from, 'Capability dependency graph edge source'),
+              to: text(edge.to, 'Capability dependency graph edge target'),
+              relationship: text(
+                edge.relationship,
+                'Capability dependency graph edge relationship',
+              ),
+            });
+          })
+        : [],
+    ),
+  });
+}
+
+function parsePublicationSummary(
+  value: unknown,
+): ApplicationCapabilityPublicationSummary | undefined {
+  const summary = optionalRecord(value);
+  if (!summary) return undefined;
+  return Object.freeze({
+    ...(optionalText(summary.installed) ? { installed: optionalText(summary.installed) } : {}),
+    ...(optionalText(summary.staged) ? { staged: optionalText(summary.staged) } : {}),
+    ...(optionalText(summary.approval) ? { approval: optionalText(summary.approval) } : {}),
+    ...(optionalText(summary.online) ? { online: optionalText(summary.online) } : {}),
+    ...(optionalText(summary.runtime) ? { runtime: optionalText(summary.runtime) } : {}),
+    ...(optionalText(summary.media) ? { media: optionalText(summary.media) } : {}),
   });
 }
 
@@ -539,6 +706,12 @@ function parse(value: unknown): ApplicationInitializationStatus {
     ...(capability
       ? {
           capability: Object.freeze({
+            ...(parseCapabilitySubject(capability.subject)
+              ? { subject: parseCapabilitySubject(capability.subject) }
+              : {}),
+            ...(optionalText(capability.status)
+              ? { status: optionalText(capability.status) }
+              : {}),
             capabilityCode: text(capability.capabilityCode, 'Capability code'),
             displayName: text(capability.displayName, 'Capability display name'),
             owningModule: text(capability.owningModule, 'Capability owner'),
@@ -549,17 +722,86 @@ function parse(value: unknown): ApplicationInitializationStatus {
             ...(optionalText(capability.releaseStatus)
               ? { releaseStatus: optionalText(capability.releaseStatus) }
               : {}),
+            ...(optionalText(capability.lastEvaluatedAt)
+              ? { lastEvaluatedAt: optionalText(capability.lastEvaluatedAt) }
+              : {}),
+            ...(optionalText(capability.source)
+              ? { source: optionalText(capability.source) }
+              : {}),
+            ...(typeof capability.stale === 'boolean'
+              ? { stale: capability.stale }
+              : {}),
+            ...(Array.isArray(capability.dependencies)
+              ? {
+                  dependencies: Object.freeze(
+                    capability.dependencies.map(parseCapabilityDependency),
+                  ),
+                }
+              : {}),
+            ...(parseCapabilityDependencyGraph(capability.dependencyGraph)
+              ? {
+                  dependencyGraph: parseCapabilityDependencyGraph(
+                    capability.dependencyGraph,
+                  ),
+                }
+              : {}),
+            ...(Array.isArray(capability.repairActions)
+              ? {
+                  repairActions: Object.freeze(
+                    capability.repairActions
+                      .map(parseCapabilityRepairAction)
+                      .filter((item): item is ApplicationCapabilityRepairAction =>
+                        Boolean(item),
+                      ),
+                  ),
+                }
+              : {}),
+            ...(parsePublicationSummary(capability.publicationSummary)
+              ? {
+                  publicationSummary: parsePublicationSummary(
+                    capability.publicationSummary,
+                  ),
+                }
+              : {}),
+            ...(optionalText(capability.disabledReason)
+              ? { disabledReason: optionalText(capability.disabledReason) }
+              : {}),
             nextAction: text(capability.nextAction, 'Capability next action'),
             blockers: Object.freeze(
               Array.isArray(capability.blockers)
                 ? capability.blockers.map((item) => {
                     const blocker = record(item, 'Capability blocker');
                     return Object.freeze({
+                      ...(optionalText(blocker.blockerCode)
+                        ? { blockerCode: optionalText(blocker.blockerCode) }
+                        : {}),
                       code: text(blocker.code, 'Capability blocker code'),
                       severity: text(blocker.severity, 'Capability blocker severity'),
                       owner: text(blocker.owner, 'Capability blocker owner'),
+                      ...(optionalText(blocker.ownerType)
+                        ? { ownerType: optionalText(blocker.ownerType) }
+                        : {}),
+                      ...(optionalText(blocker.source)
+                        ? { source: optionalText(blocker.source) }
+                        : {}),
                       message: text(blocker.message, 'Capability blocker message'),
                       action: text(blocker.action, 'Capability blocker action'),
+                      ...(optionalText(blocker.disabledReason)
+                        ? { disabledReason: optionalText(blocker.disabledReason) }
+                        : {}),
+                      ...(optionalText(blocker.targetServer)
+                        ? { targetServer: optionalText(blocker.targetServer) }
+                        : {}),
+                      ...(optionalText(blocker.targetRuntimeRole)
+                        ? {
+                            targetRuntimeRole: optionalText(
+                              blocker.targetRuntimeRole,
+                            ),
+                          }
+                        : {}),
+                      ...(optionalText(blocker.technicalStatus)
+                        ? { technicalStatus: optionalText(blocker.technicalStatus) }
+                        : {}),
                       ...(blocker.repair !== undefined
                         ? { repair: parseCapabilityRepairAction(blocker.repair) }
                         : {}),
