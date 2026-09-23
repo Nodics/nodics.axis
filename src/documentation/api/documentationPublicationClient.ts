@@ -170,7 +170,7 @@ async function invoke(
   options: Options,
   method: 'GET' | 'POST',
   fetchImplementation: typeof fetch,
-  operation?: 'initiate' | 'rollback' | 'retire',
+  operation?: 'initiate' | 'rollback' | 'retire' | 'reconcile-approval',
   input: DocumentationPublicationOperationInput = {},
 ) {
   if (!/^[a-z][a-z0-9_-]{0,63}$/.test(options.profileCode))
@@ -192,12 +192,16 @@ async function invoke(
       credentials: 'omit',
       redirect: 'error',
       signal: controller.signal,
-      ...(operation === 'initiate'
+      ...(operation
         ? {
             body: JSON.stringify({
               reason:
                 input.reason ??
-                'Axis administrator requested documentation publication',
+                (operation === 'initiate'
+                  ? 'Axis administrator requested documentation publication'
+                  : operation === 'reconcile-approval'
+                    ? 'Axis administrator requested documentation approval reconciliation'
+                    : `Axis administrator requested documentation ${operation}`),
               forceRefresh: input.forceRefresh === true ? true : undefined,
             }),
           }
@@ -224,6 +228,8 @@ export function createDocumentationPublicationClient(
     getStatus: () => invoke(options, 'GET', fetchImplementation),
     initiate: (input?: DocumentationPublicationOperationInput) =>
       invoke(options, 'POST', fetchImplementation, 'initiate', input),
+    reconcileApproval: (input?: DocumentationPublicationOperationInput) =>
+      invoke(options, 'POST', fetchImplementation, 'reconcile-approval', input),
     rollback: () => invoke(options, 'POST', fetchImplementation, 'rollback'),
     retire: () => invoke(options, 'POST', fetchImplementation, 'retire'),
   });

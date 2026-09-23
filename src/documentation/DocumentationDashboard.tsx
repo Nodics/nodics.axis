@@ -884,7 +884,7 @@ function CmsDocumentationReadinessCard({
         if (!publicationClient) {
           throw new Error('Documentation publication is unavailable');
         }
-        const repaired = await publicationClient.initiate({
+        const repaired = await publicationClient.reconcileApproval({
           forceRefresh: true,
           reason: `${source.label} approval task reconciliation requested from Documentation Dashboard`,
         });

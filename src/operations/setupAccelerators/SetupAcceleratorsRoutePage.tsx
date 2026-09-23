@@ -658,7 +658,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
         );
         let task = actionableApprovalTask(tasks);
         if (!task) {
-          const repaired = await client.initiate({
+          const repaired = await client.reconcileApproval({
             forceRefresh: true,
             reason: `${profile.title} approval task reconciliation requested from Setup & Accelerators`,
           });
