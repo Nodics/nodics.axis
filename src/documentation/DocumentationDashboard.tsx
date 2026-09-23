@@ -39,8 +39,12 @@ import {
 import {
   completeProcessTask,
   loadProcessTasks,
-  type ProcessHumanTask,
 } from '../operations/processWorkflow/api/processDefinitionClient';
+import {
+  findActionableProcessApprovalTask,
+  isActionableProcessApprovalTask,
+  processApprovalUnavailableMessage,
+} from '../operations/processWorkflow/processApprovalDiagnostics';
 import { CapabilityReadinessPanel } from '../operations/readiness/CapabilityReadinessPanel';
 import type { AxisRuntimeConfig } from '../runtime/runtimeConfig';
 import { createDocumentationContentPackClient } from './api/documentationContentPackClient';
@@ -416,16 +420,6 @@ function publicationReadinessColor(
   if (readiness === 'READY') return 'success';
   if (readiness === 'PUBLICATION_PENDING' || readiness === 'IMPORTED') return 'warning';
   return 'default';
-}
-
-function isActionablePublicationTask(task: { readonly status: string }): boolean {
-  return ['OPEN', 'CLAIMED', 'ESCALATED'].includes(task.status);
-}
-
-function findActionablePublicationTask(
-  tasks: readonly ProcessHumanTask[],
-): ProcessHumanTask | undefined {
-  return tasks.find(isActionablePublicationTask);
 }
 
 function documentationApprovalDecision(
@@ -825,9 +819,11 @@ function CmsDocumentationReadinessCard({
       publication.data?.readiness === 'PUBLICATION_PENDING',
     ),
     refetchInterval: (query) =>
-      query.state.data?.some(isActionablePublicationTask) ? 2_000 : false,
+      query.state.data?.some(isActionableProcessApprovalTask) ? 2_000 : false,
   });
-  const actionableApprovalTask = approvalTasks.data?.find(isActionablePublicationTask);
+  const actionableApprovalTask = approvalTasks.data?.find(
+    isActionableProcessApprovalTask,
+  );
   const reconcile = async () => {
     await Promise.all([pack.refetch(), publication.refetch(), approvalTasks.refetch()]);
   };
@@ -867,7 +863,13 @@ function CmsDocumentationReadinessCard({
   const approvalMutation = useMutation({
     mutationFn: async (approved: boolean) => {
       if (!processConnection || !workflowRef) {
-        throw new Error('The governed Process approval task is unavailable');
+        throw new Error(
+          processApprovalUnavailableMessage({
+            sourceLabel: source.label,
+            hasProcessConnection: Boolean(processConnection),
+            workflowRef,
+          }),
+        );
       }
       const configuration = {
         accessToken,
@@ -880,7 +882,8 @@ function CmsDocumentationReadinessCard({
         configuration,
         publicationWorkflowRef,
       );
-      let task = findActionablePublicationTask(tasks);
+      let task = findActionableProcessApprovalTask(tasks);
+      let reconciliationMessage: string | undefined;
       if (!task) {
         if (!publicationClient) {
           throw new Error('Documentation publication is unavailable');
@@ -889,17 +892,24 @@ function CmsDocumentationReadinessCard({
           forceRefresh: true,
           reason: `${source.label} approval task reconciliation requested from Documentation Dashboard`,
         });
+        reconciliationMessage = repaired.repair?.message;
         publicationWorkflowRef = repaired.publication?.workflowRef ?? publicationWorkflowRef;
         tasks = await loadProcessTasks(
           processConnection,
           configuration,
           publicationWorkflowRef,
         );
-        task = findActionablePublicationTask(tasks);
+        task = findActionableProcessApprovalTask(tasks);
       }
       if (!task) {
         throw new Error(
-          'No actionable Process approval task was found after reconciliation. Open Process tasks to review workflow state.',
+          processApprovalUnavailableMessage({
+            sourceLabel: source.label,
+            hasProcessConnection: true,
+            workflowRef: publicationWorkflowRef,
+            taskCount: tasks.length,
+            reconciliationMessage,
+          }),
         );
       }
       await completeProcessTask(

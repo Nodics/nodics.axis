@@ -102,6 +102,14 @@ describe('application initialization client', () => {
               stepCount: 2,
               changed: true,
             },
+            repair: {
+              action: 'RECONCILE_APPROVAL_TASK',
+              status: 'NEEDS_PROCESS_REVIEW',
+              idempotent: true,
+              previousWorkflowRef: 'workflow-before',
+              message:
+                'Publication approval could not be reconciled automatically.',
+            },
           },
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -134,6 +142,11 @@ describe('application initialization client', () => {
       afterStatus: 'CURRENT',
       attempted: true,
       changed: true,
+    });
+    expect(status.repair).toMatchObject({
+      action: 'RECONCILE_APPROVAL_TASK',
+      status: 'NEEDS_PROCESS_REVIEW',
+      previousWorkflowRef: 'workflow-before',
     });
   });
 

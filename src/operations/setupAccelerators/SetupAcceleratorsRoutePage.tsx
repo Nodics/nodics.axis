@@ -38,8 +38,11 @@ import {
 import {
   completeProcessTask,
   loadProcessTasks,
-  type ProcessHumanTask,
 } from '../processWorkflow/api/processDefinitionClient';
+import {
+  findActionableProcessApprovalTask,
+  processApprovalUnavailableMessage,
+} from '../processWorkflow/processApprovalDiagnostics';
 import { CapabilityReadinessPanel } from '../readiness/CapabilityReadinessPanel';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
@@ -145,12 +148,6 @@ function firstExecutableRepair(
   return status?.capability?.blockers.find((blocker) =>
     Boolean(supportedRepairOperation(blocker)),
   );
-}
-
-function actionableApprovalTask(
-  tasks: readonly ProcessHumanTask[],
-): ProcessHumanTask | undefined {
-  return tasks.find((item) => ['OPEN', 'CLAIMED', 'ESCALATED'].includes(item.status));
 }
 
 function statusRefreshesAutomatically(
@@ -687,7 +684,13 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
         throw new Error('BackOffice application initialization is unavailable');
       if (operation === 'approve' || operation === 'reject') {
         if (!processConnection || !status?.publication?.workflowRef) {
-          throw new Error('The governed Process approval task is unavailable');
+          throw new Error(
+            processApprovalUnavailableMessage({
+              sourceLabel: profile.title,
+              hasProcessConnection: Boolean(processConnection),
+              workflowRef: status?.publication?.workflowRef,
+            }),
+          );
         }
         const configuration = {
           accessToken: props.accessToken,
@@ -700,19 +703,27 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
           configuration,
           workflowRef,
         );
-        let task = actionableApprovalTask(tasks);
+        let task = findActionableProcessApprovalTask(tasks);
+        let reconciliationMessage: string | undefined;
         if (!task) {
           const repaired = await client.reconcileApproval({
             forceRefresh: true,
             reason: `${profile.title} approval task reconciliation requested from Setup & Accelerators`,
           });
+          reconciliationMessage = repaired.repair?.message;
           workflowRef = repaired.publication?.workflowRef ?? workflowRef;
           tasks = await loadProcessTasks(processConnection, configuration, workflowRef);
-          task = actionableApprovalTask(tasks);
+          task = findActionableProcessApprovalTask(tasks);
         }
         if (!task) {
           throw new Error(
-            'No actionable Process approval task was found after reconciliation. Open Process tasks to review workflow state.',
+            processApprovalUnavailableMessage({
+              sourceLabel: profile.title,
+              hasProcessConnection: true,
+              workflowRef,
+              taskCount: tasks.length,
+              reconciliationMessage,
+            }),
           );
         }
         await completeProcessTask(

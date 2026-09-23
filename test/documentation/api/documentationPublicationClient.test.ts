@@ -26,6 +26,15 @@ function response(readiness = 'READY', allowedActions = ['ROLLBACK', 'RETIRE']) 
         state: readiness === 'READY' ? 'ONLINE' : readiness,
         revision: 7,
       },
+      repair: {
+        action: 'RECONCILE_APPROVAL_TASK',
+        status: 'REPAIRED_OR_REPLAYED',
+        idempotent: true,
+        workflowRef: 'workflow-after',
+        publicationCode: 'cms-baseline-frameworkdocs',
+        message:
+          'Publication approval workflow was reconciled. Review the Process task for decision.',
+      },
     },
   };
 }
@@ -51,7 +60,13 @@ describe('documentation publication client', () => {
       fetchImplementation,
     );
 
-    expect((await client.getStatus()).allowedActions).toEqual(['ROLLBACK', 'RETIRE']);
+    const status = await client.getStatus();
+    expect(status.allowedActions).toEqual(['ROLLBACK', 'RETIRE']);
+    expect(status.repair).toMatchObject({
+      action: 'RECONCILE_APPROVAL_TASK',
+      status: 'REPAIRED_OR_REPLAYED',
+      workflowRef: 'workflow-after',
+    });
     await client.initiate();
     await client.rollback();
     await client.retire();

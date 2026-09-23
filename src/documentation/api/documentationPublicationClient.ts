@@ -29,6 +29,7 @@ export interface DocumentationPublicationStatus {
     workflowRef?: string;
     correlationId?: string;
   }>;
+  readonly repair?: DocumentationApprovalRepairEvidence | undefined;
   readonly capability?: DocumentationCapabilityReadiness | undefined;
 }
 
@@ -156,6 +157,16 @@ export interface DocumentationCapabilityRepairAction {
   readonly targetRuntimeRole?: string | undefined;
   readonly eligibility?: string | undefined;
   readonly unavailableReason?: string | undefined;
+}
+
+export interface DocumentationApprovalRepairEvidence {
+  readonly action?: string | undefined;
+  readonly status?: string | undefined;
+  readonly idempotent?: boolean | undefined;
+  readonly previousWorkflowRef?: string | undefined;
+  readonly workflowRef?: string | undefined;
+  readonly publicationCode?: string | undefined;
+  readonly message?: string | undefined;
 }
 
 interface Options {
@@ -311,6 +322,30 @@ function parseCapabilityRepairAction(
     ...(optionalText(repair.unavailableReason)
       ? { unavailableReason: optionalText(repair.unavailableReason) }
       : {}),
+  });
+}
+
+function parseApprovalRepairEvidence(
+  value: unknown,
+): DocumentationApprovalRepairEvidence | undefined {
+  if (value === undefined) return undefined;
+  const repair = record(value, 'Documentation approval repair');
+  return Object.freeze({
+    ...(optionalText(repair.action) ? { action: optionalText(repair.action) } : {}),
+    ...(optionalText(repair.status) ? { status: optionalText(repair.status) } : {}),
+    ...(typeof repair.idempotent === 'boolean'
+      ? { idempotent: repair.idempotent }
+      : {}),
+    ...(optionalText(repair.previousWorkflowRef)
+      ? { previousWorkflowRef: optionalText(repair.previousWorkflowRef) }
+      : {}),
+    ...(optionalText(repair.workflowRef)
+      ? { workflowRef: optionalText(repair.workflowRef) }
+      : {}),
+    ...(optionalText(repair.publicationCode)
+      ? { publicationCode: optionalText(repair.publicationCode) }
+      : {}),
+    ...(optionalText(repair.message) ? { message: optionalText(repair.message) } : {}),
   });
 }
 
@@ -595,6 +630,9 @@ function parse(value: unknown): DocumentationPublicationStatus {
       : {}),
     ...(data.capability !== undefined
       ? { capability: parseCapabilityReadiness(data.capability) }
+      : {}),
+    ...(data.repair !== undefined
+      ? { repair: parseApprovalRepairEvidence(data.repair) }
       : {}),
   };
   return Object.freeze(result);

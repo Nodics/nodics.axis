@@ -96,6 +96,7 @@ export interface ApplicationInitializationStatus {
     readonly workflowRef?: string | undefined;
     readonly correlationId?: string | undefined;
   }>;
+  readonly repair?: ApplicationApprovalRepairEvidence | undefined;
   readonly capability?: ApplicationCapabilityReadiness | undefined;
 }
 
@@ -235,6 +236,16 @@ export interface ApplicationCapabilityRepairAction {
   readonly unavailableReason?: string | undefined;
 }
 
+export interface ApplicationApprovalRepairEvidence {
+  readonly action?: string | undefined;
+  readonly status?: string | undefined;
+  readonly idempotent?: boolean | undefined;
+  readonly previousWorkflowRef?: string | undefined;
+  readonly workflowRef?: string | undefined;
+  readonly publicationCode?: string | undefined;
+  readonly message?: string | undefined;
+}
+
 interface ApplicationInitializationClientOptions {
   readonly connection: AxisModuleConnection;
   readonly enterpriseCode: string;
@@ -347,6 +358,30 @@ function parseCapabilityRepairAction(
     ...(optionalText(repair.unavailableReason)
       ? { unavailableReason: optionalText(repair.unavailableReason) }
       : {}),
+  });
+}
+
+function parseApprovalRepairEvidence(
+  value: unknown,
+): ApplicationApprovalRepairEvidence | undefined {
+  if (value === undefined) return undefined;
+  const repair = record(value, 'Application approval repair');
+  return Object.freeze({
+    ...(optionalText(repair.action) ? { action: optionalText(repair.action) } : {}),
+    ...(optionalText(repair.status) ? { status: optionalText(repair.status) } : {}),
+    ...(typeof repair.idempotent === 'boolean'
+      ? { idempotent: repair.idempotent }
+      : {}),
+    ...(optionalText(repair.previousWorkflowRef)
+      ? { previousWorkflowRef: optionalText(repair.previousWorkflowRef) }
+      : {}),
+    ...(optionalText(repair.workflowRef)
+      ? { workflowRef: optionalText(repair.workflowRef) }
+      : {}),
+    ...(optionalText(repair.publicationCode)
+      ? { publicationCode: optionalText(repair.publicationCode) }
+      : {}),
+    ...(optionalText(repair.message) ? { message: optionalText(repair.message) } : {}),
   });
 }
 
@@ -900,6 +935,9 @@ function parse(value: unknown): ApplicationInitializationStatus {
             ),
           }),
         }
+      : {}),
+    ...(data.repair !== undefined
+      ? { repair: parseApprovalRepairEvidence(data.repair) }
       : {}),
   });
 }
