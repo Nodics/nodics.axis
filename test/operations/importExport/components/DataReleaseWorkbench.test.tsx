@@ -97,6 +97,9 @@ describe('DataReleaseWorkbench', () => {
     );
 
     expect(screen.getByText('Preparation readiness')).toBeInTheDocument();
+    expect(screen.getByText('Business packs')).toBeInTheDocument();
+    expect(screen.getByText(/Start from the business outcome/iu)).toBeInTheDocument();
+    expect(screen.getByText('Select pack')).toBeInTheDocument();
     expect(screen.getByLabelText('Recommended preparation sequence')).toBeInTheDocument();
     expect(screen.getByText('Step 1')).toBeInTheDocument();
     expect(screen.getByText('1/2 current · 1 need action')).toBeInTheDocument();
@@ -109,7 +112,7 @@ describe('DataReleaseWorkbench', () => {
     expect(
       screen.getByText(/Import into the staged runtime first/iu),
     ).toBeInTheDocument();
-    expect(screen.getByText('1/2 current')).toBeInTheDocument();
+    expect(screen.getAllByText('1/2 current').length).toBeGreaterThan(0);
     expect(screen.getByText('Repair available')).toBeInTheDocument();
     expect(screen.getByText(/PREPARE_CAPABILITY · dataRelease\.install/u)).toBeInTheDocument();
 

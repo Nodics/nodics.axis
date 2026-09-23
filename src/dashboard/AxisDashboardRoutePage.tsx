@@ -25,6 +25,7 @@ import {
   type AxisAuthenticatedBootstrap,
   type AxisDocumentationSource,
   type AxisModuleConnection,
+  type AxisOperationalReadinessBlocker,
   type AxisOperationalReadinessSection,
   type AxisStartupValidationReport,
 } from '../bootstrap/publicBootstrap';
@@ -70,6 +71,19 @@ interface ActionCardModel {
     readonly value: string;
     readonly severity?: ActionCardModel['severity'] | undefined;
   }>[];
+}
+
+interface OperationalFixModel {
+  readonly id: string;
+  readonly title: string;
+  readonly sectionTitle: string;
+  readonly ownerModule: string;
+  readonly route: string;
+  readonly severity: ActionCardModel['severity'];
+  readonly message: string;
+  readonly action: string;
+  readonly source: string;
+  readonly blocker: AxisOperationalReadinessBlocker;
 }
 
 const overviewPanelMinWidth = 320;
@@ -293,6 +307,42 @@ function readinessSeverity(
   if (status === 'NOT_READY' || status === 'BLOCKED') return 'error';
   if (status === 'NEEDS_ATTENTION' || status === 'NOT_EXPOSED') return 'warning';
   return 'info';
+}
+
+function blockerSeverity(
+  blocker: AxisOperationalReadinessBlocker,
+): ActionCardModel['severity'] {
+  if (blocker.severity === 'BLOCKED' || blocker.severity === 'ERROR') {
+    return 'error';
+  }
+  if (blocker.severity === 'INFO') return 'info';
+  return 'warning';
+}
+
+function operationalFixes(
+  readiness: AxisAuthenticatedBootstrap['operationalReadiness'],
+): readonly OperationalFixModel[] {
+  if (!readiness) return [];
+  return readiness.sections
+    .flatMap((section) =>
+      section.blockers.map((blocker, index) => ({
+        id: `${section.key}:${blocker.code}:${String(index)}`,
+        title: blocker.suggestedAction || blocker.action || section.nextAction,
+        sectionTitle: section.title,
+        ownerModule: section.ownerModule,
+        route: section.route || '/dashboard',
+        severity: blockerSeverity(blocker),
+        message: blocker.message || blocker.disabledReason,
+        action: blocker.suggestedAction || blocker.action || section.nextAction,
+        source: blocker.source || section.source,
+        blocker,
+      })),
+    )
+    .sort((left, right) => {
+      const order = { error: 0, warning: 1, info: 2, success: 3 };
+      return order[left.severity] - order[right.severity] ||
+        left.sectionTitle.localeCompare(right.sectionTitle);
+    });
 }
 
 function startupValidationRoute(bootstrap: AxisAuthenticatedBootstrap): string {
@@ -538,6 +588,7 @@ export function AxisDashboardRoutePage({
   const mediaReadiness = readinessSection(bootstrap, 'media');
   const searchReadiness = readinessSection(bootstrap, 'search');
   const assistantReadiness = readinessSection(bootstrap, 'assistant');
+  const readinessFixes = operationalFixes(operationalReadiness);
   const operationalBlockerCount = operationalReadiness?.summary.blockers;
   const operationalBlockerValue =
     typeof operationalBlockerCount === 'number' ? operationalBlockerCount : undefined;
@@ -1325,6 +1376,109 @@ export function AxisDashboardRoutePage({
             overflow: 'hidden',
           }}
         >
+          {readinessFixes.length > 0 ? (
+            <Box
+              component="section"
+              sx={{
+                borderBottom: '1px solid',
+                borderColor: 'divider',
+                bgcolor: (theme) => alpha(theme.palette.warning.main, 0.055),
+              }}
+            >
+              <Stack
+                direction={{ xs: 'column', md: 'row' }}
+                spacing={1.5}
+                sx={{
+                  alignItems: { md: 'center' },
+                  justifyContent: 'space-between',
+                  px: 3,
+                  py: 2,
+                }}
+              >
+                <Stack spacing={0.5}>
+                  <Typography component="h2" variant="h5">
+                    Fix these first
+                  </Typography>
+                  <Typography color="text.secondary">
+                    Backend-owned readiness blockers are grouped by business outcome,
+                    owner, and repair route.
+                  </Typography>
+                </Stack>
+                <Chip
+                  color={readinessFixes.some((fix) => fix.severity === 'error') ? 'error' : 'warning'}
+                  label={`${String(readinessFixes.length)} blocker${readinessFixes.length === 1 ? '' : 's'}`}
+                  sx={{ alignSelf: { xs: 'flex-start', md: 'center' }, fontWeight: 800 }}
+                />
+              </Stack>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 1,
+                  gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' },
+                  px: 1.5,
+                  pb: 1.5,
+                }}
+              >
+                {readinessFixes.slice(0, 8).map((fix) => (
+                  <Box
+                    key={fix.id}
+                    sx={{
+                      bgcolor: 'background.paper',
+                      border: '1px solid',
+                      borderColor: (theme) =>
+                        alpha(theme.palette[fix.severity === 'error' ? 'error' : 'warning'].main, 0.28),
+                      borderRadius: 1,
+                      p: 1.5,
+                    }}
+                  >
+                    <Stack spacing={1}>
+                      <Stack
+                        direction="row"
+                        spacing={1}
+                        sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+                      >
+                        <Chip
+                          color={fix.severity === 'error' ? 'error' : 'warning'}
+                          label={fix.sectionTitle}
+                          size="small"
+                          sx={{ fontWeight: 800 }}
+                        />
+                        <Chip
+                          label={fix.ownerModule}
+                          size="small"
+                          variant="outlined"
+                        />
+                        <Chip label={fix.source} size="small" variant="outlined" />
+                      </Stack>
+                      <Typography component="h3" variant="subtitle1">
+                        {fix.title}
+                      </Typography>
+                      <Typography color="text.secondary" variant="body2">
+                        {fix.message}
+                      </Typography>
+                      <Stack
+                        direction={{ xs: 'column', sm: 'row' }}
+                        spacing={1}
+                        sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
+                      >
+                        <Typography color="text.secondary" variant="caption">
+                          {fix.blocker.code}
+                        </Typography>
+                        <Button
+                          endIcon={<ShellIcon name="chevron-right" />}
+                          onClick={() => void navigate(fix.route)}
+                          size="small"
+                          variant="outlined"
+                        >
+                          Open repair workspace
+                        </Button>
+                      </Stack>
+                    </Stack>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          ) : null}
           <Stack
             direction={{ xs: 'column', md: 'row' }}
             spacing={2}

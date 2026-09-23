@@ -540,6 +540,75 @@ interface CapabilityReadinessGroup {
   readonly current: number;
 }
 
+interface BusinessReleasePack {
+  readonly key: string;
+  readonly label: string;
+  readonly help: string;
+  readonly releases: readonly DataRelease[];
+  readonly actionable: readonly DataRelease[];
+  readonly current: number;
+  readonly blockerCount: number;
+  readonly ownerModules: readonly string[];
+}
+
+function businessPackHelp(group: string): string {
+  if (group === 'FOUNDATION_DATA') {
+    return 'Framework and module baseline records required before dependent operations run.';
+  }
+  if (group === 'APPLICATION_CONTENT') {
+    return 'Customer-facing staged content or sample business records that may need publication follow-up.';
+  }
+  if (group === 'MEDIA_LIBRARY') {
+    return 'Media-owned objects and reference data used by CMS, catalog, and accelerators.';
+  }
+  if (group === 'PUBLISHING_PROFILE') {
+    return 'Publication control records used to move staged content toward online delivery.';
+  }
+  if (group === 'PROJECT_ACCELERATOR') {
+    return 'Accelerator-owned setup data for business journeys such as Circa, Agora, or Nexus.';
+  }
+  return 'Backend-owned release pack. Review blockers, then validate before installing.';
+}
+
+function buildBusinessReleasePacks(
+  releases: readonly DataRelease[],
+): readonly BusinessReleasePack[] {
+  return Array.from(
+    releases
+      .reduce<Map<string, DataRelease[]>>((groups, release) => {
+        const group = releaseReadiness(release).group;
+        groups.set(group, [...(groups.get(group) ?? []), release]);
+        return groups;
+      }, new Map())
+      .entries(),
+  )
+    .map<BusinessReleasePack>(([key, groupReleases]) => {
+      const sorted = [...groupReleases].sort(compareDataReleases);
+      const ownerModules = Array.from(
+        new Set(sorted.map((release) => releaseReadiness(release).owningModule)),
+      ).sort();
+      return {
+        key,
+        label: readinessGroupLabel(key),
+        help: businessPackHelp(key),
+        releases: sorted,
+        actionable: sorted.filter((release) => isInstallableStatus(release.status)),
+        current: sorted.filter((release) => release.status === 'CURRENT').length,
+        blockerCount: sorted.reduce(
+          (total, release) => total + releaseReadiness(release).blockers.length,
+          0,
+        ),
+        ownerModules,
+      };
+    })
+    .sort(
+      (left, right) =>
+        (left.actionable.length > 0 ? 0 : 1) - (right.actionable.length > 0 ? 0 : 1) ||
+        readinessGroupOrder(left.key) - readinessGroupOrder(right.key) ||
+        left.label.localeCompare(right.label),
+    );
+}
+
 export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
   const selectableReleaseCount = props.visibleReleases.filter((release) =>
     isInstallableStatus(release.status),
@@ -638,6 +707,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
         readinessGroupOrder(left.group) - readinessGroupOrder(right.group) ||
         left.label.localeCompare(right.label),
     );
+  const businessPacks = buildBusinessReleasePacks(props.visibleReleases);
   const toggleGroup = (groupKey: string) => {
     setCollapsedGroups((previousGroups) => {
       const nextGroups = new Set(previousGroups);
@@ -829,6 +899,150 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
           ) : null}
         </Stack>
       </Paper>
+
+      {businessPacks.length > 0 ? (
+        <Paper
+          aria-label="Business release packs"
+          component="section"
+          variant="outlined"
+          sx={(theme) => ({
+            borderColor: alpha(theme.palette.primary.main, 0.18),
+            overflow: 'hidden',
+          })}
+        >
+          <Box
+            sx={(theme) => ({
+              bgcolor: alpha(theme.palette.primary.main, 0.055),
+              borderBottom: 1,
+              borderColor: alpha(theme.palette.primary.main, 0.14),
+              px: { xs: 1.25, md: 1.75 },
+              py: 1.25,
+            })}
+          >
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              sx={{ alignItems: { md: 'center' }, gap: 1, justifyContent: 'space-between' }}
+            >
+              <Box>
+                <Typography component="h2" variant="subtitle1">
+                  Business packs
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  Start from the business outcome, then expand release details only
+                  when support evidence is needed.
+                </Typography>
+              </Box>
+              <Chip
+                color={businessPacks.some((pack) => pack.actionable.length > 0) ? 'primary' : 'success'}
+                label={`${businessPacks.length.toString()} pack${businessPacks.length === 1 ? '' : 's'}`}
+                size="small"
+                variant="outlined"
+              />
+            </Stack>
+          </Box>
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 1,
+              gridTemplateColumns: { xs: '1fr', lg: 'repeat(2, minmax(0, 1fr))' },
+              p: { xs: 1, md: 1.25 },
+            }}
+          >
+            {businessPacks.map((pack) => {
+              const selectedPackCount = pack.actionable.filter((release) =>
+                props.selectedReleaseKeys.has(releaseKey(release)),
+              ).length;
+              const complete = pack.current === pack.releases.length;
+              return (
+                <Box
+                  key={pack.key}
+                  sx={(theme) => ({
+                    border: 1,
+                    borderColor:
+                      pack.blockerCount > 0
+                        ? alpha(theme.palette.warning.main, 0.28)
+                        : complete
+                          ? alpha(theme.palette.success.main, 0.28)
+                          : alpha(theme.palette.primary.main, 0.22),
+                    borderRadius: '8px',
+                    p: { xs: 1.25, md: 1.5 },
+                  })}
+                >
+                  <Stack spacing={1.25}>
+                    <Stack
+                      direction="row"
+                      sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 0.75 }}
+                    >
+                      <Typography component="h3" variant="subtitle1">
+                        {pack.label}
+                      </Typography>
+                      <Chip
+                        color={complete ? 'success' : pack.actionable.length > 0 ? 'primary' : 'default'}
+                        label={`${pack.current.toString()}/${pack.releases.length.toString()} current`}
+                        size="small"
+                        variant={complete ? 'filled' : 'outlined'}
+                      />
+                      {pack.blockerCount > 0 ? (
+                        <Chip
+                          color="warning"
+                          label={`${pack.blockerCount.toString()} blocker${pack.blockerCount === 1 ? '' : 's'}`}
+                          size="small"
+                          variant="outlined"
+                        />
+                      ) : null}
+                    </Stack>
+                    <Typography color="text.secondary" variant="body2">
+                      {pack.help}
+                    </Typography>
+                    <Stack
+                      direction="row"
+                      sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 0.75 }}
+                    >
+                      {pack.ownerModules.slice(0, 5).map((moduleName) => (
+                        <Chip
+                          key={moduleName}
+                          label={moduleName}
+                          size="small"
+                          variant="outlined"
+                        />
+                      ))}
+                      {pack.ownerModules.length > 5 ? (
+                        <Chip
+                          label={`+${(pack.ownerModules.length - 5).toString()} owners`}
+                          size="small"
+                          variant="outlined"
+                        />
+                      ) : null}
+                    </Stack>
+                    <Stack
+                      direction={{ xs: 'column', sm: 'row' }}
+                      sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between', gap: 1 }}
+                    >
+                      <Typography color="text.secondary" variant="caption">
+                        {pack.actionable.length > 0
+                          ? `${selectedPackCount.toString()} of ${pack.actionable.length.toString()} actionable selected`
+                          : 'No import action required for this pack'}
+                      </Typography>
+                      {pack.actionable.length > 0 ? (
+                        <Button
+                          size="small"
+                          startIcon={<ShellIcon fontSize="small" name="tasks" />}
+                          variant={selectedPackCount === pack.actionable.length ? 'contained' : 'outlined'}
+                          onClick={() => props.onSelectReleases(pack.actionable)}
+                        >
+                          {selectedPackCount === pack.actionable.length
+                            ? 'Pack selected'
+                            : 'Select pack'}
+                        </Button>
+                      ) : null}
+                    </Stack>
+                  </Stack>
+                </Box>
+              );
+            })}
+          </Box>
+        </Paper>
+      ) : null}
 
       {readinessGroups.length > 0 ? (
         <Paper
