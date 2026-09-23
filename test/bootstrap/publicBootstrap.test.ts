@@ -222,6 +222,79 @@ const authenticatedData = {
     revision: 0,
     source: 'DEFAULT',
   },
+  startupValidation: {
+    state: 'READY',
+    checkedAt: '2026-09-23T00:00:00.000Z',
+    source: 'backoffice.operationalReadiness',
+    summary: {
+      total: 0,
+      errors: 0,
+      warnings: 0,
+      info: 0,
+      dismissible: 0,
+      acknowledged: 0,
+    },
+    bootstrapChecks: {
+      total: 0,
+      ready: 0,
+      missing: 0,
+      needsAttention: 0,
+      checks: [],
+    },
+    findings: [],
+  },
+  operationalReadiness: {
+    contractVersion: 1,
+    state: 'NEEDS_ATTENTION',
+    checkedAt: '2026-09-23T00:00:00.000Z',
+    source: 'backoffice.operationalReadiness',
+    summary: { total: 2, blockers: 1, READY: 1, NOT_EXPOSED: 1 },
+    sections: [
+      {
+        key: 'bootstrap',
+        title: 'Bootstrap and admin access',
+        businessStatus: 'READY',
+        ownerModule: 'backoffice',
+        source: 'BACKOFFICE_STARTUP_VALIDATION',
+        route: '/dashboard',
+        summary: { findingCount: 0 },
+        blockers: [],
+        nextAction: 'Startup validation is clear.',
+      },
+      {
+        key: 'imports',
+        title: 'Data import releases',
+        businessStatus: 'NOT_EXPOSED',
+        ownerModule: 'import',
+        source: 'NIMPORT_RELEASE_READINESS',
+        route: '/operations/imports-exports',
+        summary: { exposed: false },
+        blockers: [
+          {
+            blockerCode: 'IMPORTS_READINESS_NOT_EXPOSED',
+            code: 'IMPORTS_READINESS_NOT_EXPOSED',
+            severity: 'NEEDS_ATTENTION',
+            ownerType: 'import',
+            source: 'NIMPORT_RELEASE_READINESS',
+            action: 'Open Data Releases',
+            message:
+              'Data import releases does not yet expose a canonical BackOffice readiness section.',
+            disabledReason:
+              'Data import releases does not yet expose a canonical BackOffice readiness section.',
+            repair: {
+              available: false,
+              operation: 'import.exposeReadiness',
+              action: 'EXPOSE_READINESS_CONTRACT',
+              eligibility: 'NOT_AVAILABLE',
+              label: 'Open Data Releases',
+            },
+            suggestedAction: 'Open Data Releases',
+          },
+        ],
+        nextAction: 'Open Data Releases',
+      },
+    ],
+  },
   tenantCode: 'default',
 };
 
@@ -282,6 +355,11 @@ describe('Axis bootstrap clients', () => {
     expect(result.axisPolicy.idleTimeoutSeconds).toBe(900);
     expect(result.environments).toEqual(['kickoffLocal']);
     expect(result.tenantCode).toBe('default');
+    expect(result.operationalReadiness?.state).toBe('NEEDS_ATTENTION');
+    const importReadiness = result.operationalReadiness?.sections.find(
+      (section) => section.key === 'imports',
+    );
+    expect(importReadiness?.blockers[0]?.suggestedAction).toBe('Open Data Releases');
     expect(result.moduleCatalog.cms).toEqual({
       moduleName: 'cms',
       displayName: 'Content Management',

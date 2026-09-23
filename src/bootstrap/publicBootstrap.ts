@@ -378,6 +378,40 @@ export interface AxisStartupValidationReport {
   readonly findings: readonly AxisStartupValidationFinding[];
 }
 
+export interface AxisOperationalReadinessBlocker {
+  readonly blockerCode: string;
+  readonly code: string;
+  readonly severity: string;
+  readonly ownerType: string;
+  readonly source: string;
+  readonly action: string;
+  readonly message: string;
+  readonly disabledReason: string;
+  readonly repair: Readonly<Record<string, unknown>>;
+  readonly suggestedAction: string;
+}
+
+export interface AxisOperationalReadinessSection {
+  readonly key: string;
+  readonly title: string;
+  readonly businessStatus: string;
+  readonly ownerModule: string;
+  readonly source: string;
+  readonly route: string;
+  readonly summary: Readonly<Record<string, unknown>>;
+  readonly blockers: readonly AxisOperationalReadinessBlocker[];
+  readonly nextAction: string;
+}
+
+export interface AxisOperationalReadinessReport {
+  readonly contractVersion: number;
+  readonly state: 'READY' | 'NEEDS_ATTENTION' | 'NOT_READY';
+  readonly checkedAt: string;
+  readonly source: string;
+  readonly summary: Readonly<Record<string, unknown>>;
+  readonly sections: readonly AxisOperationalReadinessSection[];
+}
+
 export interface AxisAuthenticatedBootstrap {
   readonly axisPolicy: AxisEmployeePolicy;
   readonly navigation: readonly AxisNavigationItem[];
@@ -392,6 +426,7 @@ export interface AxisAuthenticatedBootstrap {
     | undefined;
   readonly documentationSources: readonly AxisDocumentationSource[];
   readonly startupValidation?: AxisStartupValidationReport | undefined;
+  readonly operationalReadiness?: AxisOperationalReadinessReport | undefined;
   readonly tenantCode: string;
 }
 
@@ -2311,6 +2346,104 @@ function parseStartupValidationReport(value: unknown): AxisStartupValidationRepo
   });
 }
 
+function parseOperationalReadinessReport(
+  value: unknown,
+): AxisOperationalReadinessReport | undefined {
+  if (value === undefined || value === null) return undefined;
+  const source = record(value, 'operational readiness');
+  const summary = record(source.summary, 'operational readiness summary');
+  return Object.freeze({
+    contractVersion: nonNegativeInteger(
+      source.contractVersion,
+      'operational readiness contract version',
+    ),
+    state: startupValidationState(source.state, 'operational readiness'),
+    checkedAt: text(source.checkedAt, 'operational readiness checked at'),
+    source: text(source.source, 'operational readiness source'),
+    summary: Object.freeze({ ...summary }),
+    sections: Object.freeze(
+      array(source.sections, 'operational readiness sections').map((section, index) => {
+        const parsed = record(
+          section,
+          `operational readiness section ${String(index)}`,
+        );
+        return Object.freeze({
+          key: text(parsed.key, 'operational readiness section key'),
+          title: text(parsed.title, 'operational readiness section title'),
+          businessStatus: text(
+            parsed.businessStatus,
+            'operational readiness section business status',
+          ),
+          ownerModule: text(
+            parsed.ownerModule,
+            'operational readiness section owner module',
+          ),
+          source: text(parsed.source, 'operational readiness section source'),
+          route: text(parsed.route, 'operational readiness section route'),
+          summary: Object.freeze({
+            ...record(parsed.summary, 'operational readiness section summary'),
+          }),
+          blockers: Object.freeze(
+            array(parsed.blockers, 'operational readiness section blockers').map(
+              (blocker, blockerIndex) => {
+                const parsedBlocker = record(
+                  blocker,
+                  `operational readiness blocker ${String(blockerIndex)}`,
+                );
+                return Object.freeze({
+                  blockerCode: text(
+                    parsedBlocker.blockerCode,
+                    'operational readiness blocker code',
+                  ),
+                  code: text(parsedBlocker.code, 'operational readiness code'),
+                  severity: text(
+                    parsedBlocker.severity,
+                    'operational readiness blocker severity',
+                  ),
+                  ownerType: text(
+                    parsedBlocker.ownerType,
+                    'operational readiness blocker owner type',
+                  ),
+                  source: text(
+                    parsedBlocker.source,
+                    'operational readiness blocker source',
+                  ),
+                  action: text(
+                    parsedBlocker.action,
+                    'operational readiness blocker action',
+                  ),
+                  message: text(
+                    parsedBlocker.message,
+                    'operational readiness blocker message',
+                  ),
+                  disabledReason: text(
+                    parsedBlocker.disabledReason,
+                    'operational readiness blocker disabled reason',
+                  ),
+                  repair: Object.freeze({
+                    ...record(
+                      parsedBlocker.repair,
+                      'operational readiness blocker repair',
+                    ),
+                  }),
+                  suggestedAction: text(
+                    parsedBlocker.suggestedAction,
+                    'operational readiness blocker suggested action',
+                  ),
+                });
+              },
+            ),
+          ),
+          nextAction: text(
+            parsed.nextAction,
+            'operational readiness section next action',
+          ),
+        });
+      }),
+    ),
+  });
+}
+
 export async function loadAuthenticatedBootstrap(
   backofficeBaseUrl: string,
   clientContractVersion: number,
@@ -2366,6 +2499,9 @@ export async function loadAuthenticatedBootstrap(
       ),
       documentationSources: parseDocumentationSources(data.documentationSources),
       startupValidation: parseStartupValidationReport(data.startupValidation),
+      operationalReadiness: parseOperationalReadinessReport(
+        data.operationalReadiness,
+      ),
       tenantCode: text(data.tenantCode, 'BackOffice employee tenant code'),
     });
   } finally {

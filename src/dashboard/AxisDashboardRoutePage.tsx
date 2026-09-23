@@ -25,6 +25,7 @@ import {
   type AxisAuthenticatedBootstrap,
   type AxisDocumentationSource,
   type AxisModuleConnection,
+  type AxisOperationalReadinessSection,
   type AxisStartupValidationReport,
 } from '../bootstrap/publicBootstrap';
 import {
@@ -278,6 +279,22 @@ function startupValidationNeedsAction(
   );
 }
 
+function readinessSection(
+  bootstrap: AxisAuthenticatedBootstrap,
+  key: string,
+): AxisOperationalReadinessSection | undefined {
+  return bootstrap.operationalReadiness?.sections.find((section) => section.key === key);
+}
+
+function readinessSeverity(
+  status: string | undefined,
+): ActionCardModel['severity'] {
+  if (status === 'READY') return 'success';
+  if (status === 'NOT_READY' || status === 'BLOCKED') return 'error';
+  if (status === 'NEEDS_ATTENTION' || status === 'NOT_EXPOSED') return 'warning';
+  return 'info';
+}
+
 function startupValidationRoute(bootstrap: AxisAuthenticatedBootstrap): string {
   return (
     bootstrap.navigation.find(
@@ -514,6 +531,16 @@ export function AxisDashboardRoutePage({
   const moduleActionCount = availableModuleActionCount + registeredModuleActionCount;
   const startupValidationReported = Boolean(bootstrap.startupValidation);
   const startupValidation = bootstrap.startupValidation ?? readyStartupValidation;
+  const operationalReadiness = bootstrap.operationalReadiness;
+  const importReadiness = readinessSection(bootstrap, 'imports');
+  const publishingReadiness = readinessSection(bootstrap, 'publishing');
+  const approvalReadiness = readinessSection(bootstrap, 'approval');
+  const mediaReadiness = readinessSection(bootstrap, 'media');
+  const searchReadiness = readinessSection(bootstrap, 'search');
+  const assistantReadiness = readinessSection(bootstrap, 'assistant');
+  const operationalBlockerCount = operationalReadiness?.summary.blockers;
+  const operationalBlockerValue =
+    typeof operationalBlockerCount === 'number' ? operationalBlockerCount : undefined;
   const initReleaseCount = releases.filter((release) => release.dataType === 'init');
   const coreReleaseCount = releases.filter((release) => release.dataType === 'core');
   const sampleReleaseCount = releases.filter(
@@ -622,7 +649,10 @@ export function AxisDashboardRoutePage({
     approvalCount +
     runtimeCommunicationActionCount +
     sourceControlActionCount +
-    documentationActionCount;
+    documentationActionCount +
+    (operationalReadiness && operationalReadiness.state !== 'READY'
+      ? (operationalBlockerValue ?? 1)
+      : 0);
   const loading =
     registeredModulesQuery.isLoading ||
     availableModulesQuery.isLoading ||
@@ -742,6 +772,65 @@ export function AxisDashboardRoutePage({
             },
           ],
         },
+    ...(operationalReadiness
+      ? [
+          {
+            id: 'operational-readiness',
+            title:
+              operationalReadiness.state === 'READY'
+                ? 'Backend readiness aggregate is clear'
+                : 'Backend readiness aggregate needs review',
+            description:
+              'BackOffice now publishes one canonical readiness aggregate for bootstrap, runtime communication, imports, publishing, approvals, docs, media, search, assistant, and customer applications.',
+            icon: 'activity',
+            route: '/dashboard',
+            primaryAction: 'Review Readiness',
+            severity: readinessSeverity(operationalReadiness.state),
+            count:
+              operationalReadiness.state === 'READY'
+                ? undefined
+                : (operationalBlockerValue ?? operationalReadiness.sections.length),
+            meta: `${String(operationalReadiness.sections.length)} backend-owned sections`,
+            detailRows: [
+              {
+                label: 'State',
+                value: operationalReadiness.state,
+                severity: readinessSeverity(operationalReadiness.state),
+              },
+              {
+                label: 'Import releases',
+                value: importReadiness?.businessStatus ?? 'Not reported',
+                severity: readinessSeverity(importReadiness?.businessStatus),
+              },
+              {
+                label: 'Publishing',
+                value: publishingReadiness?.businessStatus ?? 'Not reported',
+                severity: readinessSeverity(publishingReadiness?.businessStatus),
+              },
+              {
+                label: 'Approval process',
+                value: approvalReadiness?.businessStatus ?? 'Not reported',
+                severity: readinessSeverity(approvalReadiness?.businessStatus),
+              },
+              {
+                label: 'Media references',
+                value: mediaReadiness?.businessStatus ?? 'Not reported',
+                severity: readinessSeverity(mediaReadiness?.businessStatus),
+              },
+              {
+                label: 'Search and discovery',
+                value: searchReadiness?.businessStatus ?? 'Not reported',
+                severity: readinessSeverity(searchReadiness?.businessStatus),
+              },
+              {
+                label: 'Assistant knowledge',
+                value: assistantReadiness?.businessStatus ?? 'Not reported',
+                severity: readinessSeverity(assistantReadiness?.businessStatus),
+              },
+            ],
+          } satisfies ActionCardModel,
+        ]
+      : []),
     moduleActionCount > 0
       ? {
           id: 'modules',
