@@ -69,7 +69,11 @@ const bootstrap: AxisAuthenticatedBootstrap = {
       category: 'commerce',
       icon: 'product',
       availability: 'UP',
-      workbenchTarget: { moduleName: 'product', schemaName: 'product' },
+      workbenchTarget: {
+        moduleName: 'product',
+        schemaName: 'product',
+        searchRoute: '/commerce/catalog/products/search',
+      },
     },
     {
       id: 'media-management',
@@ -79,6 +83,26 @@ const bootstrap: AxisAuthenticatedBootstrap = {
       moduleName: 'media',
       category: 'content',
       icon: 'media',
+      availability: 'UP',
+    },
+    {
+      id: 'discovery-management',
+      label: 'Discovery',
+      route: '/discovery',
+      order: 35,
+      moduleName: 'discoveryConfig',
+      category: 'search',
+      icon: 'search',
+      availability: 'UP',
+    },
+    {
+      id: 'documentation-dashboard',
+      label: 'Documentation',
+      route: '/docs',
+      order: 40,
+      moduleName: 'nodics.docs',
+      category: 'documentation',
+      icon: 'content',
       availability: 'UP',
     },
   ],
@@ -394,8 +418,13 @@ describe('AxisDashboardRoutePage', () => {
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Review Data/u })).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: /Open Publishing/u }),
+      screen.getAllByRole('button', { name: /Open Publishing/u })[0],
     ).toBeInTheDocument();
+    expect(screen.getByText('Runtime communication is healthy')).toBeInTheDocument();
+    expect(
+      screen.getByText('Search and configuration controls are visible'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Docs and app publishing parity is clear')).toBeInTheDocument();
     expect(screen.getByText('Work areas')).toBeInTheDocument();
   });
 

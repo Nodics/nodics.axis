@@ -288,6 +288,37 @@ function startupValidationRoute(bootstrap: AxisAuthenticatedBootstrap): string {
   );
 }
 
+function firstVisibleRoute(
+  bootstrap: AxisAuthenticatedBootstrap,
+  predicate: (item: AxisAuthenticatedBootstrap['navigation'][number]) => boolean,
+  fallback: string,
+): string {
+  return (
+    bootstrap.navigation.find(
+      (item) => item.featureState !== 'HIDDEN' && predicate(item),
+    )?.route ?? fallback
+  );
+}
+
+function discoveryRoute(bootstrap: AxisAuthenticatedBootstrap): string {
+  return firstVisibleRoute(
+    bootstrap,
+    (item) =>
+      item.moduleName === 'discoveryConfig' ||
+      item.moduleName === 'commerceSearchCore' ||
+      item.route.startsWith('/discovery'),
+    '/discovery',
+  );
+}
+
+function documentationRoute(bootstrap: AxisAuthenticatedBootstrap): string {
+  return firstVisibleRoute(
+    bootstrap,
+    (item) => item.route === '/docs' || item.route.startsWith('/docs/'),
+    '/docs',
+  );
+}
+
 function progressPercent(ready: number, total: number): number {
   if (total <= 0) return 0;
   return Math.round((ready / total) * 100);
@@ -510,17 +541,64 @@ export function AxisDashboardRoutePage({
     (release) => release.status === 'CURRENT',
   ).length;
   const readyPublicationCount = allPublicationStatuses.filter(publicationIsReady).length;
+  const readyDocumentationCount =
+    documentationStatuses.filter(publicationIsReady).length;
+  const documentationActionCount =
+    documentationStatuses.filter(publicationNeedsAction).length +
+    documentationStatuses.filter(publicationNeedsApproval).length;
+  const readyApplicationParityCount =
+    applicationStatuses.filter(publicationIsReady).length;
+  const applicationParityActionCount =
+    applicationStatuses.filter(applicationNeedsSetupAction).length +
+    applicationStatuses.filter(publicationNeedsApproval).length;
+  const allConnections = Object.values(bootstrap.moduleConnections).flat();
   const liveConnections = Object.values(bootstrap.moduleConnections)
     .flat()
     .filter(
       (connection) => connection.state === 'UP' || connection.state === 'DEGRADED',
     );
+  const degradedConnections = allConnections.filter(
+    (connection) => connection.state === 'DEGRADED',
+  );
+  const unavailableConnections = allConnections.filter(
+    (connection) =>
+      connection.state === 'UNAVAILABLE' || connection.state === 'UNKNOWN',
+  );
+  const runtimeCommunicationActionCount =
+    degradedConnections.length + unavailableConnections.length + (backofficeConnection ? 0 : 1);
+  const runtimeServerCount = new Set(
+    liveConnections.map((connection) => connection.server).filter(Boolean),
+  ).size;
+  const runtimeRoleCount = new Set(
+    liveConnections
+      .map((connection) => connection.runtimeRole?.code)
+      .filter(Boolean),
+  ).size;
   const workbenchCount = bootstrap.navigation.filter(
     (item) => item.workbenchTarget && item.featureState !== 'HIDDEN',
   ).length;
   const visibleRouteCount = bootstrap.navigation.filter(
     (item) => item.featureState !== 'HIDDEN',
   ).length;
+  const configurationWorkspaceAvailable = bootstrap.navigation.some(
+    (item) =>
+      item.featureState !== 'HIDDEN' &&
+      item.backendWorkspace?.workspaceCode === 'system.runtimeConfiguration',
+  );
+  const discoveryWorkspaceCount = bootstrap.navigation.filter(
+    (item) =>
+      item.featureState !== 'HIDDEN' &&
+      (item.moduleName === 'discoveryConfig' ||
+        item.moduleName === 'commerceSearchCore' ||
+        item.route.startsWith('/discovery')),
+  ).length;
+  const searchableWorkbenchCount = bootstrap.navigation.filter(
+    (item) =>
+      item.featureState !== 'HIDDEN' &&
+      Boolean(item.workbenchTarget?.searchRoute),
+  ).length;
+  const sourceControlActionCount =
+    (configurationWorkspaceAvailable ? 0 : 1) + (discoveryWorkspaceCount > 0 ? 0 : 1);
   const primaryStartupBootstrapCheck = startupValidation.bootstrapChecks.checks.find(
     (check) => check.state === 'MISSING' || check.state === 'NEEDS_ATTENTION',
   );
@@ -531,7 +609,13 @@ export function AxisDashboardRoutePage({
       ? `${primaryStartupFinding.owner}: ${primaryStartupFinding.message}`
       : undefined;
   const totalActionCount =
-    startupActionCount + moduleActionCount + dataActionCount + approvalCount;
+    startupActionCount +
+    moduleActionCount +
+    dataActionCount +
+    approvalCount +
+    runtimeCommunicationActionCount +
+    sourceControlActionCount +
+    documentationActionCount;
   const loading =
     registeredModulesQuery.isLoading ||
     availableModulesQuery.isLoading ||
@@ -850,6 +934,135 @@ export function AxisDashboardRoutePage({
           label: 'Documentation sources',
           value: String(documentationSources.length),
           severity: documentationSources.length > 0 ? 'info' : 'warning',
+        },
+      ],
+    },
+    {
+      id: 'runtime-communication',
+      title:
+        runtimeCommunicationActionCount > 0
+          ? 'Runtime communication needs attention'
+          : 'Runtime communication is healthy',
+      description:
+        'Runtime-to-runtime health is based on backend module leases, observed servers, and runtime roles, not static project server lists.',
+      icon: 'health',
+      route: '/registry',
+      primaryAction: 'Review Runtime Registry',
+      severity: runtimeCommunicationActionCount > 0 ? 'warning' : 'success',
+      count:
+        runtimeCommunicationActionCount > 0
+          ? runtimeCommunicationActionCount
+          : undefined,
+      meta: `${String(liveConnections.length)} live runtime module connection${liveConnections.length === 1 ? '' : 's'}`,
+      detailRows: [
+        {
+          label: 'Live connections',
+          value: String(liveConnections.length),
+          severity: liveConnections.length > 0 ? 'success' : 'warning',
+        },
+        {
+          label: 'Observed servers',
+          value: String(runtimeServerCount),
+          severity: runtimeServerCount > 0 ? 'success' : 'warning',
+        },
+        {
+          label: 'Runtime roles',
+          value: String(runtimeRoleCount),
+          severity: runtimeRoleCount > 0 ? 'success' : 'info',
+        },
+        {
+          label: 'Unavailable/degraded',
+          value: String(degradedConnections.length + unavailableConnections.length),
+          severity:
+            degradedConnections.length + unavailableConnections.length > 0
+              ? 'warning'
+              : 'success',
+        },
+      ],
+    },
+    {
+      id: 'source-control',
+      title:
+        sourceControlActionCount > 0
+          ? 'Search and configuration controls need setup'
+          : 'Search and configuration controls are visible',
+      description:
+        'Runtime configuration and search/read-source policy controls are owned by backend modules and exposed through authorized Axis workspaces.',
+      icon: 'search',
+      route:
+        sourceControlActionCount > 0
+          ? startupValidationRoute(bootstrap)
+          : discoveryRoute(bootstrap),
+      primaryAction:
+        sourceControlActionCount > 0
+          ? 'Open Runtime Configuration'
+          : 'Open Discovery Controls',
+      severity: sourceControlActionCount > 0 ? 'warning' : 'success',
+      count: sourceControlActionCount > 0 ? sourceControlActionCount : undefined,
+      meta: `${String(discoveryWorkspaceCount)} discovery workspace${discoveryWorkspaceCount === 1 ? '' : 's'}`,
+      detailRows: [
+        {
+          label: 'Runtime config workspace',
+          value: configurationWorkspaceAvailable ? 'Available' : 'Missing',
+          severity: configurationWorkspaceAvailable ? 'success' : 'warning',
+        },
+        {
+          label: 'Discovery controls',
+          value: String(discoveryWorkspaceCount),
+          severity: discoveryWorkspaceCount > 0 ? 'success' : 'warning',
+        },
+        {
+          label: 'Searchable workbenches',
+          value: String(searchableWorkbenchCount),
+          severity: searchableWorkbenchCount > 0 ? 'info' : 'warning',
+        },
+      ],
+    },
+    {
+      id: 'docs-parity',
+      title:
+        documentationActionCount + applicationParityActionCount > 0
+          ? 'Docs and app publishing parity needs review'
+          : 'Docs and app publishing parity is clear',
+      description:
+        'Documentation packs and customer-facing application profiles are tracked together so post-reset publish gaps are visible before manual browser validation.',
+      icon: 'content',
+      route: documentationActionCount > 0 ? documentationRoute(bootstrap) : '/publishing',
+      primaryAction:
+        documentationActionCount > 0 ? 'Open Documentation' : 'Open Publishing',
+      severity:
+        documentationActionCount + applicationParityActionCount > 0
+          ? 'warning'
+          : 'success',
+      count:
+        documentationActionCount + applicationParityActionCount > 0
+          ? documentationActionCount + applicationParityActionCount
+          : undefined,
+      meta: `${String(readyDocumentationCount)} docs, ${String(readyApplicationParityCount)} apps ready`,
+      detailRows: [
+        {
+          label: 'Documentation sources',
+          value: String(documentationSources.length),
+          severity: documentationSources.length > 0 ? 'success' : 'warning',
+        },
+        {
+          label: 'Docs needing action',
+          value: String(documentationActionCount),
+          severity: documentationActionCount > 0 ? 'warning' : 'success',
+        },
+        {
+          label: 'App profiles needing action',
+          value: String(applicationParityActionCount),
+          severity: applicationParityActionCount > 0 ? 'warning' : 'success',
+        },
+        {
+          label: 'Post-reset bootstrap',
+          value:
+            startupValidation.bootstrapChecks.missing > 0
+              ? `${String(startupValidation.bootstrapChecks.missing)} missing`
+              : `${String(startupValidation.bootstrapChecks.ready)} ready`,
+          severity:
+            startupValidation.bootstrapChecks.missing > 0 ? 'warning' : 'success',
         },
       ],
     },
