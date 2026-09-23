@@ -113,6 +113,25 @@ interface ModuleVisibilitySummary {
   readonly unavailableRoutes: number;
 }
 
+type SmokeSeverity = 'info' | 'warning' | 'error';
+
+interface RuntimeSmokeIssue {
+  readonly code: string;
+  readonly severity: SmokeSeverity;
+  readonly title: string;
+  readonly detail: string;
+  readonly action: string;
+}
+
+interface RuntimeSmokeReadiness {
+  readonly status: 'READY' | 'WARNING' | 'BLOCKED';
+  readonly activeRuntimeCount: number;
+  readonly importRuntimeCount: number;
+  readonly processRuntimeAvailable: boolean;
+  readonly issueCount: number;
+  readonly issues: readonly RuntimeSmokeIssue[];
+}
+
 function moduleReadiness(module: FunctionalModuleRegistration): ModuleReadiness {
   if ((module.activationData?.preflight.missingDependencies.length ?? 0) > 0) {
     return 'Blocked';
@@ -197,6 +216,120 @@ function activeConnections(
       (connection) => connection.state === 'UP' || connection.state === 'DEGRADED',
     ),
   );
+}
+
+function allActiveConnections(
+  bootstrap: AxisAuthenticatedBootstrap,
+): readonly AxisModuleConnection[] {
+  return Object.freeze(
+    Object.values(bootstrap.moduleConnections)
+      .flatMap((connections) => [...connections])
+      .filter(
+        (connection) => connection.state === 'UP' || connection.state === 'DEGRADED',
+      ),
+  );
+}
+
+function runtimeSmokeSeverity(
+  issues: readonly RuntimeSmokeIssue[],
+): RuntimeSmokeReadiness['status'] {
+  if (issues.some((issue) => issue.severity === 'error')) return 'BLOCKED';
+  if (issues.some((issue) => issue.severity === 'warning')) return 'WARNING';
+  return 'READY';
+}
+
+function runtimeSmokeReadiness(
+  bootstrap: AxisAuthenticatedBootstrap,
+  modules: readonly FunctionalModuleRegistration[],
+): RuntimeSmokeReadiness {
+  const activeRuntimeConnections = allActiveConnections(bootstrap);
+  const activeServers = new Set(
+    activeRuntimeConnections
+      .map((connection) => connection.server)
+      .filter((server): server is string => Boolean(server)),
+  );
+  const importConnections = activeConnections(bootstrap.moduleConnections.import);
+  const processRuntimeAvailable = activeRuntimeConnections.some(
+    (connection) =>
+      connection.server === 'processServer' ||
+      connection.runtimeRole?.code === 'PROCESS',
+  );
+  const issues: RuntimeSmokeIssue[] = [];
+  if (activeRuntimeConnections.length === 0) {
+    issues.push({
+      code: 'NO_RUNTIME_CONNECTIONS',
+      severity: 'error',
+      title: 'No backend runtime connections are visible',
+      detail: 'Axis bootstrap did not receive any active runtime lease.',
+      action: 'Start the local runtime servers and refresh Axis bootstrap.',
+    });
+  }
+  if (importConnections.length === 0) {
+    issues.push({
+      code: 'IMPORT_RUNTIME_UNAVAILABLE',
+      severity: 'error',
+      title: 'Data import runtime is unavailable',
+      detail: 'Registry activation and data preparation cannot install releases.',
+      action: 'Start a runtime exposing nImport and refresh Module Registry.',
+    });
+  }
+  if (!processRuntimeAvailable) {
+    issues.push({
+      code: 'PROCESS_RUNTIME_UNAVAILABLE',
+      severity: 'warning',
+      title: 'Process approval runtime is unavailable',
+      detail: 'Publishing approvals may not create or resolve governed Process tasks.',
+      action: 'Start processServer before approving Nexus, Agora, Circa, or docs publishing.',
+    });
+  }
+  modules
+    .filter((module) => module.enabled || module.registrationState === 'REGISTERED')
+    .forEach((module) => {
+      if (module.runtimeState !== 'ACTIVE') {
+        issues.push({
+          code: `MODULE_RUNTIME_${module.functionalModule}`,
+          severity: module.enabled ? 'error' : 'warning',
+          title: `${module.displayName} runtime is ${module.runtimeState.toLowerCase()}`,
+          detail:
+            module.observedServers.length > 0
+              ? `Observed server(s): ${module.observedServers.join(', ')}.`
+              : 'No runtime server has reported this module.',
+          action: 'Start the owning runtime server or refresh module registration after startup.',
+        });
+      } else if (module.observedServers.length === 0) {
+        issues.push({
+          code: `MODULE_NO_SERVER_${module.functionalModule}`,
+          severity: 'warning',
+          title: `${module.displayName} has no observed runtime server`,
+          detail: 'The module is registered but Axis cannot show where it is running.',
+          action: 'Refresh the module registry after all local servers have booted.',
+        });
+      }
+      const missingTargetServers = [
+        ...new Set(
+          (module.activationData?.packages ?? [])
+            .map((pack) => pack.targetServer)
+            .filter((server) => server && !activeServers.has(server)),
+        ),
+      ];
+      missingTargetServers.forEach((server) => {
+        issues.push({
+          code: `PACKAGE_TARGET_${module.functionalModule}_${server}`,
+          severity: 'warning',
+          title: `${module.displayName} data target is not visible`,
+          detail: `Data package target server ${server} is not in active bootstrap connections.`,
+          action: `Start ${server} or repair the release target mapping before importing this capability.`,
+        });
+      });
+    });
+  return Object.freeze({
+    status: runtimeSmokeSeverity(issues),
+    activeRuntimeCount: activeRuntimeConnections.length,
+    importRuntimeCount: importConnections.length,
+    processRuntimeAvailable,
+    issueCount: issues.length,
+    issues: Object.freeze(issues),
+  });
 }
 
 function sampleReceipt(module: FunctionalModuleRegistration) {
@@ -577,6 +710,118 @@ function RegistryMetric({
         {value}
       </Typography>
     </Box>
+  );
+}
+
+function RuntimeSmokeReadinessCard({
+  readiness,
+}: {
+  readonly readiness: RuntimeSmokeReadiness;
+}) {
+  const tone =
+    readiness.status === 'READY'
+      ? 'success'
+      : readiness.status === 'BLOCKED'
+        ? 'error'
+        : 'warning';
+  return (
+    <Card
+      component="section"
+      variant="outlined"
+      sx={(theme) => ({
+        borderColor: alpha(theme.palette[tone].main, 0.34),
+        borderRadius: 1,
+        overflow: 'hidden',
+      })}
+    >
+      <CardContent
+        sx={(theme) => ({
+          '&:last-child': { pb: 1.5 },
+          bgcolor: alpha(theme.palette[tone].main, 0.055),
+          pb: 1.5,
+          px: 2,
+          py: 1.5,
+        })}
+      >
+        <Stack spacing={1.25}>
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            sx={{ alignItems: { md: 'center' }, gap: 1, justifyContent: 'space-between' }}
+          >
+            <Box>
+              <Typography component="h2" variant="h6">
+                Runtime smoke readiness
+              </Typography>
+              <Typography color="text.secondary" variant="body2">
+                Server startup, internal module communication, data import, and approval
+                dependencies for local validation.
+              </Typography>
+            </Box>
+            <Chip color={tone} label={readiness.status} variant="filled" />
+          </Stack>
+          <Grid container spacing={1}>
+            <Grid size={{ xs: 6, md: 3 }}>
+              <RegistryMetric
+                label="Active runtimes"
+                tone={readiness.activeRuntimeCount > 0 ? 'success' : 'error'}
+                value={String(readiness.activeRuntimeCount)}
+              />
+            </Grid>
+            <Grid size={{ xs: 6, md: 3 }}>
+              <RegistryMetric
+                label="Import runtimes"
+                tone={readiness.importRuntimeCount > 0 ? 'success' : 'error'}
+                value={String(readiness.importRuntimeCount)}
+              />
+            </Grid>
+            <Grid size={{ xs: 6, md: 3 }}>
+              <RegistryMetric
+                label="Process"
+                tone={readiness.processRuntimeAvailable ? 'success' : 'warning'}
+                value={readiness.processRuntimeAvailable ? 'Ready' : 'Missing'}
+              />
+            </Grid>
+            <Grid size={{ xs: 6, md: 3 }}>
+              <RegistryMetric
+                label="Issues"
+                tone={readiness.issueCount === 0 ? 'success' : tone}
+                value={String(readiness.issueCount)}
+              />
+            </Grid>
+          </Grid>
+          {readiness.issues.length > 0 ? (
+            <Stack spacing={1}>
+              {readiness.issues.slice(0, 6).map((issue) => (
+                <Alert
+                  key={issue.code}
+                  severity={issue.severity}
+                  sx={{ alignItems: 'flex-start' }}
+                >
+                  <Typography sx={{ fontWeight: 800 }} variant="body2">
+                    {issue.title}
+                  </Typography>
+                  <Typography variant="body2">{issue.detail}</Typography>
+                  <Typography sx={{ mt: 0.35 }} variant="caption">
+                    Fix: {issue.action}
+                  </Typography>
+                </Alert>
+              ))}
+              {readiness.issues.length > 6 ? (
+                <Typography color="text.secondary" variant="caption">
+                  {String(readiness.issues.length - 6)} more issue(s) are listed on
+                  the related module cards.
+                </Typography>
+              ) : null}
+            </Stack>
+          ) : (
+            <Alert severity="success">
+              Runtime bootstrap, import runtime, and Process approval signals are
+              available for local smoke validation.
+            </Alert>
+          )}
+        </Stack>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1348,6 +1593,10 @@ export function FunctionalModuleRegistryRoutePage(
     (total, visibility) => total + visibility.activeRoutes,
     0,
   );
+  const smokeReadiness = useMemo(
+    () => runtimeSmokeReadiness(props.bootstrap, registered),
+    [props.bootstrap, registered],
+  );
   const requestModuleAction = (
     module: FunctionalModuleRegistration,
     action: ModuleAction,
@@ -1520,6 +1769,8 @@ export function FunctionalModuleRegistryRoutePage(
                 ) : null}
               </CardContent>
             </Card>
+
+            <RuntimeSmokeReadinessCard readiness={smokeReadiness} />
 
             <Box>
               <Stack

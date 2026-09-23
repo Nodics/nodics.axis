@@ -320,6 +320,10 @@ describe('FunctionalModuleRegistryRoutePage', () => {
     renderPage();
 
     expect(await screen.findByText('Registry control center')).toBeInTheDocument();
+    expect(screen.getByText('Runtime smoke readiness')).toBeInTheDocument();
+    expect(screen.getByText('Data import runtime is unavailable')).toBeInTheDocument();
+    expect(screen.getByText('Process approval runtime is unavailable')).toBeInTheDocument();
+    expect(screen.getByText('Commerce data target is not visible')).toBeInTheDocument();
     expect(
       screen.getByText('Protected foundation modules for this project.'),
     ).toBeInTheDocument();
