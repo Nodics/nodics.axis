@@ -97,8 +97,11 @@ describe('DataReleaseWorkbench', () => {
     );
 
     expect(screen.getByText('Preparation readiness')).toBeInTheDocument();
+    expect(screen.getByLabelText('Recommended preparation sequence')).toBeInTheDocument();
+    expect(screen.getByText('Step 1')).toBeInTheDocument();
+    expect(screen.getByText('1/2 current · 1 need action')).toBeInTheDocument();
     expect(screen.getByText('Circa eWaste')).toBeInTheDocument();
-    expect(screen.getByText('Project accelerator')).toBeInTheDocument();
+    expect(screen.getAllByText('Project accelerator').length).toBeGreaterThan(0);
     expect(
       screen.getByText('Outcome: Publish Circa eWaste customer journey data.'),
     ).toBeInTheDocument();

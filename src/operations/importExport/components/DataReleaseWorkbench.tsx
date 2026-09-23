@@ -494,6 +494,15 @@ function readinessGroupHelp(group: string): string {
   return 'Resolve the owning module readiness blockers before selecting or importing this release group.';
 }
 
+function readinessGroupOrder(group: string): number {
+  if (group === 'FOUNDATION_DATA') return 10;
+  if (group === 'MEDIA_LIBRARY') return 20;
+  if (group === 'PUBLISHING_PROFILE') return 30;
+  if (group === 'APPLICATION_CONTENT') return 40;
+  if (group === 'PROJECT_ACCELERATOR') return 50;
+  return 90;
+}
+
 function readinessGroupKey(release: DataRelease): string {
   const readiness = releaseReadiness(release);
   return [
@@ -606,6 +615,27 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  const readinessSequence = Array.from(
+    readinessGroups
+      .reduce<Map<string, CapabilityReadinessGroup[]>>((groups, group) => {
+        const key = group.readiness.group;
+        groups.set(key, [...(groups.get(key) ?? []), group]);
+        return groups;
+      }, new Map())
+      .entries(),
+  )
+    .map(([group, groups]) => ({
+      group,
+      label: readinessGroupLabel(group),
+      actionable: groups.reduce((sum, item) => sum + item.actionable.length, 0),
+      total: groups.reduce((sum, item) => sum + item.releases.length, 0),
+      current: groups.reduce((sum, item) => sum + item.current, 0),
+    }))
+    .sort(
+      (left, right) =>
+        readinessGroupOrder(left.group) - readinessGroupOrder(right.group) ||
+        left.label.localeCompare(right.label),
+    );
   const toggleGroup = (groupKey: string) => {
     setCollapsedGroups((previousGroups) => {
       const nextGroups = new Set(previousGroups);
@@ -749,6 +779,52 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
               </Box>
             ))}
           </Box>
+          {readinessSequence.length > 0 ? (
+            <Box
+              aria-label="Recommended preparation sequence"
+              sx={{
+                display: 'grid',
+                gap: 1,
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  md: 'repeat(2, minmax(0, 1fr))',
+                  xl: 'repeat(4, minmax(0, 1fr))',
+                },
+              }}
+            >
+              {readinessSequence.map((step, index) => (
+                <Box
+                  key={step.group}
+                  sx={(theme) => ({
+                    alignItems: 'center',
+                    bgcolor: alpha(theme.palette.background.paper, 0.72),
+                    border: 1,
+                    borderColor:
+                      step.actionable > 0
+                        ? alpha(theme.palette.warning.main, 0.36)
+                        : alpha(theme.palette.divider, 0.9),
+                    borderRadius: '8px',
+                    display: 'flex',
+                    gap: 1,
+                    minHeight: 62,
+                    px: 1.25,
+                    py: 1,
+                  })}
+                >
+                  <Chip label={`Step ${(index + 1).toString()}`} size="small" />
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography sx={{ fontWeight: 700 }} variant="body2">
+                      {step.label}
+                    </Typography>
+                    <Typography color="text.secondary" variant="caption">
+                      {step.current.toString()}/{step.total.toString()} current ·{' '}
+                      {step.actionable.toString()} need action
+                    </Typography>
+                  </Box>
+                </Box>
+              ))}
+            </Box>
+          ) : null}
         </Stack>
       </Paper>
 
