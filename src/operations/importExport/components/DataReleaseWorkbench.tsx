@@ -18,6 +18,8 @@ import { ShellIcon } from '../../../app/shell/ShellIcon';
 import { CapabilityReadinessPanel } from '../../readiness/CapabilityReadinessPanel';
 import type {
   DataRelease,
+  DataReleaseDryRunOperation,
+  DataReleaseDryRunSummary,
   DataReleaseReadiness,
   DataReleaseType,
 } from '../api/dataReleaseContracts';
@@ -42,6 +44,7 @@ interface DataReleaseWorkbenchProps {
   readonly catalogueIsLoading: boolean;
   readonly catalogueIsSuccess: boolean;
   readonly connectionAvailable: boolean;
+  readonly dryRun?: DataReleaseDryRunSummary | undefined;
   readonly executableReleaseCount: number;
   readonly operationErrorMessage: string | undefined;
   readonly operationIsError: boolean;
@@ -226,6 +229,165 @@ function readinessStatusColor(status: string) {
   if (status === 'PREPARING') return 'info' as const;
   if (status === 'NEEDS_ATTENTION') return 'warning' as const;
   return 'default' as const;
+}
+
+function dryRunOperationLabel(operation: DataReleaseDryRunOperation): string {
+  return operation.replaceAll('_', ' ').toLowerCase().replace(/(^|\s)\S/gu, (value) =>
+    value.toUpperCase(),
+  );
+}
+
+function dryRunOperationColor(operation: DataReleaseDryRunOperation) {
+  if (operation === 'INSTALL' || operation === 'UPDATE') return 'primary' as const;
+  if (operation === 'RETRY') return 'warning' as const;
+  if (operation === 'BLOCKED') return 'error' as const;
+  if (operation === 'WAIT') return 'info' as const;
+  return 'success' as const;
+}
+
+function DryRunSummaryPanel(props: {
+  readonly dryRun: DataReleaseDryRunSummary;
+}) {
+  const counters = [
+    ['Install', props.dryRun.summary.install, 'import'],
+    ['Update', props.dryRun.summary.update, 'refresh'],
+    ['Retry', props.dryRun.summary.retry, 'refresh'],
+    ['Skip', props.dryRun.summary.skip, 'approve'],
+    ['Blocked', props.dryRun.summary.blocked, 'info'],
+    ['Wait', props.dryRun.summary.wait, 'info'],
+  ] satisfies ReadonlyArray<readonly [string, number, string]>;
+  return (
+    <Paper
+      aria-label="Data release dry-run result"
+      component="section"
+      variant="outlined"
+      sx={(theme) => ({
+        borderColor: alpha(theme.palette.primary.main, 0.2),
+        overflow: 'hidden',
+      })}
+    >
+      <Box
+        sx={(theme) => ({
+          bgcolor: alpha(theme.palette.primary.main, 0.055),
+          borderBottom: 1,
+          borderColor: alpha(theme.palette.primary.main, 0.14),
+          px: { xs: 1.25, md: 1.75 },
+          py: 1.25,
+        })}
+      >
+        <Stack
+          direction={{ xs: 'column', md: 'row' }}
+          sx={{ alignItems: { md: 'center' }, gap: 1, justifyContent: 'space-between' }}
+        >
+          <Box>
+            <Typography component="h2" variant="subtitle1">
+              Dry-run result
+            </Typography>
+            <Typography color="text.secondary" variant="body2">
+              Backend validation completed without importing data. Counts are
+              release-level actions, not record-level inserts or updates.
+            </Typography>
+          </Box>
+          <Chip
+            color={props.dryRun.executableReleases > 0 ? 'primary' : 'success'}
+            label={`${props.dryRun.executableReleases.toString()} executable`}
+            size="small"
+            variant="outlined"
+          />
+        </Stack>
+      </Box>
+      <Stack spacing={1.25} sx={{ p: { xs: 1.25, md: 1.5 } }}>
+        {props.dryRun.messages.length > 0 ? (
+          <Alert severity={props.dryRun.blockedReleases > 0 ? 'warning' : 'success'}>
+            {props.dryRun.messages.join(' ')}
+          </Alert>
+        ) : null}
+        <Box
+          aria-label="Dry-run action counts"
+          sx={{
+            display: 'grid',
+            gap: 1,
+            gridTemplateColumns: {
+              xs: 'repeat(2, minmax(0, 1fr))',
+              md: 'repeat(3, minmax(0, 1fr))',
+              xl: 'repeat(6, minmax(0, 1fr))',
+            },
+          }}
+        >
+          {counters.map(([label, value, icon]) => (
+            <Box
+              key={label}
+              sx={(theme) => ({
+                alignItems: 'center',
+                bgcolor: alpha(theme.palette.background.default, 0.75),
+                border: 1,
+                borderColor: alpha(theme.palette.divider, 0.8),
+                borderRadius: '8px',
+                display: 'flex',
+                gap: 1,
+                minHeight: 58,
+                px: 1,
+              })}
+            >
+              <ShellIcon fontSize="small" name={icon} />
+              <Box>
+                <Typography color="text.secondary" variant="caption">
+                  {label}
+                </Typography>
+                <Typography component="p" variant="subtitle1">
+                  {value.toString()}
+                </Typography>
+              </Box>
+            </Box>
+          ))}
+        </Box>
+        {props.dryRun.outcomes.length > 0 ? (
+          <Stack spacing={0.75}>
+            {props.dryRun.outcomes.slice(0, 8).map((outcome) => (
+              <Box
+                key={outcome.releaseCode ?? `${outcome.moduleName}:${outcome.displayName}`}
+                sx={(theme) => ({
+                  border: 1,
+                  borderColor: alpha(theme.palette.divider, 0.82),
+                  borderRadius: '8px',
+                  px: { xs: 1, md: 1.25 },
+                  py: 1,
+                })}
+              >
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  sx={{ alignItems: { md: 'center' }, gap: 1, justifyContent: 'space-between' }}
+                >
+                  <Box sx={{ minWidth: 0 }}>
+                    <Stack
+                      direction="row"
+                      sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 0.75 }}
+                    >
+                      <Typography component="h3" variant="subtitle2">
+                        {outcome.displayName}
+                      </Typography>
+                      <Chip
+                        color={dryRunOperationColor(outcome.operation)}
+                        label={dryRunOperationLabel(outcome.operation)}
+                        size="small"
+                        variant="outlined"
+                      />
+                    </Stack>
+                    <Typography color="text.secondary" variant="body2">
+                      {outcome.impact}
+                    </Typography>
+                  </Box>
+                  <Typography color="text.secondary" variant="caption">
+                    {outcome.nextAction}
+                  </Typography>
+                </Stack>
+              </Box>
+            ))}
+          </Stack>
+        ) : null}
+      </Stack>
+    </Paper>
+  );
 }
 
 function readinessGroupLabel(group: string): string {
@@ -632,6 +794,10 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
             })}
           </Stack>
         </Paper>
+      ) : null}
+
+      {props.operationIsSuccess && props.dryRun ? (
+        <DryRunSummaryPanel dryRun={props.dryRun} />
       ) : null}
 
       {!props.connectionAvailable ? (

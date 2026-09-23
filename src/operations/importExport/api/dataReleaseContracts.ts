@@ -80,11 +80,53 @@ export interface DataReleasePlan {
   readonly expectedReleases: Readonly<Record<string, string>>;
 }
 
+export type DataReleaseDryRunOperation =
+  | 'INSTALL'
+  | 'UPDATE'
+  | 'RETRY'
+  | 'SKIP_CURRENT'
+  | 'BLOCKED'
+  | 'WAIT';
+
+export interface DataReleaseDryRunOutcome {
+  readonly releaseCode?: string | undefined;
+  readonly displayName: string;
+  readonly moduleName: string;
+  readonly status: DataReleaseStatus;
+  readonly operation: DataReleaseDryRunOperation;
+  readonly impact: string;
+  readonly nextAction: string;
+  readonly blockers: readonly DataReleaseReadinessBlocker[];
+}
+
+export interface DataReleaseDryRunSummary {
+  readonly mode: 'VALIDATE';
+  readonly validationOnly: boolean;
+  readonly importExecuted: boolean;
+  readonly dataType: DataReleaseType;
+  readonly tenant: string;
+  readonly totalReleases: number;
+  readonly executableReleases: number;
+  readonly alreadyCurrent: number;
+  readonly blockedReleases: number;
+  readonly summary: {
+    readonly install: number;
+    readonly update: number;
+    readonly retry: number;
+    readonly skip: number;
+    readonly blocked: number;
+    readonly wait: number;
+  };
+  readonly outcomes: readonly DataReleaseDryRunOutcome[];
+  readonly messages: readonly string[];
+}
+
 export interface DataReleaseOperationResult {
   readonly dataType: DataReleaseType;
   readonly tenant: string;
   readonly releases: readonly DataRelease[];
   readonly importRun?: string;
+  readonly dryRun?: DataReleaseDryRunSummary | undefined;
 }
 
 export type InitializationProfileStatus =

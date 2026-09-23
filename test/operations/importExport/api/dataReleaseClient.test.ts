@@ -183,6 +183,40 @@ describe('data release client', () => {
             dataType: 'core',
             tenant: 'default',
             releases: [release],
+            dryRun: {
+              mode: 'VALIDATE',
+              validationOnly: true,
+              importExecuted: false,
+              dataType: 'core',
+              tenant: 'default',
+              totalReleases: 1,
+              executableReleases: 1,
+              alreadyCurrent: 0,
+              blockedReleases: 0,
+              summary: {
+                install: 0,
+                update: 1,
+                retry: 0,
+                skip: 0,
+                blocked: 0,
+                wait: 0,
+              },
+              outcomes: [
+                {
+                  releaseCode: 'profile:core',
+                  displayName: 'Employee Profiles',
+                  moduleName: 'profile',
+                  status: 'UPDATE_AVAILABLE',
+                  operation: 'UPDATE',
+                  impact: 'Installed release will be updated to the available version.',
+                  nextAction: 'Update release',
+                  blockers: release.readiness.blockers,
+                },
+              ],
+              messages: [
+                'Dry-run validated the selected release plan. No data was imported.',
+              ],
+            },
             importRun: 'run-1',
           },
         }),
@@ -194,9 +228,17 @@ describe('data release client', () => {
       expectedReleases: { profile: '1.2.0' },
     };
 
-    await preflightDataReleases(connection, configuration, plan, fetchImplementation);
+    const dryRunResult = await preflightDataReleases(
+      connection,
+      configuration,
+      plan,
+      fetchImplementation,
+    );
     await installDataReleases(connection, configuration, plan, fetchImplementation);
 
+    expect(dryRunResult.dryRun?.summary.update).toBe(1);
+    expect(dryRunResult.dryRun?.outcomes[0]?.operation).toBe('UPDATE');
+    expect(dryRunResult.dryRun?.messages[0]).toContain('No data was imported');
     expect((fetchImplementation.mock.calls[0]?.[0] as URL).pathname).toBe(
       '/nodics/import/v0/core/validate',
     );

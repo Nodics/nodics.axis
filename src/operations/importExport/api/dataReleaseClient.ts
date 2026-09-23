@@ -1,6 +1,8 @@
 import type { AxisModuleConnection } from '../../../bootstrap/publicBootstrap';
 import type {
   DataRelease,
+  DataReleaseDryRunOperation,
+  DataReleaseDryRunSummary,
   DataReleaseReadiness,
   DataReleaseOperationResult,
   DataReleasePlan,
@@ -45,6 +47,14 @@ const statuses = new Set<DataReleaseStatus>([
   'INVALID_RELEASE',
   'RUNNING',
   'FAILED',
+]);
+const dryRunOperations = new Set<DataReleaseDryRunOperation>([
+  'INSTALL',
+  'UPDATE',
+  'RETRY',
+  'SKIP_CURRENT',
+  'BLOCKED',
+  'WAIT',
 ]);
 const exportFormats = new Set<DataExportFileFormat>(['csv', 'json']);
 
@@ -220,6 +230,91 @@ function parseRelease(value: unknown): DataRelease {
       ),
     ),
   );
+}
+
+function parseDryRunSummary(value: unknown): DataReleaseDryRunSummary | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const source = record(value, 'Data release dry-run summary');
+  const mode = text(source.mode, 'Data release dry-run mode');
+  const dataType = text(source.dataType, 'Data release dry-run type') as DataReleaseType;
+  if (mode !== 'VALIDATE' || !types.has(dataType)) {
+    throw new Error('Data release dry-run summary is incompatible');
+  }
+  const summarySource = record(source.summary, 'Data release dry-run counters');
+  const outcomes = boundedArray(
+    source.outcomes,
+    (item): DataReleaseDryRunSummary['outcomes'][number] | undefined => {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+        return undefined;
+      }
+      const outcome = item as Record<string, unknown>;
+      const status = text(outcome.status, 'Dry-run release status') as DataReleaseStatus;
+      const operation = text(
+        outcome.operation,
+        'Dry-run release operation',
+      ) as DataReleaseDryRunOperation;
+      if (!statuses.has(status) || !dryRunOperations.has(operation)) {
+        return undefined;
+      }
+      const blockers = boundedArray(
+        outcome.blockers,
+        (blocker) => {
+          if (typeof blocker !== 'object' || blocker === null || Array.isArray(blocker)) {
+            return undefined;
+          }
+          const parsed = parseReleaseReadiness({
+            capabilityCode: 'dryRun',
+            displayName: 'Dry-run',
+            owningModule: 'import',
+            capabilityType: 'DATA_RELEASE',
+            group: 'FOUNDATION_DATA',
+            businessStatus: 'NEEDS_ATTENTION',
+            technicalStatus: status,
+            nextAction: 'Review release readiness',
+            blockers: [blocker],
+          });
+          return parsed?.blockers[0];
+        },
+        20,
+      );
+      return Object.freeze({
+        ...(optionalText(outcome.releaseCode)
+          ? { releaseCode: optionalText(outcome.releaseCode) }
+          : {}),
+        displayName: text(outcome.displayName, 'Dry-run release display name'),
+        moduleName: text(outcome.moduleName, 'Dry-run module name'),
+        status,
+        operation,
+        impact: text(outcome.impact, 'Dry-run impact'),
+        nextAction: text(outcome.nextAction, 'Dry-run next action'),
+        blockers: blockers ?? Object.freeze([]),
+      });
+    },
+    256,
+  );
+  return Object.freeze({
+    mode: 'VALIDATE',
+    validationOnly: source.validationOnly === true,
+    importExecuted: source.importExecuted === true,
+    dataType,
+    tenant: text(source.tenant, 'Data release dry-run tenant'),
+    totalReleases: optionalNumber(source.totalReleases) ?? 0,
+    executableReleases: optionalNumber(source.executableReleases) ?? 0,
+    alreadyCurrent: optionalNumber(source.alreadyCurrent) ?? 0,
+    blockedReleases: optionalNumber(source.blockedReleases) ?? 0,
+    summary: Object.freeze({
+      install: optionalNumber(summarySource.install) ?? 0,
+      update: optionalNumber(summarySource.update) ?? 0,
+      retry: optionalNumber(summarySource.retry) ?? 0,
+      skip: optionalNumber(summarySource.skip) ?? 0,
+      blocked: optionalNumber(summarySource.blocked) ?? 0,
+      wait: optionalNumber(summarySource.wait) ?? 0,
+    }),
+    outcomes: outcomes ?? Object.freeze([]),
+    messages: boundedArray(source.messages, optionalText, 20) ?? Object.freeze([]),
+  });
 }
 
 function parseInitializationProfile(value: unknown): InitializationProfile {
@@ -1006,6 +1101,7 @@ async function executeRequest(
     dataType,
     tenant: text(value.tenant, 'Tenant'),
     releases: Object.freeze(value.releases.map(parseRelease)),
+    dryRun: parseDryRunSummary(value.dryRun),
   };
   const importRun = optionalText(value.importRun);
   return Object.freeze(importRun ? { ...result, importRun } : result);

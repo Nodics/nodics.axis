@@ -23,6 +23,7 @@ import {
 } from './api/dataReleaseClient';
 import type {
   DataRelease,
+  DataReleaseDryRunSummary,
   DataReleaseOperationResult,
   DataReleasePlan,
   DataReleaseType,
@@ -229,6 +230,49 @@ function isDisabledDataImportCategory(error: unknown): boolean {
   );
 }
 
+function mergeDataReleaseDryRuns(
+  releaseType: DataReleaseType,
+  fallbackTenant: string,
+  results: readonly DataReleaseOperationResult[],
+): DataReleaseDryRunSummary | undefined {
+  const dryRuns = results
+    .map((result) => result.dryRun)
+    .filter((dryRun): dryRun is DataReleaseDryRunSummary => Boolean(dryRun));
+  if (dryRuns.length === 0) return undefined;
+  return Object.freeze({
+    mode: 'VALIDATE',
+    validationOnly: dryRuns.every((dryRun) => dryRun.validationOnly),
+    importExecuted: dryRuns.some((dryRun) => dryRun.importExecuted),
+    dataType: releaseType,
+    tenant: dryRuns[0]?.tenant ?? fallbackTenant,
+    totalReleases: dryRuns.reduce((total, dryRun) => total + dryRun.totalReleases, 0),
+    executableReleases: dryRuns.reduce(
+      (total, dryRun) => total + dryRun.executableReleases,
+      0,
+    ),
+    alreadyCurrent: dryRuns.reduce(
+      (total, dryRun) => total + dryRun.alreadyCurrent,
+      0,
+    ),
+    blockedReleases: dryRuns.reduce(
+      (total, dryRun) => total + dryRun.blockedReleases,
+      0,
+    ),
+    summary: Object.freeze({
+      install: dryRuns.reduce((total, dryRun) => total + dryRun.summary.install, 0),
+      update: dryRuns.reduce((total, dryRun) => total + dryRun.summary.update, 0),
+      retry: dryRuns.reduce((total, dryRun) => total + dryRun.summary.retry, 0),
+      skip: dryRuns.reduce((total, dryRun) => total + dryRun.summary.skip, 0),
+      blocked: dryRuns.reduce((total, dryRun) => total + dryRun.summary.blocked, 0),
+      wait: dryRuns.reduce((total, dryRun) => total + dryRun.summary.wait, 0),
+    }),
+    outcomes: Object.freeze(dryRuns.flatMap((dryRun) => dryRun.outcomes)),
+    messages: Object.freeze(
+      Array.from(new Set(dryRuns.flatMap((dryRun) => dryRun.messages))),
+    ),
+  });
+}
+
 async function loadDataReleasesByDestination(
   connections: readonly AxisModuleConnection[],
   configuration: DataReleaseClientConfiguration,
@@ -366,6 +410,11 @@ async function executeDataReleaseOperationByDestination(
     dataType: releaseType,
     tenant: results[0]?.tenant ?? configuration.enterpriseCode,
     releases: Object.freeze(results.flatMap((result) => result.releases)),
+    dryRun: mergeDataReleaseDryRuns(
+      releaseType,
+      configuration.enterpriseCode,
+      results,
+    ),
   });
 }
 
@@ -733,6 +782,7 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
               operationIsError={operation.isError}
               operationIsPending={operation.isPending}
               operationIsSuccess={operation.isSuccess}
+              dryRun={operation.data?.dryRun}
               releaseType={releaseType}
               selectedReleaseCount={executableChosen.length}
               selectedReleaseKeys={effectiveSelected}

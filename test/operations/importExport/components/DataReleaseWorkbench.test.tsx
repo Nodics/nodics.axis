@@ -4,7 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { AxisThemeProvider } from '../../../../src/app/AxisThemeProvider';
 import { DataReleaseWorkbench } from '../../../../src/operations/importExport/components/DataReleaseWorkbench';
-import type { DataRelease } from '../../../../src/operations/importExport/api/dataReleaseContracts';
+import type {
+  DataRelease,
+  DataReleaseDryRunSummary,
+} from '../../../../src/operations/importExport/api/dataReleaseContracts';
 
 function release(
   releaseCode: string,
@@ -101,5 +104,77 @@ describe('DataReleaseWorkbench', () => {
 
     expect(onSelectReleases).toHaveBeenCalledTimes(1);
     expect(onSelectReleases).toHaveBeenCalledWith([actionable]);
+  });
+
+  it('shows backend dry-run guidance after validation', () => {
+    const actionable = release('circa.ewaste:content', 'NOT_INSTALLED');
+    const dryRun: DataReleaseDryRunSummary = {
+      mode: 'VALIDATE',
+      validationOnly: true,
+      importExecuted: false,
+      dataType: 'sample',
+      tenant: 'default',
+      totalReleases: 1,
+      executableReleases: 1,
+      alreadyCurrent: 0,
+      blockedReleases: 0,
+      summary: {
+        install: 1,
+        update: 0,
+        retry: 0,
+        skip: 0,
+        blocked: 0,
+        wait: 0,
+      },
+      outcomes: [
+        {
+          releaseCode: 'circa.ewaste:content',
+          displayName: 'Circa content',
+          moduleName: 'circa.ewaste',
+          status: 'NOT_INSTALLED',
+          operation: 'INSTALL',
+          impact: 'Release will be installed for this runtime.',
+          nextAction: 'Prepare capability',
+          blockers: [],
+        },
+      ],
+      messages: [
+        'Dry-run validated the selected release plan. No data was imported.',
+      ],
+    };
+    render(
+      <AxisThemeProvider>
+        <DataReleaseWorkbench
+          catalogueErrorMessage={undefined}
+          catalogueIsError={false}
+          catalogueIsLoading={false}
+          catalogueIsSuccess
+          connectionAvailable
+          dryRun={dryRun}
+          executableReleaseCount={1}
+          operationErrorMessage={undefined}
+          operationIsError={false}
+          operationIsPending={false}
+          operationIsSuccess
+          releaseType="sample"
+          selectedReleaseCount={1}
+          selectedReleaseKeys={new Set([actionable.releaseCode ?? ''])}
+          successMessage="1 sample release validated by the backend."
+          summary={{ current: 0, installable: 1, selected: 1, total: 1 }}
+          visibleReleases={[actionable]}
+          onDeselectVisible={vi.fn()}
+          onInstallSelected={vi.fn()}
+          onSelectReleases={vi.fn()}
+          onSelectVisible={vi.fn()}
+          onToggleRelease={vi.fn()}
+          onValidateSelected={vi.fn()}
+        />
+      </AxisThemeProvider>,
+    );
+
+    expect(screen.getByText('Dry-run result')).toBeInTheDocument();
+    expect(screen.getByText(/No data was imported/u)).toBeInTheDocument();
+    expect(screen.getAllByText('Install').length).toBeGreaterThan(0);
+    expect(screen.getByText('Circa content')).toBeInTheDocument();
   });
 });
