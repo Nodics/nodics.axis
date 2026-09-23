@@ -36,6 +36,35 @@ describe('CapabilityReadinessPanel', () => {
               },
             },
           ],
+          dependencyGraph: {
+            nodes: [
+              {
+                id: 'agoraapparel',
+                kind: 'CAPABILITY',
+                label: 'Agora Apparel',
+                status: 'BLOCKED',
+              },
+              {
+                id: 'MODULE:nodics.commerce',
+                kind: 'MODULE',
+                label: 'Commerce',
+                status: 'UNAVAILABLE',
+                evidence: {
+                  classification: 'FUNCTIONAL_MODULE',
+                  runtimeState: 'OFFLINE',
+                  registrationState: 'REGISTERED',
+                  observedServers: ['kickoffLocal:commerceServer:node-a'],
+                },
+              },
+            ],
+            edges: [
+              {
+                from: 'MODULE:nodics.commerce',
+                to: 'agoraapparel',
+                relationship: 'REQUIRED_FOR',
+              },
+            ],
+          },
           blockers: [
             {
               code: 'RUNTIME_UNAVAILABLE',
@@ -52,11 +81,17 @@ describe('CapabilityReadinessPanel', () => {
     expect(screen.getByText('Dependencies')).toBeVisible();
     expect(screen.getByText('Commerce')).toBeVisible();
     expect(screen.getAllByText('FUNCTIONAL_MODULE').length).toBeGreaterThan(0);
-    expect(screen.getByText('Package FUNCTIONAL_MODULE')).toBeVisible();
-    expect(screen.getByText('Runtime OFFLINE')).toBeVisible();
-    expect(screen.getByText('Registry REGISTERED')).toBeVisible();
+    expect(screen.getAllByText('Package FUNCTIONAL_MODULE').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Runtime OFFLINE').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Registry REGISTERED').length).toBeGreaterThan(0);
     expect(screen.getByText('Stale runtime evidence')).toBeVisible();
-    expect(screen.getByText('Observed kickoffLocal:commerceServer:node-a')).toBeVisible();
+    expect(
+      screen.getAllByText('Observed kickoffLocal:commerceServer:node-a').length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText('Publication dependency chain')).toBeVisible();
+    expect(screen.getByText('Commerce · MODULE')).toBeVisible();
+    expect(screen.getByText('required for')).toBeVisible();
+    expect(screen.getByText('Agora Apparel · CAPABILITY')).toBeVisible();
   });
 
   it('renders approval diagnostics for publication blockers', () => {

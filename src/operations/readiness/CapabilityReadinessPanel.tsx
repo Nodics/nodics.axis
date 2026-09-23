@@ -39,6 +39,7 @@ export interface CapabilityReadinessSummary {
   readonly stale?: boolean | undefined;
   readonly disabledReason?: string | undefined;
   readonly dependencies?: readonly CapabilityReadinessDependency[] | undefined;
+  readonly dependencyGraph?: CapabilityReadinessDependencyGraph | undefined;
   readonly approvalDiagnostic?: CapabilityApprovalDiagnostic | undefined;
   readonly nextAction: string;
   readonly blockers: readonly CapabilityReadinessBlocker[];
@@ -56,6 +57,21 @@ export interface CapabilityReadinessDependency {
   readonly classification?: string | undefined;
   readonly status: string;
   readonly evidence?: CapabilityReadinessDependencyEvidence | undefined;
+}
+
+export interface CapabilityReadinessDependencyGraph {
+  readonly nodes: readonly Readonly<{
+    readonly id: string;
+    readonly kind: string;
+    readonly label: string;
+    readonly status?: string | undefined;
+    readonly evidence?: CapabilityReadinessDependencyEvidence | undefined;
+  }>[];
+  readonly edges: readonly Readonly<{
+    readonly from: string;
+    readonly to: string;
+    readonly relationship: string;
+  }>[];
 }
 
 export interface CapabilityReadinessDependencyEvidence {
@@ -175,6 +191,26 @@ function approvalEvidenceLabels(
   return labels;
 }
 
+function graphNodeTone(
+  status: string | undefined,
+): 'success' | 'warning' | 'error' | 'info' | 'default' {
+  if (!status) return 'default';
+  return dependencyTone(status);
+}
+
+function graphNodeById(
+  graph: CapabilityReadinessDependencyGraph | undefined,
+): ReadonlyMap<string, CapabilityReadinessDependencyGraph['nodes'][number]> {
+  return new Map((graph?.nodes ?? []).map((node) => [node.id, node]));
+}
+
+function graphPathLabel(
+  node: CapabilityReadinessDependencyGraph['nodes'][number] | undefined,
+): string {
+  if (!node) return 'Unknown dependency';
+  return `${node.label} · ${node.kind}`;
+}
+
 export function CapabilityReadinessPanel({
   actionSlot,
   caption = 'Capability readiness',
@@ -284,6 +320,56 @@ export function CapabilityReadinessPanel({
               ))}
             </Stack>
           ))}
+        </Stack>
+      ) : null}
+      {readiness.dependencyGraph?.edges.length ? (
+        <Stack
+          spacing={0.5}
+          sx={{
+            border: (theme) => `1px solid ${theme.palette.divider}`,
+            borderRadius: 1,
+            mb: 0.75,
+            p: 1,
+          }}
+        >
+          <Typography color="text.secondary" variant="caption">
+            Publication dependency chain
+          </Typography>
+          {readiness.dependencyGraph.edges.slice(0, 12).map((edge) => {
+            const nodes = graphNodeById(readiness.dependencyGraph);
+            const fromNode = nodes.get(edge.from);
+            const toNode = nodes.get(edge.to);
+            return (
+              <Stack
+                key={`${edge.from}:${edge.to}:${edge.relationship}`}
+                direction="row"
+                spacing={0.75}
+                sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+              >
+                <Chip
+                  color={graphNodeTone(fromNode?.status)}
+                  label={graphPathLabel(fromNode)}
+                  size="small"
+                  variant="outlined"
+                />
+                <Typography color="text.secondary" variant="caption">
+                  required for
+                </Typography>
+                <Chip
+                  color={graphNodeTone(toNode?.status)}
+                  label={graphPathLabel(toNode)}
+                  size="small"
+                  variant="outlined"
+                />
+                <Chip label={edge.relationship} size="small" variant="outlined" />
+                {dependencyEvidenceLabels(fromNode?.evidence)
+                  .slice(0, 4)
+                  .map((label) => (
+                    <Chip key={label} label={label} size="small" variant="outlined" />
+                  ))}
+              </Stack>
+            );
+          })}
         </Stack>
       ) : null}
       <Stack spacing={0.75}>
