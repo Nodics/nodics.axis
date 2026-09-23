@@ -175,7 +175,7 @@ const bootstrap: AxisAuthenticatedBootstrap = {
     state: 'READY',
     checkedAt: '2026-09-23T00:00:00.000Z',
     source: 'backoffice.operationalReadiness',
-    summary: { total: 0, errors: 0, warnings: 0, info: 0, dismissible: 0 },
+    summary: { total: 0, errors: 0, warnings: 0, info: 0, dismissible: 0, acknowledged: 0 },
     bootstrapChecks: {
       total: 3,
       ready: 3,
@@ -466,7 +466,7 @@ describe('AxisDashboardRoutePage', () => {
         state: 'NEEDS_ATTENTION',
         checkedAt: '2026-09-23T00:00:00.000Z',
         source: 'backoffice.operationalReadiness',
-        summary: { total: 1, errors: 0, warnings: 1, info: 0, dismissible: 1 },
+        summary: { total: 1, errors: 0, warnings: 1, info: 0, dismissible: 1, acknowledged: 0 },
         bootstrapChecks: {
           total: 3,
           ready: 2,

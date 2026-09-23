@@ -325,6 +325,12 @@ export interface AxisStartupValidationFinding {
   readonly action: string;
   readonly dismissible: boolean;
   readonly auditRequired: boolean;
+  readonly acknowledgement?: Readonly<{
+    readonly acknowledged: boolean;
+    readonly acknowledgedAt: string;
+    readonly acknowledgedBy: string;
+    readonly reasonCode?: string | undefined;
+  }> | undefined;
   readonly repair?: Readonly<{
     readonly available: boolean;
     readonly operation: string;
@@ -366,6 +372,7 @@ export interface AxisStartupValidationReport {
     readonly warnings: number;
     readonly info: number;
     readonly dismissible: number;
+    readonly acknowledged: number;
   }>;
   readonly bootstrapChecks: AxisStartupBootstrapChecks;
   readonly findings: readonly AxisStartupValidationFinding[];
@@ -2150,6 +2157,10 @@ function parseStartupValidationReport(value: unknown): AxisStartupValidationRepo
         summary.dismissible,
         'startup validation dismissible',
       ),
+      acknowledged: nonNegativeInteger(
+        summary.acknowledged ?? 0,
+        'startup validation acknowledged',
+      ),
     }),
     bootstrapChecks: Object.freeze({
       total: nonNegativeInteger(
@@ -2214,6 +2225,13 @@ function parseStartupValidationReport(value: unknown): AxisStartupValidationRepo
           parsed.repair === undefined
             ? undefined
             : record(parsed.repair, `startup validation finding ${String(index)} repair`);
+        const acknowledgement =
+          parsed.acknowledgement === undefined
+            ? undefined
+            : record(
+                parsed.acknowledgement,
+                `startup validation finding ${String(index)} acknowledgement`,
+              );
         return Object.freeze({
           code: text(parsed.code, 'startup validation finding code'),
           severity: startupValidationSeverity(
@@ -2232,6 +2250,28 @@ function parseStartupValidationReport(value: unknown): AxisStartupValidationRepo
             typeof parsed.dismissible === 'boolean' ? parsed.dismissible : false,
           auditRequired:
             typeof parsed.auditRequired === 'boolean' ? parsed.auditRequired : false,
+          ...(acknowledgement
+            ? {
+                acknowledgement: Object.freeze({
+                  acknowledged:
+                    typeof acknowledgement.acknowledged === 'boolean'
+                      ? acknowledgement.acknowledged
+                      : false,
+                  acknowledgedAt: text(
+                    acknowledgement.acknowledgedAt,
+                    'startup validation finding acknowledgement timestamp',
+                  ),
+                  acknowledgedBy: text(
+                    acknowledgement.acknowledgedBy,
+                    'startup validation finding acknowledgement principal',
+                  ),
+                  reasonCode: optionalText(
+                    acknowledgement.reasonCode,
+                    'startup validation finding acknowledgement reason code',
+                  ),
+                }),
+              }
+            : {}),
           ...(repair
             ? {
                 repair: Object.freeze({

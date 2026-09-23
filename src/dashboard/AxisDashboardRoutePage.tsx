@@ -84,6 +84,7 @@ const readyStartupValidation: AxisStartupValidationReport = Object.freeze({
     warnings: 0,
     info: 0,
     dismissible: 0,
+    acknowledged: 0,
   }),
   bootstrapChecks: Object.freeze({
     total: 0,
@@ -680,6 +681,14 @@ export function AxisDashboardRoutePage({
                 startupValidation.summary.dismissible > 0
                   ? 'warning'
                   : 'info',
+            },
+            {
+              label: 'Acknowledged by backend',
+              value: String(startupValidation.summary.acknowledged),
+              severity:
+                startupValidation.summary.acknowledged > 0
+                  ? 'info'
+                  : 'success',
             },
             ...(startupRepairLabel
               ? [
