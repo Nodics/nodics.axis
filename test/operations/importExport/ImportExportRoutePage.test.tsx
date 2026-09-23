@@ -1072,6 +1072,7 @@ describe('ImportExportRoutePage', () => {
 
     expect(await screen.findByText('Requires repair')).toBeVisible();
     expect(screen.getByText(/Repair the owning module release descriptor/iu)).toBeVisible();
+    expect(screen.getByText(/repair the source descriptor/iu)).toBeVisible();
     expect(screen.getAllByText('Agora Customer Review Source')[0]).toBeVisible();
     expect(
       screen.getAllByText(/Publishable data must target a Staged runtime/iu)[0],

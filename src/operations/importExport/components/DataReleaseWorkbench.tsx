@@ -166,6 +166,8 @@ function releaseFallbackReadiness(release: DataRelease): DataReleaseReadiness {
                   action: 'REPAIR_RELEASE_MANIFEST_SOURCE',
                   idempotent: false,
                   requiresConfirmation: true,
+                  unavailableReason:
+                    'Release manifest validation failed; repair the source descriptor in the owning module before importing.',
                 }
               : isInstallableStatus(release.status)
                 ? {
