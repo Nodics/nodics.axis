@@ -94,6 +94,26 @@ export interface ApplicationInitializationStatus {
     readonly workflowRef?: string | undefined;
     readonly correlationId?: string | undefined;
   }>;
+  readonly capability?: ApplicationCapabilityReadiness | undefined;
+}
+
+export interface ApplicationCapabilityReadiness {
+  readonly capabilityCode: string;
+  readonly displayName: string;
+  readonly owningModule: string;
+  readonly capabilityType: string;
+  readonly group: string;
+  readonly businessStatus: string;
+  readonly technicalStatus: string;
+  readonly releaseStatus?: string | undefined;
+  readonly nextAction: string;
+  readonly blockers: readonly Readonly<{
+    readonly code: string;
+    readonly severity: string;
+    readonly owner: string;
+    readonly message: string;
+    readonly action: string;
+  }>[];
 }
 
 interface ApplicationInitializationClientOptions {
@@ -305,6 +325,10 @@ function parse(value: unknown): ApplicationInitializationStatus {
     data.preparation === undefined
       ? undefined
       : record(data.preparation, 'Application preparation');
+  const capability =
+    data.capability === undefined
+      ? undefined
+      : record(data.capability, 'Application capability readiness');
   const preparationSteps =
     preparation && Array.isArray(preparation.steps)
       ? preparation.steps.map((item) => {
@@ -379,6 +403,37 @@ function parse(value: unknown): ApplicationInitializationStatus {
             ...(optionalText(publication.correlationId)
               ? { correlationId: optionalText(publication.correlationId) }
               : {}),
+          }),
+        }
+      : {}),
+    ...(capability
+      ? {
+          capability: Object.freeze({
+            capabilityCode: text(capability.capabilityCode, 'Capability code'),
+            displayName: text(capability.displayName, 'Capability display name'),
+            owningModule: text(capability.owningModule, 'Capability owner'),
+            capabilityType: text(capability.capabilityType, 'Capability type'),
+            group: text(capability.group, 'Capability group'),
+            businessStatus: text(capability.businessStatus, 'Capability business status'),
+            technicalStatus: text(capability.technicalStatus, 'Capability technical status'),
+            ...(optionalText(capability.releaseStatus)
+              ? { releaseStatus: optionalText(capability.releaseStatus) }
+              : {}),
+            nextAction: text(capability.nextAction, 'Capability next action'),
+            blockers: Object.freeze(
+              Array.isArray(capability.blockers)
+                ? capability.blockers.map((item) => {
+                    const blocker = record(item, 'Capability blocker');
+                    return Object.freeze({
+                      code: text(blocker.code, 'Capability blocker code'),
+                      severity: text(blocker.severity, 'Capability blocker severity'),
+                      owner: text(blocker.owner, 'Capability blocker owner'),
+                      message: text(blocker.message, 'Capability blocker message'),
+                      action: text(blocker.action, 'Capability blocker action'),
+                    });
+                  })
+                : [],
+            ),
           }),
         }
       : {}),

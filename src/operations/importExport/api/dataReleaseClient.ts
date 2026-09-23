@@ -1,6 +1,7 @@
 import type { AxisModuleConnection } from '../../../bootstrap/publicBootstrap';
 import type {
   DataRelease,
+  DataReleaseReadiness,
   DataReleaseOperationResult,
   DataReleasePlan,
   DataReleaseStatus,
@@ -82,6 +83,50 @@ function boundedArray<T>(
   );
 }
 
+function parseReleaseReadiness(value: unknown): DataReleaseReadiness | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const source = record(value, 'Data release readiness');
+  const blockers = boundedArray(
+    source.blockers,
+    (item): DataReleaseReadiness['blockers'][number] | undefined => {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+        return undefined;
+      }
+      const blocker = item as Record<string, unknown>;
+      const code = optionalText(blocker.code);
+      const severity = optionalText(blocker.severity);
+      const owner = optionalText(blocker.owner);
+      const message = optionalText(blocker.message);
+      const action = optionalText(blocker.action);
+      if (!code || !severity || !owner || !message || !action) return undefined;
+      return Object.freeze({ code, severity, owner, message, action });
+    },
+    20,
+  );
+  return Object.freeze({
+    capabilityCode: text(source.capabilityCode, 'Readiness capability code'),
+    displayName: text(source.displayName, 'Readiness display name'),
+    owningModule: text(source.owningModule, 'Readiness owner'),
+    capabilityType: text(source.capabilityType, 'Readiness capability type'),
+    group: text(source.group, 'Readiness group'),
+    ...(optionalText(source.extendsCapability)
+      ? { extendsCapability: optionalText(source.extendsCapability) }
+      : {}),
+    ...(optionalText(source.businessOutcome)
+      ? { businessOutcome: optionalText(source.businessOutcome) }
+      : {}),
+    businessStatus: text(source.businessStatus, 'Readiness business status'),
+    technicalStatus: text(source.technicalStatus, 'Readiness technical status'),
+    ...(optionalText(source.releaseStatus)
+      ? { releaseStatus: optionalText(source.releaseStatus) }
+      : {}),
+    nextAction: text(source.nextAction, 'Readiness next action'),
+    blockers: blockers ?? Object.freeze([]),
+  });
+}
+
 function parseRelease(value: unknown): DataRelease {
   const source = record(value, 'Data release');
   const dataType = text(source.dataType, 'Data release type') as DataReleaseType;
@@ -97,6 +142,7 @@ function parseRelease(value: unknown): DataRelease {
     description: optionalText(source.description) ?? '',
     checksum: text(source.checksum, 'Release checksum'),
     status,
+    readiness: parseReleaseReadiness(source.readiness),
   };
   const optionalValues = {
     releaseCode: optionalText(source.releaseCode),

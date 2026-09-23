@@ -761,6 +761,17 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
                 );
                 operation.reset();
               }}
+              onSelectReleases={(releases) => {
+                setSelected(
+                  new Set([
+                    ...selected,
+                    ...releases
+                      .filter((release) => isInstallableStatus(release.status))
+                      .map(releaseKey),
+                  ]),
+                );
+                operation.reset();
+              }}
               onToggleRelease={(release) => {
                 if (!isInstallableStatus(release.status)) return;
                 const next = new Set(selected);

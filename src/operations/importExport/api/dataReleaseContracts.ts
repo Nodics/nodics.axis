@@ -30,6 +30,28 @@ export interface DataRelease {
   readonly lastAttemptAt?: string;
   readonly lastRunId?: string;
   readonly status: DataReleaseStatus;
+  readonly readiness?: DataReleaseReadiness | undefined;
+}
+
+export interface DataReleaseReadiness {
+  readonly capabilityCode: string;
+  readonly displayName: string;
+  readonly owningModule: string;
+  readonly capabilityType: string;
+  readonly group: string;
+  readonly extendsCapability?: string | undefined;
+  readonly businessOutcome?: string | undefined;
+  readonly businessStatus: string;
+  readonly technicalStatus: string;
+  readonly releaseStatus?: string | undefined;
+  readonly nextAction: string;
+  readonly blockers: readonly Readonly<{
+    readonly code: string;
+    readonly severity: string;
+    readonly owner: string;
+    readonly message: string;
+    readonly action: string;
+  }>[];
 }
 
 export interface DataReleasePlan {

@@ -15,7 +15,11 @@ import {
 import { useState } from 'react';
 
 import { ShellIcon } from '../../../app/shell/ShellIcon';
-import type { DataRelease, DataReleaseType } from '../api/dataReleaseContracts';
+import type {
+  DataRelease,
+  DataReleaseReadiness,
+  DataReleaseType,
+} from '../api/dataReleaseContracts';
 import {
   compareDataReleases,
   isInstallableStatus,
@@ -49,6 +53,7 @@ interface DataReleaseWorkbenchProps {
   readonly summary: DataReleaseSummary;
   readonly visibleReleases: readonly DataRelease[];
   readonly onDeselectVisible: () => void;
+  readonly onSelectReleases: (releases: readonly DataRelease[]) => void;
   readonly onInstallSelected: () => void;
   readonly onSelectVisible: () => void;
   readonly onToggleRelease: (release: DataRelease) => void;
@@ -108,6 +113,120 @@ function releaseSelectionLabel(release: DataRelease): string {
   return `${release.displayName} cannot be selected`;
 }
 
+function releaseFallbackReadiness(release: DataRelease): DataReleaseReadiness {
+  const blocker =
+    release.status === 'CURRENT'
+      ? undefined
+      : {
+          code:
+            release.status === 'NOT_INSTALLED'
+              ? 'IMPORT_NOT_STARTED'
+              : release.status === 'RUNNING'
+                ? 'IMPORT_IN_PROGRESS'
+                : release.status === 'FAILED'
+                  ? 'IMPORT_FAILED'
+                  : release.status === 'INVALID_RELEASE'
+                    ? 'INVALID_MANIFEST'
+                    : 'VERSION_MISMATCH',
+          severity:
+            release.status === 'RUNNING'
+              ? 'INFO'
+              : release.status === 'INVALID_RELEASE' || release.status === 'FAILED'
+                ? 'BLOCKER'
+                : 'ACTION',
+          owner: release.releaseCode ?? release.moduleName,
+          message: releaseDisabledReason(release) ?? 'Data preparation is required.',
+          action:
+            release.status === 'NOT_INSTALLED'
+              ? 'Prepare capability'
+              : release.status === 'RUNNING'
+                ? 'Refresh readiness'
+                : release.status === 'FAILED'
+                  ? 'Retry failed import'
+                  : release.status === 'INVALID_RELEASE'
+                    ? 'Repair release manifest'
+                    : 'Update release',
+        };
+  return {
+    capabilityCode: release.sectionCode ?? release.releaseCode ?? release.moduleName,
+    displayName: release.displayName,
+    owningModule: release.moduleName,
+    capabilityType:
+      release.dataType === 'init'
+        ? 'INITIALIZATION_DATA'
+        : release.dataType === 'sample'
+          ? 'SAMPLE_DATA'
+          : 'CORE_DATA',
+    group: release.dataType === 'sample' ? 'APPLICATION_CONTENT' : 'FOUNDATION_DATA',
+    businessStatus:
+      release.status === 'CURRENT'
+        ? 'PREPARED_STAGED'
+        : release.status === 'RUNNING'
+          ? 'PREPARING'
+          : release.status === 'NOT_INSTALLED'
+            ? 'NOT_PREPARED'
+            : 'NEEDS_ATTENTION',
+    technicalStatus: release.status,
+    releaseStatus: release.status,
+    nextAction: blocker?.action ?? 'No import action required',
+    blockers: blocker ? [blocker] : [],
+  };
+}
+
+function releaseReadiness(release: DataRelease): DataReleaseReadiness {
+  return release.readiness ?? releaseFallbackReadiness(release);
+}
+
+function readinessStatusLabel(status: string): string {
+  return status.replaceAll('_', ' ').toLowerCase().replace(/(^|\s)\S/gu, (value) =>
+    value.toUpperCase(),
+  );
+}
+
+function readinessStatusColor(status: string) {
+  if (status === 'PREPARED_STAGED' || status === 'ONLINE') return 'success' as const;
+  if (status === 'PREPARING') return 'info' as const;
+  if (status === 'NEEDS_ATTENTION') return 'warning' as const;
+  return 'default' as const;
+}
+
+function readinessGroupLabel(group: string): string {
+  if (group === 'FOUNDATION_DATA') return 'Foundation data';
+  if (group === 'APPLICATION_CONTENT') return 'Application content';
+  if (group === 'PUBLISHING_PROFILE') return 'Publishing profile';
+  if (group === 'MEDIA_LIBRARY') return 'Media library';
+  return readinessStatusLabel(group);
+}
+
+function readinessGroupKey(release: DataRelease): string {
+  const readiness = releaseReadiness(release);
+  return [
+    readiness.group,
+    readiness.capabilityCode,
+    release.destinationRole ?? 'default',
+  ].join(':');
+}
+
+function readinessGroupSort(
+  left: CapabilityReadinessGroup,
+  right: CapabilityReadinessGroup,
+): number {
+  const leftNeedsAction = left.actionable.length > 0 ? 0 : 1;
+  const rightNeedsAction = right.actionable.length > 0 ? 0 : 1;
+  if (leftNeedsAction !== rightNeedsAction) return leftNeedsAction - rightNeedsAction;
+  const byGroup = left.readiness.group.localeCompare(right.readiness.group);
+  if (byGroup !== 0) return byGroup;
+  return left.readiness.displayName.localeCompare(right.readiness.displayName);
+}
+
+interface CapabilityReadinessGroup {
+  readonly key: string;
+  readonly readiness: DataReleaseReadiness;
+  readonly releases: readonly DataRelease[];
+  readonly actionable: readonly DataRelease[];
+  readonly current: number;
+}
+
 export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
   const selectableReleaseCount = props.visibleReleases.filter((release) =>
     isInstallableStatus(release.status),
@@ -150,6 +269,34 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
       tone: 'success' as const,
     },
   ].filter((group) => group.releases.length > 0);
+  const readinessGroups = Array.from(
+    props.visibleReleases
+      .reduce<Map<string, DataRelease[]>>((groups, release) => {
+        const key = readinessGroupKey(release);
+        groups.set(key, [...(groups.get(key) ?? []), release]);
+        return groups;
+      }, new Map())
+      .entries(),
+  )
+    .map<CapabilityReadinessGroup>(([key, releases]) => {
+      const sortedReleases = releases.sort(compareDataReleases);
+      return {
+        key,
+        readiness: releaseReadiness(sortedReleases[0]!),
+        releases: sortedReleases,
+        actionable: sortedReleases.filter((release) =>
+          isInstallableStatus(release.status),
+        ),
+        current: sortedReleases.filter((release) => release.status === 'CURRENT')
+          .length,
+      };
+    })
+    .filter((group) =>
+      group.releases.some(
+        (release) => releaseReadiness(release).businessStatus !== 'PREPARED_STAGED',
+      ),
+    )
+    .sort(readinessGroupSort);
   const readinessPercent =
     props.summary.total > 0
       ? Math.round((props.summary.current / props.summary.total) * 100)
@@ -302,6 +449,139 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
           </Box>
         </Stack>
       </Paper>
+
+      {readinessGroups.length > 0 ? (
+        <Paper
+          aria-label="Capability preparation readiness"
+          component="section"
+          variant="outlined"
+          sx={(theme) => ({
+            borderColor: alpha(theme.palette.warning.main, 0.28),
+            overflow: 'hidden',
+          })}
+        >
+          <Box
+            sx={(theme) => ({
+              bgcolor: alpha(theme.palette.warning.main, 0.075),
+              borderBottom: 1,
+              borderColor: alpha(theme.palette.warning.main, 0.22),
+              px: { xs: 1.25, md: 1.75 },
+              py: 1.25,
+            })}
+          >
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              sx={{ alignItems: { md: 'center' }, gap: 1, justifyContent: 'space-between' }}
+            >
+              <Box>
+                <Typography component="h2" variant="subtitle1">
+                  Preparation readiness
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  Resolve these capability blockers before relying on this data set.
+                </Typography>
+              </Box>
+              <Chip
+                color="warning"
+                label={`${readinessGroups.length.toString()} capability group(s)`}
+                size="small"
+                variant="outlined"
+              />
+            </Stack>
+          </Box>
+          <Stack spacing={1} sx={{ p: { xs: 1, md: 1.25 } }}>
+            {readinessGroups.map((group) => {
+              const firstBlocker = group.releases
+                .map((release) => releaseReadiness(release).blockers[0])
+                .find(Boolean);
+              const allActionableSelected =
+                group.actionable.length > 0 &&
+                group.actionable.every((release) =>
+                  props.selectedReleaseKeys.has(releaseKey(release)),
+                );
+              return (
+              <Box
+                key={`readiness:${group.key}`}
+                sx={(theme) => ({
+                  border: 1,
+                  borderColor: alpha(
+                    theme.palette[
+                      firstBlocker?.severity === 'BLOCKER' ? 'error' : 'warning'
+                    ].main,
+                    0.24,
+                  ),
+                  borderRadius: '8px',
+                  p: { xs: 1.25, md: 1.5 },
+                })}
+              >
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  sx={{ alignItems: { md: 'center' }, gap: 1.25, justifyContent: 'space-between' }}
+                >
+                  <Stack spacing={0.55} sx={{ minWidth: 0 }}>
+                    <Stack direction="row" sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 0.75 }}>
+                      <Typography component="h3" variant="subtitle1">
+                        {group.readiness.displayName}
+                      </Typography>
+                      <Chip
+                        color={readinessStatusColor(group.readiness.businessStatus)}
+                        label={readinessStatusLabel(group.readiness.businessStatus)}
+                        size="small"
+                        variant="outlined"
+                      />
+                      <Chip
+                        label={readinessGroupLabel(group.readiness.group)}
+                        size="small"
+                        variant="outlined"
+                      />
+                      <Chip
+                        label={`${group.current.toString()}/${group.releases.length.toString()} current`}
+                        size="small"
+                        variant="outlined"
+                      />
+                    </Stack>
+                    <Typography color="text.secondary" variant="body2">
+                      {firstBlocker?.message ?? group.releases[0]?.description}
+                    </Typography>
+                    <Typography color="text.secondary" variant="caption">
+                      Owner {group.readiness.owningModule} · {group.readiness.capabilityCode}
+                    </Typography>
+                  </Stack>
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    sx={{ alignItems: { sm: 'center' }, flexShrink: 0, gap: 1 }}
+                  >
+                    <Chip
+                      color={
+                        firstBlocker?.severity === 'BLOCKER'
+                          ? 'error'
+                          : firstBlocker?.severity === 'INFO'
+                            ? 'info'
+                            : 'warning'
+                      }
+                      label={firstBlocker?.action ?? group.readiness.nextAction}
+                      variant="filled"
+                    />
+                    {group.actionable.length > 0 ? (
+                      <Button
+                        size="small"
+                        startIcon={<ShellIcon fontSize="small" name="tasks" />}
+                        variant={allActionableSelected ? 'contained' : 'outlined'}
+                        onClick={() => props.onSelectReleases(group.actionable)}
+                      >
+                        {allActionableSelected
+                          ? 'Selected'
+                          : `Select ${group.actionable.length.toString()}`}
+                      </Button>
+                    ) : null}
+                  </Stack>
+                </Stack>
+              </Box>
+              );
+            })}
+          </Stack>
+        </Paper>
+      ) : null}
 
       {!props.connectionAvailable ? (
         <Alert severity="error">Import service is unavailable.</Alert>

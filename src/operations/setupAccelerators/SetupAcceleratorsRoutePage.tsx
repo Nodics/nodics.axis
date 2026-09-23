@@ -207,6 +207,85 @@ function readinessLabel(readiness: string): string {
   return readiness.replaceAll('_', ' ').toLowerCase();
 }
 
+function capabilityStatusLabel(status: ApplicationInitializationStatus): string {
+  const capabilityStatus = status.capability?.businessStatus;
+  if (!capabilityStatus) return readinessLabel(status.readiness);
+  if (capabilityStatus === 'NOT_PREPARED') return 'Not prepared';
+  if (capabilityStatus === 'PREPARING') return 'Preparing';
+  if (capabilityStatus === 'PREPARED_STAGED') return 'Prepared staged';
+  if (capabilityStatus === 'APPROVAL_REQUIRED') return 'Approval required';
+  if (capabilityStatus === 'APPROVAL_IN_PROGRESS') return 'Approval in progress';
+  if (capabilityStatus === 'APPROVED') return 'Approved';
+  if (capabilityStatus === 'ONLINE') return 'Online ready';
+  if (capabilityStatus === 'NEEDS_ATTENTION') return 'Needs attention';
+  if (capabilityStatus === 'RETIRED') return 'Retired';
+  return capabilityStatus.replaceAll('_', ' ').toLowerCase();
+}
+
+function capabilityStatusColor(
+  status: ApplicationInitializationStatus,
+): 'success' | 'warning' | 'error' | 'info' | 'default' {
+  const capabilityStatus = status.capability?.businessStatus;
+  if (capabilityStatus === 'ONLINE') return 'success';
+  if (capabilityStatus === 'NEEDS_ATTENTION') return 'error';
+  if (
+    capabilityStatus === 'APPROVAL_REQUIRED' ||
+    capabilityStatus === 'APPROVAL_IN_PROGRESS' ||
+    capabilityStatus === 'PREPARED_STAGED' ||
+    capabilityStatus === 'PREPARING'
+  )
+    return 'warning';
+  if (capabilityStatus === 'NOT_PREPARED') return 'info';
+  return stateColor(status.readiness);
+}
+
+function capabilityBusinessStatus(
+  status: ApplicationInitializationStatus | undefined,
+): string | undefined {
+  return status?.capability?.businessStatus;
+}
+
+function capabilityIsOnline(status: ApplicationInitializationStatus | undefined): boolean {
+  const businessStatus = capabilityBusinessStatus(status);
+  return businessStatus ? businessStatus === 'ONLINE' : status?.readiness === 'READY';
+}
+
+function capabilityNeedsApproval(
+  status: ApplicationInitializationStatus | undefined,
+): boolean {
+  const businessStatus = capabilityBusinessStatus(status);
+  return (
+    businessStatus === 'APPROVAL_REQUIRED' ||
+    businessStatus === 'APPROVAL_IN_PROGRESS' ||
+    status?.readiness === 'PUBLICATION_PENDING'
+  );
+}
+
+function capabilityNeedsAction(
+  profile: ApplicationInitializationProfile,
+  status: ApplicationInitializationStatus | undefined,
+): boolean {
+  const businessStatus = capabilityBusinessStatus(status);
+  if (businessStatus) {
+    return !['ONLINE', 'RETIRED'].includes(businessStatus);
+  }
+  return (
+    !isCustomizationProfile(profile) &&
+    (status?.readiness !== 'READY' || status?.releaseStatus === 'UPDATE_AVAILABLE')
+  );
+}
+
+function capabilityGroupKey(
+  profile: ApplicationInitializationProfile,
+  status: ApplicationInitializationStatus | undefined,
+): 'projects' | 'customizations' | 'documentation' {
+  if (status?.capability?.group === 'DOCUMENTATION_PACK') return 'documentation';
+  if (status?.capability?.group === 'PROJECT_ACCELERATOR') return 'projects';
+  if (status?.capability?.group === 'APPLICATION_CONTENT') return 'customizations';
+  if (profile.kind !== 'PROJECT') return 'documentation';
+  return isCustomizationProfile(profile) ? 'customizations' : 'projects';
+}
+
 function preparationStatusLabel(status: string | undefined, trigger: string): string {
   if (!status) return triggerLabel(trigger);
   if (status === 'SOURCE_READY') return 'Source ready';
@@ -336,6 +415,7 @@ function isCustomizationProfile(profile: ApplicationInitializationProfile): bool
 
 function nextActionText(status: ApplicationInitializationStatus | undefined): string {
   if (!status) return 'Status unavailable';
+  if (status.capability?.nextAction) return status.capability.nextAction;
   if (preparationBlocked(status)) {
     return blockedActionSummary(status);
   }
@@ -630,29 +710,26 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
         readonly query: AcceleratorStatusQuery;
       } => Boolean(item),
     );
-  const readyCount = statuses.filter(
-    (item) => item.query.data?.readiness === 'READY',
+  const readyCount = statuses.filter((item) =>
+    capabilityIsOnline(item.query.data),
   ).length;
-  const pendingCount = statuses.filter(
-    (item) => item.query.data?.readiness === 'PUBLICATION_PENDING',
+  const pendingCount = statuses.filter((item) =>
+    capabilityNeedsApproval(item.query.data),
   ).length;
   const actionCount = statuses.filter(
-    (item) =>
-      !isCustomizationProfile(item.profile) && item.query.data?.readiness !== 'READY',
+    (item) => capabilityNeedsAction(item.profile, item.query.data),
   ).length;
   const loading = queries.some((query) => query.isPending);
   const filteredStatuses = statuses.filter((item) => {
     if (filter === 'ALL') return true;
     if (filter === 'PROJECT') {
-      return item.profile.kind === 'PROJECT' && !isCustomizationProfile(item.profile);
+      return capabilityGroupKey(item.profile, item.query.data) === 'projects';
     }
-    if (filter === 'CUSTOMIZATION') return isCustomizationProfile(item.profile);
-    if (filter === 'DOCUMENTATION') return item.profile.kind !== 'PROJECT';
-    return (
-      !isCustomizationProfile(item.profile) &&
-      (item.query.data?.readiness !== 'READY' ||
-        item.query.data?.releaseStatus === 'UPDATE_AVAILABLE')
-    );
+    if (filter === 'CUSTOMIZATION')
+      return capabilityGroupKey(item.profile, item.query.data) === 'customizations';
+    if (filter === 'DOCUMENTATION')
+      return capabilityGroupKey(item.profile, item.query.data) === 'documentation';
+    return capabilityNeedsAction(item.profile, item.query.data);
   });
   const destructiveReasonIsValid = destructiveReason.trim().length >= 12;
   const statusGroups = [
@@ -662,8 +739,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
       description:
         'Business applications such as Nexus, Agora, partner storefronts, and future accelerators.',
       items: filteredStatuses.filter(
-        (item) =>
-          item.profile.kind === 'PROJECT' && !isCustomizationProfile(item.profile),
+        (item) => capabilityGroupKey(item.profile, item.query.data) === 'projects',
       ),
     },
     {
@@ -671,14 +747,18 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
       title: 'Customer customizations',
       description:
         'Optional project-layer overlays that change an already initialized site or accelerator.',
-      items: filteredStatuses.filter((item) => isCustomizationProfile(item.profile)),
+      items: filteredStatuses.filter(
+        (item) => capabilityGroupKey(item.profile, item.query.data) === 'customizations',
+      ),
     },
     {
       key: 'documentation',
       title: 'Documentation packs',
       description:
         'Framework, product, and project documentation that can be installed and published Online.',
-      items: filteredStatuses.filter((item) => item.profile.kind !== 'PROJECT'),
+      items: filteredStatuses.filter(
+        (item) => capabilityGroupKey(item.profile, item.query.data) === 'documentation',
+      ),
     },
   ].filter((group) => group.items.length > 0);
 
@@ -926,8 +1006,8 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                     }}
                                   >
                                     <SetupStatusChip
-                                      color={stateColor(status.readiness)}
-                                      label={readinessLabel(status.readiness)}
+                                      color={capabilityStatusColor(status)}
+                                      label={capabilityStatusLabel(status)}
                                     />
                                     <SetupStatusChip
                                       color={releaseStatusColor(status.releaseStatus)}
@@ -939,6 +1019,8 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                     color={
                                       status.readiness === 'FAILED' ||
                                       status.readiness === 'REJECTED' ||
+                                      status.capability?.businessStatus ===
+                                        'NEEDS_ATTENTION' ||
                                       status.releaseStatus === 'INVALID_RELEASE'
                                         ? 'error'
                                         : 'text.secondary'
@@ -1222,6 +1304,13 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                       size="small"
                                       variant="outlined"
                                     />
+                                    {status.capability ? (
+                                      <Chip
+                                        label={`${status.capability.group} · ${status.capability.capabilityType}`}
+                                        size="small"
+                                        variant="outlined"
+                                      />
+                                    ) : null}
                                     <Chip
                                       label={`Online approval ${
                                         profile.activationPolicy
@@ -1318,6 +1407,39 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                               </Typography>
                                             ) : null}
                                           </Box>
+                                        ))}
+                                      </Stack>
+                                    </Box>
+                                  ) : null}
+                                  {status.capability?.blockers.length ? (
+                                    <Box>
+                                      <Typography
+                                        color="text.secondary"
+                                        variant="caption"
+                                      >
+                                        Capability readiness
+                                      </Typography>
+                                      <Stack spacing={0.75} sx={{ mt: 0.5 }}>
+                                        {status.capability.blockers.map((blocker) => (
+                                          <Alert
+                                            key={`${blocker.code}:${blocker.owner}`}
+                                            severity={
+                                              blocker.severity === 'BLOCKER'
+                                                ? 'warning'
+                                                : 'info'
+                                            }
+                                            sx={{ py: 0.5 }}
+                                          >
+                                            <Typography
+                                              sx={{ fontWeight: 700 }}
+                                              variant="body2"
+                                            >
+                                              {blocker.action}
+                                            </Typography>
+                                            <Typography variant="caption">
+                                              {blocker.message}
+                                            </Typography>
+                                          </Alert>
                                         ))}
                                       </Stack>
                                     </Box>

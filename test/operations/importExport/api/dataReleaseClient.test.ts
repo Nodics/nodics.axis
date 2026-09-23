@@ -50,6 +50,28 @@ const release = {
   description: 'Profile baseline records',
   checksum: 'a'.repeat(64),
   status: 'UPDATE_AVAILABLE',
+  readiness: {
+    capabilityCode: 'profile:core',
+    displayName: 'Employee Profiles',
+    owningModule: 'profile',
+    capabilityType: 'CORE_DATA',
+    group: 'FOUNDATION_DATA',
+    extendsCapability: 'profile',
+    businessOutcome: 'Prepare employee identity baseline records.',
+    businessStatus: 'NEEDS_ATTENTION',
+    technicalStatus: 'UPDATE_AVAILABLE',
+    releaseStatus: 'UPDATE_AVAILABLE',
+    nextAction: 'Update release',
+    blockers: [
+      {
+        code: 'VERSION_MISMATCH',
+        severity: 'ACTION',
+        owner: 'profile:core',
+        message: 'A newer immutable data release is available.',
+        action: 'Update release',
+      },
+    ],
+  },
 };
 
 function response(data: unknown, status = 200): Response {
@@ -76,6 +98,12 @@ describe('data release client', () => {
 
     expect(result[0]?.displayName).toBe('Employee Profiles');
     expect(result[0]?.status).toBe('UPDATE_AVAILABLE');
+    expect(result[0]?.readiness?.businessStatus).toBe('NEEDS_ATTENTION');
+    expect(result[0]?.readiness?.extendsCapability).toBe('profile');
+    expect(result[0]?.readiness?.businessOutcome).toBe(
+      'Prepare employee identity baseline records.',
+    );
+    expect(result[0]?.readiness?.blockers[0]?.action).toBe('Update release');
     const [, options] = fetchImplementation.mock.calls[0]!;
     expect(fetchImplementation).toHaveBeenCalledTimes(3);
     expect(

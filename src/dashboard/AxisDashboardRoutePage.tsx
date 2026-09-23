@@ -203,6 +203,12 @@ function moduleNeedsAction(module: FunctionalModuleRegistration): boolean {
 function publicationNeedsApproval(
   status: ApplicationInitializationStatus | DocumentationPublicationStatus,
 ): boolean {
+  if ('capability' in status && status.capability?.businessStatus) {
+    return (
+      status.capability.businessStatus === 'APPROVAL_REQUIRED' ||
+      status.capability.businessStatus === 'APPROVAL_IN_PROGRESS'
+    );
+  }
   return (
     status.readiness === 'PUBLICATION_PENDING' &&
     status.publication?.state === 'PENDING_APPROVAL'
@@ -212,7 +218,31 @@ function publicationNeedsApproval(
 function publicationNeedsAction(
   status: ApplicationInitializationStatus | DocumentationPublicationStatus,
 ): boolean {
+  if ('capability' in status && status.capability?.businessStatus) {
+    return [
+      'NOT_PREPARED',
+      'PREPARING',
+      'PREPARED_STAGED',
+      'NEEDS_ATTENTION',
+    ].includes(status.capability.businessStatus);
+  }
   return ['NOT_IMPORTED', 'IMPORTED', 'FAILED', 'REJECTED'].includes(status.readiness);
+}
+
+function publicationIsReady(
+  status: ApplicationInitializationStatus | DocumentationPublicationStatus,
+): boolean {
+  if ('capability' in status && status.capability?.businessStatus) {
+    return status.capability.businessStatus === 'ONLINE';
+  }
+  return status.readiness === 'READY';
+}
+
+function applicationNeedsSetupAction(status: ApplicationInitializationStatus): boolean {
+  if (status.capability?.businessStatus) {
+    return !['ONLINE', 'RETIRED'].includes(status.capability.businessStatus);
+  }
+  return status.readiness !== 'READY' || status.releaseStatus === 'UPDATE_AVAILABLE';
 }
 
 function progressPercent(ready: number, total: number): number {
@@ -408,18 +438,16 @@ export function AxisDashboardRoutePage({
   const publicationActionCount =
     allPublicationStatuses.filter(publicationNeedsAction).length;
   const visiblePublicationActionCount = approvalCount + publicationActionCount;
-  const readyApplicationCount = applicationStatuses.filter(
-    (status) => status.readiness === 'READY',
-  ).length;
+  const readyApplicationCount = applicationStatuses.filter(publicationIsReady).length;
+  const applicationActionCount =
+    applicationStatuses.filter(applicationNeedsSetupAction).length;
   const activeModuleCount = registeredModules.filter(
     (module) => module.enabled && module.runtimeState === 'ACTIVE',
   ).length;
   const currentReleaseCount = releases.filter(
     (release) => release.status === 'CURRENT',
   ).length;
-  const readyPublicationCount = allPublicationStatuses.filter(
-    (status) => status.readiness === 'READY',
-  ).length;
+  const readyPublicationCount = allPublicationStatuses.filter(publicationIsReady).length;
   const liveConnections = Object.values(bootstrap.moduleConnections)
     .flat()
     .filter(
@@ -637,15 +665,10 @@ export function AxisDashboardRoutePage({
       route: '/setup-accelerators',
       primaryAction: 'Open Setup',
       severity:
-        applicationStatuses.some((status) =>
-          ['BLOCKED', 'FAILED', 'REJECTED'].includes(status.readiness),
-        ) || visiblePublicationActionCount > 0
+        applicationActionCount > 0 || visiblePublicationActionCount > 0
           ? 'warning'
           : 'info',
-      count:
-        applicationProfiles.length > 0
-          ? Math.max(applicationProfiles.length - readyApplicationCount, 0)
-          : undefined,
+      count: applicationProfiles.length > 0 ? applicationActionCount : undefined,
       meta: `${String(applicationProfiles.length)} setup profiles`,
       detailRows: [
         {
@@ -657,6 +680,11 @@ export function AxisDashboardRoutePage({
           label: 'Applications ready',
           value: String(readyApplicationCount),
           severity: readyApplicationCount > 0 ? 'success' : 'info',
+        },
+        {
+          label: 'Needs setup action',
+          value: String(applicationActionCount),
+          severity: applicationActionCount > 0 ? 'warning' : 'success',
         },
         {
           label: 'Documentation sources',
