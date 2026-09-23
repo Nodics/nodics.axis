@@ -524,6 +524,7 @@ export function CapabilityReadinessPanel({
               </Typography>
             ) : null}
             <ReadinessRepairMetadata
+              approvalDiagnostic={blocker.approvalDiagnostic}
               repair={blocker.repair}
               runtimeDiagnostic={blocker.runtimeDiagnostic}
             />

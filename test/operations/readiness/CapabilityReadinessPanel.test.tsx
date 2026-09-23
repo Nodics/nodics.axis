@@ -80,6 +80,12 @@ describe('CapabilityReadinessPanel', () => {
               owner: 'nodics.commerce',
               message: 'Commerce runtime is offline.',
               action: 'Start target runtime.',
+              runtimeDiagnostic: {
+                phase: 'heartbeat',
+                targetModule: 'nodics.commerce',
+                targetServer: 'commerceServer',
+                failureCode: 'RUNTIME_OFFLINE',
+              },
             },
           ],
         }}
@@ -107,6 +113,10 @@ describe('CapabilityReadinessPanel', () => {
     expect(screen.getByText('Commerce · MODULE')).toBeVisible();
     expect(screen.getByText('required for')).toBeVisible();
     expect(screen.getByText('Agora Apparel · CAPABILITY')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open Module Registry' })).toHaveAttribute(
+      'href',
+      '/registry',
+    );
   });
 
   it('renders approval diagnostics for publication blockers', () => {
@@ -162,5 +172,49 @@ describe('CapabilityReadinessPanel', () => {
     expect(screen.getAllByText('Publication PENDING_APPROVAL').length).toBeGreaterThan(0);
     expect(screen.getByText('Governed publication approval')).toBeVisible();
     expect(screen.getByText('No actionable Process approval task was found.')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open Process' })).toHaveAttribute(
+      'href',
+      '/process',
+    );
+  });
+
+  it('routes import repair blockers to data releases', () => {
+    render(
+      <CapabilityReadinessPanel
+        readiness={{
+          capabilityCode: 'frameworkdocs',
+          displayName: 'Framework docs',
+          owningModule: 'nodics.docs',
+          capabilityType: 'DOCUMENTATION_PACK',
+          group: 'DOCUMENTATION_PACK',
+          businessStatus: 'NEEDS_ATTENTION',
+          technicalStatus: 'BLOCKED',
+          nextAction: 'Repair release import',
+          dependencies: [],
+          blockers: [
+            {
+              code: 'IMPORT_FAILED',
+              severity: 'REPAIR_REQUIRED',
+              owner: 'nodics.docs',
+              message: 'Release import failed.',
+              action: 'Retry failed import',
+              repair: {
+                available: true,
+                label: 'Retry failed import',
+                operation: 'dataRelease.install',
+                action: 'RETRY_FAILED_IMPORT',
+                idempotent: true,
+                requiresConfirmation: false,
+              },
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: 'Open Data Releases' })).toHaveAttribute(
+      'href',
+      '/operations/imports-exports',
+    );
   });
 });
