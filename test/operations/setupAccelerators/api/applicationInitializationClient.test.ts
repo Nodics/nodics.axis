@@ -176,12 +176,25 @@ describe('application initialization client', () => {
                 {
                   kind: 'MODULE',
                   code: 'nodics.commerce',
-                  label: 'Commerce',
-                  required: true,
-                  status: 'NOT_STARTED',
-                },
-              ],
-              dependencyGraph: {
+	                  label: 'Commerce',
+	                  required: true,
+	                  status: 'NOT_STARTED',
+	                  evidence: {
+	                    runtimeState: 'OFFLINE',
+	                    registrationState: 'REGISTERED',
+	                    observedServers: [],
+	                    runtimeEvidence: {
+	                      source: 'FUNCTIONAL_MODULE_CATALOGUE',
+	                      status: 'OFFLINE',
+	                      registrationState: 'REGISTERED',
+	                      enabled: true,
+	                      stale: true,
+	                      observedServers: [],
+	                    },
+	                  },
+	                },
+	              ],
+	              dependencyGraph: {
                 nodes: [
                   {
                     id: 'agoraapparel',
@@ -190,11 +203,18 @@ describe('application initialization client', () => {
                   },
                   {
                     id: 'MODULE:nodics.commerce',
-                    kind: 'MODULE',
-                    label: 'Commerce',
-                    status: 'NOT_STARTED',
-                  },
-                ],
+	                    kind: 'MODULE',
+	                    label: 'Commerce',
+	                    status: 'NOT_STARTED',
+	                    evidence: {
+	                      runtimeEvidence: {
+	                        source: 'FUNCTIONAL_MODULE_CATALOGUE',
+	                        status: 'OFFLINE',
+	                        stale: true,
+	                      },
+	                    },
+	                  },
+	                ],
                 edges: [
                   {
                     from: 'MODULE:nodics.commerce',
@@ -288,11 +308,24 @@ describe('application initialization client', () => {
       'backoffice.applicationInitialization',
     );
     expect(status.capability?.stale).toBe(false);
-    expect(status.capability?.dependencies?.[0]).toMatchObject({
-      kind: 'MODULE',
-      code: 'nodics.commerce',
-      status: 'NOT_STARTED',
-    });
+	    expect(status.capability?.dependencies?.[0]).toMatchObject({
+	      kind: 'MODULE',
+	      code: 'nodics.commerce',
+	      status: 'NOT_STARTED',
+	      evidence: {
+	        runtimeState: 'OFFLINE',
+	        runtimeEvidence: {
+	          source: 'FUNCTIONAL_MODULE_CATALOGUE',
+	          stale: true,
+	        },
+	      },
+	    });
+	    expect(status.capability?.dependencyGraph?.nodes[1]?.evidence).toMatchObject({
+	      runtimeEvidence: {
+	        source: 'FUNCTIONAL_MODULE_CATALOGUE',
+	        status: 'OFFLINE',
+	      },
+	    });
     expect(status.capability?.dependencyGraph?.edges[0]).toMatchObject({
       relationship: 'REQUIRED_FOR',
     });

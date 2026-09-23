@@ -133,10 +133,20 @@ describe('documentation publication client', () => {
           label: 'Publication target runtime',
           required: true,
           server: 'wcmsStaged',
-          runtimeRole: 'WCMS_STAGED',
-          status: 'UNAVAILABLE',
-        },
-      ],
+	          runtimeRole: 'WCMS_STAGED',
+	          status: 'UNAVAILABLE',
+	          evidence: {
+	            targetServer: 'wcmsStagedServer',
+	            targetRuntimeRole: 'WCMS_STAGED',
+	            runtimeDiagnostic: {
+	              phase: 'transport',
+	              targetModule: 'import',
+	              targetRuntimeRole: 'WCMS_STAGED',
+	              failureCode: 'ETIMEDOUT',
+	            },
+	          },
+	        },
+	      ],
       dependencyGraph: {
         nodes: [
           {
@@ -146,11 +156,18 @@ describe('documentation publication client', () => {
           },
           {
             id: 'RUNTIME:wcmsStaged',
-            kind: 'RUNTIME',
-            label: 'Publication target runtime',
-            status: 'UNAVAILABLE',
-          },
-        ],
+	            kind: 'RUNTIME',
+	            label: 'Publication target runtime',
+	            status: 'UNAVAILABLE',
+	            evidence: {
+	              runtimeDiagnostic: {
+	                phase: 'transport',
+	                targetModule: 'import',
+	                targetRuntimeRole: 'WCMS_STAGED',
+	              },
+	            },
+	          },
+	        ],
         edges: [
           {
             from: 'RUNTIME:wcmsStaged',
@@ -210,13 +227,26 @@ describe('documentation publication client', () => {
 
     expect(status.capability?.subject?.code).toBe('frameworkdocs');
     expect(status.capability?.status).toBe('NEEDS_ATTENTION');
-    expect(status.capability?.dependencies?.[0]).toMatchObject({
-      kind: 'RUNTIME',
-      status: 'UNAVAILABLE',
-    });
-    expect(status.capability?.dependencyGraph?.nodes[1]).toMatchObject({
-      id: 'RUNTIME:wcmsStaged',
-    });
+	    expect(status.capability?.dependencies?.[0]).toMatchObject({
+	      kind: 'RUNTIME',
+	      status: 'UNAVAILABLE',
+	      evidence: {
+	        targetServer: 'wcmsStagedServer',
+	        runtimeDiagnostic: {
+	          targetModule: 'import',
+	          failureCode: 'ETIMEDOUT',
+	        },
+	      },
+	    });
+	    expect(status.capability?.dependencyGraph?.nodes[1]).toMatchObject({
+	      id: 'RUNTIME:wcmsStaged',
+	      evidence: {
+	        runtimeDiagnostic: {
+	          phase: 'transport',
+	          targetRuntimeRole: 'WCMS_STAGED',
+	        },
+	      },
+	    });
     expect(status.capability?.publicationSummary?.runtime).toBe('UNAVAILABLE');
     expect(status.capability?.blockers[0]?.blockerCode).toBe(
       'RUNTIME_UNAVAILABLE',

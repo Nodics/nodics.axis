@@ -71,6 +71,24 @@ export interface DocumentationCapabilityDependency {
   readonly server?: string | undefined;
   readonly runtimeRole?: string | undefined;
   readonly status: string;
+  readonly evidence?: DocumentationCapabilityDependencyEvidence | undefined;
+}
+
+export interface DocumentationCapabilityDependencyEvidence {
+  readonly runtimeState?: string | undefined;
+  readonly registrationState?: string | undefined;
+  readonly observedServers?: readonly string[] | undefined;
+  readonly targetServer?: string | undefined;
+  readonly targetRuntimeRole?: string | undefined;
+  readonly runtimeEvidence?: Readonly<{
+    readonly source?: string | undefined;
+    readonly status?: string | undefined;
+    readonly registrationState?: string | undefined;
+    readonly enabled?: boolean | undefined;
+    readonly stale?: boolean | undefined;
+    readonly observedServers?: readonly string[] | undefined;
+  }> | undefined;
+  readonly runtimeDiagnostic?: DocumentationRuntimeDiagnostic | undefined;
 }
 
 export interface DocumentationCapabilityDependencyGraph {
@@ -79,6 +97,7 @@ export interface DocumentationCapabilityDependencyGraph {
     readonly kind: string;
     readonly label: string;
     readonly status?: string | undefined;
+    readonly evidence?: DocumentationCapabilityDependencyEvidence | undefined;
   }>[];
   readonly edges: readonly Readonly<{
     readonly from: string;
@@ -210,6 +229,63 @@ function parseRuntimeDiagnostic(value: unknown): DocumentationRuntimeDiagnostic 
   });
 }
 
+function stringList(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value
+    .map((item) => (typeof item === 'string' && item.trim() ? item : undefined))
+    .filter((item): item is string => Boolean(item));
+  return items.length ? Object.freeze(items) : undefined;
+}
+
+function parseDependencyRuntimeEvidence(
+  value: unknown,
+): DocumentationCapabilityDependencyEvidence['runtimeEvidence'] {
+  const evidence = optionalRecord(value);
+  if (!evidence) return undefined;
+  return Object.freeze({
+    ...(optionalText(evidence.source) ? { source: optionalText(evidence.source) } : {}),
+    ...(optionalText(evidence.status) ? { status: optionalText(evidence.status) } : {}),
+    ...(optionalText(evidence.registrationState)
+      ? { registrationState: optionalText(evidence.registrationState) }
+      : {}),
+    ...(typeof evidence.enabled === 'boolean' ? { enabled: evidence.enabled } : {}),
+    ...(typeof evidence.stale === 'boolean' ? { stale: evidence.stale } : {}),
+    ...(stringList(evidence.observedServers)
+      ? { observedServers: stringList(evidence.observedServers) }
+      : {}),
+  });
+}
+
+function parseCapabilityDependencyEvidence(
+  value: unknown,
+): DocumentationCapabilityDependencyEvidence | undefined {
+  const evidence = optionalRecord(value);
+  if (!evidence) return undefined;
+  return Object.freeze({
+    ...(optionalText(evidence.runtimeState)
+      ? { runtimeState: optionalText(evidence.runtimeState) }
+      : {}),
+    ...(optionalText(evidence.registrationState)
+      ? { registrationState: optionalText(evidence.registrationState) }
+      : {}),
+    ...(stringList(evidence.observedServers)
+      ? { observedServers: stringList(evidence.observedServers) }
+      : {}),
+    ...(optionalText(evidence.targetServer)
+      ? { targetServer: optionalText(evidence.targetServer) }
+      : {}),
+    ...(optionalText(evidence.targetRuntimeRole)
+      ? { targetRuntimeRole: optionalText(evidence.targetRuntimeRole) }
+      : {}),
+    ...(parseDependencyRuntimeEvidence(evidence.runtimeEvidence)
+      ? { runtimeEvidence: parseDependencyRuntimeEvidence(evidence.runtimeEvidence) }
+      : {}),
+    ...(parseRuntimeDiagnostic(evidence.runtimeDiagnostic)
+      ? { runtimeDiagnostic: parseRuntimeDiagnostic(evidence.runtimeDiagnostic) }
+      : {}),
+  });
+}
+
 function parseCapabilityRepairAction(
   value: unknown,
 ): DocumentationCapabilityRepairAction | undefined {
@@ -272,6 +348,9 @@ function parseCapabilityDependency(
       ? { runtimeRole: optionalText(dependency.runtimeRole) }
       : {}),
     status: text(dependency.status, 'Documentation capability dependency status'),
+    ...(parseCapabilityDependencyEvidence(dependency.evidence)
+      ? { evidence: parseCapabilityDependencyEvidence(dependency.evidence) }
+      : {}),
   });
 }
 
@@ -291,6 +370,9 @@ function parseCapabilityDependencyGraph(
               label: text(node.label, 'Documentation capability graph node label'),
               ...(optionalText(node.status)
                 ? { status: optionalText(node.status) }
+                : {}),
+              ...(parseCapabilityDependencyEvidence(node.evidence)
+                ? { evidence: parseCapabilityDependencyEvidence(node.evidence) }
                 : {}),
             });
           })

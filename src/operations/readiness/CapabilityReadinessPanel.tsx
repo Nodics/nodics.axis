@@ -37,8 +37,39 @@ export interface CapabilityReadinessSummary {
   readonly source?: string | undefined;
   readonly stale?: boolean | undefined;
   readonly disabledReason?: string | undefined;
+  readonly dependencies?: readonly CapabilityReadinessDependency[] | undefined;
   readonly nextAction: string;
   readonly blockers: readonly CapabilityReadinessBlocker[];
+}
+
+export interface CapabilityReadinessDependency {
+  readonly kind: string;
+  readonly code: string;
+  readonly label: string;
+  readonly required: boolean;
+  readonly server?: string | undefined;
+  readonly runtimeRole?: string | undefined;
+  readonly status: string;
+  readonly evidence?: CapabilityReadinessDependencyEvidence | undefined;
+}
+
+export interface CapabilityReadinessDependencyEvidence {
+  readonly runtimeState?: string | undefined;
+  readonly registrationState?: string | undefined;
+  readonly observedServers?: readonly string[] | undefined;
+  readonly targetServer?: string | undefined;
+  readonly targetRuntimeRole?: string | undefined;
+  readonly runtimeEvidence?:
+    | Readonly<{
+        readonly source?: string | undefined;
+        readonly status?: string | undefined;
+        readonly registrationState?: string | undefined;
+        readonly enabled?: boolean | undefined;
+        readonly stale?: boolean | undefined;
+        readonly observedServers?: readonly string[] | undefined;
+      }>
+    | undefined;
+  readonly runtimeDiagnostic?: ReadinessRuntimeDiagnostic | undefined;
 }
 
 interface CapabilityReadinessPanelProps {
@@ -74,6 +105,32 @@ function evaluatedLabel(value: string | undefined): string | undefined {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(date);
+}
+
+function dependencyTone(
+  status: string,
+): 'success' | 'warning' | 'error' | 'info' | 'default' {
+  if (status === 'CURRENT' || status === 'AVAILABLE') return 'success';
+  if (status === 'IN_PROGRESS' || status === 'PENDING') return 'info';
+  if (status === 'UNAVAILABLE' || status === 'BLOCKED') return 'error';
+  if (status === 'UNKNOWN' || status === 'NOT_STARTED') return 'warning';
+  return 'default';
+}
+
+function dependencyEvidenceLabels(
+  evidence: CapabilityReadinessDependencyEvidence | undefined,
+): readonly string[] {
+  if (!evidence) return [];
+  const labels: string[] = [];
+  if (evidence.runtimeState) labels.push(`Runtime ${evidence.runtimeState}`);
+  if (evidence.registrationState) labels.push(`Registry ${evidence.registrationState}`);
+  if (evidence.runtimeEvidence?.stale === true) labels.push('Stale runtime evidence');
+  if (evidence.targetServer) labels.push(`Target ${evidence.targetServer}`);
+  if (evidence.targetRuntimeRole) labels.push(evidence.targetRuntimeRole);
+  const observedServers =
+    evidence.observedServers ?? evidence.runtimeEvidence?.observedServers ?? [];
+  observedServers.slice(0, 3).forEach((server) => labels.push(`Observed ${server}`));
+  return labels;
 }
 
 export function CapabilityReadinessPanel({
@@ -119,6 +176,49 @@ export function CapabilityReadinessPanel({
         >
           {readiness.disabledReason}
         </Typography>
+      ) : null}
+      {readiness.dependencies?.length ? (
+        <Stack
+          spacing={0.5}
+          sx={{
+            border: (theme) => `1px solid ${theme.palette.divider}`,
+            borderRadius: 1,
+            mb: 0.75,
+            p: 1,
+          }}
+        >
+          <Typography color="text.secondary" variant="caption">
+            Dependencies
+          </Typography>
+          {readiness.dependencies.map((dependency) => (
+            <Stack
+              key={`${dependency.kind}:${dependency.code}`}
+              direction="row"
+              spacing={0.75}
+              sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+            >
+              <Typography sx={{ fontWeight: 700 }} variant="caption">
+                {dependency.label}
+              </Typography>
+              <Chip
+                color={dependencyTone(dependency.status)}
+                label={dependency.status}
+                size="small"
+                variant="outlined"
+              />
+              <Chip label={dependency.kind} size="small" variant="outlined" />
+              {dependency.server ? (
+                <Chip label={dependency.server} size="small" variant="outlined" />
+              ) : null}
+              {dependency.runtimeRole ? (
+                <Chip label={dependency.runtimeRole} size="small" variant="outlined" />
+              ) : null}
+              {dependencyEvidenceLabels(dependency.evidence).map((label) => (
+                <Chip key={label} label={label} size="small" variant="outlined" />
+              ))}
+            </Stack>
+          ))}
+        </Stack>
       ) : null}
       <Stack spacing={0.75}>
         {readiness.blockers.map((blocker) => (
