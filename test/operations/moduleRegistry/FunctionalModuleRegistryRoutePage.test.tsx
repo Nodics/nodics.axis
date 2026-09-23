@@ -100,6 +100,15 @@ function moduleItem(
         ? ['product', 'price', 'inventory']
         : [functionalModule.replace('nodics.', '')],
     observedServers: ['platformServer'],
+    runtimeObservations: [
+      {
+        observedServer: 'kickoffLocal:platformServer:default',
+        environment: 'kickoffLocal',
+        server: 'platformServer',
+        node: 'default',
+        lastObservedAt: '2026-08-28T12:00:00.000Z',
+      },
+    ],
     catalogueRevision: 3,
     lastObservedAt: '2026-08-28T12:00:00.000Z',
     activationData:
@@ -341,6 +350,8 @@ describe('FunctionalModuleRegistryRoutePage', () => {
 
     expect(screen.getByText('Registry identity')).toBeInTheDocument();
     expect(screen.getByText('nodics.commerce')).toBeInTheDocument();
+    expect(screen.getByText('Runtime observations')).toBeInTheDocument();
+    expect(screen.getAllByText('platformServer').length).toBeGreaterThan(0);
     expect(screen.getByText('Data packages')).toBeInTheDocument();
   });
 });

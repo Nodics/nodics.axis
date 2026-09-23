@@ -878,10 +878,22 @@ function ModuleCard({
   const routeTotal =
     visibility.activeRoutes + visibility.hiddenRoutes + visibility.unavailableRoutes;
   const dataPackageCount = activationData?.packages.length ?? 0;
+  const runtimeObservationCount = Math.max(
+    module.runtimeObservations.length,
+    module.observedServers.length,
+  );
   const serverSummary =
-    module.observedServers.length > 0
-      ? `${String(module.observedServers.length)} runtime`
-      : 'No runtime';
+    runtimeObservationCount > 0
+      ? `${String(runtimeObservationCount)} runtime`
+      : module.runtimeState === 'ACTIVE'
+        ? 'Unlocated'
+        : 'No runtime';
+  const serverMetricTone =
+    module.runtimeState !== 'ACTIVE'
+      ? 'warning'
+      : runtimeObservationCount > 0
+        ? 'success'
+        : 'warning';
   const primaryAction = canRegister
     ? 'register'
     : canActivate
@@ -1120,7 +1132,7 @@ function ModuleCard({
             <Grid size={{ xs: 6, md: 3 }}>
               <RegistryMetric
                 label="Servers"
-                tone={module.runtimeState === 'ACTIVE' ? 'success' : 'warning'}
+                tone={serverMetricTone}
                 value={serverSummary}
               />
             </Grid>
@@ -1160,8 +1172,10 @@ function ModuleCard({
                     Observed servers
                   </Typography>
                   <Typography>
-                    {module.observedServers.length > 0
-                      ? module.observedServers.join(', ')
+                    {runtimeObservationCount > 0
+                      ? module.runtimeObservations
+                          .map((observation) => observation.observedServer)
+                          .join(', ') || module.observedServers.join(', ')
                       : 'No runtime server observed'}
                   </Typography>
                 </Grid>
@@ -1235,6 +1249,36 @@ function ModuleCard({
                   size="small"
                 />
               </Stack>
+
+              {module.runtimeObservations.length > 0 ? (
+                <Box>
+                  <Typography color="text.secondary" sx={{ mb: 1 }} variant="caption">
+                    Runtime observations
+                  </Typography>
+                  <Grid container spacing={1}>
+                    {module.runtimeObservations.map((observation) => (
+                      <Grid key={observation.observedServer} size={{ xs: 12, md: 6 }}>
+                        <Alert severity="success" sx={{ height: '100%' }}>
+                          <Typography sx={{ fontWeight: 800 }} variant="body2">
+                            {observation.server || observation.observedServer}
+                          </Typography>
+                          <Typography color="text.secondary" variant="caption">
+                            {[
+                              observation.environment,
+                              observation.node ? `node ${observation.node}` : undefined,
+                              observation.lastObservedAt
+                                ? `seen ${formatTime(observation.lastObservedAt)}`
+                                : undefined,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ') || 'Runtime heartbeat observed'}
+                          </Typography>
+                        </Alert>
+                      </Grid>
+                    ))}
+                  </Grid>
+                </Box>
+              ) : null}
 
               {module.technicalModules.length > 0 ? (
                 <Box>

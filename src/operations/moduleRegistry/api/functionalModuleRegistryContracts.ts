@@ -21,10 +21,19 @@ export interface FunctionalModuleRegistration {
   readonly runtimeState: FunctionalModuleRuntimeState;
   readonly technicalModules: readonly string[];
   readonly observedServers: readonly string[];
+  readonly runtimeObservations: readonly FunctionalModuleRuntimeObservation[];
   readonly catalogueRevision: number;
   readonly registeredAt?: string | undefined;
   readonly lastObservedAt?: string | undefined;
   readonly activationData?: FunctionalModuleActivationData | undefined;
+}
+
+export interface FunctionalModuleRuntimeObservation {
+  readonly observedServer: string;
+  readonly environment?: string | undefined;
+  readonly server?: string | undefined;
+  readonly node?: string | undefined;
+  readonly lastObservedAt?: string | undefined;
 }
 
 export interface FunctionalModuleActivationPackage {
@@ -194,6 +203,20 @@ function parseDependencyState(
   });
 }
 
+function parseRuntimeObservation(
+  value: unknown,
+  name: string,
+): FunctionalModuleRuntimeObservation {
+  const item = record(value, name);
+  return Object.freeze({
+    observedServer: text(item.observedServer, `${name} observed server`),
+    environment: optionalText(item.environment, `${name} environment`),
+    server: optionalText(item.server, `${name} server`),
+    node: optionalText(item.node, `${name} node`),
+    lastObservedAt: optionalText(item.lastObservedAt, `${name} last observed at`),
+  });
+}
+
 function parseActivationData(value: unknown): FunctionalModuleActivationData {
   const item = record(value, 'Functional-module activation data');
   const preflight = record(item.preflight, 'Functional-module activation preflight');
@@ -290,6 +313,19 @@ export function parseFunctionalModuleRegistration(
     observedServers: stringList(
       item.observedServers,
       `${functionalModule} observed servers`,
+    ),
+    runtimeObservations: Object.freeze(
+      Array.isArray(item.runtimeObservations)
+        ? item.runtimeObservations.map((observation, index) =>
+            parseRuntimeObservation(
+              observation,
+              `${functionalModule} runtime observation ${String(index)}`,
+            ),
+          )
+        : optionalStringList(
+            item.observedServers,
+            `${functionalModule} observed servers`,
+          ).map((observedServer) => Object.freeze({ observedServer })),
     ),
     catalogueRevision: positiveInteger(
       item.catalogueRevision,
