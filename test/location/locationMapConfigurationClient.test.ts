@@ -157,6 +157,32 @@ describe('locationMapConfigurationClient', () => {
     );
   });
 
+  it('normalizes a server-root runtime endpoint to the Location Map module endpoint', async () => {
+    const fetchImplementation = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(JSON.stringify(effectiveConfiguration)));
+
+    await loadLocationMapConfiguration(
+      emptyBootstrap,
+      {
+        accessToken: 'token',
+        enterpriseCode: 'default',
+        locationBaseUrl: 'http://localhost:4380',
+        surfaceCode: 'AXIS',
+        timeoutMs: 1000,
+        usageCode: 'COLLECTION_CENTRE_MAP',
+      },
+      fetchImplementation,
+    );
+
+    expect(fetchImplementation).toHaveBeenCalledWith(
+      new URL(
+        'http://localhost:4380/nodics/locationMap/v0/location/maps/configurations/effective?surfaceCode=AXIS&usageCode=COLLECTION_CENTRE_MAP',
+      ),
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
   it('saves through runtime fallback without allowing secret URL material', async () => {
     const fetchImplementation = vi
       .fn<typeof fetch>()

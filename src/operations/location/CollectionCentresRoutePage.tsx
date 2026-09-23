@@ -519,25 +519,41 @@ const legacyMapStyles = {
     background: 'white',
     filter: 'drop-shadow(0 2px 2px rgba(0,0,0,0.1))',
   },
+  '.map-toolbar': {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    border: '1px solid rgba(15, 23, 42, 0.1)',
+    borderRadius: '8px',
+    display: 'flex',
+    justifyContent: 'space-between',
+    padding: '8px',
+  },
   '.map-controls': {
     alignItems: 'flex-end',
     display: 'flex',
     flexDirection: 'column',
-    gap: '20px',
+    gap: '8px',
+    maxWidth: 'calc(100% - 32px)',
     position: 'absolute',
-    right: '50px',
-    top: '20px',
+    right: '16px',
+    top: '16px',
     zIndex: 1000,
   },
   '.collection-centres-map--with-warning .map-controls': {
-    top: '94px',
+    top: '16px',
   },
   '.map-controls__buttons': {
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+    border: 0,
+    borderRadius: '8px',
+    boxShadow: 'none',
     display: 'flex',
     flexWrap: 'wrap',
     flexDirection: 'row',
     gap: '8px',
     justifyContent: 'flex-end',
+    padding: 0,
   },
   '.map-controls__stack': {
     display: 'flex',
@@ -556,19 +572,21 @@ const legacyMapStyles = {
   },
   '.filter-button': {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.94)',
-    borderRadius: '4px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderRadius: '6px',
+    boxShadow: 'none',
     cursor: 'pointer',
     display: 'flex',
-    font: 'inherit',
-    fontWeight: 'bold',
-    gap: '5px',
-    padding: '8px 12px',
-    transition: 'all 0.3s ease',
+    font: '600 0.8125rem Inter, ui-sans-serif, system-ui, sans-serif',
+    gap: '6px',
+    lineHeight: 1,
+    minHeight: '30px',
+    padding: '6px 9px',
+    transition: 'background-color 120ms ease, border-color 120ms ease, color 120ms ease',
+    whiteSpace: 'nowrap',
   },
   '.filter-button--repair': {
-    border: '2px solid #4CAF50',
+    border: '1px solid #4CAF50',
     color: '#4CAF50',
   },
   '.filter-button--repair.active': {
@@ -576,7 +594,7 @@ const legacyMapStyles = {
     color: 'white',
   },
   '.filter-button--trade-in': {
-    border: '2px solid #2196F3',
+    border: '1px solid #2196F3',
     color: '#2196F3',
   },
   '.filter-button--trade-in.active': {
@@ -584,7 +602,7 @@ const legacyMapStyles = {
     color: 'white',
   },
   '.filter-button--recycling': {
-    border: '2px solid #ee9a08',
+    border: '1px solid #ee9a08',
     color: '#ee9a08',
   },
   '.filter-button--recycling.active': {
@@ -592,7 +610,7 @@ const legacyMapStyles = {
     color: 'white',
   },
   '.filter-button--near-me': {
-    border: '2px solid #000',
+    border: '1px solid #1b1e20',
     color: '#000',
   },
   '.filter-button--near-me.active': {
@@ -600,7 +618,7 @@ const legacyMapStyles = {
     color: 'white',
   },
   '.filter-button--share-location': {
-    border: '2px solid #d11f1f',
+    border: '1px solid #d11f1f',
     color: '#d11f1f',
   },
   '.filter-button--share-location.active': {
@@ -675,16 +693,13 @@ const legacyMapStyles = {
     color: '#ee9a08',
   },
   '@media (max-width: 768px)': {
-    '.map-controls': {
-      left: '16px',
-      right: '16px',
-      top: '16px',
-    },
-    '.collection-centres-map--with-warning .map-controls': {
-      top: '116px',
+    '.map-toolbar': {
+      alignItems: 'stretch',
+      flexDirection: 'column',
     },
     '.map-controls__buttons': {
       flexWrap: 'wrap',
+      justifyContent: 'flex-start',
     },
     '.filter-button': {
       padding: '6px 10px',
@@ -1299,12 +1314,32 @@ function MapPanel({
   };
 
   return (
-    <AxisLocationMapFrame
+    <Stack spacing={1.25} sx={{ minWidth: 0 }}>
+      {rendererReady ? (
+        <Box className="map-toolbar" sx={legacyMapStyles}>
+          <MapFilterButtons
+            mapConfiguration={mapConfiguration}
+            collectionPoints={records}
+            fallbackOrigin={defaultCenter}
+            focusMap={focusMap}
+            filters={filters}
+            onRequestUserLocation={requestUserLocation}
+            setFilters={setFilters}
+            userLocation={userLocation}
+          />
+        </Box>
+      ) : null}
+      <AxisLocationMapFrame
       className={`collection-centres-map ${
         rendererWarning ? 'collection-centres-map--with-warning' : ''
       }`}
       ariaLabel="Collection centres map"
       styles={legacyMapStyles}
+      sx={{
+        height: { xs: 360, md: 430, xl: 500 },
+        minWidth: 0,
+        width: '100%',
+      }}
     >
       {rendererWarning ? (
         <Alert
@@ -1461,18 +1496,6 @@ function MapPanel({
               </LeafletMarker>
             ) : null}
           </MapContainer>
-          <div className="map-controls">
-            <MapFilterButtons
-              mapConfiguration={mapConfiguration}
-              collectionPoints={records}
-              fallbackOrigin={defaultCenter}
-              focusMap={focusMap}
-              filters={filters}
-              onRequestUserLocation={requestUserLocation}
-              setFilters={setFilters}
-              userLocation={userLocation}
-            />
-          </div>
           {visibleRecords.length === 0 ? (
             <Box
               sx={{
@@ -1516,25 +1539,13 @@ function MapPanel({
           mapRef={mapRef}
           transformRequest={transformMapboxRequest}
         >
-          <div className="map-controls">
-            <MapFilterButtons
-              mapConfiguration={mapConfiguration}
-              collectionPoints={records}
-              fallbackOrigin={defaultCenter}
-              focusMap={focusMap}
-              filters={filters}
-              onRequestUserLocation={requestUserLocation}
-              setFilters={setFilters}
-              userLocation={userLocation}
+          {mapConfiguration?.enabledControls.includes('ZOOM') && (
+            <NavigationControl
+              position="bottom-right"
+              style={{ marginBottom: '20px', marginRight: '20px' }}
             />
-            {mapConfiguration?.enabledControls.includes('ZOOM') && (
-              <NavigationControl
-                position="bottom-right"
-                style={{ marginBottom: '20px', marginRight: '20px' }}
-              />
-            )}
-            {mapConfiguration?.enabledControls.includes('SCALE') && <ScaleControl />}
-          </div>
+          )}
+          {mapConfiguration?.enabledControls.includes('SCALE') && <ScaleControl />}
           {visibleRecords.map((record) => (
             <Marker
               aria-label={`${record.name} marker`}
@@ -1604,7 +1615,8 @@ function MapPanel({
           ) : null}
         </AxisMapboxCanvas>
       ) : null}
-    </AxisLocationMapFrame>
+      </AxisLocationMapFrame>
+    </Stack>
   );
 }
 
@@ -1631,34 +1643,34 @@ function SelectedCentrePanel({
       variant="outlined"
       sx={{
         borderColor: 'divider',
+        borderRadius: 2,
+        minHeight: { xs: 112, md: 96 },
         overflow: 'hidden',
       }}
     >
-      <Stack
-        direction={{ xs: 'column', md: 'row' }}
-        spacing={1.5}
+      <Box
         sx={{
-          alignItems: { md: 'center' },
+          alignItems: 'center',
           bgcolor: 'background.paper',
-          justifyContent: 'space-between',
+          display: 'grid',
+          gap: 1,
+          gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1fr) auto' },
           px: { xs: 1.5, sm: 2 },
-          py: 1.5,
+          py: 1.35,
         }}
       >
-        <Stack
-          direction={{ xs: 'column', md: 'row' }}
-          spacing={{ xs: 0.75, md: 2 }}
-          sx={{ alignItems: { md: 'center' }, minWidth: 0 }}
-        >
-          <Stack spacing={0.25} sx={{ minWidth: 0 }}>
-            <Typography noWrap variant="h6">
+        <Stack spacing={0.75} sx={{ flex: '1 1 auto', minWidth: 0 }}>
+          <Stack
+            direction="row"
+            spacing={0.75}
+            sx={{ alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}
+          >
+            <Typography
+              sx={{ flexBasis: { xs: '100%', lg: 'auto' }, fontWeight: 700 }}
+              variant="h6"
+            >
               {record.name}
             </Typography>
-            <Typography color="text.secondary" noWrap variant="body2">
-              {record.addressLine || record.city || record.locationCode}
-            </Typography>
-          </Stack>
-          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
             <Chip
               label={tag.label}
               size="small"
@@ -1674,8 +1686,36 @@ function SelectedCentrePanel({
             <Chip label={record.publicVisibility} size="small" variant="outlined" />
             <Chip label="Operational master data" size="small" variant="outlined" />
           </Stack>
+          <Typography
+            color="text.secondary"
+            sx={{ overflowWrap: 'anywhere' }}
+            variant="body2"
+          >
+            {record.addressLine || record.city || record.locationCode}
+          </Typography>
+          <Stack
+            direction="row"
+            spacing={1.5}
+            sx={{ flexWrap: 'wrap', minWidth: 0 }}
+          >
+            <Typography color="text.secondary" variant="caption">
+              Operator: {record.operatorEnterpriseName}
+            </Typography>
+            <Typography color="text.secondary" variant="caption">
+              Asset owner: {record.assetOwnerEnterpriseName || '-'}
+            </Typography>
+          </Stack>
         </Stack>
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+        <Stack
+          direction="row"
+          spacing={0.75}
+          sx={{
+            alignItems: 'center',
+            flex: '0 0 auto',
+            justifyContent: { xs: 'flex-end' },
+            width: { xs: '100%', md: 'auto' },
+          }}
+        >
           <Button
             component={RouterLink}
             size="small"
@@ -1702,7 +1742,7 @@ function SelectedCentrePanel({
             </IconButton>
           </Tooltip>
         </Stack>
-      </Stack>
+      </Box>
       <Collapse in={summaryExpanded} timeout="auto" unmountOnExit>
         <Divider />
         <Stack spacing={2} sx={{ px: { xs: 1.5, sm: 2 }, py: 2 }}>
@@ -1770,13 +1810,17 @@ const columns: readonly AxisDataListingColumn<CollectionCentreRecord>[] = Object
     {
       key: 'name',
       label: 'Collection centre',
-      minWidth: 280,
+      minWidth: 250,
       render: (record) => (
         <Stack spacing={0.25}>
           <Typography sx={{ fontWeight: 700 }} variant="body2">
             {record.name}
           </Typography>
-          <Typography color="text.secondary" noWrap variant="caption">
+          <Typography
+            color="text.secondary"
+            sx={{ overflowWrap: 'anywhere' }}
+            variant="caption"
+          >
             {record.code}
           </Typography>
         </Stack>
@@ -1786,7 +1830,7 @@ const columns: readonly AxisDataListingColumn<CollectionCentreRecord>[] = Object
     {
       key: 'type',
       label: 'Type',
-      minWidth: 120,
+      minWidth: 100,
       render: (record) => {
         const tag = markerTag(record);
         return (
@@ -1808,23 +1852,27 @@ const columns: readonly AxisDataListingColumn<CollectionCentreRecord>[] = Object
     {
       key: 'operator',
       label: 'Operator',
-      minWidth: 210,
+      minWidth: 160,
       render: (record) => record.operatorEnterpriseName,
       exportValue: (record) => record.operatorEnterpriseName,
     },
     {
       key: 'assetOwner',
       label: 'Asset owner',
-      minWidth: 220,
+      minWidth: 170,
       render: (record) => record.assetOwnerEnterpriseName || '-',
       exportValue: (record) => record.assetOwnerEnterpriseName,
     },
     {
       key: 'address',
       label: 'Address',
-      minWidth: 320,
+      minWidth: 220,
       render: (record) => (
-        <Typography color="text.secondary" variant="body2">
+        <Typography
+          color="text.secondary"
+          sx={{ overflowWrap: 'anywhere' }}
+          variant="body2"
+        >
           {record.addressLine || record.city || record.locationCode}
         </Typography>
       ),
@@ -1833,7 +1881,7 @@ const columns: readonly AxisDataListingColumn<CollectionCentreRecord>[] = Object
     {
       key: 'status',
       label: 'Status',
-      minWidth: 130,
+      minWidth: 112,
       render: (record) => (
         <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
           <Chip label={record.operatingStatus} size="small" />
@@ -1845,7 +1893,7 @@ const columns: readonly AxisDataListingColumn<CollectionCentreRecord>[] = Object
     {
       key: '__actions',
       label: '',
-      minWidth: 120,
+      minWidth: 84,
       exportable: false,
       render: (record) => (
         <Button
@@ -1955,27 +2003,47 @@ export function CollectionCentresRoutePage(props: CollectionCentresRoutePageProp
 
   return (
     <WorkspaceContainer>
-      <Stack spacing={dashboardContentGap}>
+      <Stack spacing={dashboardContentGap} sx={{ minWidth: 0, width: '100%' }}>
         <Stack
           direction={{ xs: 'column', md: 'row' }}
           spacing={dashboardComponentGap}
-          sx={{ alignItems: { md: 'flex-end' }, justifyContent: 'space-between' }}
+          sx={{
+            alignItems: { md: 'flex-end' },
+            gap: dashboardComponentGap,
+            justifyContent: 'space-between',
+            minWidth: 0,
+            width: '100%',
+          }}
         >
-          <Stack spacing={0.5}>
+          <Stack spacing={0.5} sx={{ minWidth: 0 }}>
             <Typography variant="h4">Collection centres</Typography>
             <Typography color="text.secondary">
               {records.length.toString()} centres from Waste, Location, Profile, and
               Enterprise records.
             </Typography>
           </Stack>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+          <Stack
+            direction={{ xs: 'column', sm: 'row' }}
+            spacing={1}
+            sx={{
+              flexShrink: 1,
+              flexWrap: 'wrap',
+              justifyContent: { sm: 'flex-end' },
+              minWidth: 0,
+              width: { xs: '100%', md: 'auto' },
+            }}
+          >
             <TextField
               label="Search"
               onChange={(event) => setQuery(event.target.value)}
               size="small"
+              sx={{ minWidth: { sm: 220 }, width: { xs: '100%', sm: 220 } }}
               value={query}
             />
-            <FormControl size="small" sx={{ minWidth: 240 }}>
+            <FormControl
+              size="small"
+              sx={{ minWidth: { sm: 220 }, width: { xs: '100%', sm: 220 } }}
+            >
               <InputLabel id="collection-centre-enterprise-filter">
                 Enterprise
               </InputLabel>

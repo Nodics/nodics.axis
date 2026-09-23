@@ -347,6 +347,59 @@ function collectionCentreRecord(
   });
 }
 
+interface CollectionCentreReferencePages {
+  readonly locationPage: WorkbenchRecordPage | undefined;
+  readonly addressPage: WorkbenchRecordPage | undefined;
+  readonly enterprisePage: WorkbenchRecordPage | undefined;
+}
+
+async function loadCollectionCentreReferencePages(
+  bootstrap: AxisAuthenticatedBootstrap,
+  configuration: CollectionCentreWorkspaceConfiguration,
+  schemas: readonly WorkbenchSchema[],
+): Promise<CollectionCentreReferencePages> {
+  const [locationPage, addressPage, enterprisePage] = await Promise.all(
+    [
+      ['locationCore', 'location'],
+      ['profile', 'address'],
+      ['profile', 'enterprise'],
+    ].map(([moduleName, schemaName]) =>
+      loadSchemaRecords(bootstrap, configuration, schemas, moduleName!, schemaName!),
+    ),
+  );
+  return Object.freeze({
+    locationPage,
+    addressPage,
+    enterprisePage,
+  });
+}
+
+function buildCollectionCentreRecords(
+  pointRecords: readonly WorkbenchRecord[],
+  referencePages: CollectionCentreReferencePages,
+): readonly CollectionCentreRecord[] {
+  const locations = byCode(referencePages.locationPage?.records);
+  const addresses = byCode(referencePages.addressPage?.records);
+  const enterprises = byCode(referencePages.enterprisePage?.records);
+  return Object.freeze(
+    pointRecords
+      .map((point) => collectionCentreRecord(point, locations, addresses, enterprises))
+      .filter((record): record is CollectionCentreRecord => record !== undefined),
+  );
+}
+
+function referencePageUnavailableSources(
+  referencePages: CollectionCentreReferencePages,
+): readonly string[] {
+  return Object.freeze(
+    [
+      referencePages.locationPage ? undefined : schemaKey('locationCore', 'location'),
+      referencePages.addressPage ? undefined : schemaKey('profile', 'address'),
+      referencePages.enterprisePage ? undefined : schemaKey('profile', 'enterprise'),
+    ].filter((item): item is string => item !== undefined),
+  );
+}
+
 export async function loadCollectionCentreWorkspaceData(
   bootstrap: AxisAuthenticatedBootstrap,
   configuration: CollectionCentreWorkspaceConfiguration,
@@ -366,6 +419,35 @@ export async function loadCollectionCentreWorkspaceData(
     const records = page.records
       .map((point) => collectionCentreRecord(point, new Map(), new Map(), new Map()))
       .filter((record): record is CollectionCentreRecord => record !== undefined);
+    if (records.length < page.records.length) {
+      const schemas = await loadWorkbenchSchemas(connections, configuration);
+      const referencePages = await loadCollectionCentreReferencePages(
+        bootstrap,
+        configuration,
+        schemas,
+      );
+      const enrichedRecords = buildCollectionCentreRecords(page.records, referencePages);
+      return Object.freeze({
+        records: enrichedRecords,
+        sourceCounts: Object.freeze({
+          collectionPoints: page.totalCount,
+          locations:
+            referencePages.locationPage?.totalCount ?? page.sourceCounts.locations ?? 0,
+          addresses:
+            referencePages.addressPage?.totalCount ?? page.sourceCounts.addresses ?? 0,
+          enterprises:
+            referencePages.enterprisePage?.totalCount ??
+            page.sourceCounts.enterprises ??
+            0,
+        }),
+        unavailableSources: Object.freeze([
+          ...new Set([
+            ...page.unavailableSources,
+            ...referencePageUnavailableSources(referencePages),
+          ]),
+        ]),
+      });
+    }
     return Object.freeze({
       records: Object.freeze(records),
       sourceCounts: Object.freeze({
@@ -379,14 +461,10 @@ export async function loadCollectionCentreWorkspaceData(
   }
 
   const schemas = await loadWorkbenchSchemas(connections, configuration);
-  const [locationPage, addressPage, enterprisePage] = await Promise.all(
-    [
-      ['locationCore', 'location'],
-      ['profile', 'address'],
-      ['profile', 'enterprise'],
-    ].map(([moduleName, schemaName]) =>
-      loadSchemaRecords(bootstrap, configuration, schemas, moduleName!, schemaName!),
-    ),
+  const referencePages = await loadCollectionCentreReferencePages(
+    bootstrap,
+    configuration,
+    schemas,
   );
   const fallbackPointPage = await loadSchemaRecords(
     bootstrap,
@@ -401,23 +479,16 @@ export async function loadCollectionCentreWorkspaceData(
     fallbackPointPage
       ? undefined
       : schemaKey('wasteCollection', 'wasteCollectionPoint'),
-    locationPage ? undefined : schemaKey('locationCore', 'location'),
-    addressPage ? undefined : schemaKey('profile', 'address'),
-    enterprisePage ? undefined : schemaKey('profile', 'enterprise'),
+    ...referencePageUnavailableSources(referencePages),
   ].filter((item): item is string => item !== undefined);
-  const locations = byCode(locationPage?.records);
-  const addresses = byCode(addressPage?.records);
-  const enterprises = byCode(enterprisePage?.records);
-  const records = pointRecords
-    .map((point) => collectionCentreRecord(point, locations, addresses, enterprises))
-    .filter((record): record is CollectionCentreRecord => record !== undefined);
+  const records = buildCollectionCentreRecords(pointRecords, referencePages);
   return Object.freeze({
-    records: Object.freeze(records),
+    records,
     sourceCounts: Object.freeze({
       collectionPoints: fallbackPointPage?.totalCount ?? 0,
-      locations: locationPage?.totalCount ?? 0,
-      addresses: addressPage?.totalCount ?? 0,
-      enterprises: enterprisePage?.totalCount ?? 0,
+      locations: referencePages.locationPage?.totalCount ?? 0,
+      addresses: referencePages.addressPage?.totalCount ?? 0,
+      enterprises: referencePages.enterprisePage?.totalCount ?? 0,
     }),
     unavailableSources: Object.freeze(unavailableSources),
   });

@@ -417,6 +417,7 @@ export function AppShell({
       </Drawer>
       <Box
         sx={{
+          flexBasis: 0,
           flexGrow: 1,
           height: '100dvh',
           maxHeight: '100dvh',
@@ -438,9 +439,11 @@ export function AppShell({
           ref={mainScrollRef}
           sx={{
             height: `calc(100dvh - ${String(axisTokens.spacing.header)}px)`,
+            minWidth: 0,
             overflowX: 'hidden',
             overflowY: 'auto',
             scrollBehavior: 'auto',
+            width: '100%',
           }}
         >
           <WorkspaceViewport>{children}</WorkspaceViewport>

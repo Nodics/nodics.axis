@@ -137,6 +137,10 @@ function resolveLocationMapEndpoint(
   if (!['http:', 'https:'].includes(endpoint.protocol)) {
     throw new Error('Location Map endpoint is invalid');
   }
+  const pathSegments = endpoint.pathname.split('/').filter(Boolean);
+  if (pathSegments.length === 0) {
+    endpoint.pathname = '/nodics/locationMap';
+  }
   return endpoint;
 }
 

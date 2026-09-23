@@ -242,6 +242,143 @@ describe('collectionCentresClient', () => {
     expect(data.records[0]?.code).toBe('WCP_2');
   });
 
+  it('enriches Waste domain collection-centre records from referenced workbench sources', async () => {
+    mockedLoadWorkbenchSchemas.mockResolvedValue(
+      Object.freeze([
+        schema('locationCore', 'location'),
+        schema('profile', 'address'),
+        schema('profile', 'enterprise'),
+      ]),
+    );
+    mockedLoadWorkbenchRecords.mockImplementation((_connection, workbenchSchema) => {
+      if (workbenchSchema.moduleName === 'locationCore') {
+        return Promise.resolve(
+          page([
+            Object.freeze({
+              code: 'LOC_1',
+              addressRef: Object.freeze({ code: 'ADDR_1' }),
+              latitude: 25.2,
+              longitude: 55.3,
+            }),
+          ]),
+        );
+      }
+      if (
+        workbenchSchema.moduleName === 'profile' &&
+        workbenchSchema.schemaName === 'address'
+      ) {
+        return Promise.resolve(
+          page([
+            Object.freeze({
+              code: 'ADDR_1',
+              addressLine1: 'Business Bay',
+              city: 'Dubai',
+              countryCode: 'AE',
+            }),
+          ]),
+        );
+      }
+      if (
+        workbenchSchema.moduleName === 'profile' &&
+        workbenchSchema.schemaName === 'enterprise'
+      ) {
+        return Promise.resolve(
+          page([
+            Object.freeze({
+              code: 'NODICS_WASTE_MANAGEMENT_CO',
+              name: 'Nodics Waste Management Co.',
+            }),
+            Object.freeze({
+              code: 'BEAH_RECYCLING_SERVICES',
+              name: 'BEAH Recycling Services',
+            }),
+          ]),
+        );
+      }
+      return Promise.resolve(page([]));
+    });
+    const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            records: [
+              {
+                code: 'WCP_1',
+                name: { en: 'Business Bay Drop-Off' },
+                collectionPointType: 'DROP_OFF',
+                locationRef: { code: 'LOC_1' },
+                operatorEnterpriseRef: { code: 'NODICS_WASTE_MANAGEMENT_CO' },
+                assetOwnerEnterpriseRef: { code: 'BEAH_RECYCLING_SERVICES' },
+                operatingStatus: 'ACTIVE',
+                publicVisibility: 'PUBLIC',
+                status: 'ACTIVE',
+              },
+            ],
+            totalCount: 1,
+            pageNumber: 1,
+            pageSize: 100,
+            sourceCounts: {
+              collectionPoints: 1,
+            },
+            unavailableSources: [],
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const data = await loadCollectionCentreWorkspaceData(
+      {
+        moduleConnections: {
+          wasteApi: [
+            {
+              moduleName: 'wasteApi',
+              instanceId: 'wasteApi-main',
+              endpoint: 'http://127.0.0.1:4370/nodics/wasteApi',
+              state: 'UP',
+            },
+          ],
+          locationCore: [
+            {
+              moduleName: 'locationCore',
+              instanceId: 'locationCore-main',
+              endpoint: 'http://127.0.0.1:4380/nodics/locationCore',
+              state: 'UP',
+            },
+          ],
+          profile: [
+            {
+              moduleName: 'profile',
+              instanceId: 'profile-main',
+              endpoint: 'http://127.0.0.1:4320/nodics/profile',
+              state: 'UP',
+            },
+          ],
+        },
+      } as never,
+      configuration,
+      fetchImplementation,
+    );
+
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+    expect(mockedLoadWorkbenchSchemas).toHaveBeenCalledTimes(1);
+    expect(mockedLoadWorkbenchRecords).toHaveBeenCalledTimes(3);
+    expect(data.records[0]?.code).toBe('WCP_1');
+    expect(data.records[0]?.addressLine).toBe('Business Bay');
+    expect(data.records[0]?.operatorEnterpriseName).toBe(
+      'Nodics Waste Management Co.',
+    );
+    expect(data.records[0]?.latitude).toBe(25.2);
+    expect(data.records[0]?.longitude).toBe(55.3);
+    expect(data.sourceCounts).toEqual({
+      collectionPoints: 1,
+      locations: 1,
+      addresses: 1,
+      enterprises: 2,
+    });
+    expect(data.unavailableSources).toEqual([]);
+  });
+
   it('falls back to workbench sources when the Waste domain API is unavailable', async () => {
     mockedLoadWorkbenchSchemas.mockResolvedValue(
       Object.freeze([
