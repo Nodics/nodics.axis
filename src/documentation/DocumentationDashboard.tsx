@@ -801,7 +801,13 @@ function CmsDocumentationReadinessCard({
     ],
     queryFn: () => {
       if (!processConnection || !workflowRef) {
-        throw new Error('The governed Process approval task is unavailable');
+        throw new Error(
+          processApprovalUnavailableMessage({
+            sourceLabel: source.label,
+            hasProcessConnection: Boolean(processConnection),
+            workflowRef,
+          }),
+        );
       }
       return loadProcessTasks(
         processConnection,

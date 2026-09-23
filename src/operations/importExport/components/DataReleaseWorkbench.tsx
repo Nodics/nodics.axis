@@ -555,7 +555,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
     {
       id: 'repair',
       heading: 'Requires repair',
-      help: 'These releases are blocked by their manifest or runtime contract. Repair the owning module data release, rebuild, restart, and refresh this page.',
+      help: 'These releases failed manifest or runtime validation. Repair the owning module release descriptor or target runtime registration, rebuild/restart the affected runtime, then refresh this page.',
       releases: props.visibleReleases
         .filter((release) => releaseActionGroup(release) === 'repair')
         .sort(compareDataReleases),

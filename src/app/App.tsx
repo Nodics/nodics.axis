@@ -71,6 +71,7 @@ import {
   completeProcessTask,
   loadProcessTasks,
 } from '../operations/processWorkflow/api/processDefinitionClient';
+import { processApprovalUnavailableMessage } from '../operations/processWorkflow/processApprovalDiagnostics';
 import {
   clearScreenLock,
   persistScreenLock,
@@ -390,8 +391,18 @@ export function App() {
 
   const approveInitialization = useCallback(async () => {
     const workflowRef = initializationStatus?.publication?.workflowRef;
-    if (!session || !workflowRef) {
-      setInitializationError('The governed Process approval task is unavailable');
+    if (!session) {
+      setInitializationError('Sign in again before approving the Axis baseline.');
+      return;
+    }
+    if (!workflowRef) {
+      setInitializationError(
+        processApprovalUnavailableMessage({
+          sourceLabel: 'Axis baseline',
+          hasProcessConnection: true,
+          workflowRef,
+        }),
+      );
       return;
     }
     setInitializationBusy(true);
@@ -408,7 +419,13 @@ export function App() {
         server: 'processServer',
       });
       if (!processConnection) {
-        throw new Error('The governed Process approval task is unavailable');
+        throw new Error(
+          processApprovalUnavailableMessage({
+            sourceLabel: 'Axis baseline',
+            hasProcessConnection: false,
+            workflowRef,
+          }),
+        );
       }
       const configuration = {
         accessToken: session.accessToken,
@@ -435,7 +452,16 @@ export function App() {
           ['OPEN', 'CLAIMED', 'ESCALATED'].includes(item.status),
         );
       }
-      if (!task) throw new Error('No actionable Process approval task was found');
+      if (!task) {
+        throw new Error(
+          processApprovalUnavailableMessage({
+            sourceLabel: 'Axis baseline',
+            hasProcessConnection: true,
+            workflowRef,
+            taskCount: tasks.length,
+          }),
+        );
+      }
       await completeProcessTask(processConnection, configuration, task.code, {
         approved: true,
         reason: 'Axis baseline approved by the authenticated administrator',
