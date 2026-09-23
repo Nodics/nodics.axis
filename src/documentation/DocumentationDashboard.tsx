@@ -1288,7 +1288,10 @@ function CmsDocumentationReadinessCard({
                         {blocker.repair?.label ?? blocker.action}
                       </Typography>
                       <Typography variant="caption">{blocker.message}</Typography>
-                      <ReadinessRepairMetadata repair={blocker.repair} />
+                      <ReadinessRepairMetadata
+                        repair={blocker.repair}
+                        runtimeDiagnostic={blocker.runtimeDiagnostic}
+                      />
                     </Alert>
                   ))}
                 </Stack>

@@ -98,4 +98,64 @@ describe('documentation publication client', () => {
       'Documentation publication action is unsupported',
     );
   });
+
+  it('preserves capability runtime diagnostics for dashboard guidance', async () => {
+    const payload = response('PUBLICATION_PENDING', ['INITIALIZE']) as ReturnType<
+      typeof response
+    > & {
+      data: ReturnType<typeof response>['data'] & {
+        capability?: Record<string, unknown>;
+      };
+    };
+    payload.data.capability = {
+      capabilityCode: 'frameworkdocs',
+      displayName: 'Framework docs',
+      owningModule: 'nodics.docs',
+      capabilityType: 'DOCUMENTATION_PACK',
+      group: 'DOCUMENTATION_PACK',
+      businessStatus: 'NEEDS_ATTENTION',
+      technicalStatus: 'BLOCKED',
+      nextAction: 'Restore target runtime',
+      blockers: [
+        {
+          code: 'RUNTIME_UNAVAILABLE',
+          severity: 'BLOCKER',
+          owner: 'frameworkdocs',
+          message: 'Target runtime is unavailable.',
+          action: 'Restore target runtime',
+          runtimeDiagnostic: {
+            phase: 'transport',
+            sourceServer: 'platformServer',
+            targetModule: 'import',
+            targetServer: 'wcmsStagedServer',
+            targetRuntimeRole: 'WCMS_STAGED',
+            failureCode: 'ETIMEDOUT',
+            suggestedAction: 'Start wcmsStagedServer.',
+          },
+        },
+      ],
+    };
+    const client = createDocumentationPublicationClient(
+      {
+        connection,
+        enterpriseCode: 'default',
+        accessToken: 'employee-token',
+        timeoutMs: 1_000,
+        profileCode: 'frameworkdocs',
+      },
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(JSON.stringify(payload), { status: 200 }),
+      ),
+    );
+
+    const status = await client.getStatus();
+
+    expect(status.capability?.blockers[0]?.runtimeDiagnostic).toMatchObject({
+      phase: 'transport',
+      sourceServer: 'platformServer',
+      targetModule: 'import',
+      targetRuntimeRole: 'WCMS_STAGED',
+      failureCode: 'ETIMEDOUT',
+    });
+  });
 });

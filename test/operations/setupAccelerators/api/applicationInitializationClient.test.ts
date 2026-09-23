@@ -169,6 +169,16 @@ describe('application initialization client', () => {
                   owner: 'nodics.commerce',
                   message: 'Commerce must be registered and activated.',
                   action: 'Prepare required dependency',
+                  runtimeDiagnostic: {
+                    phase: 'runtimeResolution',
+                    sourceServer: 'platformServer',
+                    sourceRuntimeRole: 'PLATFORM',
+                    targetModule: 'import',
+                    targetServer: 'commerceStagedServer',
+                    targetRuntimeRole: 'COMMERCE_STAGED',
+                    failureCode: 'REMOTE_ENDPOINT_UNAVAILABLE',
+                    suggestedAction: 'Start commerceStagedServer.',
+                  },
                   repair: {
                     available: false,
                     label: 'Prepare required dependency',
@@ -203,6 +213,13 @@ describe('application initialization client', () => {
     expect(status.capability?.blockers[0]?.repair?.operation).toBe(
       'moduleRegistry.prepareDependency',
     );
+    expect(status.capability?.blockers[0]?.runtimeDiagnostic).toMatchObject({
+      phase: 'runtimeResolution',
+      sourceServer: 'platformServer',
+      targetModule: 'import',
+      targetRuntimeRole: 'COMMERCE_STAGED',
+      failureCode: 'REMOTE_ENDPOINT_UNAVAILABLE',
+    });
     expect(status.capability?.nextAction).toBe('Prepare required dependency');
   });
 });

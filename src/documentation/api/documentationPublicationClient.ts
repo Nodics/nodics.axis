@@ -52,6 +52,19 @@ export interface DocumentationCapabilityBlocker {
   readonly message: string;
   readonly action: string;
   readonly repair?: DocumentationCapabilityRepairAction | undefined;
+  readonly runtimeDiagnostic?: DocumentationRuntimeDiagnostic | undefined;
+}
+
+export interface DocumentationRuntimeDiagnostic {
+  readonly phase?: string | undefined;
+  readonly sourceServer?: string | undefined;
+  readonly sourceRuntimeRole?: string | undefined;
+  readonly targetModule?: string | undefined;
+  readonly targetConnection?: string | undefined;
+  readonly targetServer?: string | undefined;
+  readonly targetRuntimeRole?: string | undefined;
+  readonly failureCode?: string | undefined;
+  readonly suggestedAction?: string | undefined;
 }
 
 export interface DocumentationCapabilityRepairAction {
@@ -92,8 +105,46 @@ function optionalText(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
+function optionalRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 function booleanValue(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
+}
+
+function parseRuntimeDiagnostic(value: unknown): DocumentationRuntimeDiagnostic | undefined {
+  const diagnostic = optionalRecord(value);
+  if (!diagnostic) return undefined;
+  return Object.freeze({
+    ...(optionalText(diagnostic.phase) ? { phase: optionalText(diagnostic.phase) } : {}),
+    ...(optionalText(diagnostic.sourceServer)
+      ? { sourceServer: optionalText(diagnostic.sourceServer) }
+      : {}),
+    ...(optionalText(diagnostic.sourceRuntimeRole)
+      ? { sourceRuntimeRole: optionalText(diagnostic.sourceRuntimeRole) }
+      : {}),
+    ...(optionalText(diagnostic.targetModule)
+      ? { targetModule: optionalText(diagnostic.targetModule) }
+      : {}),
+    ...(optionalText(diagnostic.targetConnection)
+      ? { targetConnection: optionalText(diagnostic.targetConnection) }
+      : {}),
+    ...(optionalText(diagnostic.targetServer)
+      ? { targetServer: optionalText(diagnostic.targetServer) }
+      : {}),
+    ...(optionalText(diagnostic.targetRuntimeRole)
+      ? { targetRuntimeRole: optionalText(diagnostic.targetRuntimeRole) }
+      : {}),
+    ...(optionalText(diagnostic.failureCode)
+      ? { failureCode: optionalText(diagnostic.failureCode) }
+      : {}),
+    ...(optionalText(diagnostic.suggestedAction)
+      ? { suggestedAction: optionalText(diagnostic.suggestedAction) }
+      : {}),
+  });
 }
 
 function parseCapabilityRepairAction(
@@ -152,6 +203,13 @@ function parseCapabilityReadiness(
               action: text(blocker.action, 'Documentation capability blocker action'),
               ...(blocker.repair !== undefined
                 ? { repair: parseCapabilityRepairAction(blocker.repair) }
+                : {}),
+              ...(parseRuntimeDiagnostic(blocker.runtimeDiagnostic)
+                ? {
+                    runtimeDiagnostic: parseRuntimeDiagnostic(
+                      blocker.runtimeDiagnostic,
+                    ),
+                  }
                 : {}),
             });
           })

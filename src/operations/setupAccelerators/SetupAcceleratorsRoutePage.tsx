@@ -1615,6 +1615,9 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                             </Typography>
                                             <ReadinessRepairMetadata
                                               repair={blocker.repair}
+                                              runtimeDiagnostic={
+                                                blocker.runtimeDiagnostic
+                                              }
                                             />
                                             {supportedRepairOperation(blocker) ? (
                                               <Box sx={{ mt: 1 }}>
