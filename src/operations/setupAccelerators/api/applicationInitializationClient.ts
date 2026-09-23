@@ -86,6 +86,7 @@ export interface ApplicationInitializationStatus {
     readonly status: string;
     readonly steps: readonly ApplicationPreparationStep[];
   }>;
+  readonly preparationOperation?: ApplicationPreparationOperationEvidence | undefined;
   readonly publication?: Readonly<{
     readonly code: string;
     readonly state: string;
@@ -95,6 +96,16 @@ export interface ApplicationInitializationStatus {
     readonly correlationId?: string | undefined;
   }>;
   readonly capability?: ApplicationCapabilityReadiness | undefined;
+}
+
+export interface ApplicationPreparationOperationEvidence {
+  readonly operation: string;
+  readonly capabilityCode: string;
+  readonly beforeStatus?: string | undefined;
+  readonly afterStatus?: string | undefined;
+  readonly attempted: boolean;
+  readonly stepCount: number;
+  readonly changed: boolean;
 }
 
 export interface ApplicationCapabilityReadiness {
@@ -363,6 +374,10 @@ function parse(value: unknown): ApplicationInitializationStatus {
     data.capability === undefined
       ? undefined
       : record(data.capability, 'Application capability readiness');
+  const preparationOperation =
+    data.preparationOperation === undefined
+      ? undefined
+      : record(data.preparationOperation, 'Application preparation operation');
   const preparationSteps =
     preparation && Array.isArray(preparation.steps)
       ? preparation.steps.map((item) => {
@@ -437,6 +452,29 @@ function parse(value: unknown): ApplicationInitializationStatus {
             ...(optionalText(publication.correlationId)
               ? { correlationId: optionalText(publication.correlationId) }
               : {}),
+          }),
+        }
+      : {}),
+    ...(preparationOperation
+      ? {
+          preparationOperation: Object.freeze({
+            operation: text(
+              preparationOperation.operation,
+              'Application preparation operation name',
+            ),
+            capabilityCode: text(
+              preparationOperation.capabilityCode,
+              'Application preparation operation capability',
+            ),
+            ...(optionalText(preparationOperation.beforeStatus)
+              ? { beforeStatus: optionalText(preparationOperation.beforeStatus) }
+              : {}),
+            ...(optionalText(preparationOperation.afterStatus)
+              ? { afterStatus: optionalText(preparationOperation.afterStatus) }
+              : {}),
+            attempted: booleanValue(preparationOperation.attempted, false),
+            stepCount: Number(preparationOperation.stepCount ?? 0),
+            changed: booleanValue(preparationOperation.changed, false),
           }),
         }
       : {}),

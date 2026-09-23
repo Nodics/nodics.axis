@@ -93,6 +93,15 @@ describe('application initialization client', () => {
             releaseCode: 'agora.apparel:agoraApparelContentCatalog',
             releaseVersion: '0.0.8',
             allowedActions: ['INITIALIZE'],
+            preparationOperation: {
+              operation: 'applicationInitialization.prepareCapability',
+              capabilityCode: 'agoraapparel',
+              beforeStatus: 'UPDATE_AVAILABLE',
+              afterStatus: 'CURRENT',
+              attempted: true,
+              stepCount: 2,
+              changed: true,
+            },
           },
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -109,7 +118,7 @@ describe('application initialization client', () => {
       fetchImplementation,
     );
 
-    await client.prepare({ reason: 'Prepare setup only' });
+    const status = await client.prepare({ reason: 'Prepare setup only' });
 
     const [url, init] = fetchImplementation.mock.calls[0]!;
     expect((url as URL).pathname).toBe(
@@ -118,6 +127,13 @@ describe('application initialization client', () => {
     expect(init?.method).toBe('POST');
     expect(JSON.parse(String(init?.body))).toMatchObject({
       reason: 'Prepare setup only',
+    });
+    expect(status.preparationOperation).toMatchObject({
+      operation: 'applicationInitialization.prepareCapability',
+      beforeStatus: 'UPDATE_AVAILABLE',
+      afterStatus: 'CURRENT',
+      attempted: true,
+      changed: true,
     });
   });
 

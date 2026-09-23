@@ -1535,6 +1535,56 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                       </Stack>
                                     </Box>
                                   ) : null}
+                                  {status.preparationOperation ? (
+                                    <Box>
+                                      <Typography
+                                        color="text.secondary"
+                                        variant="caption"
+                                      >
+                                        Last preparation operation
+                                      </Typography>
+                                      <Stack
+                                        direction="row"
+                                        spacing={0.75}
+                                        sx={{ flexWrap: 'wrap', mt: 0.5 }}
+                                      >
+                                        <Chip
+                                          label={status.preparationOperation.operation}
+                                          size="small"
+                                          variant="outlined"
+                                        />
+                                        <Chip
+                                          color={
+                                            status.preparationOperation.changed
+                                              ? 'success'
+                                              : 'default'
+                                          }
+                                          label={
+                                            status.preparationOperation.changed
+                                              ? 'Changed readiness'
+                                              : 'No readiness change'
+                                          }
+                                          size="small"
+                                          variant="outlined"
+                                        />
+                                        <Chip
+                                          label={`${String(
+                                            status.preparationOperation.stepCount,
+                                          )} step(s)`}
+                                          size="small"
+                                          variant="outlined"
+                                        />
+                                        <Chip
+                                          label={`${status.preparationOperation.beforeStatus ?? 'UNKNOWN'} -> ${
+                                            status.preparationOperation.afterStatus ??
+                                            'UNKNOWN'
+                                          }`}
+                                          size="small"
+                                          variant="outlined"
+                                        />
+                                      </Stack>
+                                    </Box>
+                                  ) : null}
                                   {status.capability?.blockers.length ? (
                                     <Box>
                                       <Typography

@@ -16,6 +16,10 @@ Currently executable repairs:
 - `applicationInitialization.prepareCapability`
 - `applicationInitialization.reconcileApproval`
 
+When BackOffice returns `preparationOperation` evidence, Axis may render it as
+compact before/after setup evidence. Axis must not derive that evidence from
+release lists or import files.
+
 Source repairs, runtime repairs, publishing-only repairs, and module registry
 repairs remain operator guidance until their owning backend exposes an
 executable governed operation.
