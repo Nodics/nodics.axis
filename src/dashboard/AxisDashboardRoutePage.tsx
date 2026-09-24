@@ -90,6 +90,15 @@ interface OperationalFixModel {
   readonly blocker: AxisOperationalReadinessBlocker;
 }
 
+interface ReadinessTimelineModel {
+  readonly id: string;
+  readonly label: string;
+  readonly state: string;
+  readonly checkedAt: string;
+  readonly blockerCount: number;
+  readonly source: string;
+}
+
 const overviewPanelMinWidth = 320;
 const overviewPanelDefaultWidth = 380;
 const overviewPanelMaxWidth = 560;
@@ -341,6 +350,38 @@ function summaryStringList(
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     : [];
+}
+
+function readinessTimeline(
+  readiness: AxisAuthenticatedBootstrap['operationalReadiness'],
+): readonly ReadinessTimelineModel[] {
+  const timeline = readiness?.summary.timeline;
+  if (!Array.isArray(timeline)) return [];
+  return timeline
+    .filter((item): item is Readonly<Record<string, unknown>> =>
+      typeof item === 'object' && item !== null && !Array.isArray(item),
+    )
+    .map((item, index) => ({
+      id: typeof item.id === 'string' && item.id.trim().length > 0
+        ? item.id
+        : `readiness-timeline-${String(index)}`,
+      label: typeof item.label === 'string' && item.label.trim().length > 0
+        ? item.label
+        : 'Operational readiness',
+      state: typeof item.state === 'string' && item.state.trim().length > 0
+        ? item.state
+        : 'UNKNOWN',
+      checkedAt: typeof item.checkedAt === 'string' && item.checkedAt.trim().length > 0
+        ? item.checkedAt
+        : 'Not recorded',
+      blockerCount: typeof item.blockerCount === 'number'
+        ? item.blockerCount
+        : 0,
+      source: typeof item.source === 'string' && item.source.trim().length > 0
+        ? item.source
+        : 'backoffice.operationalReadiness',
+    }))
+    .slice(0, 5);
 }
 
 function operationalFixDetailRows(
@@ -636,6 +677,7 @@ export function AxisDashboardRoutePage({
   const searchReadiness = readinessSection(bootstrap, 'search');
   const assistantReadiness = readinessSection(bootstrap, 'assistant');
   const readinessFixes = operationalFixes(operationalReadiness);
+  const readinessTimelineItems = readinessTimeline(operationalReadiness);
   const operationalBlockerCount = operationalReadiness?.summary.blockers;
   const operationalBlockerValue =
     typeof operationalBlockerCount === 'number' ? operationalBlockerCount : undefined;
@@ -1556,6 +1598,95 @@ export function AxisDashboardRoutePage({
                   </Box>
                 ))}
               </Box>
+            </Box>
+          ) : null}
+          {readinessTimelineItems.length > 0 ? (
+            <Box
+              component="section"
+              sx={{
+                borderBottom: '1px solid',
+                borderColor: 'divider',
+                px: 3,
+                py: 2,
+              }}
+            >
+              <Stack spacing={1.5}>
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  spacing={1}
+                  sx={{
+                    alignItems: { md: 'center' },
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <Stack spacing={0.25}>
+                    <Typography component="h2" variant="h6">
+                      Readiness timeline
+                    </Typography>
+                    <Typography color="text.secondary" variant="body2">
+                      Latest backend readiness snapshots from startup, import, and publication recovery.
+                    </Typography>
+                  </Stack>
+                  <Chip
+                    label={`${String(readinessTimelineItems.length)} snapshot${readinessTimelineItems.length === 1 ? '' : 's'}`}
+                    size="small"
+                    variant="outlined"
+                  />
+                </Stack>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gap: 1,
+                    gridTemplateColumns: { xs: '1fr', lg: 'repeat(3, 1fr)' },
+                  }}
+                >
+                  {readinessTimelineItems.map((item) => (
+                    <Box
+                      key={item.id}
+                      sx={{
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 1,
+                        bgcolor: (theme) => alpha(theme.palette.background.default, 0.72),
+                        p: 1.25,
+                      }}
+                    >
+                      <Stack spacing={0.75}>
+                        <Stack
+                          direction="row"
+                          spacing={0.75}
+                          sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+                        >
+                          <Chip
+                            color={readinessSeverity(item.state)}
+                            label={item.state}
+                            size="small"
+                            sx={{ fontWeight: 800 }}
+                          />
+                          <Chip
+                            label={`${String(item.blockerCount)} blockers`}
+                            size="small"
+                            variant="outlined"
+                          />
+                        </Stack>
+                        <Typography component="h3" variant="subtitle2">
+                          {item.label}
+                        </Typography>
+                        <Typography color="text.secondary" variant="caption">
+                          {item.checkedAt}
+                        </Typography>
+                        <Typography
+                          color="text.secondary"
+                          sx={{ overflowWrap: 'anywhere' }}
+                          variant="caption"
+                        >
+                          {item.source}
+                        </Typography>
+                      </Stack>
+                    </Box>
+                  ))}
+                </Box>
+              </Stack>
             </Box>
           ) : null}
           <Stack

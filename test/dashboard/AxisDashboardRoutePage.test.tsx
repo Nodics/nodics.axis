@@ -570,7 +570,22 @@ describe('AxisDashboardRoutePage', () => {
         state: 'NEEDS_ATTENTION',
         checkedAt: '2026-09-24T00:00:00.000Z',
         source: 'backoffice.operationalReadiness',
-        summary: { total: 1, blockers: 1, NEEDS_ATTENTION: 1 },
+        summary: {
+          total: 1,
+          blockers: 1,
+          NEEDS_ATTENTION: 1,
+          timeline: [
+            {
+              id: '2026-09-24T00:00:00.000Z:NEEDS_ATTENTION',
+              eventType: 'backoffice.operationalReadiness.snapshot',
+              label: 'Operational readiness',
+              state: 'NEEDS_ATTENTION',
+              checkedAt: '2026-09-24T00:00:00.000Z',
+              blockerCount: 1,
+              source: 'backoffice.operationalReadiness.snapshot',
+            },
+          ],
+        },
         sections: [
           {
             key: 'acceptance',
@@ -669,6 +684,11 @@ describe('AxisDashboardRoutePage', () => {
       screen.getByText(
         'npm run docker-local:acceptance -> npm run project:post-reset-readiness -- --live --json -> Refresh Axis dashboard bootstrap',
       ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Readiness timeline')).toBeInTheDocument();
+    expect(screen.getByText('1 blockers')).toBeInTheDocument();
+    expect(
+      screen.getByText('backoffice.operationalReadiness.snapshot'),
     ).toBeInTheDocument();
   });
 
