@@ -581,6 +581,19 @@ describe('AxisDashboardRoutePage', () => {
             route: '/dashboard',
             summary: {
               browserValidationEnabled: true,
+              browserValidationState: 'FAILED',
+              browserValidationCheckedAt: '2026-09-24T00:06:00.000Z',
+              browserValidationRunId: 'provider-browser-smoke-failed',
+              browserValidationFailedStep: 'circaMiniApp',
+              browserValidationSource: 'NTOOLING_ACCEPTANCE_EVIDENCE',
+              browserValidationEvidenceFile:
+                'envs/kickoffLocal/generated/acceptance/browser-validation-evidence.json',
+              browserValidationCommand: 'npm run docker-local:acceptance',
+              operatorCommands: [
+                'npm run docker-local:acceptance',
+                'npm run project:post-reset-readiness -- --live --json',
+                'Refresh Axis dashboard bootstrap',
+              ],
               onlineProfileCount: 1,
               pendingProfileCount: 0,
               blockerCount: 1,
@@ -643,6 +656,18 @@ describe('AxisDashboardRoutePage', () => {
     expect(
       screen.getByText(
         'Browser validation is enabled for this environment but the latest captured evidence is not attached to readiness.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Evidence state')).toBeInTheDocument();
+    expect(screen.getByText('FAILED')).toBeInTheDocument();
+    expect(screen.getByText('provider-browser-smoke-failed')).toBeInTheDocument();
+    expect(screen.getByText('circaMiniApp')).toBeInTheDocument();
+    expect(
+      screen.getByText('NTOOLING_ACCEPTANCE_EVIDENCE'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'npm run docker-local:acceptance -> npm run project:post-reset-readiness -- --live --json -> Refresh Axis dashboard bootstrap',
       ),
     ).toBeInTheDocument();
   });

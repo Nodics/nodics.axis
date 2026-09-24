@@ -83,6 +83,10 @@ interface OperationalFixModel {
   readonly message: string;
   readonly action: string;
   readonly source: string;
+  readonly detailRows: readonly Readonly<{
+    readonly label: string;
+    readonly value: string;
+  }>[];
   readonly blocker: AxisOperationalReadinessBlocker;
 }
 
@@ -319,6 +323,48 @@ function blockerSeverity(
   return 'warning';
 }
 
+function summaryText(
+  summary: Readonly<Record<string, unknown>>,
+  key: string,
+): string | undefined {
+  const value = summary[key];
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
+function summaryStringList(
+  summary: Readonly<Record<string, unknown>>,
+  key: string,
+): readonly string[] {
+  const value = summary[key];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
+}
+
+function operationalFixDetailRows(
+  section: AxisOperationalReadinessSection,
+): OperationalFixModel['detailRows'] {
+  if (section.key !== 'acceptance') return [];
+  const summary = section.summary;
+  const rows = [
+    ['Evidence state', summaryText(summary, 'browserValidationState')],
+    ['Checked at', summaryText(summary, 'browserValidationCheckedAt')],
+    ['Run id', summaryText(summary, 'browserValidationRunId')],
+    ['Failed step', summaryText(summary, 'browserValidationFailedStep')],
+    ['Evidence source', summaryText(summary, 'browserValidationSource')],
+    ['Evidence file', summaryText(summary, 'browserValidationEvidenceFile')],
+    ['Command', summaryText(summary, 'browserValidationCommand')],
+  ]
+    .filter((row): row is [string, string] => typeof row[1] === 'string')
+    .map(([label, value]) => ({ label, value }));
+  const commands = summaryStringList(summary, 'operatorCommands');
+  return commands.length > 0
+    ? rows.concat({ label: 'Operator sequence', value: commands.join(' -> ') })
+    : rows;
+}
+
 function operationalFixes(
   readiness: AxisAuthenticatedBootstrap['operationalReadiness'],
 ): readonly OperationalFixModel[] {
@@ -335,6 +381,7 @@ function operationalFixes(
         message: blocker.message || blocker.disabledReason,
         action: blocker.suggestedAction || blocker.action || section.nextAction,
         source: blocker.source || section.source,
+        detailRows: operationalFixDetailRows(section),
         blocker,
       })),
     )
@@ -1456,6 +1503,38 @@ export function AxisDashboardRoutePage({
                       <Typography color="text.secondary" variant="body2">
                         {fix.message}
                       </Typography>
+                      {fix.detailRows.length > 0 ? (
+                        <Box
+                          sx={{
+                            display: 'grid',
+                            gap: 0.75,
+                            gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+                          }}
+                        >
+                          {fix.detailRows.map((row) => (
+                            <Box
+                              key={`${fix.id}-${row.label}`}
+                              sx={{
+                                border: '1px solid',
+                                borderColor: 'divider',
+                                borderRadius: 1,
+                                px: 1,
+                                py: 0.75,
+                              }}
+                            >
+                              <Typography color="text.secondary" variant="caption">
+                                {row.label}
+                              </Typography>
+                              <Typography
+                                sx={{ overflowWrap: 'anywhere' }}
+                                variant="body2"
+                              >
+                                {row.value}
+                              </Typography>
+                            </Box>
+                          ))}
+                        </Box>
+                      ) : null}
                       <Stack
                         direction={{ xs: 'column', sm: 'row' }}
                         spacing={1}
