@@ -2153,8 +2153,12 @@ export function AxisDashboardRoutePage({
                           <Button
                             disabled={repairMutation.isPending}
                             onClick={() => {
+                              const repairLabel =
+                                typeof fix.blocker.repair.label === 'string'
+                                  ? fix.blocker.repair.label
+                                  : fix.action;
                               const confirmed = window.confirm(
-                                `Execute ${String(fix.blocker.repair.label ?? fix.action)} from ${fix.ownerModule}?`,
+                                `Execute ${repairLabel} from ${fix.ownerModule}?`,
                               );
                               if (confirmed) repairMutation.mutate({ fix, dryRun: false });
                             }}

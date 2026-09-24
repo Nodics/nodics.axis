@@ -43,7 +43,7 @@ export interface RuntimeConfigurationEffectiveValue {
 export interface RuntimeConfigurationEffective {
   readonly code: string;
   readonly ownerModule?: string;
-  readonly status: 'CONFIGURED' | 'UNCONFIGURED' | string;
+  readonly status: 'CONFIGURED' | 'UNCONFIGURED' | (string & {});
   readonly missingRequired: readonly string[];
   readonly values: Readonly<Record<string, RuntimeConfigurationEffectiveValue>>;
 }

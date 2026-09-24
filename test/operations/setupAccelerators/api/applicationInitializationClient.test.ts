@@ -133,7 +133,7 @@ describe('application initialization client', () => {
       '/nodics/backoffice/v0/applications/agoraapparel/initialization/prepare',
     );
     expect(init?.method).toBe('POST');
-    expect(JSON.parse(String(init?.body))).toMatchObject({
+    expect(JSON.parse(typeof init?.body === 'string' ? init.body : '{}')).toMatchObject({
       reason: 'Prepare setup only',
     });
     expect(status.preparationOperation).toMatchObject({

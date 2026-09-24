@@ -883,7 +883,18 @@ describe('AxisDashboardRoutePage', () => {
     await waitFor(() => {
       const calls = vi.mocked(fetch).mock.calls;
       expect(
-        calls.some((call) => String(call[0]).includes('/operations/readiness/repairs')),
+        calls.some((call) => {
+          const target = call[0];
+          const url =
+            typeof target === 'string'
+              ? target
+              : target instanceof URL
+                ? target.toString()
+                : target instanceof Request
+                  ? target.url
+                  : '';
+          return url.includes('/operations/readiness/repairs');
+        }),
       ).toBe(true);
     });
     expect(await screen.findByText('acceptance:browser-validation')).toBeInTheDocument();
