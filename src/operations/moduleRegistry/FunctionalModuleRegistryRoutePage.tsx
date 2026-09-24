@@ -481,6 +481,26 @@ function runtimeCardHint(module: FunctionalModuleRegistration): string | undefin
   return 'Start the owning runtime server, verify heartbeat evidence, then refresh Axis bootstrap.';
 }
 
+function runtimeServerSummary(module: FunctionalModuleRegistration): string {
+  const observationCount = Math.max(
+    module.runtimeObservations.length,
+    module.observedServers.length,
+  );
+  if (observationCount > 0) return `${String(observationCount)} observed`;
+  if (module.runtimeState === 'ACTIVE') return 'Active, unlocated';
+  if (module.registrationState !== 'REGISTERED') return 'Not registered';
+  if (!module.enabled) return 'Not activated';
+  return 'No heartbeat';
+}
+
+function runtimeObservationTitle(
+  observation: FunctionalModuleRegistration['runtimeObservations'][number],
+): string {
+  return [observation.server, observation.node ? `node ${observation.node}` : undefined]
+    .filter(Boolean)
+    .join(' · ') || observation.observedServer;
+}
+
 function sampleReceipt(module: FunctionalModuleRegistration) {
   return module.activationData?.receipts.find(
     (receipt) => receipt.dataType === 'sample' && receipt.trigger === 'USER',
@@ -1033,12 +1053,7 @@ function ModuleCard({
     module.observedServers.length,
   );
   const runtimeHint = runtimeCardHint(module);
-  const serverSummary =
-    runtimeObservationCount > 0
-      ? `${String(runtimeObservationCount)} runtime`
-      : module.runtimeState === 'ACTIVE'
-        ? 'Unlocated'
-        : 'No runtime';
+  const serverSummary = runtimeServerSummary(module);
   const serverMetricTone =
     module.runtimeState !== 'ACTIVE'
       ? 'warning'
@@ -1334,9 +1349,9 @@ function ModuleCard({
                   <Typography>
                     {runtimeObservationCount > 0
                       ? module.runtimeObservations
-                          .map((observation) => observation.observedServer)
+                          .map((observation) => runtimeObservationTitle(observation))
                           .join(', ') || module.observedServers.join(', ')
-                      : 'No runtime server observed'}
+                      : 'No heartbeat observed'}
                   </Typography>
                 </Grid>
                 <Grid size={{ xs: 12, md: 4 }}>
@@ -1420,19 +1435,24 @@ function ModuleCard({
                       <Grid key={observation.observedServer} size={{ xs: 12, md: 6 }}>
                         <Alert severity="success" sx={{ height: '100%' }}>
                           <Typography sx={{ fontWeight: 800 }} variant="body2">
-                            {observation.server || observation.observedServer}
+                            {runtimeObservationTitle(observation)}
                           </Typography>
                           <Typography color="text.secondary" variant="caption">
                             {[
                               observation.environment,
-                              observation.node ? `node ${observation.node}` : undefined,
                               observation.lastObservedAt
                                 ? `seen ${formatTime(observation.lastObservedAt)}`
                                 : undefined,
+                              observation.reasonCode,
                             ]
                               .filter(Boolean)
                               .join(' · ') || 'Runtime heartbeat observed'}
                           </Typography>
+                          {observation.recoveryAction ? (
+                            <Typography color="text.secondary" variant="caption">
+                              {observation.recoveryAction}
+                            </Typography>
+                          ) : null}
                         </Alert>
                       </Grid>
                     ))}

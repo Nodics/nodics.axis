@@ -107,6 +107,8 @@ function moduleItem(
         server: 'platformServer',
         node: 'default',
         lastObservedAt: '2026-08-28T12:00:00.000Z',
+        reasonCode: 'RUNTIME_OBSERVED',
+        recoveryAction: 'Runtime heartbeat is currently linked to this module.',
       },
     ],
     catalogueRevision: 3,
@@ -220,6 +222,7 @@ describe('FunctionalModuleRegistryRoutePage', () => {
     ).not.toBeInTheDocument();
     expect(activationRequests).toBe(1);
     expect(registeredReads).toBeGreaterThan(readsBefore);
+    expect(screen.getAllByText('1 observed').length).toBeGreaterThan(0);
   });
   it('explains each dependency blocker using backend reasons and recovery guidance', async () => {
     const blockedModule = {
@@ -353,7 +356,7 @@ describe('FunctionalModuleRegistryRoutePage', () => {
     expect(screen.getByText('Registry identity')).toBeInTheDocument();
     expect(screen.getByText('nodics.commerce')).toBeInTheDocument();
     expect(screen.getByText('Runtime observations')).toBeInTheDocument();
-    expect(screen.getAllByText('platformServer').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/platformServer · node default/).length).toBeGreaterThan(0);
     expect(screen.getByText('Data packages')).toBeInTheDocument();
   });
 
@@ -384,7 +387,7 @@ describe('FunctionalModuleRegistryRoutePage', () => {
     renderPage();
 
     await screen.findByText('Loyalty');
-    expect(screen.getByText('No runtime')).toBeInTheDocument();
+    expect(screen.getByText('No heartbeat')).toBeInTheDocument();
     expect(
       screen.getByText(/Start the owning runtime server, verify heartbeat evidence/iu),
     ).toBeInTheDocument();

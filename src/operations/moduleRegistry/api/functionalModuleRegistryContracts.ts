@@ -34,6 +34,8 @@ export interface FunctionalModuleRuntimeObservation {
   readonly server?: string | undefined;
   readonly node?: string | undefined;
   readonly lastObservedAt?: string | undefined;
+  readonly reasonCode?: string | undefined;
+  readonly recoveryAction?: string | undefined;
 }
 
 export interface FunctionalModuleActivationPackage {
@@ -214,6 +216,8 @@ function parseRuntimeObservation(
     server: optionalText(item.server, `${name} server`),
     node: optionalText(item.node, `${name} node`),
     lastObservedAt: optionalText(item.lastObservedAt, `${name} last observed at`),
+    reasonCode: optionalText(item.reasonCode, `${name} reason code`),
+    recoveryAction: optionalText(item.recoveryAction, `${name} recovery action`),
   });
 }
 
