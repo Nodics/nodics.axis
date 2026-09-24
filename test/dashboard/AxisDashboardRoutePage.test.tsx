@@ -574,6 +574,35 @@ describe('AxisDashboardRoutePage', () => {
           total: 1,
           blockers: 1,
           NEEDS_ATTENTION: 1,
+          recoveryMatrix: [
+            {
+              key: 'imports',
+              label: 'Import data',
+              description:
+                'Install and repair business data releases from owner catalogues.',
+              state: 'READY',
+              ownerModule: 'import',
+              source: 'IMPORT_RELEASE_CATALOGUE',
+              route: '/operations/imports-exports',
+              blockerCount: 0,
+              issueCodes: [],
+              nextAction: 'Data releases are prepared in the owning import catalogues.',
+            },
+            {
+              key: 'approval',
+              label: 'Complete approvals',
+              description:
+                'Resolve governed Process approval tasks before Online publication.',
+              state: 'NEEDS_ATTENTION',
+              ownerModule: 'workflow',
+              source: 'PUBLICATION_APPROVAL',
+              route: '/process/approval-queue',
+              blockerCount: 1,
+              issueCodes: ['TASK_NOT_ACTIONABLE'],
+              nextAction:
+                'Open Approval Queue and reconcile governed publication approval tasks.',
+            },
+          ],
           timeline: [
             {
               id: '2026-09-24T00:00:00.000Z:NEEDS_ATTENTION',
@@ -659,6 +688,15 @@ describe('AxisDashboardRoutePage', () => {
       </AxisThemeProvider>,
     );
 
+    expect(await screen.findByText('Go-live recovery')).toBeInTheDocument();
+    expect(screen.getByText('Import data')).toBeInTheDocument();
+    expect(screen.getByText('Complete approvals')).toBeInTheDocument();
+    expect(screen.getByText('TASK_NOT_ACTIONABLE')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Open Approval Queue and reconcile governed publication approval tasks.',
+      ),
+    ).toBeInTheDocument();
     expect(await screen.findByText('Fix these first')).toBeInTheDocument();
     expect(
       screen.getByText('Acceptance and browser validation'),
@@ -686,7 +724,7 @@ describe('AxisDashboardRoutePage', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByText('Readiness timeline')).toBeInTheDocument();
-    expect(screen.getByText('1 blockers')).toBeInTheDocument();
+    expect(screen.getAllByText('1 blockers').length).toBeGreaterThan(0);
     expect(
       screen.getByText('backoffice.operationalReadiness.snapshot'),
     ).toBeInTheDocument();

@@ -99,6 +99,19 @@ interface ReadinessTimelineModel {
   readonly source: string;
 }
 
+interface ReadinessRecoveryLaneModel {
+  readonly key: string;
+  readonly label: string;
+  readonly description: string;
+  readonly state: string;
+  readonly ownerModule: string;
+  readonly source: string;
+  readonly route: string;
+  readonly blockerCount: number;
+  readonly issueCodes: readonly string[];
+  readonly nextAction: string;
+}
+
 const overviewPanelMinWidth = 320;
 const overviewPanelDefaultWidth = 380;
 const overviewPanelMaxWidth = 560;
@@ -382,6 +395,49 @@ function readinessTimeline(
         : 'backoffice.operationalReadiness',
     }))
     .slice(0, 5);
+}
+
+function readinessRecoveryLanes(
+  readiness: AxisAuthenticatedBootstrap['operationalReadiness'],
+): readonly ReadinessRecoveryLaneModel[] {
+  const matrix = readiness?.summary.recoveryMatrix;
+  if (!Array.isArray(matrix)) return [];
+  return matrix
+    .filter((item): item is Readonly<Record<string, unknown>> =>
+      typeof item === 'object' && item !== null && !Array.isArray(item),
+    )
+    .map((item, index) => ({
+      key: typeof item.key === 'string' && item.key.trim().length > 0
+        ? item.key
+        : `recovery-lane-${String(index)}`,
+      label: typeof item.label === 'string' && item.label.trim().length > 0
+        ? item.label
+        : 'Readiness lane',
+      description: typeof item.description === 'string' && item.description.trim().length > 0
+        ? item.description
+        : 'Review readiness in the owning workspace.',
+      state: typeof item.state === 'string' && item.state.trim().length > 0
+        ? item.state
+        : 'UNKNOWN',
+      ownerModule: typeof item.ownerModule === 'string' && item.ownerModule.trim().length > 0
+        ? item.ownerModule
+        : 'unknown',
+      source: typeof item.source === 'string' && item.source.trim().length > 0
+        ? item.source
+        : 'backoffice.operationalReadiness',
+      route: typeof item.route === 'string' && item.route.trim().length > 0
+        ? item.route
+        : '/dashboard',
+      blockerCount: typeof item.blockerCount === 'number'
+        ? item.blockerCount
+        : 0,
+      issueCodes: Array.isArray(item.issueCodes)
+        ? item.issueCodes.filter((code): code is string => typeof code === 'string' && code.trim().length > 0)
+        : [],
+      nextAction: typeof item.nextAction === 'string' && item.nextAction.trim().length > 0
+        ? item.nextAction
+        : 'Review the owning workspace.',
+    }));
 }
 
 function operationalFixDetailRows(
@@ -678,6 +734,7 @@ export function AxisDashboardRoutePage({
   const assistantReadiness = readinessSection(bootstrap, 'assistant');
   const readinessFixes = operationalFixes(operationalReadiness);
   const readinessTimelineItems = readinessTimeline(operationalReadiness);
+  const readinessRecoveryLaneItems = readinessRecoveryLanes(operationalReadiness);
   const operationalBlockerCount = operationalReadiness?.summary.blockers;
   const operationalBlockerValue =
     typeof operationalBlockerCount === 'number' ? operationalBlockerCount : undefined;
@@ -1465,6 +1522,136 @@ export function AxisDashboardRoutePage({
             overflow: 'hidden',
           }}
         >
+          {readinessRecoveryLaneItems.length > 0 ? (
+            <Box
+              component="section"
+              sx={{
+                borderBottom: '1px solid',
+                borderColor: 'divider',
+                bgcolor: (theme) => alpha(theme.palette.background.default, 0.68),
+                px: 3,
+                py: 2,
+              }}
+            >
+              <Stack spacing={1.5}>
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  spacing={1}
+                  sx={{
+                    alignItems: { md: 'center' },
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <Stack spacing={0.25}>
+                    <Typography component="h2" variant="h5">
+                      Go-live recovery
+                    </Typography>
+                    <Typography color="text.secondary">
+                      Follow the readiness lanes in order, then use blockers for the exact repair.
+                    </Typography>
+                  </Stack>
+                  <Chip
+                    color={
+                      readinessRecoveryLaneItems.some((lane) => lane.blockerCount > 0)
+                        ? 'warning'
+                        : 'success'
+                    }
+                    label={`${String(
+                      readinessRecoveryLaneItems.reduce((total, lane) => total + lane.blockerCount, 0),
+                    )} blockers`}
+                    sx={{ alignSelf: { xs: 'flex-start', md: 'center' }, fontWeight: 800 }}
+                  />
+                </Stack>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gap: 1,
+                    gridTemplateColumns: {
+                      xs: '1fr',
+                      md: 'repeat(2, minmax(0, 1fr))',
+                      xl: 'repeat(5, minmax(0, 1fr))',
+                    },
+                  }}
+                >
+                  {readinessRecoveryLaneItems.map((lane) => (
+                    <Box
+                      key={lane.key}
+                      sx={{
+                        bgcolor: 'background.paper',
+                        border: '1px solid',
+                        borderColor: (theme) =>
+                          alpha(theme.palette[readinessSeverity(lane.state)].main, 0.32),
+                        borderRadius: 1,
+                        p: 1.5,
+                      }}
+                    >
+                      <Stack spacing={1} sx={{ height: '100%' }}>
+                        <Stack
+                          direction="row"
+                          spacing={0.75}
+                          sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+                        >
+                          <Chip
+                            color={readinessSeverity(lane.state)}
+                            label={lane.state}
+                            size="small"
+                            sx={{ fontWeight: 800 }}
+                          />
+                          <Chip
+                            label={`${String(lane.blockerCount)} blocker${lane.blockerCount === 1 ? '' : 's'}`}
+                            size="small"
+                            variant="outlined"
+                          />
+                        </Stack>
+                        <Typography component="h3" variant="subtitle1">
+                          {lane.label}
+                        </Typography>
+                        <Typography color="text.secondary" variant="body2">
+                          {lane.description}
+                        </Typography>
+                        {lane.issueCodes.length > 0 ? (
+                          <Stack
+                            direction="row"
+                            spacing={0.75}
+                            sx={{ flexWrap: 'wrap', gap: 0.75 }}
+                          >
+                            {lane.issueCodes.map((code) => (
+                              <Chip
+                                key={`${lane.key}-${code}`}
+                                label={code}
+                                size="small"
+                                variant="outlined"
+                              />
+                            ))}
+                          </Stack>
+                        ) : null}
+                        <Typography color="text.secondary" sx={{ flexGrow: 1 }} variant="body2">
+                          {lane.nextAction}
+                        </Typography>
+                        <Stack
+                          direction="row"
+                          spacing={0.75}
+                          sx={{ alignItems: 'center', justifyContent: 'space-between' }}
+                        >
+                          <Typography color="text.secondary" variant="caption">
+                            {lane.ownerModule}
+                          </Typography>
+                          <Button
+                            endIcon={<ShellIcon name="chevron-right" />}
+                            onClick={() => void navigate(lane.route)}
+                            size="small"
+                            variant="outlined"
+                          >
+                            Open
+                          </Button>
+                        </Stack>
+                      </Stack>
+                    </Box>
+                  ))}
+                </Box>
+              </Stack>
+            </Box>
+          ) : null}
           {readinessFixes.length > 0 ? (
             <Box
               component="section"
