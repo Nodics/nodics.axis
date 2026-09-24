@@ -530,6 +530,123 @@ describe('AxisDashboardRoutePage', () => {
     ).toBeInTheDocument();
   });
 
+  it('surfaces backend-owned acceptance and browser-validation evidence', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>((input) => {
+        const url = urlOf(input);
+        if (url.includes('/runtime/modules/available')) {
+          return Promise.resolve(response({ items: [] }));
+        }
+        if (url.includes('/runtime/modules/registrations')) {
+          return Promise.resolve(
+            response({ items: [moduleItem('nodics.platform', 'REGISTERED', true)] }),
+          );
+        }
+        if (url.endsWith('/v0/init') || url.endsWith('/v0/core')) {
+          return Promise.resolve(response([release('CURRENT', 'core')]));
+        }
+        if (url.endsWith('/v0/sample')) return Promise.resolve(response([]));
+        if (url.includes('/applications/')) {
+          return Promise.resolve(
+            response({
+              profileCode: 'agoraapparel',
+              siteCode: 'agora-apparel',
+              readiness: 'READY',
+              releaseCode: 'agoraapparel-v001',
+              releaseVersion: '0.1.0',
+              releaseStatus: 'CURRENT',
+              allowedActions: ['ROLLBACK'],
+            }),
+          );
+        }
+        return Promise.resolve(response({}));
+      }),
+    );
+    const acceptanceBootstrap: AxisAuthenticatedBootstrap = {
+      ...bootstrap,
+      operationalReadiness: {
+        contractVersion: 1,
+        state: 'NEEDS_ATTENTION',
+        checkedAt: '2026-09-24T00:00:00.000Z',
+        source: 'backoffice.operationalReadiness',
+        summary: { total: 1, blockers: 1, NEEDS_ATTENTION: 1 },
+        sections: [
+          {
+            key: 'acceptance',
+            title: 'Acceptance and browser validation',
+            businessStatus: 'NEEDS_ATTENTION',
+            ownerModule: 'tooling',
+            source: 'NTOOLING_ACCEPTANCE_READINESS',
+            route: '/dashboard',
+            summary: {
+              browserValidationEnabled: true,
+              onlineProfileCount: 1,
+              pendingProfileCount: 0,
+              blockerCount: 1,
+            },
+            blockers: [
+              {
+                blockerCode: 'BROWSER_VALIDATION_EVIDENCE_REQUIRED',
+                code: 'BROWSER_VALIDATION_EVIDENCE_REQUIRED',
+                severity: 'NEEDS_ATTENTION',
+                ownerType: 'ACCEPTANCE',
+                source: 'NTOOLING_BROWSER_VALIDATION',
+                action: 'Run local browser validation',
+                message:
+                  'Browser validation is enabled for this environment but the latest captured evidence is not attached to readiness.',
+                disabledReason:
+                  'Browser validation is enabled for this environment but the latest captured evidence is not attached to readiness.',
+                repair: {
+                  available: false,
+                  operation: 'tooling.acceptance.browserValidation',
+                  action: 'CAPTURE_BROWSER_VALIDATION',
+                  eligibility: 'NOT_AVAILABLE',
+                  label: 'Run local browser validation',
+                },
+                suggestedAction:
+                  'Run the local acceptance/browser smoke and refresh Axis after evidence is captured.',
+              },
+            ],
+            nextAction:
+              'Complete application parity and capture configured local browser-validation evidence.',
+          },
+        ],
+      },
+    };
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <AxisThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <AxisDashboardRoutePage
+              accessToken="employee-token"
+              bootstrap={acceptanceBootstrap}
+              runtime={runtime}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </AxisThemeProvider>,
+    );
+
+    expect(await screen.findByText('Fix these first')).toBeInTheDocument();
+    expect(
+      screen.getByText('Acceptance and browser validation'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Run the local acceptance/browser smoke and refresh Axis after evidence is captured.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Browser validation is enabled for this environment but the latest captured evidence is not attached to readiness.',
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('deduplicates the same release across runtime catalogue projections', async () => {
     const duplicateCoreRelease = {
       ...release('CURRENT', 'core'),
