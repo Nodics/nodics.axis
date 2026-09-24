@@ -117,6 +117,13 @@ interface ReadinessRepairResultModel {
   readonly previewTargetCodes: readonly string[];
   readonly rollbackAvailable?: boolean | undefined;
   readonly retrySafe?: boolean | undefined;
+  readonly providerCode?: string | undefined;
+  readonly providerState?: string | undefined;
+  readonly safetyLevel?: string | undefined;
+  readonly receiptCode?: string | undefined;
+  readonly eventEmitted?: boolean | undefined;
+  readonly refreshScopes: readonly string[];
+  readonly businessSteps: readonly string[];
 }
 
 interface ReadinessRecoveryLaneModel {
@@ -668,6 +675,26 @@ function parseReadinessRepairResult(value: unknown): ReadinessRepairResultModel 
     !Array.isArray(data.retryPolicy)
       ? (data.retryPolicy as Record<string, unknown>)
       : {};
+  const provider =
+    typeof data.provider === 'object' && data.provider !== null && !Array.isArray(data.provider)
+      ? (data.provider as Record<string, unknown>)
+      : {};
+  const safety =
+    typeof data.safety === 'object' && data.safety !== null && !Array.isArray(data.safety)
+      ? (data.safety as Record<string, unknown>)
+      : {};
+  const receipt =
+    typeof data.receipt === 'object' && data.receipt !== null && !Array.isArray(data.receipt)
+      ? (data.receipt as Record<string, unknown>)
+      : {};
+  const events =
+    typeof data.events === 'object' && data.events !== null && !Array.isArray(data.events)
+      ? (data.events as Record<string, unknown>)
+      : {};
+  const plan =
+    typeof data.plan === 'object' && data.plan !== null && !Array.isArray(data.plan)
+      ? (data.plan as Record<string, unknown>)
+      : {};
   return Object.freeze({
     state: textValue(data.state) ?? 'UNKNOWN',
     dryRun: data.dryRun === true,
@@ -696,6 +723,24 @@ function parseReadinessRepairResult(value: unknown): ReadinessRepairResultModel 
       typeof retryPolicy.safeToRetry === 'boolean'
         ? retryPolicy.safeToRetry
         : undefined,
+    providerCode: textValue(provider.providerCode) ?? textValue(provider.ownerModule),
+    providerState: textValue(provider.lifecycleState),
+    safetyLevel: textValue(safety.level),
+    receiptCode: textValue(receipt.receiptCode),
+    eventEmitted:
+      typeof events.emitted === 'boolean'
+        ? events.emitted
+        : undefined,
+    refreshScopes: Object.freeze(
+      Array.isArray(events.refreshScopes)
+        ? events.refreshScopes.filter((item): item is string => typeof item === 'string')
+        : [],
+    ),
+    businessSteps: Object.freeze(
+      Array.isArray(plan.businessSteps)
+        ? plan.businessSteps.filter((item): item is string => typeof item === 'string')
+        : [],
+    ),
   });
 }
 
@@ -1771,6 +1816,13 @@ export function AxisDashboardRoutePage({
                     ['Rollback', repairResult.rollbackAvailable === undefined ? 'Unknown' : repairResult.rollbackAvailable ? 'Available' : 'Not available'],
                     ['Targets', Object.values(repairResult.targetIdentifiers).join(', ') || 'Not supplied'],
                     ['Preview', repairResult.previewTargetCodes.join(', ') || 'No preview targets'],
+                    ['Provider', repairResult.providerCode ?? 'Not supplied'],
+                    ['Provider state', repairResult.providerState ?? 'Unknown'],
+                    ['Safety', repairResult.safetyLevel ?? 'Unknown'],
+                    ['Receipt', repairResult.receiptCode ?? 'Not created'],
+                    ['Refresh event', repairResult.eventEmitted === undefined ? 'Unknown' : repairResult.eventEmitted ? 'Emitted' : 'Not emitted'],
+                    ['Refresh scopes', repairResult.refreshScopes.join(', ') || 'Not supplied'],
+                    ['Plan', repairResult.businessSteps.join(' -> ') || 'Not supplied'],
                   ].map(([label, value]) => (
                     <Box
                       key={label}

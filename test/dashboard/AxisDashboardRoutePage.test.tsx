@@ -415,10 +415,25 @@ describe('AxisDashboardRoutePage', () => {
               operation: 'tooling.acceptance.browserValidation',
               action: 'CAPTURE_BROWSER_VALIDATION',
               ownerModule: 'tooling',
+              provider: {
+                ownerModule: 'tooling',
+                providerCode: 'toolingAcceptanceRepairProvider',
+                lifecycleState: 'READY',
+              },
               targetIdentifiers: { sourceCode: 'browser-validation' },
               preview: { changedCount: 1, skippedCount: 0, targetCodes: ['browser-validation'] },
               transaction: { atomic: false, rollbackAvailable: false },
               retryPolicy: { safeToRetry: true, reuseIdempotencyKey: true },
+              safety: { level: 'SAFE', destructiveDisabled: false },
+              plan: { businessSteps: ['Capture browser evidence', 'Refresh readiness'] },
+              receipt: {
+                receiptCode: 'repair:tooling:browser-validation',
+                receiptType: 'OPERATIONAL_READINESS_REPAIR',
+              },
+              events: {
+                emitted: true,
+                refreshScopes: ['acceptance', 'operationalReadiness'],
+              },
               changedCount: 0,
               skippedCount: 0,
               blockersRemaining: 1,
@@ -493,10 +508,25 @@ describe('AxisDashboardRoutePage', () => {
               operation: 'tooling.acceptance.browserValidation',
               action: 'CAPTURE_BROWSER_VALIDATION',
               ownerModule: 'tooling',
+              provider: {
+                ownerModule: 'tooling',
+                providerCode: 'toolingAcceptanceRepairProvider',
+                lifecycleState: 'READY',
+              },
               targetIdentifiers: { sourceCode: 'browser-validation' },
               preview: { changedCount: 1, skippedCount: 0, targetCodes: ['browser-validation'] },
               transaction: { atomic: false, rollbackAvailable: false },
               retryPolicy: { safeToRetry: true, reuseIdempotencyKey: true },
+              safety: { level: 'SAFE', destructiveDisabled: false },
+              plan: { businessSteps: ['Capture browser evidence', 'Refresh readiness'] },
+              receipt: {
+                receiptCode: 'repair:tooling:browser-validation',
+                receiptType: 'OPERATIONAL_READINESS_REPAIR',
+              },
+              events: {
+                emitted: true,
+                refreshScopes: ['acceptance', 'operationalReadiness'],
+              },
               changedCount: 0,
               skippedCount: 0,
               blockersRemaining: 1,
@@ -622,10 +652,25 @@ describe('AxisDashboardRoutePage', () => {
               operation: 'tooling.acceptance.browserValidation',
               action: 'CAPTURE_BROWSER_VALIDATION',
               ownerModule: 'tooling',
+              provider: {
+                ownerModule: 'tooling',
+                providerCode: 'toolingAcceptanceRepairProvider',
+                lifecycleState: 'READY',
+              },
               targetIdentifiers: { sourceCode: 'browser-validation' },
               preview: { changedCount: 1, skippedCount: 0, targetCodes: ['browser-validation'] },
               transaction: { atomic: false, rollbackAvailable: false },
               retryPolicy: { safeToRetry: true, reuseIdempotencyKey: true },
+              safety: { level: 'SAFE', destructiveDisabled: false },
+              plan: { businessSteps: ['Capture browser evidence', 'Refresh readiness'] },
+              receipt: {
+                receiptCode: 'repair:tooling:browser-validation',
+                receiptType: 'OPERATIONAL_READINESS_REPAIR',
+              },
+              events: {
+                emitted: true,
+                refreshScopes: ['acceptance', 'operationalReadiness'],
+              },
               changedCount: 0,
               skippedCount: 0,
               blockersRemaining: 1,
@@ -843,6 +888,10 @@ describe('AxisDashboardRoutePage', () => {
     });
     expect(await screen.findByText('acceptance:browser-validation')).toBeInTheDocument();
     expect(screen.getAllByText('browser-validation').length).toBeGreaterThan(0);
+    expect(screen.getByText('toolingAcceptanceRepairProvider')).toBeInTheDocument();
+    expect(screen.getByText('repair:tooling:browser-validation')).toBeInTheDocument();
+    expect(screen.getByText('acceptance, operationalReadiness')).toBeInTheDocument();
+    expect(screen.getByText('Capture browser evidence -> Refresh readiness')).toBeInTheDocument();
   });
 
   it('deduplicates the same release across runtime catalogue projections', async () => {
