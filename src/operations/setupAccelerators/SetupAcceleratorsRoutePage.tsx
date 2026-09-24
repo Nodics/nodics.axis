@@ -98,6 +98,16 @@ interface RepairConfirmationState {
   readonly status: ApplicationInitializationStatus;
 }
 
+interface PublicationRecoveryGuidance {
+  readonly key: string;
+  readonly title: string;
+  readonly body: string;
+  readonly route: string;
+  readonly actionLabel: string;
+  readonly severity: 'success' | 'warning' | 'error' | 'info';
+  readonly priority: number;
+}
+
 const queryRoot = ['setup-accelerators'] as const;
 
 function stateColor(
@@ -485,6 +495,149 @@ function nextActionText(status: ApplicationInitializationStatus | undefined): st
   return 'Ready to initialize.';
 }
 
+function publicationRecoveryGuidance(
+  profile: ApplicationInitializationProfile,
+  status: ApplicationInitializationStatus | undefined,
+): PublicationRecoveryGuidance {
+  const title = displayProfileTitle(profile);
+  if (!status) {
+    return {
+      key: `${profile.code}:status-unavailable`,
+      title: `${title}: status unavailable`,
+      body: 'Refresh setup status before taking publication action.',
+      route: '/publishing',
+      actionLabel: 'Open Publishing',
+      severity: 'warning',
+      priority: 60,
+    };
+  }
+  if (status.releaseStatus === 'INVALID_RELEASE') {
+    return {
+      key: `${profile.code}:invalid-release`,
+      title: `${title}: release needs repair`,
+      body:
+        status.capability?.disabledReason ??
+        'The source release manifest or descriptor is invalid. Repair the owning module release, rebuild, and refresh before installing.',
+      route: '/operations/imports-exports',
+      actionLabel: 'Open Data Releases',
+      severity: 'error',
+      priority: 10,
+    };
+  }
+  if (preparationBlocked(status)) {
+    return {
+      key: `${profile.code}:preparation-blocked`,
+      title: `${title}: setup blocked`,
+      body: blockedActionSummary(status),
+      route: '/registry',
+      actionLabel: 'Open Module Registry',
+      severity: 'error',
+      priority: 20,
+    };
+  }
+  if (status.capability?.businessStatus === 'NEEDS_ATTENTION') {
+    const blocker = status.capability.blockers[0];
+    return {
+      key: `${profile.code}:needs-attention`,
+      title: `${title}: needs attention`,
+      body:
+        blocker?.message ??
+        status.capability.nextAction ??
+        'Resolve the backend-owned readiness blocker before continuing publication.',
+      route:
+        blocker?.owner?.toLowerCase().includes('process') ||
+        blocker?.source?.toLowerCase().includes('process')
+          ? '/process/tasks'
+          : '/publishing',
+      actionLabel:
+        blocker?.owner?.toLowerCase().includes('process') ||
+        blocker?.source?.toLowerCase().includes('process')
+          ? 'Open Process Tasks'
+          : 'Open Publishing',
+      severity: 'error',
+      priority: 25,
+    };
+  }
+  if (preparationNeedsAction(status)) {
+    return {
+      key: `${profile.code}:prepare-setup`,
+      title: `${title}: prepare staged setup`,
+      body: 'Install or update required staged setup data before requesting Online approval.',
+      route: '/operations/imports-exports',
+      actionLabel: 'Open Data Releases',
+      severity: 'warning',
+      priority: 30,
+    };
+  }
+  if (status.capability?.businessStatus === 'APPROVAL_REQUIRED') {
+    return {
+      key: `${profile.code}:approval-required`,
+      title: `${title}: approval required`,
+      body: 'Staged content is prepared. Request or reconcile the governed publication approval before Online publication.',
+      route: '/publishing',
+      actionLabel: 'Open Publishing',
+      severity: 'warning',
+      priority: 35,
+    };
+  }
+  if (
+    status.capability?.businessStatus === 'APPROVAL_IN_PROGRESS' ||
+    status.readiness === 'PUBLICATION_PENDING'
+  ) {
+    const diagnostic = status.capability?.approvalDiagnostic;
+    return {
+      key: `${profile.code}:approval-in-progress`,
+      title: `${title}: review approval task`,
+      body:
+        diagnostic?.message ??
+        'Publication approval is in progress. Review the actionable Process task, assignee, queue, and permissions.',
+      route: '/process/tasks',
+      actionLabel: 'Open Approval Queue',
+      severity: 'warning',
+      priority: 40,
+    };
+  }
+  if (status.capability?.businessStatus === 'APPROVED') {
+    return {
+      key: `${profile.code}:approved`,
+      title: `${title}: publish Online`,
+      body: 'Publication approval is complete. Continue through governed publishing to make the channel Online.',
+      route: '/publishing',
+      actionLabel: 'Open Publishing',
+      severity: 'info',
+      priority: 45,
+    };
+  }
+  if (capabilityIsOnline(status)) {
+    return {
+      key: `${profile.code}:online`,
+      title: `${title}: Online ready`,
+      body: 'Online channel is available. Use browser validation or the public application to verify the published experience.',
+      route: '/publishing',
+      actionLabel: 'Open Publishing',
+      severity: 'success',
+      priority: 90,
+    };
+  }
+  return {
+    key: `${profile.code}:initialize`,
+    title: `${title}: initialize staged baseline`,
+    body: 'Initialize the governed baseline, then follow staged setup, approval, and Online publication.',
+    route: '/publishing',
+    actionLabel: 'Open Publishing',
+    severity: 'info',
+    priority: 50,
+  };
+}
+
+function rowGuidanceLabel(guidance: PublicationRecoveryGuidance): string {
+  if (guidance.priority <= 25) return 'Fix first';
+  if (guidance.priority <= 35) return 'Prepare';
+  if (guidance.priority <= 45) return 'Approval';
+  if (guidance.priority >= 90) return 'Verify';
+  return 'Next';
+}
+
 function SetupMetric({
   color = 'default',
   label,
@@ -812,6 +965,12 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
   const actionCount = statuses.filter(
     (item) => capabilityNeedsAction(item.profile, item.query.data),
   ).length;
+  const recoveryGuidance = statuses
+    .filter((item) => !item.query.isPending && !item.query.error)
+    .map((item) => publicationRecoveryGuidance(item.profile, item.query.data))
+    .filter((item) => item.severity !== 'success')
+    .sort((left, right) => left.priority - right.priority)
+    .slice(0, 4);
   const loading = queries.some((query) => query.isPending);
   const filteredStatuses = statuses.filter((item) => {
     if (filter === 'ALL') return true;
@@ -968,6 +1127,119 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
             </Box>
           </CardContent>
         </Card>
+        {recoveryGuidance.length > 0 ? (
+          <Card variant="outlined">
+            <CardContent
+              sx={{
+                bgcolor: 'background.paper',
+                p: { xs: 1.5, md: 2 },
+                '&:last-child': { pb: { xs: 1.5, md: 2 } },
+              }}
+            >
+              <Stack spacing={1.5}>
+                <Box
+                  sx={{
+                    alignItems: { xs: 'stretch', md: 'center' },
+                    display: 'grid',
+                    gap: 0.75,
+                    gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1fr) auto' },
+                  }}
+                >
+                  <Box>
+                    <Typography component="h3" sx={{ fontWeight: 800 }}>
+                      Publishing recovery path
+                    </Typography>
+                    <Typography color="text.secondary" variant="body2">
+                      Follow these backend-owned blockers in order before expecting
+                      Online pages, documentation, or storefront content to appear.
+                    </Typography>
+                  </Box>
+                  <Chip
+                    color="warning"
+                    label={`${String(recoveryGuidance.length)} active step${
+                      recoveryGuidance.length === 1 ? '' : 's'
+                    }`}
+                    sx={{ justifySelf: { md: 'end' } }}
+                    variant="outlined"
+                  />
+                </Box>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gap: 1,
+                    gridTemplateColumns: {
+                      xs: '1fr',
+                      lg: 'repeat(2, minmax(0, 1fr))',
+                    },
+                  }}
+                >
+                  {recoveryGuidance.map((guidance) => (
+                    <Box
+                      key={guidance.key}
+                      sx={{
+                        border: 1,
+                        borderColor:
+                          guidance.severity === 'error'
+                            ? 'error.light'
+                            : guidance.severity === 'warning'
+                              ? 'warning.light'
+                              : 'divider',
+                        borderRadius: 1,
+                        display: 'grid',
+                        gap: 1,
+                        gridTemplateColumns: {
+                          xs: '1fr',
+                          sm: 'minmax(0, 1fr) auto',
+                        },
+                        p: 1.25,
+                      }}
+                    >
+                      <Box sx={{ minWidth: 0 }}>
+                        <Stack
+                          direction="row"
+                          spacing={0.75}
+                          sx={{
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                            mb: 0.5,
+                          }}
+                        >
+                          <Chip
+                            color={guidance.severity}
+                            label={rowGuidanceLabel(guidance)}
+                            size="small"
+                            sx={{ fontWeight: 800 }}
+                          />
+                          <Typography sx={{ fontWeight: 800 }}>
+                            {guidance.title}
+                          </Typography>
+                        </Stack>
+                        <Typography color="text.secondary" variant="body2">
+                          {guidance.body}
+                        </Typography>
+                      </Box>
+                      <Button
+                        color={
+                          guidance.severity === 'error' ? 'warning' : 'primary'
+                        }
+                        onClick={() => void navigate(guidance.route)}
+                        size="small"
+                        sx={{
+                          alignSelf: { sm: 'center' },
+                          minHeight: 38,
+                          whiteSpace: 'nowrap',
+                        }}
+                        variant="outlined"
+                      >
+                        {guidance.actionLabel}
+                      </Button>
+                    </Box>
+                  ))}
+                </Box>
+              </Stack>
+            </CardContent>
+          </Card>
+        ) : null}
         {loading ? (
           <Stack sx={{ alignItems: 'center', py: 4 }}>
             <CircularProgress aria-label="Loading setup accelerators" />
@@ -1007,6 +1279,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                     <Stack divider={<Divider flexItem />} spacing={0}>
                       {group.items.map(({ profile, query }) => {
                         const status = query.data;
+                        const guidance = publicationRecoveryGuidance(profile, status);
                         const pending =
                           mutation.isPending &&
                           mutation.variables?.profile.code === profile.code;
@@ -1126,6 +1399,28 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                   >
                                     {nextActionText(status)}
                                   </Typography>
+                                  <Stack
+                                    direction="row"
+                                    spacing={0.75}
+                                    sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+                                  >
+                                    <Chip
+                                      color={guidance.severity}
+                                      label={rowGuidanceLabel(guidance)}
+                                      size="small"
+                                      variant="outlined"
+                                    />
+                                    <Typography
+                                      color="text.secondary"
+                                      sx={{
+                                        maxWidth: 480,
+                                        overflowWrap: 'anywhere',
+                                      }}
+                                      variant="caption"
+                                    >
+                                      {guidance.actionLabel}: {guidance.body}
+                                    </Typography>
+                                  </Stack>
                                 </Stack>
                               ) : (
                                 <Alert severity="warning">
@@ -1609,18 +1904,20 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                                 const operation =
                                                   supportedRepairOperation(blocker);
                                                 if (!operation) return;
-                                                blocker.repair?.requiresConfirmation
-                                                  ? setRepairConfirmation({
+                                                if (blocker.repair?.requiresConfirmation) {
+                                                  setRepairConfirmation({
                                                       blocker,
                                                       operation,
                                                       profile,
                                                       status,
-                                                    })
-                                                  : mutation.mutate({
-                                                      operation,
-                                                      profile,
-                                                      status,
-                                                    });
+                                                  });
+                                                  return;
+                                                }
+                                                mutation.mutate({
+                                                  operation,
+                                                  profile,
+                                                  status,
+                                                });
                                               }}
                                               size="small"
                                               startIcon={

@@ -1425,6 +1425,61 @@ export function DocumentationDashboard({
       )
       .filter((profileCode): profileCode is string => Boolean(profileCode)),
   );
+  const publicationStatusByProfile = new Map(
+    managedCmsSources
+      .map((source, index) => {
+        const profileCode = source.initializationProfile;
+        if (!profileCode) return undefined;
+        return [profileCode, publicationQueries[index]?.data] as const;
+      })
+      .filter(
+        (
+          item,
+        ): item is readonly [
+          string,
+          DocumentationPublicationStatus | undefined,
+        ] => Boolean(item),
+      ),
+  );
+  const lockedDocumentationSources = cmsSources
+    .map((source) => {
+      if (!source.initializationProfile) {
+        return {
+          id: source.id,
+          label: documentationSourceDisplayLabel(source),
+          reason: 'Publication profile is not configured.',
+          route: source.route,
+          severity: 'error' as const,
+        };
+      }
+      const status = publicationStatusByProfile.get(source.initializationProfile);
+      if (status?.readiness === 'READY') return undefined;
+      return {
+        id: source.id,
+        label: documentationSourceDisplayLabel(source),
+        reason: status
+          ? `Online is ${documentationPublicationReadinessLabel(
+              status.readiness,
+            ).toLocaleLowerCase()}.`
+          : 'Publication status is still loading.',
+        route: source.route,
+        severity:
+          status && ['FAILED', 'REJECTED'].includes(status.readiness)
+            ? ('error' as const)
+            : ('warning' as const),
+      };
+    })
+    .filter(
+      (
+        source,
+      ): source is {
+        readonly id: string;
+        readonly label: string;
+        readonly reason: string;
+        readonly route: string;
+        readonly severity: 'error' | 'warning';
+      } => Boolean(source),
+    );
   const visibleDocumentationSources = sources.filter((source) => {
     if (source.type === 'OPENAPI') return true;
     return Boolean(
@@ -1538,6 +1593,97 @@ export function DocumentationDashboard({
                 below are now available.
               </Alert>
             )}
+            {lockedDocumentationSources.length > 0 ? (
+              <Paper
+                component="section"
+                elevation={0}
+                sx={{
+                  border: 1,
+                  borderColor: 'divider',
+                  borderRadius: dashboardRadiusSmall,
+                  overflow: 'hidden',
+                }}
+              >
+                <Box
+                  sx={{
+                    alignItems: { xs: 'stretch', md: 'center' },
+                    bgcolor: alpha(axisTokens.color.signatureGold, 0.06),
+                    display: 'grid',
+                    gap: 1,
+                    gridTemplateColumns: {
+                      xs: '1fr',
+                      md: 'minmax(0, 1fr) auto',
+                    },
+                    px: 1.5,
+                    py: 1,
+                  }}
+                >
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography sx={{ fontWeight: 800 }}>
+                      Locked documentation sources
+                    </Typography>
+                    <Typography color="text.secondary" variant="body2">
+                      These sources keep dashboard links locked until their governed
+                      publication path is complete.
+                    </Typography>
+                  </Box>
+                  <Chip
+                    color="warning"
+                    label={`${String(lockedDocumentationSources.length)} locked`}
+                    sx={{ justifySelf: { md: 'end' } }}
+                    variant="outlined"
+                  />
+                </Box>
+                <Stack divider={<Divider flexItem />} spacing={0}>
+                  {lockedDocumentationSources.map((source) => (
+                    <Box
+                      key={source.id}
+                      sx={{
+                        alignItems: { xs: 'stretch', sm: 'center' },
+                        display: 'grid',
+                        gap: 1,
+                        gridTemplateColumns: {
+                          xs: '1fr',
+                          sm: 'minmax(0, 1fr) auto',
+                        },
+                        px: 1.5,
+                        py: 1,
+                      }}
+                    >
+                      <Stack
+                        direction="row"
+                        spacing={0.75}
+                        sx={{ alignItems: 'center', minWidth: 0 }}
+                      >
+                        <Chip
+                          color={source.severity}
+                          label={source.severity === 'error' ? 'Fix first' : 'Pending'}
+                          size="small"
+                          variant="outlined"
+                        />
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography noWrap sx={{ fontWeight: 800 }}>
+                            {source.label}
+                          </Typography>
+                          <Typography color="text.secondary" variant="caption">
+                            {source.reason}
+                          </Typography>
+                        </Box>
+                      </Stack>
+                      <Button
+                        component={RouterLink}
+                        size="small"
+                        sx={dashboardSecondaryActionButtonSx}
+                        to={source.route}
+                        variant="outlined"
+                      >
+                        Open source
+                      </Button>
+                    </Box>
+                  ))}
+                </Stack>
+              </Paper>
+            ) : null}
             <DocumentationApprovalGuide />
             <Paper
               component="section"

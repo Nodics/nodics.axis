@@ -258,6 +258,8 @@ describe('DocumentationRoutePage', () => {
     expect(
       screen.getByText(/Axis is checking documentation publication state/iu),
     ).toBeVisible();
+    expect(await screen.findByText('Locked documentation sources')).toBeVisible();
+    expect(screen.getByText('Online is not initialized.')).toBeVisible();
     expect(screen.getByText('Publication flow')).toBeVisible();
     expect(
       screen.queryByRole('link', { name: 'Open Framework' }),
