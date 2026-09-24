@@ -18,6 +18,21 @@ const runtimeConfig = {
   assistantIdleTimeoutMs: 45_000,
 };
 
+const readyStartupValidation = {
+  state: 'READY',
+  checkedAt: '2026-09-24T00:00:00.000Z',
+  source: 'backoffice.startupValidation',
+  summary: {
+    total: 0,
+    errors: 0,
+    warnings: 0,
+    info: 0,
+    dismissible: 0,
+    acknowledged: 0,
+  },
+  findings: [],
+};
+
 function fetchInputUrl(input: Parameters<typeof fetch>[0]): string {
   return typeof input === 'string'
     ? input
@@ -585,6 +600,7 @@ describe('employee login journey', () => {
                 },
                 documentationSources: [],
                 tenantCode: 'default',
+                startupValidation: readyStartupValidation,
               },
             }),
             { status: 200 },
@@ -687,6 +703,7 @@ describe('employee login journey', () => {
                 },
                 documentationSources: [],
                 tenantCode: 'default',
+                startupValidation: readyStartupValidation,
               },
             }),
             { status: 200 },
@@ -709,8 +726,10 @@ describe('employee login journey', () => {
       </AppProviders>,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeVisible();
     await waitFor(() => expect(window.location.pathname).toBe('/dashboard'));
+    expect(
+      await screen.findByRole('button', { name: 'Open navigation' }),
+    ).toBeVisible();
     expect(screen.queryByText('Create waste submission')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Open navigation' }));
     expect(
@@ -844,6 +863,7 @@ describe('employee login journey', () => {
                   },
                 ],
                 tenantCode: 'default',
+                startupValidation: readyStartupValidation,
               },
             }),
             { status: 200 },
@@ -1000,6 +1020,7 @@ describe('employee login journey', () => {
                   },
                 ],
                 tenantCode: 'default',
+                startupValidation: readyStartupValidation,
               },
             }),
             { status: 200 },
@@ -1194,6 +1215,7 @@ describe('employee login journey', () => {
                   },
                 ],
                 tenantCode: 'default',
+                startupValidation: readyStartupValidation,
               },
             }),
             { status: 200 },
@@ -1397,6 +1419,7 @@ describe('employee login journey', () => {
                   },
                 ],
                 tenantCode: 'default',
+                startupValidation: readyStartupValidation,
               },
             }),
             { status: 200 },
@@ -1618,6 +1641,7 @@ describe('employee login journey', () => {
                   },
                 ],
                 tenantCode: 'default',
+                startupValidation: readyStartupValidation,
               },
             }),
             { status: 200 },
@@ -1808,6 +1832,7 @@ describe('employee login journey', () => {
                 },
                 documentationSources: [],
                 tenantCode: 'default',
+                startupValidation: readyStartupValidation,
               },
             }),
             { status: 200 },
@@ -2139,6 +2164,7 @@ describe('employee login journey', () => {
                 },
                 documentationSources: [],
                 tenantCode: 'default',
+                startupValidation: readyStartupValidation,
               },
             }),
             { status: 200 },
@@ -2287,8 +2313,8 @@ describe('employee login journey', () => {
     await user.type(screen.getByLabelText(/Password/), 'secret');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Axis Assistant' }));
+    await waitFor(() => expect(window.location.pathname).toBe('/dashboard'));
+    await user.click(await screen.findByRole('button', { name: 'Axis Assistant' }));
     expect(
       await screen.findByRole('heading', { name: 'How can I help?' }),
     ).toBeVisible();
@@ -2491,6 +2517,7 @@ describe('employee login journey', () => {
                 },
                 documentationSources: [],
                 tenantCode: 'default',
+                startupValidation: readyStartupValidation,
               },
             }),
             { status: 200 },
@@ -2514,8 +2541,12 @@ describe('employee login journey', () => {
                     rendererChannels: ['web'],
                     rendererDeprecated: false,
                     properties: {
+                      title: 'Locked session',
+                      employeeLabel: 'Employee',
                       passwordLabel: 'Password',
+                      passwordPlaceholder: 'Enter your password',
                       submitLabel: 'Unlock',
+                      signOutLabel: 'Sign out',
                     },
                     slot: 'authentication',
                     index: 30,
@@ -2546,7 +2577,10 @@ describe('employee login journey', () => {
     await user.type(screen.getByLabelText(/Password/), 'secret');
     await user.click(screen.getByRole('button', { name: 'Unlock' }));
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeVisible();
+    await waitFor(() => expect(window.location.pathname).toBe('/dashboard'));
+    expect(
+      await screen.findByRole('button', { name: 'Open navigation' }),
+    ).toBeVisible();
     expect(window.sessionStorage.getItem('nodics-axis-screen-lock-v1')).toBeNull();
   });
 });
