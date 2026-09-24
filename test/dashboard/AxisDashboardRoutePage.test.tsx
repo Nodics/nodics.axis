@@ -175,7 +175,14 @@ const bootstrap: AxisAuthenticatedBootstrap = {
     state: 'READY',
     checkedAt: '2026-09-23T00:00:00.000Z',
     source: 'backoffice.operationalReadiness',
-    summary: { total: 0, errors: 0, warnings: 0, info: 0, dismissible: 0, acknowledged: 0 },
+    summary: {
+      total: 0,
+      errors: 0,
+      warnings: 0,
+      info: 0,
+      dismissible: 0,
+      acknowledged: 0,
+    },
     bootstrapChecks: {
       total: 3,
       ready: 3,
@@ -247,7 +254,9 @@ function moduleItem(
   };
 }
 
-function renderPage() {
+function renderPageWithBootstrap(
+  pageBootstrap: AxisAuthenticatedBootstrap = bootstrap,
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -257,13 +266,17 @@ function renderPage() {
         <MemoryRouter>
           <AxisDashboardRoutePage
             accessToken="employee-token"
-            bootstrap={bootstrap}
+            bootstrap={pageBootstrap}
             runtime={runtime}
           />
         </MemoryRouter>
       </QueryClientProvider>
     </AxisThemeProvider>,
   );
+}
+
+function renderPage() {
+  return renderPageWithBootstrap();
 }
 
 afterEach(() => {
@@ -421,11 +434,17 @@ describe('AxisDashboardRoutePage', () => {
                 lifecycleState: 'READY',
               },
               targetIdentifiers: { sourceCode: 'browser-validation' },
-              preview: { changedCount: 1, skippedCount: 0, targetCodes: ['browser-validation'] },
+              preview: {
+                changedCount: 1,
+                skippedCount: 0,
+                targetCodes: ['browser-validation'],
+              },
               transaction: { atomic: false, rollbackAvailable: false },
               retryPolicy: { safeToRetry: true, reuseIdempotencyKey: true },
               safety: { level: 'SAFE', destructiveDisabled: false },
-              plan: { businessSteps: ['Capture browser evidence', 'Refresh readiness'] },
+              plan: {
+                businessSteps: ['Capture browser evidence', 'Refresh readiness'],
+              },
               receipt: {
                 receiptCode: 'repair:tooling:browser-validation',
                 receiptType: 'OPERATIONAL_READINESS_REPAIR',
@@ -464,7 +483,9 @@ describe('AxisDashboardRoutePage', () => {
     expect(
       screen.getByText('Search and configuration controls are visible'),
     ).toBeInTheDocument();
-    expect(screen.getByText('Docs and app publishing parity is clear')).toBeInTheDocument();
+    expect(
+      screen.getByText('Docs and app publishing parity is clear'),
+    ).toBeInTheDocument();
     expect(screen.getByText('Work areas')).toBeInTheDocument();
   });
 
@@ -514,11 +535,17 @@ describe('AxisDashboardRoutePage', () => {
                 lifecycleState: 'READY',
               },
               targetIdentifiers: { sourceCode: 'browser-validation' },
-              preview: { changedCount: 1, skippedCount: 0, targetCodes: ['browser-validation'] },
+              preview: {
+                changedCount: 1,
+                skippedCount: 0,
+                targetCodes: ['browser-validation'],
+              },
               transaction: { atomic: false, rollbackAvailable: false },
               retryPolicy: { safeToRetry: true, reuseIdempotencyKey: true },
               safety: { level: 'SAFE', destructiveDisabled: false },
-              plan: { businessSteps: ['Capture browser evidence', 'Refresh readiness'] },
+              plan: {
+                businessSteps: ['Capture browser evidence', 'Refresh readiness'],
+              },
               receipt: {
                 receiptCode: 'repair:tooling:browser-validation',
                 receiptType: 'OPERATIONAL_READINESS_REPAIR',
@@ -547,7 +574,14 @@ describe('AxisDashboardRoutePage', () => {
         state: 'NEEDS_ATTENTION',
         checkedAt: '2026-09-23T00:00:00.000Z',
         source: 'backoffice.operationalReadiness',
-        summary: { total: 1, errors: 0, warnings: 1, info: 0, dismissible: 1, acknowledged: 0 },
+        summary: {
+          total: 1,
+          errors: 0,
+          warnings: 1,
+          info: 0,
+          dismissible: 1,
+          acknowledged: 0,
+        },
         bootstrapChecks: {
           total: 3,
           ready: 2,
@@ -658,11 +692,17 @@ describe('AxisDashboardRoutePage', () => {
                 lifecycleState: 'READY',
               },
               targetIdentifiers: { sourceCode: 'browser-validation' },
-              preview: { changedCount: 1, skippedCount: 0, targetCodes: ['browser-validation'] },
+              preview: {
+                changedCount: 1,
+                skippedCount: 0,
+                targetCodes: ['browser-validation'],
+              },
               transaction: { atomic: false, rollbackAvailable: false },
               retryPolicy: { safeToRetry: true, reuseIdempotencyKey: true },
               safety: { level: 'SAFE', destructiveDisabled: false },
-              plan: { businessSteps: ['Capture browser evidence', 'Refresh readiness'] },
+              plan: {
+                businessSteps: ['Capture browser evidence', 'Refresh readiness'],
+              },
               receipt: {
                 receiptCode: 'repair:tooling:browser-validation',
                 receiptType: 'OPERATIONAL_READINESS_REPAIR',
@@ -845,9 +885,7 @@ describe('AxisDashboardRoutePage', () => {
       ),
     ).toBeInTheDocument();
     expect(await screen.findByText('Fix these first')).toBeInTheDocument();
-    expect(
-      screen.getByText('Acceptance and browser validation'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Acceptance and browser validation')).toBeInTheDocument();
     expect(
       screen.getAllByText(
         'Run the local acceptance/browser smoke and refresh Axis after evidence is captured.',
@@ -866,9 +904,7 @@ describe('AxisDashboardRoutePage', () => {
     expect(screen.getByText('FAILED')).toBeInTheDocument();
     expect(screen.getByText('provider-browser-smoke-failed')).toBeInTheDocument();
     expect(screen.getByText('circaMiniApp')).toBeInTheDocument();
-    expect(
-      screen.getByText('NTOOLING_ACCEPTANCE_EVIDENCE'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('NTOOLING_ACCEPTANCE_EVIDENCE')).toBeInTheDocument();
     expect(
       screen.getByText(
         'npm run docker-local:acceptance -> npm run project:post-reset-readiness -- --live --json -> Refresh Axis dashboard bootstrap',
@@ -897,12 +933,150 @@ describe('AxisDashboardRoutePage', () => {
         }),
       ).toBe(true);
     });
-    expect(await screen.findByText('acceptance:browser-validation')).toBeInTheDocument();
+    expect(
+      await screen.findByText('acceptance:browser-validation'),
+    ).toBeInTheDocument();
     expect(screen.getAllByText('browser-validation').length).toBeGreaterThan(0);
     expect(screen.getByText('toolingAcceptanceRepairProvider')).toBeInTheDocument();
     expect(screen.getByText('repair:tooling:browser-validation')).toBeInTheDocument();
     expect(screen.getByText('acceptance, operationalReadiness')).toBeInTheDocument();
-    expect(screen.getByText('Capture browser evidence -> Refresh readiness')).toBeInTheDocument();
+    expect(
+      screen.getByText('Capture browser evidence -> Refresh readiness'),
+    ).toBeInTheDocument();
+  });
+
+  it('surfaces documentation, assistant, application parity, and repair governance readiness', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>((input) => {
+        const url = urlOf(input);
+        if (url.includes('/runtime/modules/available')) {
+          return Promise.resolve(response({ items: [] }));
+        }
+        if (url.includes('/runtime/modules/registrations')) {
+          return Promise.resolve(
+            response({ items: [moduleItem('nodics.platform', 'REGISTERED', true)] }),
+          );
+        }
+        if (url.endsWith('/v0/init') || url.endsWith('/v0/core')) {
+          return Promise.resolve(response([release('CURRENT', 'core')]));
+        }
+        if (url.endsWith('/v0/sample')) return Promise.resolve(response([]));
+        if (url.includes('/applications/')) {
+          return Promise.resolve(
+            response({
+              profileCode: 'agoraapparel',
+              siteCode: 'agora-apparel',
+              readiness: 'READY',
+              releaseCode: 'agoraapparel-v001',
+              releaseVersion: '0.1.0',
+              releaseStatus: 'CURRENT',
+              allowedActions: ['ROLLBACK'],
+            }),
+          );
+        }
+        return Promise.resolve(response({}));
+      }),
+    );
+    renderPageWithBootstrap({
+      ...bootstrap,
+      operationalReadiness: {
+        contractVersion: 1,
+        state: 'NEEDS_ATTENTION',
+        checkedAt: '2026-09-24T00:00:00.000Z',
+        source: 'backoffice.operationalReadiness',
+        summary: { blockers: 1 },
+        sections: [
+          {
+            key: 'documentation',
+            title: 'Documentation readiness',
+            businessStatus: 'NEEDS_ATTENTION',
+            ownerModule: 'documentation',
+            source: 'DOCUMENTATION_PUBLICATION_READINESS',
+            route: '/docs',
+            summary: {
+              documentationSourceCount: 3,
+              readyDocumentationCount: 2,
+              pendingDocumentationCount: 1,
+              lastIndexedAt: '2026-09-24T00:00:00.000Z',
+            },
+            blockers: [],
+            nextAction:
+              'Install staged docs, approve publication, and refresh documentation indexing.',
+          },
+          {
+            key: 'assistant',
+            title: 'Assistant knowledge readiness',
+            businessStatus: 'NEEDS_ATTENTION',
+            ownerModule: 'copilotKnowledge',
+            source: 'COPILOT_KNOWLEDGE_READINESS',
+            route: '/assistant',
+            summary: {
+              sourceCount: 4,
+              indexedSourceCount: 3,
+              modelProvider: 'openai',
+              indexName: 'axis-knowledge-local',
+            },
+            blockers: [],
+            nextAction:
+              'Index authorized documentation sources before answering business questions.',
+          },
+          {
+            key: 'applications',
+            title: 'Application parity readiness',
+            businessStatus: 'READY',
+            ownerModule: 'backoffice',
+            source: 'APPLICATION_PARITY_READINESS',
+            route: '/setup-accelerators',
+            summary: {
+              applicationCount: 3,
+              readyApplicationCount: 3,
+              attentionApplicationCount: 0,
+            },
+            blockers: [],
+            nextAction: 'All application publication profiles are aligned.',
+          },
+          {
+            key: 'repairGovernance',
+            title: 'Repair governance readiness',
+            businessStatus: 'READY',
+            ownerModule: 'backoffice',
+            source: 'REPAIR_PROVIDER_REGISTRY',
+            route: '/registry',
+            summary: {
+              providerCount: 7,
+              readyProviderCount: 7,
+              unavailableProviderCount: 0,
+            },
+            blockers: [],
+            nextAction: 'Repair providers are registered and safe actions are exposed.',
+          },
+        ],
+      },
+    });
+
+    expect(
+      await screen.findByText('Documentation readiness needs attention'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Assistant knowledge needs indexing')).toBeInTheDocument();
+    expect(screen.getByText('Application parity is aligned')).toBeInTheDocument();
+    expect(screen.getByText('Repair governance is ready')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Install staged docs, approve publication, and refresh documentation indexing.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Index authorized documentation sources before answering business questions.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/DOCUMENTATION_PUBLICATION_READINESS/u),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/COPILOT_KNOWLEDGE_READINESS/u)).toBeInTheDocument();
+    expect(screen.getByText(/APPLICATION_PARITY_READINESS/u)).toBeInTheDocument();
+    expect(screen.getByText(/REPAIR_PROVIDER_REGISTRY/u)).toBeInTheDocument();
   });
 
   it('deduplicates the same release across runtime catalogue projections', async () => {

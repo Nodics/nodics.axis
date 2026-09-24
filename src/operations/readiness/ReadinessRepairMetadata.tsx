@@ -74,6 +74,28 @@ function repairOwnerRoute(
     .join(' ');
 
   if (!haystack) return undefined;
+  if (
+    textMatches(
+      haystack,
+      /repair governance|repair provider|provider registry|provider cache|provider event/,
+    )
+  ) {
+    return { label: 'Open Module Registry', path: '/registry' };
+  }
+  if (
+    textMatches(
+      haystack,
+      /assistant|copilot|knowledge|embedding|model provider|retrieval/,
+    )
+  ) {
+    return { label: 'Open Assistant', path: '/assistant' };
+  }
+  if (textMatches(haystack, /documentation|docs|doc pack|document pack/)) {
+    return { label: 'Open Documentation', path: '/docs' };
+  }
+  if (textMatches(haystack, /search|discovery|index|indexed|query source/)) {
+    return { label: 'Open Discovery Controls', path: '/discovery' };
+  }
   if (textMatches(haystack, /applicationinitialization|publication|publish/)) {
     return { label: 'Open Publishing', path: '/publishing' };
   }
@@ -105,10 +127,7 @@ export function ReadinessRepairMetadata({
   if (!repair && !runtimeDiagnostic && !approvalDiagnostic) return null;
   const ownerRoute = repairOwnerRoute(repair, runtimeDiagnostic, approvalDiagnostic);
   return (
-    <Stack
-      spacing={0.75}
-      sx={{ mt: 0.75 }}
-    >
+    <Stack spacing={0.75} sx={{ mt: 0.75 }}>
       {ownerRoute ? (
         <Stack
           direction="row"

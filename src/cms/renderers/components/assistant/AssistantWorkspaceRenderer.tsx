@@ -46,24 +46,40 @@ export function AssistantWorkspaceRenderer({
   const reasoningTokensLabel = stringProperty(component, 'reasoningTokensLabel');
   const embeddingTokensLabel = stringProperty(component, 'embeddingTokensLabel');
   const reconciliationLabel = stringProperty(component, 'reconciliationLabel');
-  const knowledgeTitle = stringProperty(component, 'knowledgeTitle', '');
-  const knowledgeSourcesLabel = stringProperty(component, 'knowledgeSourcesLabel', '');
-  const knowledgeChunksLabel = stringProperty(component, 'knowledgeChunksLabel', '');
+  const knowledgeTitle = stringProperty(
+    component,
+    'knowledgeTitle',
+    'Knowledge readiness',
+  );
+  const knowledgeSourcesLabel = stringProperty(
+    component,
+    'knowledgeSourcesLabel',
+    'Sources',
+  );
+  const knowledgeChunksLabel = stringProperty(
+    component,
+    'knowledgeChunksLabel',
+    'Chunks',
+  );
   const knowledgeLastRefreshLabel = stringProperty(
     component,
     'knowledgeLastRefreshLabel',
-    '',
+    'Last indexed',
   );
-  const knowledgeRefreshLabel = stringProperty(component, 'knowledgeRefreshLabel', '');
+  const knowledgeRefreshLabel = stringProperty(
+    component,
+    'knowledgeRefreshLabel',
+    'Refresh',
+  );
   const knowledgeRefreshingLabel = stringProperty(
     component,
     'knowledgeRefreshingLabel',
-    '',
+    'Refreshing',
   );
   const knowledgeUnavailableLabel = stringProperty(
     component,
     'knowledgeUnavailableLabel',
-    '',
+    'Knowledge readiness is unavailable',
   );
   const confirmationTitle = stringProperty(component, 'confirmationTitle');
   const approveLabel = stringProperty(component, 'approveLabel');
@@ -121,7 +137,7 @@ export function AssistantWorkspaceRenderer({
             title={title}
           />
         </Stack>
-        {knowledgeTitle && controller ? (
+        {controller ? (
           <AssistantKnowledgeStatus
             chunksLabel={knowledgeChunksLabel}
             error={controller.knowledgeError}

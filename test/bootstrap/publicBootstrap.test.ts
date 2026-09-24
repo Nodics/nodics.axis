@@ -835,6 +835,73 @@ describe('Axis bootstrap clients', () => {
     );
   });
 
+  it('preserves operational readiness blocker business guidance from BackOffice', async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            ...authenticatedData,
+            operationalReadiness: {
+              contractVersion: 1,
+              state: 'NEEDS_ATTENTION',
+              checkedAt: '2026-09-24T00:00:00.000Z',
+              source: 'backoffice.operationalReadiness',
+              summary: { blockers: 1 },
+              sections: [
+                {
+                  key: 'documentation',
+                  title: 'Documentation readiness',
+                  businessStatus: 'NEEDS_ATTENTION',
+                  ownerModule: 'documentation',
+                  source: 'DOCUMENTATION_PUBLICATION_READINESS',
+                  route: '/docs',
+                  summary: { documentationSourceCount: 3 },
+                  blockers: [
+                    {
+                      blockerCode: 'DOCS_NOT_INDEXED',
+                      code: 'DOCS_NOT_INDEXED',
+                      severity: 'NEEDS_ATTENTION',
+                      ownerType: 'DOCUMENTATION',
+                      source: 'DOCUMENTATION_PUBLICATION_READINESS',
+                      action: 'Index documentation',
+                      message: 'Documentation is staged but not indexed.',
+                      disabledReason: 'Documentation is staged but not indexed.',
+                      repair: {
+                        available: true,
+                        operation: 'documentation.indexing',
+                        action: 'REFRESH_INDEX',
+                      },
+                      suggestedAction: 'Refresh documentation indexing.',
+                      businessImpact:
+                        'Axis Assistant cannot answer from approved documentation.',
+                      recoveryHint:
+                        'Open Documentation and run the governed index refresh.',
+                    },
+                  ],
+                  nextAction: 'Refresh documentation indexing.',
+                },
+              ],
+            },
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const bootstrap = await loadAuthenticatedBootstrap(
+      'https://backoffice.example.com',
+      1,
+      'employee-access',
+      10_000,
+      request,
+    );
+
+    expect(bootstrap.operationalReadiness?.sections[0]?.blockers[0]).toMatchObject({
+      businessImpact: 'Axis Assistant cannot answer from approved documentation.',
+      recoveryHint: 'Open Documentation and run the governed index refresh.',
+    });
+  });
+
   it('rejects unsafe or incompatible employee idle policies', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(

@@ -312,12 +312,9 @@ function publicationNeedsAction(
   status: ApplicationInitializationStatus | DocumentationPublicationStatus,
 ): boolean {
   if ('capability' in status && status.capability?.businessStatus) {
-    return [
-      'NOT_PREPARED',
-      'PREPARING',
-      'PREPARED_STAGED',
-      'NEEDS_ATTENTION',
-    ].includes(status.capability.businessStatus);
+    return ['NOT_PREPARED', 'PREPARING', 'PREPARED_STAGED', 'NEEDS_ATTENTION'].includes(
+      status.capability.businessStatus,
+    );
   }
   return ['NOT_IMPORTED', 'IMPORTED', 'FAILED', 'REJECTED'].includes(status.readiness);
 }
@@ -353,12 +350,12 @@ function readinessSection(
   bootstrap: AxisAuthenticatedBootstrap,
   key: string,
 ): AxisOperationalReadinessSection | undefined {
-  return bootstrap.operationalReadiness?.sections.find((section) => section.key === key);
+  return bootstrap.operationalReadiness?.sections.find(
+    (section) => section.key === key,
+  );
 }
 
-function readinessSeverity(
-  status: string | undefined,
-): ActionCardModel['severity'] {
+function readinessSeverity(status: string | undefined): ActionCardModel['severity'] {
   if (status === 'READY') return 'success';
   if (status === 'NOT_READY' || status === 'BLOCKED') return 'error';
   if (status === 'NEEDS_ATTENTION' || status === 'NOT_EXPOSED') return 'warning';
@@ -373,6 +370,14 @@ function blockerSeverity(
   }
   if (blocker.severity === 'INFO') return 'info';
   return 'warning';
+}
+
+function readinessSectionActionCount(
+  section: AxisOperationalReadinessSection | undefined,
+): number {
+  if (!section) return 0;
+  if (section.businessStatus === 'READY') return 0;
+  return section.blockers.length > 0 ? section.blockers.length : 1;
 }
 
 function summaryText(
@@ -401,8 +406,29 @@ function summaryStringList(
 ): readonly string[] {
   const value = summary[key];
   return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    ? value.filter(
+        (item): item is string => typeof item === 'string' && item.trim().length > 0,
+      )
     : [];
+}
+
+function summaryValue(
+  summary: Readonly<Record<string, unknown>>,
+  key: string,
+): string | undefined {
+  const value = summary[key];
+  if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    const values = value
+      .filter((item): item is string | number | boolean =>
+        ['string', 'number', 'boolean'].includes(typeof item),
+      )
+      .map(String)
+      .filter((item) => item.trim().length > 0);
+    return values.length > 0 ? values.join(', ') : undefined;
+  }
+  return undefined;
 }
 
 function readinessTimeline(
@@ -411,28 +437,32 @@ function readinessTimeline(
   const timeline = readiness?.summary.timeline;
   if (!Array.isArray(timeline)) return [];
   return timeline
-    .filter((item): item is Readonly<Record<string, unknown>> =>
-      typeof item === 'object' && item !== null && !Array.isArray(item),
+    .filter(
+      (item): item is Readonly<Record<string, unknown>> =>
+        typeof item === 'object' && item !== null && !Array.isArray(item),
     )
     .map((item, index) => ({
-      id: typeof item.id === 'string' && item.id.trim().length > 0
-        ? item.id
-        : `readiness-timeline-${String(index)}`,
-      label: typeof item.label === 'string' && item.label.trim().length > 0
-        ? item.label
-        : 'Operational readiness',
-      state: typeof item.state === 'string' && item.state.trim().length > 0
-        ? item.state
-        : 'UNKNOWN',
-      checkedAt: typeof item.checkedAt === 'string' && item.checkedAt.trim().length > 0
-        ? item.checkedAt
-        : 'Not recorded',
-      blockerCount: typeof item.blockerCount === 'number'
-        ? item.blockerCount
-        : 0,
-      source: typeof item.source === 'string' && item.source.trim().length > 0
-        ? item.source
-        : 'backoffice.operationalReadiness',
+      id:
+        typeof item.id === 'string' && item.id.trim().length > 0
+          ? item.id
+          : `readiness-timeline-${String(index)}`,
+      label:
+        typeof item.label === 'string' && item.label.trim().length > 0
+          ? item.label
+          : 'Operational readiness',
+      state:
+        typeof item.state === 'string' && item.state.trim().length > 0
+          ? item.state
+          : 'UNKNOWN',
+      checkedAt:
+        typeof item.checkedAt === 'string' && item.checkedAt.trim().length > 0
+          ? item.checkedAt
+          : 'Not recorded',
+      blockerCount: typeof item.blockerCount === 'number' ? item.blockerCount : 0,
+      source:
+        typeof item.source === 'string' && item.source.trim().length > 0
+          ? item.source
+          : 'backoffice.operationalReadiness',
     }))
     .slice(0, 5);
 }
@@ -443,49 +473,66 @@ function readinessRecoveryLanes(
   const matrix = readiness?.summary.recoveryMatrix;
   if (!Array.isArray(matrix)) return [];
   return matrix
-    .filter((item): item is Readonly<Record<string, unknown>> =>
-      typeof item === 'object' && item !== null && !Array.isArray(item),
+    .filter(
+      (item): item is Readonly<Record<string, unknown>> =>
+        typeof item === 'object' && item !== null && !Array.isArray(item),
     )
     .map((item, index) => ({
-      key: typeof item.key === 'string' && item.key.trim().length > 0
-        ? item.key
-        : `recovery-lane-${String(index)}`,
-      label: typeof item.label === 'string' && item.label.trim().length > 0
-        ? item.label
-        : 'Readiness lane',
-      description: typeof item.description === 'string' && item.description.trim().length > 0
-        ? item.description
-        : 'Review readiness in the owning workspace.',
-      state: typeof item.state === 'string' && item.state.trim().length > 0
-        ? item.state
-        : 'UNKNOWN',
-      ownerModule: typeof item.ownerModule === 'string' && item.ownerModule.trim().length > 0
-        ? item.ownerModule
-        : 'unknown',
-      source: typeof item.source === 'string' && item.source.trim().length > 0
-        ? item.source
-        : 'backoffice.operationalReadiness',
-      route: typeof item.route === 'string' && item.route.trim().length > 0
-        ? item.route
-        : '/dashboard',
-      blockerCount: typeof item.blockerCount === 'number'
-        ? item.blockerCount
-        : 0,
+      key:
+        typeof item.key === 'string' && item.key.trim().length > 0
+          ? item.key
+          : `recovery-lane-${String(index)}`,
+      label:
+        typeof item.label === 'string' && item.label.trim().length > 0
+          ? item.label
+          : 'Readiness lane',
+      description:
+        typeof item.description === 'string' && item.description.trim().length > 0
+          ? item.description
+          : 'Review readiness in the owning workspace.',
+      state:
+        typeof item.state === 'string' && item.state.trim().length > 0
+          ? item.state
+          : 'UNKNOWN',
+      ownerModule:
+        typeof item.ownerModule === 'string' && item.ownerModule.trim().length > 0
+          ? item.ownerModule
+          : 'unknown',
+      source:
+        typeof item.source === 'string' && item.source.trim().length > 0
+          ? item.source
+          : 'backoffice.operationalReadiness',
+      route:
+        typeof item.route === 'string' && item.route.trim().length > 0
+          ? item.route
+          : '/dashboard',
+      blockerCount: typeof item.blockerCount === 'number' ? item.blockerCount : 0,
       issueCodes: Array.isArray(item.issueCodes)
-        ? item.issueCodes.filter((code): code is string => typeof code === 'string' && code.trim().length > 0)
+        ? item.issueCodes.filter(
+            (code): code is string =>
+              typeof code === 'string' && code.trim().length > 0,
+          )
         : [],
       repairActions: Array.isArray(item.repairActions)
-        ? item.repairActions.filter((action): action is string => typeof action === 'string' && action.trim().length > 0)
+        ? item.repairActions.filter(
+            (action): action is string =>
+              typeof action === 'string' && action.trim().length > 0,
+          )
         : [],
       runtimeDependencies: Array.isArray(item.runtimeDependencies)
-        ? item.runtimeDependencies.filter((dependency): dependency is string => typeof dependency === 'string' && dependency.trim().length > 0)
+        ? item.runtimeDependencies.filter(
+            (dependency): dependency is string =>
+              typeof dependency === 'string' && dependency.trim().length > 0,
+          )
         : [],
-      businessImpact: typeof item.businessImpact === 'string' && item.businessImpact.trim().length > 0
-        ? item.businessImpact
-        : 'Readiness must be resolved before dependable go-live or recovery validation.',
-      nextAction: typeof item.nextAction === 'string' && item.nextAction.trim().length > 0
-        ? item.nextAction
-        : 'Review the owning workspace.',
+      businessImpact:
+        typeof item.businessImpact === 'string' && item.businessImpact.trim().length > 0
+          ? item.businessImpact
+          : 'Readiness must be resolved before dependable go-live or recovery validation.',
+      nextAction:
+        typeof item.nextAction === 'string' && item.nextAction.trim().length > 0
+          ? item.nextAction
+          : 'Review the owning workspace.',
     }));
 }
 
@@ -509,20 +556,24 @@ function operationalFixDetailRows(
       .filter((row): row is [string, string] => typeof row[1] === 'string')
       .map(([label, value]) => ({ label, value }));
   }
-  const acceptanceRows = rows.concat([
-    ['Evidence state', summaryText(summary, 'browserValidationState')],
-    ['Checked at', summaryText(summary, 'browserValidationCheckedAt')],
-    ['Run id', summaryText(summary, 'browserValidationRunId')],
-    ['Failed step', summaryText(summary, 'browserValidationFailedStep')],
-    ['Evidence source', summaryText(summary, 'browserValidationSource')],
-    ['Evidence file', summaryText(summary, 'browserValidationEvidenceFile')],
-    ['Command', summaryText(summary, 'browserValidationCommand')],
-  ])
+  const acceptanceRows = rows
+    .concat([
+      ['Evidence state', summaryText(summary, 'browserValidationState')],
+      ['Checked at', summaryText(summary, 'browserValidationCheckedAt')],
+      ['Run id', summaryText(summary, 'browserValidationRunId')],
+      ['Failed step', summaryText(summary, 'browserValidationFailedStep')],
+      ['Evidence source', summaryText(summary, 'browserValidationSource')],
+      ['Evidence file', summaryText(summary, 'browserValidationEvidenceFile')],
+      ['Command', summaryText(summary, 'browserValidationCommand')],
+    ])
     .filter((row): row is [string, string] => typeof row[1] === 'string')
     .map(([label, value]) => ({ label, value }));
   const commands = summaryStringList(summary, 'operatorCommands');
   return commands.length > 0
-    ? acceptanceRows.concat({ label: 'Operator sequence', value: commands.join(' -> ') })
+    ? acceptanceRows.concat({
+        label: 'Operator sequence',
+        value: commands.join(' -> '),
+      })
     : acceptanceRows;
 }
 
@@ -548,8 +599,10 @@ function operationalFixes(
     )
     .sort((left, right) => {
       const order = { error: 0, warning: 1, info: 2, success: 3 };
-      return order[left.severity] - order[right.severity] ||
-        left.sectionTitle.localeCompare(right.sectionTitle);
+      return (
+        order[left.severity] - order[right.severity] ||
+        left.sectionTitle.localeCompare(right.sectionTitle)
+      );
     });
 }
 
@@ -593,6 +646,72 @@ function documentationRoute(bootstrap: AxisAuthenticatedBootstrap): string {
     (item) => item.route === '/docs' || item.route.startsWith('/docs/'),
     '/docs',
   );
+}
+
+function readinessSectionDetailRows(
+  section: AxisOperationalReadinessSection | undefined,
+  fallbackRows: readonly Readonly<{
+    readonly label: string;
+    readonly value: string;
+    readonly severity?: ActionCardModel['severity'] | undefined;
+  }>[],
+): ActionCardModel['detailRows'] {
+  if (!section) return fallbackRows;
+  const preferredKeys = [
+    'status',
+    'state',
+    'ready',
+    'configured',
+    'sourceCount',
+    'indexedSourceCount',
+    'providerCount',
+    'readyProviderCount',
+    'unavailableProviderCount',
+    'applicationCount',
+    'readyApplicationCount',
+    'attentionApplicationCount',
+    'onlineProfileCount',
+    'pendingProfileCount',
+    'documentationSourceCount',
+    'readyDocumentationCount',
+    'pendingDocumentationCount',
+    'modelProvider',
+    'embeddingProvider',
+    'indexName',
+    'lastIndexedAt',
+    'checkedAt',
+  ];
+  const rows: ActionCardModel['detailRows'] = [
+    {
+      label: 'Backend status',
+      value: section.businessStatus,
+      severity: readinessSeverity(section.businessStatus),
+    },
+    {
+      label: 'Owner module',
+      value: section.ownerModule,
+      severity: 'info',
+    },
+    {
+      label: 'Blockers',
+      value: String(section.blockers.length),
+      severity: section.blockers.length > 0 ? 'warning' : 'success',
+    },
+    ...preferredKeys.flatMap((key) => {
+      const value = summaryValue(section.summary, key);
+      if (!value) return [];
+      return [
+        {
+          label: key
+            .replace(/([A-Z])/g, ' $1')
+            .replace(/^./, (char) => char.toUpperCase()),
+          value,
+          severity: 'info' as const,
+        },
+      ];
+    }),
+  ];
+  return rows.slice(0, 8);
 }
 
 function progressPercent(ready: number, total: number): number {
@@ -660,7 +779,9 @@ function parseReadinessRepairResult(value: unknown): ReadinessRepairResultModel 
         )
       : {};
   const preview =
-    typeof data.preview === 'object' && data.preview !== null && !Array.isArray(data.preview)
+    typeof data.preview === 'object' &&
+    data.preview !== null &&
+    !Array.isArray(data.preview)
       ? (data.preview as Record<string, unknown>)
       : {};
   const transaction =
@@ -676,19 +797,27 @@ function parseReadinessRepairResult(value: unknown): ReadinessRepairResultModel 
       ? (data.retryPolicy as Record<string, unknown>)
       : {};
   const provider =
-    typeof data.provider === 'object' && data.provider !== null && !Array.isArray(data.provider)
+    typeof data.provider === 'object' &&
+    data.provider !== null &&
+    !Array.isArray(data.provider)
       ? (data.provider as Record<string, unknown>)
       : {};
   const safety =
-    typeof data.safety === 'object' && data.safety !== null && !Array.isArray(data.safety)
+    typeof data.safety === 'object' &&
+    data.safety !== null &&
+    !Array.isArray(data.safety)
       ? (data.safety as Record<string, unknown>)
       : {};
   const receipt =
-    typeof data.receipt === 'object' && data.receipt !== null && !Array.isArray(data.receipt)
+    typeof data.receipt === 'object' &&
+    data.receipt !== null &&
+    !Array.isArray(data.receipt)
       ? (data.receipt as Record<string, unknown>)
       : {};
   const events =
-    typeof data.events === 'object' && data.events !== null && !Array.isArray(data.events)
+    typeof data.events === 'object' &&
+    data.events !== null &&
+    !Array.isArray(data.events)
       ? (data.events as Record<string, unknown>)
       : {};
   const plan =
@@ -727,13 +856,12 @@ function parseReadinessRepairResult(value: unknown): ReadinessRepairResultModel 
     providerState: textValue(provider.lifecycleState),
     safetyLevel: textValue(safety.level),
     receiptCode: textValue(receipt.receiptCode),
-    eventEmitted:
-      typeof events.emitted === 'boolean'
-        ? events.emitted
-        : undefined,
+    eventEmitted: typeof events.emitted === 'boolean' ? events.emitted : undefined,
     refreshScopes: Object.freeze(
       Array.isArray(events.refreshScopes)
-        ? events.refreshScopes.filter((item): item is string => typeof item === 'string')
+        ? events.refreshScopes.filter(
+            (item): item is string => typeof item === 'string',
+          )
         : [],
     ),
     businessSteps: Object.freeze(
@@ -990,6 +1118,17 @@ export function AxisDashboardRoutePage({
   const mediaReadiness = readinessSection(bootstrap, 'media');
   const searchReadiness = readinessSection(bootstrap, 'search');
   const assistantReadiness = readinessSection(bootstrap, 'assistant');
+  const documentationReadiness = readinessSection(bootstrap, 'documentation');
+  const applicationsReadiness = readinessSection(bootstrap, 'applications');
+  const repairGovernanceReadiness = readinessSection(bootstrap, 'repairGovernance');
+  const documentationSectionActionCount =
+    readinessSectionActionCount(documentationReadiness);
+  const applicationsSectionActionCount =
+    readinessSectionActionCount(applicationsReadiness);
+  const repairGovernanceSectionActionCount = readinessSectionActionCount(
+    repairGovernanceReadiness,
+  );
+  const assistantSectionActionCount = readinessSectionActionCount(assistantReadiness);
   const readinessFixes = operationalFixes(operationalReadiness);
   const readinessTimelineItems = readinessTimeline(operationalReadiness);
   const readinessRecoveryLaneItems = readinessRecoveryLanes(operationalReadiness);
@@ -1015,15 +1154,17 @@ export function AxisDashboardRoutePage({
     allPublicationStatuses.filter(publicationNeedsAction).length;
   const visiblePublicationActionCount = approvalCount + publicationActionCount;
   const readyApplicationCount = applicationStatuses.filter(publicationIsReady).length;
-  const applicationActionCount =
-    applicationStatuses.filter(applicationNeedsSetupAction).length;
+  const applicationActionCount = applicationStatuses.filter(
+    applicationNeedsSetupAction,
+  ).length;
   const activeModuleCount = registeredModules.filter(
     (module) => module.enabled && module.runtimeState === 'ACTIVE',
   ).length;
   const currentReleaseCount = releases.filter(
     (release) => release.status === 'CURRENT',
   ).length;
-  const readyPublicationCount = allPublicationStatuses.filter(publicationIsReady).length;
+  const readyPublicationCount =
+    allPublicationStatuses.filter(publicationIsReady).length;
   const readyDocumentationCount =
     documentationStatuses.filter(publicationIsReady).length;
   const documentationActionCount =
@@ -1048,14 +1189,14 @@ export function AxisDashboardRoutePage({
       connection.state === 'UNAVAILABLE' || connection.state === 'UNKNOWN',
   );
   const runtimeCommunicationActionCount =
-    degradedConnections.length + unavailableConnections.length + (backofficeConnection ? 0 : 1);
+    degradedConnections.length +
+    unavailableConnections.length +
+    (backofficeConnection ? 0 : 1);
   const runtimeServerCount = new Set(
     liveConnections.map((connection) => connection.server).filter(Boolean),
   ).size;
   const runtimeRoleCount = new Set(
-    liveConnections
-      .map((connection) => connection.runtimeRole?.code)
-      .filter(Boolean),
+    liveConnections.map((connection) => connection.runtimeRole?.code).filter(Boolean),
   ).size;
   const workbenchCount = bootstrap.navigation.filter(
     (item) => item.workbenchTarget && item.featureState !== 'HIDDEN',
@@ -1077,8 +1218,7 @@ export function AxisDashboardRoutePage({
   ).length;
   const searchableWorkbenchCount = bootstrap.navigation.filter(
     (item) =>
-      item.featureState !== 'HIDDEN' &&
-      Boolean(item.workbenchTarget?.searchRoute),
+      item.featureState !== 'HIDDEN' && Boolean(item.workbenchTarget?.searchRoute),
   ).length;
   const sourceControlActionCount =
     (configurationWorkspaceAvailable ? 0 : 1) + (discoveryWorkspaceCount > 0 ? 0 : 1);
@@ -1094,8 +1234,8 @@ export function AxisDashboardRoutePage({
   const startupRepairLabel = primaryStartupFinding?.repair
     ? primaryStartupFinding.repair.available
       ? `${primaryStartupFinding.repair.label} · ${primaryStartupFinding.repair.operation}`
-      : primaryStartupFinding.repair.unavailableReason ??
-        `${primaryStartupFinding.repair.label} unavailable`
+      : (primaryStartupFinding.repair.unavailableReason ??
+        `${primaryStartupFinding.repair.label} unavailable`)
     : undefined;
   const totalActionCount =
     startupActionCount +
@@ -1105,6 +1245,10 @@ export function AxisDashboardRoutePage({
     runtimeCommunicationActionCount +
     sourceControlActionCount +
     documentationActionCount +
+    documentationSectionActionCount +
+    applicationsSectionActionCount +
+    repairGovernanceSectionActionCount +
+    assistantSectionActionCount +
     (operationalReadiness && operationalReadiness.state !== 'READY'
       ? (operationalBlockerValue ?? 1)
       : 0);
@@ -1162,18 +1306,12 @@ export function AxisDashboardRoutePage({
             {
               label: 'Dismissible with audit',
               value: String(startupValidation.summary.dismissible),
-              severity:
-                startupValidation.summary.dismissible > 0
-                  ? 'warning'
-                  : 'info',
+              severity: startupValidation.summary.dismissible > 0 ? 'warning' : 'info',
             },
             {
               label: 'Acknowledged by backend',
               value: String(startupValidation.summary.acknowledged),
-              severity:
-                startupValidation.summary.acknowledged > 0
-                  ? 'info'
-                  : 'success',
+              severity: startupValidation.summary.acknowledged > 0 ? 'info' : 'success',
             },
             ...(startupRepairLabel
               ? [
@@ -1282,10 +1420,158 @@ export function AxisDashboardRoutePage({
                 value: assistantReadiness?.businessStatus ?? 'Not reported',
                 severity: readinessSeverity(assistantReadiness?.businessStatus),
               },
+              {
+                label: 'Documentation readiness',
+                value: documentationReadiness?.businessStatus ?? 'Not reported',
+                severity: readinessSeverity(documentationReadiness?.businessStatus),
+              },
+              {
+                label: 'Customer applications',
+                value: applicationsReadiness?.businessStatus ?? 'Not reported',
+                severity: readinessSeverity(applicationsReadiness?.businessStatus),
+              },
+              {
+                label: 'Repair governance',
+                value: repairGovernanceReadiness?.businessStatus ?? 'Not reported',
+                severity: readinessSeverity(repairGovernanceReadiness?.businessStatus),
+              },
             ],
           } satisfies ActionCardModel,
         ]
       : []),
+    {
+      id: 'documentation-readiness',
+      title:
+        documentationReadiness && documentationReadiness.businessStatus !== 'READY'
+          ? 'Documentation readiness needs attention'
+          : 'Documentation readiness is governed',
+      description:
+        documentationReadiness?.nextAction ??
+        'BackOffice reports documentation pack install, Staged, Online, and indexing readiness for Axis.',
+      icon: 'content',
+      route: documentationReadiness?.route || documentationRoute(bootstrap),
+      primaryAction: 'Open Documentation',
+      severity: readinessSeverity(documentationReadiness?.businessStatus ?? 'READY'),
+      count:
+        documentationSectionActionCount > 0
+          ? documentationSectionActionCount
+          : undefined,
+      meta: documentationReadiness
+        ? `${documentationReadiness.ownerModule} · ${documentationReadiness.source}`
+        : `${String(documentationSources.length)} documentation sources`,
+      detailRows: readinessSectionDetailRows(documentationReadiness, [
+        {
+          label: 'Documentation sources',
+          value: String(documentationSources.length),
+          severity: documentationSources.length > 0 ? 'success' : 'warning',
+        },
+        {
+          label: 'Docs needing action',
+          value: String(documentationActionCount),
+          severity: documentationActionCount > 0 ? 'warning' : 'success',
+        },
+        {
+          label: 'Docs Online ready',
+          value: String(readyDocumentationCount),
+          severity: readyDocumentationCount > 0 ? 'success' : 'info',
+        },
+      ]),
+    },
+    {
+      id: 'assistant-readiness',
+      title:
+        assistantReadiness && assistantReadiness.businessStatus !== 'READY'
+          ? 'Assistant knowledge needs indexing'
+          : 'Assistant knowledge is ready',
+      description:
+        assistantReadiness?.nextAction ??
+        'BackOffice reports source, index, provider, and model readiness before Axis Assistant answers business questions.',
+      icon: 'assistant',
+      route: assistantReadiness?.route || '/assistant',
+      primaryAction: 'Open Assistant',
+      severity: readinessSeverity(assistantReadiness?.businessStatus ?? 'READY'),
+      count: assistantSectionActionCount > 0 ? assistantSectionActionCount : undefined,
+      meta: assistantReadiness
+        ? `${assistantReadiness.ownerModule} · ${assistantReadiness.source}`
+        : 'Assistant readiness not reported',
+      detailRows: readinessSectionDetailRows(assistantReadiness, [
+        {
+          label: 'Backend status',
+          value: assistantReadiness?.businessStatus ?? 'Not reported',
+          severity: readinessSeverity(assistantReadiness?.businessStatus),
+        },
+      ]),
+    },
+    {
+      id: 'application-parity-readiness',
+      title:
+        applicationsReadiness && applicationsReadiness.businessStatus !== 'READY'
+          ? 'Application parity needs review'
+          : 'Application parity is aligned',
+      description:
+        applicationsReadiness?.nextAction ??
+        'Nexus, Agora, Circa, and future customer applications are checked against setup, Staged, Online, and publication parity.',
+      icon: 'storefront',
+      route: applicationsReadiness?.route || '/setup-accelerators',
+      primaryAction: 'Open Setup',
+      severity: readinessSeverity(applicationsReadiness?.businessStatus ?? 'READY'),
+      count:
+        applicationsSectionActionCount > 0 ? applicationsSectionActionCount : undefined,
+      meta: applicationsReadiness
+        ? `${applicationsReadiness.ownerModule} · ${applicationsReadiness.source}`
+        : `${String(applicationProfiles.length)} setup profiles`,
+      detailRows: readinessSectionDetailRows(applicationsReadiness, [
+        {
+          label: 'Project profiles',
+          value: String(applicationProfiles.length),
+          severity: applicationProfiles.length > 0 ? 'success' : 'warning',
+        },
+        {
+          label: 'Apps ready',
+          value: String(readyApplicationParityCount),
+          severity: readyApplicationParityCount > 0 ? 'success' : 'info',
+        },
+        {
+          label: 'App profiles needing action',
+          value: String(applicationParityActionCount),
+          severity: applicationParityActionCount > 0 ? 'warning' : 'success',
+        },
+      ]),
+    },
+    {
+      id: 'repair-governance-readiness',
+      title:
+        repairGovernanceReadiness &&
+        repairGovernanceReadiness.businessStatus !== 'READY'
+          ? 'Repair governance needs attention'
+          : 'Repair governance is ready',
+      description:
+        repairGovernanceReadiness?.nextAction ??
+        'Repair actions are shown only when backend providers declare availability, safety, ownership, and eligibility.',
+      icon: 'registry',
+      route: repairGovernanceReadiness?.route || '/registry',
+      primaryAction: 'Open Module Registry',
+      severity: readinessSeverity(repairGovernanceReadiness?.businessStatus ?? 'READY'),
+      count:
+        repairGovernanceSectionActionCount > 0
+          ? repairGovernanceSectionActionCount
+          : undefined,
+      meta: repairGovernanceReadiness
+        ? `${repairGovernanceReadiness.ownerModule} · ${repairGovernanceReadiness.source}`
+        : 'Provider registry readiness not reported',
+      detailRows: readinessSectionDetailRows(repairGovernanceReadiness, [
+        {
+          label: 'Repair execution',
+          value: 'Backend governed',
+          severity: 'success',
+        },
+        {
+          label: 'Unsafe actions',
+          value: 'Hidden unless provider allows them',
+          severity: 'info',
+        },
+      ]),
+    },
     moduleActionCount > 0
       ? {
           id: 'modules',
@@ -1597,7 +1883,8 @@ export function AxisDashboardRoutePage({
       description:
         'Documentation packs and customer-facing application profiles are tracked together so post-reset publish gaps are visible before manual browser validation.',
       icon: 'content',
-      route: documentationActionCount > 0 ? documentationRoute(bootstrap) : '/publishing',
+      route:
+        documentationActionCount > 0 ? documentationRoute(bootstrap) : '/publishing',
       primaryAction:
         documentationActionCount > 0 ? 'Open Documentation' : 'Open Publishing',
       severity:
@@ -1791,7 +2078,13 @@ export function AxisDashboardRoutePage({
               }}
             >
               <Alert
-                severity={repairMutation.error ? 'error' : repairResult?.state === 'COMPLETED' ? 'success' : 'info'}
+                severity={
+                  repairMutation.error
+                    ? 'error'
+                    : repairResult?.state === 'COMPLETED'
+                      ? 'success'
+                      : 'info'
+                }
                 variant="outlined"
               >
                 {repairMutation.error
@@ -1811,17 +2104,49 @@ export function AxisDashboardRoutePage({
                     ['Changed', String(repairResult.changedCount)],
                     ['Skipped', String(repairResult.skippedCount)],
                     ['Remaining blockers', String(repairResult.blockersRemaining)],
-                    ['Retry safe', repairResult.retrySafe === undefined ? 'Unknown' : repairResult.retrySafe ? 'Yes' : 'No'],
+                    [
+                      'Retry safe',
+                      repairResult.retrySafe === undefined
+                        ? 'Unknown'
+                        : repairResult.retrySafe
+                          ? 'Yes'
+                          : 'No',
+                    ],
                     ['Evidence', repairResult.evidenceReference ?? 'Not supplied'],
-                    ['Rollback', repairResult.rollbackAvailable === undefined ? 'Unknown' : repairResult.rollbackAvailable ? 'Available' : 'Not available'],
-                    ['Targets', Object.values(repairResult.targetIdentifiers).join(', ') || 'Not supplied'],
-                    ['Preview', repairResult.previewTargetCodes.join(', ') || 'No preview targets'],
+                    [
+                      'Rollback',
+                      repairResult.rollbackAvailable === undefined
+                        ? 'Unknown'
+                        : repairResult.rollbackAvailable
+                          ? 'Available'
+                          : 'Not available',
+                    ],
+                    [
+                      'Targets',
+                      Object.values(repairResult.targetIdentifiers).join(', ') ||
+                        'Not supplied',
+                    ],
+                    [
+                      'Preview',
+                      repairResult.previewTargetCodes.join(', ') ||
+                        'No preview targets',
+                    ],
                     ['Provider', repairResult.providerCode ?? 'Not supplied'],
                     ['Provider state', repairResult.providerState ?? 'Unknown'],
                     ['Safety', repairResult.safetyLevel ?? 'Unknown'],
                     ['Receipt', repairResult.receiptCode ?? 'Not created'],
-                    ['Refresh event', repairResult.eventEmitted === undefined ? 'Unknown' : repairResult.eventEmitted ? 'Emitted' : 'Not emitted'],
-                    ['Refresh scopes', repairResult.refreshScopes.join(', ') || 'Not supplied'],
+                    [
+                      'Refresh event',
+                      repairResult.eventEmitted === undefined
+                        ? 'Unknown'
+                        : repairResult.eventEmitted
+                          ? 'Emitted'
+                          : 'Not emitted',
+                    ],
+                    [
+                      'Refresh scopes',
+                      repairResult.refreshScopes.join(', ') || 'Not supplied',
+                    ],
                     ['Plan', repairResult.businessSteps.join(' -> ') || 'Not supplied'],
                   ].map(([label, value]) => (
                     <Box
@@ -1871,7 +2196,8 @@ export function AxisDashboardRoutePage({
                       Go-live recovery
                     </Typography>
                     <Typography color="text.secondary">
-                      Follow the readiness lanes in order, then use blockers for the exact repair.
+                      Follow the readiness lanes in order, then use blockers for the
+                      exact repair.
                     </Typography>
                   </Stack>
                   <Chip
@@ -1881,9 +2207,15 @@ export function AxisDashboardRoutePage({
                         : 'success'
                     }
                     label={`${String(
-                      readinessRecoveryLaneItems.reduce((total, lane) => total + lane.blockerCount, 0),
+                      readinessRecoveryLaneItems.reduce(
+                        (total, lane) => total + lane.blockerCount,
+                        0,
+                      ),
                     )} blockers`}
-                    sx={{ alignSelf: { xs: 'flex-start', md: 'center' }, fontWeight: 800 }}
+                    sx={{
+                      alignSelf: { xs: 'flex-start', md: 'center' },
+                      fontWeight: 800,
+                    }}
                   />
                 </Stack>
                 <Box
@@ -1904,7 +2236,10 @@ export function AxisDashboardRoutePage({
                         bgcolor: 'background.paper',
                         border: '1px solid',
                         borderColor: (theme) =>
-                          alpha(theme.palette[readinessSeverity(lane.state)].main, 0.32),
+                          alpha(
+                            theme.palette[readinessSeverity(lane.state)].main,
+                            0.32,
+                          ),
                         borderRadius: 1,
                         p: 1.5,
                       }}
@@ -1942,9 +2277,9 @@ export function AxisDashboardRoutePage({
                             spacing={0.75}
                             sx={{ flexWrap: 'wrap', gap: 0.75 }}
                           >
-                            {lane.issueCodes.map((code) => (
+                            {lane.issueCodes.map((code, codeIndex) => (
                               <Chip
-                                key={`${lane.key}-${code}`}
+                                key={`${lane.key}-${String(codeIndex)}-${code}`}
                                 label={code}
                                 size="small"
                                 variant="outlined"
@@ -1957,9 +2292,9 @@ export function AxisDashboardRoutePage({
                             <Typography color="text.secondary" variant="caption">
                               Repair actions
                             </Typography>
-                            {lane.repairActions.map((action) => (
+                            {lane.repairActions.map((action, actionIndex) => (
                               <Typography
-                                key={`${lane.key}-${action}`}
+                                key={`${lane.key}-${String(actionIndex)}-${action}`}
                                 sx={{ overflowWrap: 'anywhere' }}
                                 variant="caption"
                               >
@@ -1969,18 +2304,28 @@ export function AxisDashboardRoutePage({
                           </Stack>
                         ) : null}
                         {lane.runtimeDependencies.length > 0 ? (
-                          <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', gap: 0.75 }}>
-                            {lane.runtimeDependencies.map((dependency) => (
-                              <Chip
-                                key={`${lane.key}-${dependency}`}
-                                label={dependency}
-                                size="small"
-                                variant="outlined"
-                              />
-                            ))}
+                          <Stack
+                            direction="row"
+                            spacing={0.75}
+                            sx={{ flexWrap: 'wrap', gap: 0.75 }}
+                          >
+                            {lane.runtimeDependencies.map(
+                              (dependency, dependencyIndex) => (
+                                <Chip
+                                  key={`${lane.key}-${String(dependencyIndex)}-${dependency}`}
+                                  label={dependency}
+                                  size="small"
+                                  variant="outlined"
+                                />
+                              ),
+                            )}
                           </Stack>
                         ) : null}
-                        <Typography color="text.secondary" sx={{ flexGrow: 1 }} variant="body2">
+                        <Typography
+                          color="text.secondary"
+                          sx={{ flexGrow: 1 }}
+                          variant="body2"
+                        >
                           {lane.nextAction}
                         </Typography>
                         <Stack
@@ -2036,9 +2381,16 @@ export function AxisDashboardRoutePage({
                   </Typography>
                 </Stack>
                 <Chip
-                  color={readinessFixes.some((fix) => fix.severity === 'error') ? 'error' : 'warning'}
+                  color={
+                    readinessFixes.some((fix) => fix.severity === 'error')
+                      ? 'error'
+                      : 'warning'
+                  }
                   label={`${String(readinessFixes.length)} blocker${readinessFixes.length === 1 ? '' : 's'}`}
-                  sx={{ alignSelf: { xs: 'flex-start', md: 'center' }, fontWeight: 800 }}
+                  sx={{
+                    alignSelf: { xs: 'flex-start', md: 'center' },
+                    fontWeight: 800,
+                  }}
                 />
               </Stack>
               <Box
@@ -2057,7 +2409,11 @@ export function AxisDashboardRoutePage({
                       bgcolor: 'background.paper',
                       border: '1px solid',
                       borderColor: (theme) =>
-                        alpha(theme.palette[fix.severity === 'error' ? 'error' : 'warning'].main, 0.28),
+                        alpha(
+                          theme.palette[fix.severity === 'error' ? 'error' : 'warning']
+                            .main,
+                          0.28,
+                        ),
                       borderRadius: 1,
                       p: 1.5,
                     }}
@@ -2074,11 +2430,7 @@ export function AxisDashboardRoutePage({
                           size="small"
                           sx={{ fontWeight: 800 }}
                         />
-                        <Chip
-                          label={fix.ownerModule}
-                          size="small"
-                          variant="outlined"
-                        />
+                        <Chip label={fix.ownerModule} size="small" variant="outlined" />
                         <Chip label={fix.source} size="small" variant="outlined" />
                       </Stack>
                       <Typography component="h3" variant="subtitle1">
@@ -2122,7 +2474,10 @@ export function AxisDashboardRoutePage({
                       <Stack
                         direction={{ xs: 'column', sm: 'row' }}
                         spacing={1}
-                        sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
+                        sx={{
+                          alignItems: { sm: 'center' },
+                          justifyContent: 'space-between',
+                        }}
                       >
                         <Typography color="text.secondary" variant="caption">
                           {fix.blocker.code}
@@ -2160,7 +2515,8 @@ export function AxisDashboardRoutePage({
                               const confirmed = window.confirm(
                                 `Execute ${repairLabel} from ${fix.ownerModule}?`,
                               );
-                              if (confirmed) repairMutation.mutate({ fix, dryRun: false });
+                              if (confirmed)
+                                repairMutation.mutate({ fix, dryRun: false });
                             }}
                             size="small"
                             variant="contained"
@@ -2199,7 +2555,8 @@ export function AxisDashboardRoutePage({
                       Readiness timeline
                     </Typography>
                     <Typography color="text.secondary" variant="body2">
-                      Latest backend readiness snapshots from startup, import, and publication recovery.
+                      Latest backend readiness snapshots from startup, import, and
+                      publication recovery.
                     </Typography>
                   </Stack>
                   <Chip
@@ -2222,7 +2579,8 @@ export function AxisDashboardRoutePage({
                         border: '1px solid',
                         borderColor: 'divider',
                         borderRadius: 1,
-                        bgcolor: (theme) => alpha(theme.palette.background.default, 0.72),
+                        bgcolor: (theme) =>
+                          alpha(theme.palette.background.default, 0.72),
                         p: 1.25,
                       }}
                     >
@@ -2284,15 +2642,9 @@ export function AxisDashboardRoutePage({
               </Typography>
             </Stack>
             <Chip
-              color={
-                totalActionCount > 0
-                  ? 'warning'
-                  : 'success'
-              }
+              color={totalActionCount > 0 ? 'warning' : 'success'}
               label={
-                totalActionCount > 0
-                  ? `${String(totalActionCount)} actions`
-                  : 'Ready'
+                totalActionCount > 0 ? `${String(totalActionCount)} actions` : 'Ready'
               }
               sx={{ alignSelf: { xs: 'flex-start', md: 'center' }, fontWeight: 800 }}
             />

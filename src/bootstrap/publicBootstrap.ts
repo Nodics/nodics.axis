@@ -325,22 +325,26 @@ export interface AxisStartupValidationFinding {
   readonly action: string;
   readonly dismissible: boolean;
   readonly auditRequired: boolean;
-  readonly acknowledgement?: Readonly<{
-    readonly acknowledged: boolean;
-    readonly acknowledgedAt: string;
-    readonly acknowledgedBy: string;
-    readonly reasonCode?: string | undefined;
-  }> | undefined;
-  readonly repair?: Readonly<{
-    readonly available: boolean;
-    readonly operation: string;
-    readonly actionCode: string;
-    readonly eligibility: 'AUTOMATIC' | 'MANUAL' | 'NOT_AVAILABLE';
-    readonly label: string;
-    readonly idempotent: boolean;
-    readonly requiresConfirmation: boolean;
-    readonly unavailableReason?: string | undefined;
-  }> | undefined;
+  readonly acknowledgement?:
+    | Readonly<{
+        readonly acknowledged: boolean;
+        readonly acknowledgedAt: string;
+        readonly acknowledgedBy: string;
+        readonly reasonCode?: string | undefined;
+      }>
+    | undefined;
+  readonly repair?:
+    | Readonly<{
+        readonly available: boolean;
+        readonly operation: string;
+        readonly actionCode: string;
+        readonly eligibility: 'AUTOMATIC' | 'MANUAL' | 'NOT_AVAILABLE';
+        readonly label: string;
+        readonly idempotent: boolean;
+        readonly requiresConfirmation: boolean;
+        readonly unavailableReason?: string | undefined;
+      }>
+    | undefined;
 }
 
 export interface AxisStartupBootstrapCheck {
@@ -2242,10 +2246,7 @@ function parseStartupValidationReport(value: unknown): AxisStartupValidationRepo
                 parsed.message,
                 'startup validation bootstrap check message',
               ),
-              action: text(
-                parsed.action,
-                'startup validation bootstrap check action',
-              ),
+              action: text(parsed.action, 'startup validation bootstrap check action'),
               auditRequired:
                 typeof parsed.auditRequired === 'boolean'
                   ? parsed.auditRequired
@@ -2261,7 +2262,10 @@ function parseStartupValidationReport(value: unknown): AxisStartupValidationRepo
         const repair =
           parsed.repair === undefined
             ? undefined
-            : record(parsed.repair, `startup validation finding ${String(index)} repair`);
+            : record(
+                parsed.repair,
+                `startup validation finding ${String(index)} repair`,
+              );
         const acknowledgement =
           parsed.acknowledgement === undefined
             ? undefined
@@ -2328,9 +2332,7 @@ function parseStartupValidationReport(value: unknown): AxisStartupValidationRepo
                   ),
                   label: text(repair.label, 'startup validation finding repair label'),
                   idempotent:
-                    typeof repair.idempotent === 'boolean'
-                      ? repair.idempotent
-                      : false,
+                    typeof repair.idempotent === 'boolean' ? repair.idempotent : false,
                   requiresConfirmation:
                     typeof repair.requiresConfirmation === 'boolean'
                       ? repair.requiresConfirmation
@@ -2432,6 +2434,14 @@ function parseOperationalReadinessReport(
                     parsedBlocker.suggestedAction,
                     'operational readiness blocker suggested action',
                   ),
+                  businessImpact: optionalText(
+                    parsedBlocker.businessImpact,
+                    'operational readiness blocker business impact',
+                  ),
+                  recoveryHint: optionalText(
+                    parsedBlocker.recoveryHint,
+                    'operational readiness blocker recovery hint',
+                  ),
                 });
               },
             ),
@@ -2501,9 +2511,7 @@ export async function loadAuthenticatedBootstrap(
       ),
       documentationSources: parseDocumentationSources(data.documentationSources),
       startupValidation: parseStartupValidationReport(data.startupValidation),
-      operationalReadiness: parseOperationalReadinessReport(
-        data.operationalReadiness,
-      ),
+      operationalReadiness: parseOperationalReadinessReport(data.operationalReadiness),
       tenantCode: text(data.tenantCode, 'BackOffice employee tenant code'),
     });
   } finally {

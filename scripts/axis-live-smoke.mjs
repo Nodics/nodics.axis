@@ -60,7 +60,6 @@ if (verifyWasteLocation) {
 }
 const requiredModules = [
   'nodics.foundation',
-  'nodics.localization',
   'nodics.platform',
   'nodics.wcms',
 ];
