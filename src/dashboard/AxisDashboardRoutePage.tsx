@@ -1,4 +1,4 @@
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery } from '@tanstack/react-query';
 import {
   Alert,
   Box,
@@ -49,6 +49,7 @@ import {
 import type { DataRelease } from '../operations/importExport/api/dataReleaseContracts';
 import { releaseKey } from '../operations/importExport/importExportPresentation';
 import type { AxisRuntimeConfig } from '../runtime/runtimeConfig';
+import { invokeOperationalOwner } from '../operations/shared/operationalOwnerClient';
 
 interface AxisDashboardRoutePageProps {
   readonly accessToken: string;
@@ -97,6 +98,20 @@ interface ReadinessTimelineModel {
   readonly checkedAt: string;
   readonly blockerCount: number;
   readonly source: string;
+}
+
+interface ReadinessRepairResultModel {
+  readonly state: string;
+  readonly dryRun: boolean;
+  readonly operation: string;
+  readonly action: string;
+  readonly ownerModule: string;
+  readonly changedCount: number;
+  readonly skippedCount: number;
+  readonly blockersRemaining: number;
+  readonly nextAction: string;
+  readonly message: string;
+  readonly checkedAt: string;
 }
 
 interface ReadinessRecoveryLaneModel {
@@ -602,6 +617,41 @@ function plural(count: number, singular: string, pluralLabel = `${singular}s`): 
   return count === 1 ? singular : pluralLabel;
 }
 
+function repairExecutable(blocker: AxisOperationalReadinessBlocker): boolean {
+  const repair = blocker.repair;
+  const eligibility = typeof repair.eligibility === 'string' ? repair.eligibility : '';
+  return repair.available === true && ['AUTOMATIC', 'MANUAL'].includes(eligibility);
+}
+
+function idempotencyKey(prefix: string): string {
+  const random =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `${prefix}-${random}`;
+}
+
+function parseReadinessRepairResult(value: unknown): ReadinessRepairResultModel {
+  const data =
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  return Object.freeze({
+    state: textValue(data.state) ?? 'UNKNOWN',
+    dryRun: data.dryRun === true,
+    operation: textValue(data.operation) ?? 'readiness.review',
+    action: textValue(data.action) ?? 'REVIEW_READINESS',
+    ownerModule: textValue(data.ownerModule) ?? 'unknown',
+    changedCount: typeof data.changedCount === 'number' ? data.changedCount : 0,
+    skippedCount: typeof data.skippedCount === 'number' ? data.skippedCount : 0,
+    blockersRemaining:
+      typeof data.blockersRemaining === 'number' ? data.blockersRemaining : 0,
+    nextAction: textValue(data.nextAction) ?? 'Refresh readiness.',
+    message: textValue(data.message) ?? 'Repair result returned.',
+    checkedAt: textValue(data.checkedAt) ?? 'Not recorded',
+  });
+}
+
 export function AxisDashboardRoutePage({
   accessToken,
   bootstrap,
@@ -624,6 +674,9 @@ export function AxisDashboardRoutePage({
     overviewPanelDefaultWidth,
   );
   const [overviewPanelCollapsed, setOverviewPanelCollapsed] = useState(false);
+  const [repairResult, setRepairResult] = useState<
+    ReadinessRepairResultModel | undefined
+  >(undefined);
   const togglePanel = (panel: string) => {
     setExpandedPanels((current) => {
       const next = new Set(current);
@@ -744,6 +797,54 @@ export function AxisDashboardRoutePage({
         }).getStatus();
       },
     })),
+  });
+  const repairMutation = useMutation({
+    mutationFn: async ({
+      fix,
+      dryRun,
+    }: {
+      readonly fix: OperationalFixModel;
+      readonly dryRun: boolean;
+    }) => {
+      const repair = fix.blocker.repair;
+      return parseReadinessRepairResult(
+        await invokeOperationalOwner<unknown>(
+          {
+            bootstrap,
+            accessToken,
+            enterpriseCode: runtime.enterpriseCode,
+            timeoutMs: runtime.requestTimeoutMs,
+          },
+          'backoffice',
+          '/operations/readiness/repairs',
+          {
+            idempotencyKey: idempotencyKey(dryRun ? 'repair-dry-run' : 'repair-execute'),
+            dryRun,
+            operation: repair.operation,
+            action: repair.action ?? repair.actionCode,
+            ownerModule: fix.ownerModule,
+            ownerType: fix.blocker.ownerType,
+            source: fix.source,
+            blockerCode: fix.blocker.code,
+            route: fix.route,
+            eligibility: repair.eligibility,
+            available: repair.available,
+            label: repair.label,
+            reason: dryRun
+              ? 'Axis readiness repair dry run requested by an authorized operator.'
+              : 'Axis readiness repair execution requested by an authorized operator.',
+            context: {
+              sectionTitle: fix.sectionTitle,
+              businessImpact: fix.blocker.businessImpact,
+              recoveryHint: fix.blocker.recoveryHint,
+            },
+          },
+        ),
+      );
+    },
+    onSuccess: (result) => {
+      setRepairResult(result);
+    },
   });
 
   const registeredModules = registeredModulesQuery.data ?? [];
@@ -1559,6 +1660,26 @@ export function AxisDashboardRoutePage({
             overflow: 'hidden',
           }}
         >
+          {repairResult || repairMutation.error ? (
+            <Box
+              component="section"
+              sx={{
+                borderBottom: '1px solid',
+                borderColor: 'divider',
+                px: 3,
+                py: 2,
+              }}
+            >
+              <Alert
+                severity={repairMutation.error ? 'error' : repairResult?.state === 'COMPLETED' ? 'success' : 'info'}
+                variant="outlined"
+              >
+                {repairMutation.error
+                  ? dashboardError(repairMutation.error)
+                  : `${repairResult?.state ?? 'UNKNOWN'} · ${repairResult?.message ?? ''} ${repairResult ? `Next: ${repairResult.nextAction}` : ''}`}
+              </Alert>
+            </Box>
+          ) : null}
           {readinessRecoveryLaneItems.length > 0 ? (
             <Box
               component="section"
@@ -1849,6 +1970,35 @@ export function AxisDashboardRoutePage({
                           Open repair workspace
                         </Button>
                       </Stack>
+                      {repairExecutable(fix.blocker) ? (
+                        <Stack
+                          direction={{ xs: 'column', sm: 'row' }}
+                          spacing={1}
+                          sx={{ justifyContent: 'flex-end' }}
+                        >
+                          <Button
+                            disabled={repairMutation.isPending}
+                            onClick={() => repairMutation.mutate({ fix, dryRun: true })}
+                            size="small"
+                            variant="outlined"
+                          >
+                            Dry run repair
+                          </Button>
+                          <Button
+                            disabled={repairMutation.isPending}
+                            onClick={() => {
+                              const confirmed = window.confirm(
+                                `Execute ${String(fix.blocker.repair.label ?? fix.action)} from ${fix.ownerModule}?`,
+                              );
+                              if (confirmed) repairMutation.mutate({ fix, dryRun: false });
+                            }}
+                            size="small"
+                            variant="contained"
+                          >
+                            Execute repair
+                          </Button>
+                        </Stack>
+                      ) : null}
                     </Stack>
                   </Box>
                 ))}

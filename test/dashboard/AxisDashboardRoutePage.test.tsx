@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -405,6 +405,26 @@ describe('AxisDashboardRoutePage', () => {
             }),
           );
         }
+        if (url.includes('/operations/readiness/repairs')) {
+          return Promise.resolve(
+            response({
+              contractVersion: 1,
+              idempotencyKey: 'repair-dry-run-test',
+              dryRun: true,
+              state: 'DRY_RUN',
+              operation: 'tooling.acceptance.browserValidation',
+              action: 'CAPTURE_BROWSER_VALIDATION',
+              ownerModule: 'tooling',
+              changedCount: 0,
+              skippedCount: 0,
+              blockersRemaining: 1,
+              retryable: true,
+              nextAction: 'Execute repair after reviewing dry-run evidence.',
+              message: 'Dry run completed for the owner repair operation.',
+              checkedAt: '2026-09-24T00:07:00.000Z',
+            }),
+          );
+        }
         return Promise.resolve(response({}));
       }),
     );
@@ -665,10 +685,10 @@ describe('AxisDashboardRoutePage', () => {
                 disabledReason:
                   'Browser validation is enabled for this environment but the latest captured evidence is not attached to readiness.',
                 repair: {
-                  available: false,
+                  available: true,
                   operation: 'tooling.acceptance.browserValidation',
                   action: 'CAPTURE_BROWSER_VALIDATION',
-                  eligibility: 'NOT_AVAILABLE',
+                  eligibility: 'MANUAL',
                   label: 'Run local browser validation',
                 },
                 businessImpact:
@@ -739,6 +759,8 @@ describe('AxisDashboardRoutePage', () => {
     expect(screen.getByText('Evidence state')).toBeInTheDocument();
     expect(screen.getByText('Business impact')).toBeInTheDocument();
     expect(screen.getByText('Repair operation')).toBeInTheDocument();
+    expect(screen.getByText('Repair available')).toBeInTheDocument();
+    expect(screen.getByText('Yes')).toBeInTheDocument();
     expect(screen.getByText('FAILED')).toBeInTheDocument();
     expect(screen.getByText('provider-browser-smoke-failed')).toBeInTheDocument();
     expect(screen.getByText('circaMiniApp')).toBeInTheDocument();
@@ -755,6 +777,13 @@ describe('AxisDashboardRoutePage', () => {
     expect(
       screen.getByText('backoffice.operationalReadiness.snapshot'),
     ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Dry run repair/u }));
+    await waitFor(() => {
+      const calls = vi.mocked(fetch).mock.calls;
+      expect(
+        calls.some((call) => String(call[0]).includes('/operations/readiness/repairs')),
+      ).toBe(true);
+    });
   });
 
   it('deduplicates the same release across runtime catalogue projections', async () => {
