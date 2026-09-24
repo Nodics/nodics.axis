@@ -109,6 +109,9 @@ interface ReadinessRecoveryLaneModel {
   readonly route: string;
   readonly blockerCount: number;
   readonly issueCodes: readonly string[];
+  readonly repairActions: readonly string[];
+  readonly runtimeDependencies: readonly string[];
+  readonly businessImpact: string;
   readonly nextAction: string;
 }
 
@@ -355,6 +358,16 @@ function summaryText(
     : undefined;
 }
 
+function textValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
+function booleanText(value: unknown): string | undefined {
+  return typeof value === 'boolean' ? (value ? 'Yes' : 'No') : undefined;
+}
+
 function summaryStringList(
   summary: Readonly<Record<string, unknown>>,
   key: string,
@@ -434,6 +447,15 @@ function readinessRecoveryLanes(
       issueCodes: Array.isArray(item.issueCodes)
         ? item.issueCodes.filter((code): code is string => typeof code === 'string' && code.trim().length > 0)
         : [],
+      repairActions: Array.isArray(item.repairActions)
+        ? item.repairActions.filter((action): action is string => typeof action === 'string' && action.trim().length > 0)
+        : [],
+      runtimeDependencies: Array.isArray(item.runtimeDependencies)
+        ? item.runtimeDependencies.filter((dependency): dependency is string => typeof dependency === 'string' && dependency.trim().length > 0)
+        : [],
+      businessImpact: typeof item.businessImpact === 'string' && item.businessImpact.trim().length > 0
+        ? item.businessImpact
+        : 'Readiness must be resolved before dependable go-live or recovery validation.',
       nextAction: typeof item.nextAction === 'string' && item.nextAction.trim().length > 0
         ? item.nextAction
         : 'Review the owning workspace.',
@@ -442,10 +464,25 @@ function readinessRecoveryLanes(
 
 function operationalFixDetailRows(
   section: AxisOperationalReadinessSection,
+  blocker?: AxisOperationalReadinessBlocker,
 ): OperationalFixModel['detailRows'] {
-  if (section.key !== 'acceptance') return [];
   const summary = section.summary;
+  const repair = blocker?.repair ?? {};
   const rows = [
+    ['Business impact', textValue(blocker?.businessImpact)],
+    ['Recovery hint', textValue(blocker?.recoveryHint)],
+    ['Repair available', booleanText(repair.available)],
+    ['Repair operation', textValue(repair.operation)],
+    ['Repair action', textValue(repair.action ?? repair.actionCode)],
+    ['Repair eligibility', textValue(repair.eligibility)],
+    ['Repair label', textValue(repair.label)],
+  ];
+  if (section.key !== 'acceptance') {
+    return rows
+      .filter((row): row is [string, string] => typeof row[1] === 'string')
+      .map(([label, value]) => ({ label, value }));
+  }
+  const acceptanceRows = rows.concat([
     ['Evidence state', summaryText(summary, 'browserValidationState')],
     ['Checked at', summaryText(summary, 'browserValidationCheckedAt')],
     ['Run id', summaryText(summary, 'browserValidationRunId')],
@@ -453,13 +490,13 @@ function operationalFixDetailRows(
     ['Evidence source', summaryText(summary, 'browserValidationSource')],
     ['Evidence file', summaryText(summary, 'browserValidationEvidenceFile')],
     ['Command', summaryText(summary, 'browserValidationCommand')],
-  ]
+  ])
     .filter((row): row is [string, string] => typeof row[1] === 'string')
     .map(([label, value]) => ({ label, value }));
   const commands = summaryStringList(summary, 'operatorCommands');
   return commands.length > 0
-    ? rows.concat({ label: 'Operator sequence', value: commands.join(' -> ') })
-    : rows;
+    ? acceptanceRows.concat({ label: 'Operator sequence', value: commands.join(' -> ') })
+    : acceptanceRows;
 }
 
 function operationalFixes(
@@ -478,7 +515,7 @@ function operationalFixes(
         message: blocker.message || blocker.disabledReason,
         action: blocker.suggestedAction || blocker.action || section.nextAction,
         source: blocker.source || section.source,
-        detailRows: operationalFixDetailRows(section),
+        detailRows: operationalFixDetailRows(section, blocker),
         blocker,
       })),
     )
@@ -1609,6 +1646,9 @@ export function AxisDashboardRoutePage({
                         <Typography color="text.secondary" variant="body2">
                           {lane.description}
                         </Typography>
+                        <Typography color="text.secondary" variant="body2">
+                          {lane.businessImpact}
+                        </Typography>
                         {lane.issueCodes.length > 0 ? (
                           <Stack
                             direction="row"
@@ -1619,6 +1659,34 @@ export function AxisDashboardRoutePage({
                               <Chip
                                 key={`${lane.key}-${code}`}
                                 label={code}
+                                size="small"
+                                variant="outlined"
+                              />
+                            ))}
+                          </Stack>
+                        ) : null}
+                        {lane.repairActions.length > 0 ? (
+                          <Stack spacing={0.5}>
+                            <Typography color="text.secondary" variant="caption">
+                              Repair actions
+                            </Typography>
+                            {lane.repairActions.map((action) => (
+                              <Typography
+                                key={`${lane.key}-${action}`}
+                                sx={{ overflowWrap: 'anywhere' }}
+                                variant="caption"
+                              >
+                                {action}
+                              </Typography>
+                            ))}
+                          </Stack>
+                        ) : null}
+                        {lane.runtimeDependencies.length > 0 ? (
+                          <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', gap: 0.75 }}>
+                            {lane.runtimeDependencies.map((dependency) => (
+                              <Chip
+                                key={`${lane.key}-${dependency}`}
+                                label={dependency}
                                 size="small"
                                 variant="outlined"
                               />

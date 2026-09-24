@@ -586,6 +586,10 @@ describe('AxisDashboardRoutePage', () => {
               route: '/operations/imports-exports',
               blockerCount: 0,
               issueCodes: [],
+              repairActions: [],
+              runtimeDependencies: [],
+              businessImpact:
+                'Required business data may be missing or stale, so application setup and publication validation can be misleading.',
               nextAction: 'Data releases are prepared in the owning import catalogues.',
             },
             {
@@ -599,6 +603,12 @@ describe('AxisDashboardRoutePage', () => {
               route: '/process/approval-queue',
               blockerCount: 1,
               issueCodes: ['TASK_NOT_ACTIONABLE'],
+              repairActions: [
+                'Open Approval Queue · process.approval.review · REVIEW_APPROVAL_TASK',
+              ],
+              runtimeDependencies: ['processServer/PROCESS/default'],
+              businessImpact:
+                'Governed publication cannot move Online until the approval task is actionable and complete.',
               nextAction:
                 'Open Approval Queue and reconcile governed publication approval tasks.',
             },
@@ -661,6 +671,10 @@ describe('AxisDashboardRoutePage', () => {
                   eligibility: 'NOT_AVAILABLE',
                   label: 'Run local browser validation',
                 },
+                businessImpact:
+                  'Acceptance evidence is required before the local recovery state can be trusted.',
+                recoveryHint:
+                  'Run the local acceptance/browser smoke and refresh Axis after evidence is captured.',
                 suggestedAction:
                   'Run the local acceptance/browser smoke and refresh Axis after evidence is captured.',
               },
@@ -694,6 +708,17 @@ describe('AxisDashboardRoutePage', () => {
     expect(screen.getByText('TASK_NOT_ACTIONABLE')).toBeInTheDocument();
     expect(
       screen.getByText(
+        'Governed publication cannot move Online until the approval task is actionable and complete.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Open Approval Queue · process.approval.review · REVIEW_APPROVAL_TASK',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('processServer/PROCESS/default')).toBeInTheDocument();
+    expect(
+      screen.getByText(
         'Open Approval Queue and reconcile governed publication approval tasks.',
       ),
     ).toBeInTheDocument();
@@ -702,16 +727,18 @@ describe('AxisDashboardRoutePage', () => {
       screen.getByText('Acceptance and browser validation'),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(
+      screen.getAllByText(
         'Run the local acceptance/browser smoke and refresh Axis after evidence is captured.',
-      ),
-    ).toBeInTheDocument();
+      ).length,
+    ).toBeGreaterThan(0);
     expect(
       screen.getByText(
         'Browser validation is enabled for this environment but the latest captured evidence is not attached to readiness.',
       ),
     ).toBeInTheDocument();
     expect(screen.getByText('Evidence state')).toBeInTheDocument();
+    expect(screen.getByText('Business impact')).toBeInTheDocument();
+    expect(screen.getByText('Repair operation')).toBeInTheDocument();
     expect(screen.getByText('FAILED')).toBeInTheDocument();
     expect(screen.getByText('provider-browser-smoke-failed')).toBeInTheDocument();
     expect(screen.getByText('circaMiniApp')).toBeInTheDocument();

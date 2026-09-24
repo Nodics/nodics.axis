@@ -389,6 +389,8 @@ export interface AxisOperationalReadinessBlocker {
   readonly disabledReason: string;
   readonly repair: Readonly<Record<string, unknown>>;
   readonly suggestedAction: string;
+  readonly businessImpact?: string | undefined;
+  readonly recoveryHint?: string | undefined;
 }
 
 export interface AxisOperationalReadinessSection {
