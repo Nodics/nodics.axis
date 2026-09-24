@@ -106,12 +106,17 @@ interface ReadinessRepairResultModel {
   readonly operation: string;
   readonly action: string;
   readonly ownerModule: string;
+  readonly evidenceReference?: string | undefined;
   readonly changedCount: number;
   readonly skippedCount: number;
   readonly blockersRemaining: number;
   readonly nextAction: string;
   readonly message: string;
   readonly checkedAt: string;
+  readonly targetIdentifiers: Readonly<Record<string, string>>;
+  readonly previewTargetCodes: readonly string[];
+  readonly rollbackAvailable?: boolean | undefined;
+  readonly retrySafe?: boolean | undefined;
 }
 
 interface ReadinessRecoveryLaneModel {
@@ -636,12 +641,40 @@ function parseReadinessRepairResult(value: unknown): ReadinessRepairResultModel 
     typeof value === 'object' && value !== null && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : {};
+  const targetIdentifiers =
+    typeof data.targetIdentifiers === 'object' &&
+    data.targetIdentifiers !== null &&
+    !Array.isArray(data.targetIdentifiers)
+      ? Object.fromEntries(
+          Object.entries(data.targetIdentifiers).filter(
+            (entry): entry is [string, string] =>
+              typeof entry[1] === 'string' && entry[1].trim().length > 0,
+          ),
+        )
+      : {};
+  const preview =
+    typeof data.preview === 'object' && data.preview !== null && !Array.isArray(data.preview)
+      ? (data.preview as Record<string, unknown>)
+      : {};
+  const transaction =
+    typeof data.transaction === 'object' &&
+    data.transaction !== null &&
+    !Array.isArray(data.transaction)
+      ? (data.transaction as Record<string, unknown>)
+      : {};
+  const retryPolicy =
+    typeof data.retryPolicy === 'object' &&
+    data.retryPolicy !== null &&
+    !Array.isArray(data.retryPolicy)
+      ? (data.retryPolicy as Record<string, unknown>)
+      : {};
   return Object.freeze({
     state: textValue(data.state) ?? 'UNKNOWN',
     dryRun: data.dryRun === true,
     operation: textValue(data.operation) ?? 'readiness.review',
     action: textValue(data.action) ?? 'REVIEW_READINESS',
     ownerModule: textValue(data.ownerModule) ?? 'unknown',
+    evidenceReference: textValue(data.evidenceReference),
     changedCount: typeof data.changedCount === 'number' ? data.changedCount : 0,
     skippedCount: typeof data.skippedCount === 'number' ? data.skippedCount : 0,
     blockersRemaining:
@@ -649,7 +682,44 @@ function parseReadinessRepairResult(value: unknown): ReadinessRepairResultModel 
     nextAction: textValue(data.nextAction) ?? 'Refresh readiness.',
     message: textValue(data.message) ?? 'Repair result returned.',
     checkedAt: textValue(data.checkedAt) ?? 'Not recorded',
+    targetIdentifiers: Object.freeze(targetIdentifiers),
+    previewTargetCodes: Object.freeze(
+      Array.isArray(preview.targetCodes)
+        ? preview.targetCodes.filter((item): item is string => typeof item === 'string')
+        : [],
+    ),
+    rollbackAvailable:
+      typeof transaction.rollbackAvailable === 'boolean'
+        ? transaction.rollbackAvailable
+        : undefined,
+    retrySafe:
+      typeof retryPolicy.safeToRetry === 'boolean'
+        ? retryPolicy.safeToRetry
+        : undefined,
   });
+}
+
+function blockerTargetIdentifiers(
+  blocker: AxisOperationalReadinessBlocker,
+): Readonly<Record<string, string>> {
+  const source = blocker as unknown as Record<string, unknown>;
+  return Object.freeze(
+    Object.fromEntries(
+      [
+        'releaseCode',
+        'profileCode',
+        'publicationCode',
+        'taskCode',
+        'mediaManifestCode',
+        'sourceCode',
+      ]
+        .map((key) => [key, source[key]])
+        .filter(
+          (entry): entry is [string, string] =>
+            typeof entry[1] === 'string' && entry[1].trim().length > 0,
+        ),
+    ),
+  );
 }
 
 export function AxisDashboardRoutePage({
@@ -807,6 +877,7 @@ export function AxisDashboardRoutePage({
       readonly dryRun: boolean;
     }) => {
       const repair = fix.blocker.repair;
+      const key = idempotencyKey(dryRun ? 'repair-dry-run' : 'repair-execute');
       return parseReadinessRepairResult(
         await invokeOperationalOwner<unknown>(
           {
@@ -818,7 +889,10 @@ export function AxisDashboardRoutePage({
           'backoffice',
           '/operations/readiness/repairs',
           {
-            idempotencyKey: idempotencyKey(dryRun ? 'repair-dry-run' : 'repair-execute'),
+            repairContractVersion: 1,
+            idempotencyKey: key,
+            correlationId: key,
+            timeoutMs: runtime.requestTimeoutMs,
             dryRun,
             operation: repair.operation,
             action: repair.action ?? repair.actionCode,
@@ -830,6 +904,7 @@ export function AxisDashboardRoutePage({
             eligibility: repair.eligibility,
             available: repair.available,
             label: repair.label,
+            targetIdentifiers: blockerTargetIdentifiers(fix.blocker),
             reason: dryRun
               ? 'Axis readiness repair dry run requested by an authorized operator.'
               : 'Axis readiness repair execution requested by an authorized operator.',
@@ -1678,6 +1753,45 @@ export function AxisDashboardRoutePage({
                   ? dashboardError(repairMutation.error)
                   : `${repairResult?.state ?? 'UNKNOWN'} · ${repairResult?.message ?? ''} ${repairResult ? `Next: ${repairResult.nextAction}` : ''}`}
               </Alert>
+              {repairResult ? (
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gap: 1,
+                    gridTemplateColumns: { xs: '1fr', md: 'repeat(4, 1fr)' },
+                    mt: 1,
+                  }}
+                >
+                  {[
+                    ['Changed', String(repairResult.changedCount)],
+                    ['Skipped', String(repairResult.skippedCount)],
+                    ['Remaining blockers', String(repairResult.blockersRemaining)],
+                    ['Retry safe', repairResult.retrySafe === undefined ? 'Unknown' : repairResult.retrySafe ? 'Yes' : 'No'],
+                    ['Evidence', repairResult.evidenceReference ?? 'Not supplied'],
+                    ['Rollback', repairResult.rollbackAvailable === undefined ? 'Unknown' : repairResult.rollbackAvailable ? 'Available' : 'Not available'],
+                    ['Targets', Object.values(repairResult.targetIdentifiers).join(', ') || 'Not supplied'],
+                    ['Preview', repairResult.previewTargetCodes.join(', ') || 'No preview targets'],
+                  ].map(([label, value]) => (
+                    <Box
+                      key={label}
+                      sx={{
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 1,
+                        px: 1,
+                        py: 0.75,
+                      }}
+                    >
+                      <Typography color="text.secondary" variant="caption">
+                        {label}
+                      </Typography>
+                      <Typography sx={{ overflowWrap: 'anywhere' }} variant="body2">
+                        {value}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              ) : null}
             </Box>
           ) : null}
           {readinessRecoveryLaneItems.length > 0 ? (

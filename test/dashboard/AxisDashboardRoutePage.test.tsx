@@ -415,10 +415,15 @@ describe('AxisDashboardRoutePage', () => {
               operation: 'tooling.acceptance.browserValidation',
               action: 'CAPTURE_BROWSER_VALIDATION',
               ownerModule: 'tooling',
+              targetIdentifiers: { sourceCode: 'browser-validation' },
+              preview: { changedCount: 1, skippedCount: 0, targetCodes: ['browser-validation'] },
+              transaction: { atomic: false, rollbackAvailable: false },
+              retryPolicy: { safeToRetry: true, reuseIdempotencyKey: true },
               changedCount: 0,
               skippedCount: 0,
               blockersRemaining: 1,
               retryable: true,
+              evidenceReference: 'acceptance:browser-validation',
               nextAction: 'Execute repair after reviewing dry-run evidence.',
               message: 'Dry run completed for the owner repair operation.',
               checkedAt: '2026-09-24T00:07:00.000Z',
@@ -474,6 +479,32 @@ describe('AxisDashboardRoutePage', () => {
               releaseVersion: '0.1.0',
               releaseStatus: 'CURRENT',
               allowedActions: ['ROLLBACK'],
+            }),
+          );
+        }
+        if (url.includes('/operations/readiness/repairs')) {
+          return Promise.resolve(
+            response({
+              contractVersion: 1,
+              repairContractVersion: 1,
+              idempotencyKey: 'repair-dry-run-test',
+              dryRun: true,
+              state: 'DRY_RUN',
+              operation: 'tooling.acceptance.browserValidation',
+              action: 'CAPTURE_BROWSER_VALIDATION',
+              ownerModule: 'tooling',
+              targetIdentifiers: { sourceCode: 'browser-validation' },
+              preview: { changedCount: 1, skippedCount: 0, targetCodes: ['browser-validation'] },
+              transaction: { atomic: false, rollbackAvailable: false },
+              retryPolicy: { safeToRetry: true, reuseIdempotencyKey: true },
+              changedCount: 0,
+              skippedCount: 0,
+              blockersRemaining: 1,
+              retryable: true,
+              evidenceReference: 'acceptance:browser-validation',
+              nextAction: 'Execute repair after reviewing dry-run evidence.',
+              message: 'Dry run completed for the owner repair operation.',
+              checkedAt: '2026-09-24T00:07:00.000Z',
             }),
           );
         }
@@ -577,6 +608,32 @@ describe('AxisDashboardRoutePage', () => {
               releaseVersion: '0.1.0',
               releaseStatus: 'CURRENT',
               allowedActions: ['ROLLBACK'],
+            }),
+          );
+        }
+        if (url.includes('/operations/readiness/repairs')) {
+          return Promise.resolve(
+            response({
+              contractVersion: 1,
+              repairContractVersion: 1,
+              idempotencyKey: 'repair-dry-run-test',
+              dryRun: true,
+              state: 'DRY_RUN',
+              operation: 'tooling.acceptance.browserValidation',
+              action: 'CAPTURE_BROWSER_VALIDATION',
+              ownerModule: 'tooling',
+              targetIdentifiers: { sourceCode: 'browser-validation' },
+              preview: { changedCount: 1, skippedCount: 0, targetCodes: ['browser-validation'] },
+              transaction: { atomic: false, rollbackAvailable: false },
+              retryPolicy: { safeToRetry: true, reuseIdempotencyKey: true },
+              changedCount: 0,
+              skippedCount: 0,
+              blockersRemaining: 1,
+              retryable: true,
+              evidenceReference: 'acceptance:browser-validation',
+              nextAction: 'Execute repair after reviewing dry-run evidence.',
+              message: 'Dry run completed for the owner repair operation.',
+              checkedAt: '2026-09-24T00:07:00.000Z',
             }),
           );
         }
@@ -784,6 +841,8 @@ describe('AxisDashboardRoutePage', () => {
         calls.some((call) => String(call[0]).includes('/operations/readiness/repairs')),
       ).toBe(true);
     });
+    expect(await screen.findByText('acceptance:browser-validation')).toBeInTheDocument();
+    expect(screen.getAllByText('browser-validation').length).toBeGreaterThan(0);
   });
 
   it('deduplicates the same release across runtime catalogue projections', async () => {
