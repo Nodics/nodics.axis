@@ -14,6 +14,17 @@ export function DashboardPageRenderer({ page, actions }: CmsPagePresentationProp
     );
   }
   const ordered = [...page.components].sort((left, right) => left.index - right.index);
+  const workspace = ordered.filter((component) => component.slot === 'workspace');
+  if (workspace.length) {
+    if (
+      workspace.length !== 1 ||
+      ordered.length !== 1 ||
+      workspace[0]?.renderer !== 'axis.component.dashboard-workspace'
+    ) {
+      throw new Error('Dashboard workspace requires one CMS composition root');
+    }
+    return renderComponentCollection(workspace, actions);
+  }
   const slot = (name: string): ReactNode =>
     renderComponentCollection(
       ordered.filter((component) => component.slot === name),

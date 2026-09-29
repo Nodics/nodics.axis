@@ -77,7 +77,8 @@ const bootstrap = {
       ...baseProfile,
       code: 'agora-apparel',
       title: 'Agora Apparel',
-      summary: 'Apparel storefront accelerator as a complete business-facing domain bundle.',
+      summary:
+        'Apparel storefront accelerator as a complete business-facing domain bundle.',
       applicationCode: 'agora.apparel',
       baselineCode: 'agora:apparel',
       order: 20,
@@ -107,8 +108,7 @@ function responseFor(profileCode: string) {
           group: 'PROJECT_ACCELERATOR',
           businessStatus: 'NEEDS_ATTENTION',
           technicalStatus: 'INVALID_RELEASE',
-          disabledReason:
-            'Release manifest is invalid; repair it before installing.',
+          disabledReason: 'Release manifest is invalid; repair it before installing.',
           nextAction: 'Repair the owning module release descriptor.',
           blockers: [
             {
@@ -164,14 +164,14 @@ function responseFor(profileCode: string) {
   };
 }
 
-function renderPage() {
+function renderPage(path = '/setup-accelerators') {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
   return render(
     <AxisThemeProvider>
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter>
+        <MemoryRouter initialEntries={[path]}>
           <SetupAcceleratorsRoutePage
             accessToken="employee-token"
             bootstrap={bootstrap}
@@ -188,6 +188,27 @@ describe('SetupAcceleratorsRoutePage', () => {
     vi.restoreAllMocks();
   });
 
+  it('focuses the chosen offering without loading unrelated application status', async () => {
+    const fetchImplementation = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation((input) => {
+        const url = input instanceof Request ? input.url : input.toString();
+        expect(url).toContain('/circa-ewaste/');
+        return Promise.resolve(
+          new Response(JSON.stringify(responseFor('circa-ewaste')), { status: 200 }),
+        );
+      });
+    renderPage('/setup-accelerators?profile=circa-ewaste');
+    expect(
+      await screen.findByRole('button', { name: 'All applications' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Agora Apparel')).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: 'Show Circa eWaste details' }),
+    ).toHaveAttribute('aria-expanded', 'false');
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+  });
+
   it('shows a guided publication recovery path from backend-owned status', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url =
@@ -197,8 +218,7 @@ describe('SetupAcceleratorsRoutePage', () => {
             ? input.href
             : input;
       const profileCode =
-        /\/v0\/applications\/([^/]+)\/initialization/u.exec(String(url))?.[1] ??
-        '';
+        /\/v0\/applications\/([^/]+)\/initialization/u.exec(String(url))?.[1] ?? '';
       return Promise.resolve(
         new Response(JSON.stringify(responseFor(decodeURIComponent(profileCode))), {
           status: 200,
@@ -214,10 +234,10 @@ describe('SetupAcceleratorsRoutePage', () => {
     if (!(panel instanceof HTMLElement)) {
       throw new Error('Publishing recovery path card was not rendered');
     }
-    expect(within(panel).getByText('Agora Apparel: release needs repair')).toBeVisible();
     expect(
-      within(panel).getByText('Circa eWaste: review approval task'),
+      within(panel).getByText('Agora Apparel: release needs repair'),
     ).toBeVisible();
+    expect(within(panel).getByText('Circa eWaste: review approval task')).toBeVisible();
     expect(within(panel).getByText('Open Data Releases')).toBeVisible();
     expect(within(panel).getByText('Open Approval Queue')).toBeVisible();
     expect(screen.getByText('Approval Queue')).toBeVisible();

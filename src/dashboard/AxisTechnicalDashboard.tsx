@@ -1,0 +1,3034 @@
+import type { CmsComponentContract } from '../cms/cmsContract';
+import { dashboardText, renderDashboardSections } from './dashboardComposition';
+import { useMutation, useQueries, useQuery } from '@tanstack/react-query';
+import {
+  Alert,
+  Box,
+  Button,
+  Chip,
+  Collapse,
+  CircularProgress,
+  IconButton,
+  LinearProgress,
+  ButtonBase,
+  Stack,
+  Tooltip,
+  Typography,
+} from '@mui/material';
+import { lighten, type Theme } from '@mui/material/styles';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router';
+
+import { ShellIcon } from '../app/shell/ShellIcon';
+import {
+  selectModuleConnection,
+  type AxisAuthenticatedBootstrap,
+  type AxisDocumentationSource,
+  type AxisModuleConnection,
+  type AxisOperationalReadinessBlocker,
+  type AxisOperationalReadinessSection,
+  type AxisStartupValidationReport,
+} from '../bootstrap/publicBootstrap';
+import {
+  createDocumentationPublicationClient,
+  type DocumentationPublicationStatus,
+} from '../documentation/api/documentationPublicationClient';
+import {
+  createApplicationInitializationClient,
+  type ApplicationInitializationStatus,
+} from '../operations/setupAccelerators/api/applicationInitializationClient';
+import {
+  loadAvailableFunctionalModules,
+  loadRegisteredFunctionalModules,
+} from '../operations/moduleRegistry/api/functionalModuleRegistryClient';
+import type { FunctionalModuleRegistration } from '../operations/moduleRegistry/api/functionalModuleRegistryContracts';
+import {
+  loadDataReleases,
+  type DataReleaseClientConfiguration,
+} from '../operations/importExport/api/dataReleaseClient';
+import type { DataRelease } from '../operations/importExport/api/dataReleaseContracts';
+import { releaseKey } from '../operations/importExport/importExportPresentation';
+import type { AxisRuntimeConfig } from '../runtime/runtimeConfig';
+import { invokeOperationalOwner } from '../operations/shared/operationalOwnerClient';
+
+interface AxisDashboardRoutePageProps {
+  readonly visual?: boolean;
+  readonly sections: readonly CmsComponentContract[];
+  readonly accessToken: string;
+  readonly bootstrap: AxisAuthenticatedBootstrap;
+  readonly runtime: AxisRuntimeConfig;
+}
+
+interface ActionCardModel {
+  readonly id: string;
+  readonly title: string;
+  readonly description: string;
+  readonly icon: string;
+  readonly route: string;
+  readonly primaryAction: string;
+  readonly severity: 'success' | 'info' | 'warning' | 'error';
+  readonly count?: number | undefined;
+  readonly meta?: string | undefined;
+  readonly detailRows: readonly Readonly<{
+    readonly label: string;
+    readonly value: string;
+    readonly severity?: ActionCardModel['severity'] | undefined;
+  }>[];
+}
+
+interface OperationalFixModel {
+  readonly id: string;
+  readonly title: string;
+  readonly sectionTitle: string;
+  readonly ownerModule: string;
+  readonly route: string;
+  readonly severity: ActionCardModel['severity'];
+  readonly message: string;
+  readonly action: string;
+  readonly source: string;
+  readonly detailRows: readonly Readonly<{
+    readonly label: string;
+    readonly value: string;
+  }>[];
+  readonly blocker: AxisOperationalReadinessBlocker;
+}
+
+interface ReadinessTimelineModel {
+  readonly id: string;
+  readonly label: string;
+  readonly state: string;
+  readonly checkedAt: string;
+  readonly blockerCount: number;
+  readonly source: string;
+}
+
+interface ReadinessRepairResultModel {
+  readonly state: string;
+  readonly dryRun: boolean;
+  readonly operation: string;
+  readonly action: string;
+  readonly ownerModule: string;
+  readonly evidenceReference?: string | undefined;
+  readonly changedCount: number;
+  readonly skippedCount: number;
+  readonly blockersRemaining: number;
+  readonly nextAction: string;
+  readonly message: string;
+  readonly checkedAt: string;
+  readonly targetIdentifiers: Readonly<Record<string, string>>;
+  readonly previewTargetCodes: readonly string[];
+  readonly rollbackAvailable?: boolean | undefined;
+  readonly retrySafe?: boolean | undefined;
+  readonly providerCode?: string | undefined;
+  readonly providerState?: string | undefined;
+  readonly safetyLevel?: string | undefined;
+  readonly receiptCode?: string | undefined;
+  readonly eventEmitted?: boolean | undefined;
+  readonly refreshScopes: readonly string[];
+  readonly businessSteps: readonly string[];
+}
+
+interface ReadinessRecoveryLaneModel {
+  readonly key: string;
+  readonly label: string;
+  readonly description: string;
+  readonly state: string;
+  readonly ownerModule: string;
+  readonly source: string;
+  readonly route: string;
+  readonly blockerCount: number;
+  readonly issueCodes: readonly string[];
+  readonly repairActions: readonly string[];
+  readonly runtimeDependencies: readonly string[];
+  readonly businessImpact: string;
+  readonly nextAction: string;
+}
+
+const readyStartupValidation: AxisStartupValidationReport = Object.freeze({
+  state: 'READY',
+  checkedAt: new Date(0).toISOString(),
+  source: 'backoffice.operationalReadiness',
+  summary: Object.freeze({
+    total: 0,
+    errors: 0,
+    warnings: 0,
+    info: 0,
+    dismissible: 0,
+    acknowledged: 0,
+  }),
+  bootstrapChecks: Object.freeze({
+    total: 0,
+    ready: 0,
+    missing: 0,
+    needsAttention: 0,
+    checks: Object.freeze([]),
+  }),
+  findings: Object.freeze([]),
+});
+
+function isCmsDocumentationSource(
+  source: AxisDocumentationSource,
+): source is Extract<AxisDocumentationSource, { readonly type: 'CMS' }> {
+  return source.type === 'CMS';
+}
+
+function isConfiguredCmsDocumentationSource(
+  source: AxisDocumentationSource,
+): source is Extract<AxisDocumentationSource, { readonly type: 'CMS' }> & {
+  readonly initializationProfile: string;
+} {
+  return (
+    isCmsDocumentationSource(source) &&
+    typeof source.initializationProfile === 'string' &&
+    source.initializationProfile.trim().length > 0
+  );
+}
+
+function createPlatformImportConnection(
+  bootstrap: AxisAuthenticatedBootstrap,
+  runtime: AxisRuntimeConfig,
+): AxisModuleConnection {
+  return Object.freeze({
+    moduleName: 'import',
+    instanceId: `${runtime.enterpriseCode}:platformServer:import:fallback`,
+    endpoint: new URL('/nodics/import', runtime.backofficeBaseUrl).toString(),
+    environment: bootstrap.environments[0] ?? runtime.enterpriseCode,
+    server: 'platformServer',
+    runtimeRole: Object.freeze({
+      code: 'PLATFORM',
+      publication: 'OPERATIONAL',
+    }),
+    state: 'UP',
+  });
+}
+
+function selectReleaseCatalogueConnections(
+  bootstrap: AxisAuthenticatedBootstrap,
+  runtime: AxisRuntimeConfig,
+): readonly AxisModuleConnection[] {
+  const importConnections = (bootstrap.moduleConnections.import ?? []).filter(
+    (connection) =>
+      (connection.state === 'UP' || connection.state === 'DEGRADED') &&
+      connection.runtimeRole?.publication !== 'ONLINE',
+  );
+  const values = [...importConnections];
+  if (!values.some((connection) => connection.runtimeRole?.code === 'PLATFORM')) {
+    values.push(createPlatformImportConnection(bootstrap, runtime));
+  }
+  return Object.freeze(
+    Array.from(
+      new Map(values.map((connection) => [connection.instanceId, connection])).values(),
+    ),
+  );
+}
+
+function releaseBelongsToConnection(
+  release: DataRelease,
+  connection: AxisModuleConnection,
+): boolean {
+  const runtimeRoleCode = connection.runtimeRole?.code;
+  return !release.destinationRole || !runtimeRoleCode
+    ? true
+    : release.destinationRole === runtimeRoleCode;
+}
+
+function mergeReleases(releases: readonly DataRelease[]): readonly DataRelease[] {
+  return Object.freeze(
+    Array.from(
+      new Map(releases.map((release) => [releaseKey(release), release])).values(),
+    ),
+  );
+}
+
+async function loadDataReleasesByDestination(
+  connections: readonly AxisModuleConnection[],
+  configuration: DataReleaseClientConfiguration,
+): Promise<readonly DataRelease[]> {
+  const settled = await Promise.allSettled(
+    connections.map(
+      async (connection): Promise<readonly DataRelease[]> =>
+        Object.freeze(
+          (await loadDataReleases(connection, configuration)).filter((release) =>
+            releaseBelongsToConnection(release, connection),
+          ),
+        ),
+    ),
+  );
+  const fulfilled = settled
+    .filter(
+      (item): item is PromiseFulfilledResult<readonly DataRelease[]> =>
+        item.status === 'fulfilled',
+    )
+    .flatMap((item) => item.value);
+  if (fulfilled.length > 0) return mergeReleases(fulfilled);
+  const failure = settled.find(
+    (item): item is PromiseRejectedResult => item.status === 'rejected',
+  );
+  throw failure?.reason instanceof Error
+    ? failure.reason
+    : new Error('Data release catalogue is unavailable');
+}
+
+function dataReleaseNeedsAction(release: DataRelease): boolean {
+  return ['NOT_INSTALLED', 'UPDATE_AVAILABLE', 'FAILED', 'INVALID_RELEASE'].includes(
+    release.status,
+  );
+}
+
+function moduleNeedsAction(module: FunctionalModuleRegistration): boolean {
+  return (
+    module.registrationState === 'AVAILABLE' ||
+    (!module.required && !module.enabled) ||
+    module.runtimeState === 'DEGRADED' ||
+    module.runtimeState === 'OFFLINE' ||
+    module.runtimeState === 'INCOMPATIBLE'
+  );
+}
+
+function publicationNeedsApproval(
+  status: ApplicationInitializationStatus | DocumentationPublicationStatus,
+): boolean {
+  if ('capability' in status && status.capability?.businessStatus) {
+    return (
+      status.capability.businessStatus === 'APPROVAL_REQUIRED' ||
+      status.capability.businessStatus === 'APPROVAL_IN_PROGRESS'
+    );
+  }
+  return (
+    status.readiness === 'PUBLICATION_PENDING' &&
+    status.publication?.state === 'PENDING_APPROVAL'
+  );
+}
+
+function publicationNeedsAction(
+  status: ApplicationInitializationStatus | DocumentationPublicationStatus,
+): boolean {
+  if ('capability' in status && status.capability?.businessStatus) {
+    return ['NOT_PREPARED', 'PREPARING', 'PREPARED_STAGED', 'NEEDS_ATTENTION'].includes(
+      status.capability.businessStatus,
+    );
+  }
+  return ['NOT_IMPORTED', 'IMPORTED', 'FAILED', 'REJECTED'].includes(status.readiness);
+}
+
+function publicationIsReady(
+  status: ApplicationInitializationStatus | DocumentationPublicationStatus,
+): boolean {
+  if ('capability' in status && status.capability?.businessStatus) {
+    return status.capability.businessStatus === 'ONLINE';
+  }
+  return status.readiness === 'READY';
+}
+
+function applicationNeedsSetupAction(status: ApplicationInitializationStatus): boolean {
+  if (status.capability?.businessStatus) {
+    return !['ONLINE', 'RETIRED'].includes(status.capability.businessStatus);
+  }
+  return status.readiness !== 'READY' || status.releaseStatus === 'UPDATE_AVAILABLE';
+}
+
+function startupValidationNeedsAction(
+  startupValidation: AxisStartupValidationReport,
+): boolean {
+  return (
+    startupValidation.state !== 'READY' ||
+    startupValidation.summary.total > 0 ||
+    startupValidation.bootstrapChecks.missing > 0 ||
+    startupValidation.bootstrapChecks.needsAttention > 0
+  );
+}
+
+function readinessSection(
+  bootstrap: AxisAuthenticatedBootstrap,
+  key: string,
+): AxisOperationalReadinessSection | undefined {
+  return bootstrap.operationalReadiness?.sections.find(
+    (section) => section.key === key,
+  );
+}
+
+function readinessSeverity(status: string | undefined): ActionCardModel['severity'] {
+  if (status === 'READY') return 'success';
+  if (status === 'NOT_READY' || status === 'BLOCKED') return 'error';
+  if (status === 'NEEDS_ATTENTION' || status === 'NOT_EXPOSED') return 'warning';
+  return 'info';
+}
+
+function blockerSeverity(
+  blocker: AxisOperationalReadinessBlocker,
+): ActionCardModel['severity'] {
+  if (blocker.severity === 'BLOCKED' || blocker.severity === 'ERROR') {
+    return 'error';
+  }
+  if (blocker.severity === 'INFO') return 'info';
+  return 'warning';
+}
+
+function readinessSectionActionCount(
+  section: AxisOperationalReadinessSection | undefined,
+): number {
+  if (!section) return 0;
+  if (section.businessStatus === 'READY') return 0;
+  return section.blockers.length > 0 ? section.blockers.length : 1;
+}
+
+function summaryText(
+  summary: Readonly<Record<string, unknown>>,
+  key: string,
+): string | undefined {
+  const value = summary[key];
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
+function textValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
+function booleanText(value: unknown): string | undefined {
+  return typeof value === 'boolean' ? (value ? 'Yes' : 'No') : undefined;
+}
+
+function summaryStringList(
+  summary: Readonly<Record<string, unknown>>,
+  key: string,
+): readonly string[] {
+  const value = summary[key];
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is string => typeof item === 'string' && item.trim().length > 0,
+      )
+    : [];
+}
+
+function summaryValue(
+  summary: Readonly<Record<string, unknown>>,
+  key: string,
+): string | undefined {
+  const value = summary[key];
+  if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    const values = value
+      .filter((item): item is string | number | boolean =>
+        ['string', 'number', 'boolean'].includes(typeof item),
+      )
+      .map(String)
+      .filter((item) => item.trim().length > 0);
+    return values.length > 0 ? values.join(', ') : undefined;
+  }
+  return undefined;
+}
+
+function readinessTimeline(
+  readiness: AxisAuthenticatedBootstrap['operationalReadiness'],
+): readonly ReadinessTimelineModel[] {
+  const timeline = readiness?.summary.timeline;
+  if (!Array.isArray(timeline)) return [];
+  return timeline
+    .filter(
+      (item): item is Readonly<Record<string, unknown>> =>
+        typeof item === 'object' && item !== null && !Array.isArray(item),
+    )
+    .map((item, index) => ({
+      id:
+        typeof item.id === 'string' && item.id.trim().length > 0
+          ? item.id
+          : `readiness-timeline-${String(index)}`,
+      label:
+        typeof item.label === 'string' && item.label.trim().length > 0
+          ? item.label
+          : 'Operational readiness',
+      state:
+        typeof item.state === 'string' && item.state.trim().length > 0
+          ? item.state
+          : 'UNKNOWN',
+      checkedAt:
+        typeof item.checkedAt === 'string' && item.checkedAt.trim().length > 0
+          ? item.checkedAt
+          : 'Not recorded',
+      blockerCount: typeof item.blockerCount === 'number' ? item.blockerCount : 0,
+      source:
+        typeof item.source === 'string' && item.source.trim().length > 0
+          ? item.source
+          : 'backoffice.operationalReadiness',
+    }))
+    .slice(0, 5);
+}
+
+function readinessRecoveryLanes(
+  readiness: AxisAuthenticatedBootstrap['operationalReadiness'],
+): readonly ReadinessRecoveryLaneModel[] {
+  const matrix = readiness?.summary.recoveryMatrix;
+  if (!Array.isArray(matrix)) return [];
+  return matrix
+    .filter(
+      (item): item is Readonly<Record<string, unknown>> =>
+        typeof item === 'object' && item !== null && !Array.isArray(item),
+    )
+    .map((item, index) => ({
+      key:
+        typeof item.key === 'string' && item.key.trim().length > 0
+          ? item.key
+          : `recovery-lane-${String(index)}`,
+      label:
+        typeof item.label === 'string' && item.label.trim().length > 0
+          ? item.label
+          : 'Readiness lane',
+      description:
+        typeof item.description === 'string' && item.description.trim().length > 0
+          ? item.description
+          : 'Review readiness in the owning workspace.',
+      state:
+        typeof item.state === 'string' && item.state.trim().length > 0
+          ? item.state
+          : 'UNKNOWN',
+      ownerModule:
+        typeof item.ownerModule === 'string' && item.ownerModule.trim().length > 0
+          ? item.ownerModule
+          : 'unknown',
+      source:
+        typeof item.source === 'string' && item.source.trim().length > 0
+          ? item.source
+          : 'backoffice.operationalReadiness',
+      route:
+        typeof item.route === 'string' && item.route.trim().length > 0
+          ? item.route
+          : '/dashboard',
+      blockerCount: typeof item.blockerCount === 'number' ? item.blockerCount : 0,
+      issueCodes: Array.isArray(item.issueCodes)
+        ? item.issueCodes.filter(
+            (code): code is string =>
+              typeof code === 'string' && code.trim().length > 0,
+          )
+        : [],
+      repairActions: Array.isArray(item.repairActions)
+        ? item.repairActions.filter(
+            (action): action is string =>
+              typeof action === 'string' && action.trim().length > 0,
+          )
+        : [],
+      runtimeDependencies: Array.isArray(item.runtimeDependencies)
+        ? item.runtimeDependencies.filter(
+            (dependency): dependency is string =>
+              typeof dependency === 'string' && dependency.trim().length > 0,
+          )
+        : [],
+      businessImpact:
+        typeof item.businessImpact === 'string' && item.businessImpact.trim().length > 0
+          ? item.businessImpact
+          : 'Readiness must be resolved before dependable go-live or recovery validation.',
+      nextAction:
+        typeof item.nextAction === 'string' && item.nextAction.trim().length > 0
+          ? item.nextAction
+          : 'Review the owning workspace.',
+    }));
+}
+
+function operationalFixDetailRows(
+  section: AxisOperationalReadinessSection,
+  blocker?: AxisOperationalReadinessBlocker,
+): OperationalFixModel['detailRows'] {
+  const summary = section.summary;
+  const repair = blocker?.repair ?? {};
+  const rows = [
+    ['Business impact', textValue(blocker?.businessImpact)],
+    ['Recovery hint', textValue(blocker?.recoveryHint)],
+    ['Repair available', booleanText(repair.available)],
+    ['Repair operation', textValue(repair.operation)],
+    ['Repair action', textValue(repair.action ?? repair.actionCode)],
+    ['Repair eligibility', textValue(repair.eligibility)],
+    ['Repair label', textValue(repair.label)],
+  ];
+  if (section.key !== 'acceptance') {
+    return rows
+      .filter((row): row is [string, string] => typeof row[1] === 'string')
+      .map(([label, value]) => ({ label, value }));
+  }
+  const acceptanceRows = rows
+    .concat([
+      ['Evidence state', summaryText(summary, 'browserValidationState')],
+      ['Checked at', summaryText(summary, 'browserValidationCheckedAt')],
+      ['Run id', summaryText(summary, 'browserValidationRunId')],
+      ['Failed step', summaryText(summary, 'browserValidationFailedStep')],
+      ['Evidence source', summaryText(summary, 'browserValidationSource')],
+      ['Evidence file', summaryText(summary, 'browserValidationEvidenceFile')],
+      ['Command', summaryText(summary, 'browserValidationCommand')],
+    ])
+    .filter((row): row is [string, string] => typeof row[1] === 'string')
+    .map(([label, value]) => ({ label, value }));
+  const commands = summaryStringList(summary, 'operatorCommands');
+  return commands.length > 0
+    ? acceptanceRows.concat({
+        label: 'Operator sequence',
+        value: commands.join(' -> '),
+      })
+    : acceptanceRows;
+}
+
+function operationalFixes(
+  readiness: AxisAuthenticatedBootstrap['operationalReadiness'],
+): readonly OperationalFixModel[] {
+  if (!readiness) return [];
+  return readiness.sections
+    .flatMap((section) =>
+      section.blockers.map((blocker, index) => ({
+        id: `${section.key}:${blocker.code}:${String(index)}`,
+        title: blocker.suggestedAction || blocker.action || section.nextAction,
+        sectionTitle: section.title,
+        ownerModule: section.ownerModule,
+        route: section.route || '/dashboard',
+        severity: blockerSeverity(blocker),
+        message: blocker.message || blocker.disabledReason,
+        action: blocker.suggestedAction || blocker.action || section.nextAction,
+        source: blocker.source || section.source,
+        detailRows: operationalFixDetailRows(section, blocker),
+        blocker,
+      })),
+    )
+    .sort((left, right) => {
+      const order = { error: 0, warning: 1, info: 2, success: 3 };
+      return (
+        order[left.severity] - order[right.severity] ||
+        left.sectionTitle.localeCompare(right.sectionTitle)
+      );
+    });
+}
+
+function startupValidationRoute(bootstrap: AxisAuthenticatedBootstrap): string {
+  return (
+    bootstrap.navigation.find(
+      (item) =>
+        item.backendWorkspace?.workspaceCode === 'system.runtimeConfiguration' &&
+        item.featureState !== 'HIDDEN' &&
+        ['UP', 'DEGRADED'].includes(item.availability),
+    )?.route ?? '/dashboard'
+  );
+}
+
+function firstVisibleRoute(
+  bootstrap: AxisAuthenticatedBootstrap,
+  predicate: (item: AxisAuthenticatedBootstrap['navigation'][number]) => boolean,
+  fallback: string,
+): string {
+  return (
+    bootstrap.navigation.find(
+      (item) => item.featureState !== 'HIDDEN' && predicate(item),
+    )?.route ?? fallback
+  );
+}
+
+function discoveryRoute(bootstrap: AxisAuthenticatedBootstrap): string {
+  return firstVisibleRoute(
+    bootstrap,
+    (item) =>
+      item.moduleName === 'discoveryConfig' ||
+      item.moduleName === 'commerceSearchCore' ||
+      item.route.startsWith('/discovery'),
+    '/discovery',
+  );
+}
+
+function documentationRoute(bootstrap: AxisAuthenticatedBootstrap): string {
+  return firstVisibleRoute(
+    bootstrap,
+    (item) => item.route === '/docs' || item.route.startsWith('/docs/'),
+    '/docs',
+  );
+}
+
+function readinessSectionDetailRows(
+  section: AxisOperationalReadinessSection | undefined,
+  fallbackRows: readonly Readonly<{
+    readonly label: string;
+    readonly value: string;
+    readonly severity?: ActionCardModel['severity'] | undefined;
+  }>[],
+): ActionCardModel['detailRows'] {
+  if (!section) return fallbackRows;
+  const preferredKeys = [
+    'status',
+    'state',
+    'ready',
+    'configured',
+    'sourceCount',
+    'indexedSourceCount',
+    'providerCount',
+    'readyProviderCount',
+    'unavailableProviderCount',
+    'applicationCount',
+    'readyApplicationCount',
+    'attentionApplicationCount',
+    'onlineProfileCount',
+    'pendingProfileCount',
+    'documentationSourceCount',
+    'readyDocumentationCount',
+    'pendingDocumentationCount',
+    'modelProvider',
+    'embeddingProvider',
+    'indexName',
+    'lastIndexedAt',
+    'checkedAt',
+  ];
+  const rows: ActionCardModel['detailRows'] = [
+    {
+      label: 'Backend status',
+      value: section.businessStatus,
+      severity: readinessSeverity(section.businessStatus),
+    },
+    {
+      label: 'Owner module',
+      value: section.ownerModule,
+      severity: 'info',
+    },
+    {
+      label: 'Blockers',
+      value: String(section.blockers.length),
+      severity: section.blockers.length > 0 ? 'warning' : 'success',
+    },
+    ...preferredKeys.flatMap((key) => {
+      const value = summaryValue(section.summary, key);
+      if (!value) return [];
+      return [
+        {
+          label: key
+            .replace(/([A-Z])/g, ' $1')
+            .replace(/^./, (char) => char.toUpperCase()),
+          value,
+          severity: 'info' as const,
+        },
+      ];
+    }),
+  ];
+  return rows.slice(0, 8);
+}
+
+function progressPercent(ready: number, total: number): number {
+  if (total <= 0) return 0;
+  return Math.round((ready / total) * 100);
+}
+
+function statusToneColor(tone: ActionCardModel['severity']) {
+  return (theme: Theme) =>
+    theme.palette.mode === 'dark'
+      ? lighten(theme.palette[tone].main, 0.5)
+      : theme.palette[tone].dark;
+}
+
+function statusToneLabel(tone: ActionCardModel['severity']) {
+  if (tone === 'success') return 'Ready';
+  if (tone === 'warning') return 'Needs action';
+  if (tone === 'error') return 'Attention';
+  return 'Open';
+}
+
+function dashboardError(error: unknown): string {
+  return error instanceof Error ? error.message : 'Dashboard signal is unavailable';
+}
+
+function plural(count: number, singular: string, pluralLabel = `${singular}s`): string {
+  return count === 1 ? singular : pluralLabel;
+}
+
+function repairExecutable(blocker: AxisOperationalReadinessBlocker): boolean {
+  const repair = blocker.repair;
+  const eligibility = typeof repair.eligibility === 'string' ? repair.eligibility : '';
+  return repair.available === true && ['AUTOMATIC', 'MANUAL'].includes(eligibility);
+}
+
+function idempotencyKey(prefix: string): string {
+  const random =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `${prefix}-${random}`;
+}
+
+function parseReadinessRepairResult(value: unknown): ReadinessRepairResultModel {
+  const data =
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  const targetIdentifiers =
+    typeof data.targetIdentifiers === 'object' &&
+    data.targetIdentifiers !== null &&
+    !Array.isArray(data.targetIdentifiers)
+      ? Object.fromEntries(
+          Object.entries(data.targetIdentifiers).filter(
+            (entry): entry is [string, string] =>
+              typeof entry[1] === 'string' && entry[1].trim().length > 0,
+          ),
+        )
+      : {};
+  const preview =
+    typeof data.preview === 'object' &&
+    data.preview !== null &&
+    !Array.isArray(data.preview)
+      ? (data.preview as Record<string, unknown>)
+      : {};
+  const transaction =
+    typeof data.transaction === 'object' &&
+    data.transaction !== null &&
+    !Array.isArray(data.transaction)
+      ? (data.transaction as Record<string, unknown>)
+      : {};
+  const retryPolicy =
+    typeof data.retryPolicy === 'object' &&
+    data.retryPolicy !== null &&
+    !Array.isArray(data.retryPolicy)
+      ? (data.retryPolicy as Record<string, unknown>)
+      : {};
+  const provider =
+    typeof data.provider === 'object' &&
+    data.provider !== null &&
+    !Array.isArray(data.provider)
+      ? (data.provider as Record<string, unknown>)
+      : {};
+  const safety =
+    typeof data.safety === 'object' &&
+    data.safety !== null &&
+    !Array.isArray(data.safety)
+      ? (data.safety as Record<string, unknown>)
+      : {};
+  const receipt =
+    typeof data.receipt === 'object' &&
+    data.receipt !== null &&
+    !Array.isArray(data.receipt)
+      ? (data.receipt as Record<string, unknown>)
+      : {};
+  const events =
+    typeof data.events === 'object' &&
+    data.events !== null &&
+    !Array.isArray(data.events)
+      ? (data.events as Record<string, unknown>)
+      : {};
+  const plan =
+    typeof data.plan === 'object' && data.plan !== null && !Array.isArray(data.plan)
+      ? (data.plan as Record<string, unknown>)
+      : {};
+  return Object.freeze({
+    state: textValue(data.state) ?? 'UNKNOWN',
+    dryRun: data.dryRun === true,
+    operation: textValue(data.operation) ?? 'readiness.review',
+    action: textValue(data.action) ?? 'REVIEW_READINESS',
+    ownerModule: textValue(data.ownerModule) ?? 'unknown',
+    evidenceReference: textValue(data.evidenceReference),
+    changedCount: typeof data.changedCount === 'number' ? data.changedCount : 0,
+    skippedCount: typeof data.skippedCount === 'number' ? data.skippedCount : 0,
+    blockersRemaining:
+      typeof data.blockersRemaining === 'number' ? data.blockersRemaining : 0,
+    nextAction: textValue(data.nextAction) ?? 'Refresh readiness.',
+    message: textValue(data.message) ?? 'Repair result returned.',
+    checkedAt: textValue(data.checkedAt) ?? 'Not recorded',
+    targetIdentifiers: Object.freeze(targetIdentifiers),
+    previewTargetCodes: Object.freeze(
+      Array.isArray(preview.targetCodes)
+        ? preview.targetCodes.filter((item): item is string => typeof item === 'string')
+        : [],
+    ),
+    rollbackAvailable:
+      typeof transaction.rollbackAvailable === 'boolean'
+        ? transaction.rollbackAvailable
+        : undefined,
+    retrySafe:
+      typeof retryPolicy.safeToRetry === 'boolean'
+        ? retryPolicy.safeToRetry
+        : undefined,
+    providerCode: textValue(provider.providerCode) ?? textValue(provider.ownerModule),
+    providerState: textValue(provider.lifecycleState),
+    safetyLevel: textValue(safety.level),
+    receiptCode: textValue(receipt.receiptCode),
+    eventEmitted: typeof events.emitted === 'boolean' ? events.emitted : undefined,
+    refreshScopes: Object.freeze(
+      Array.isArray(events.refreshScopes)
+        ? events.refreshScopes.filter(
+            (item): item is string => typeof item === 'string',
+          )
+        : [],
+    ),
+    businessSteps: Object.freeze(
+      Array.isArray(plan.businessSteps)
+        ? plan.businessSteps.filter((item): item is string => typeof item === 'string')
+        : [],
+    ),
+  });
+}
+
+function blockerTargetIdentifiers(
+  blocker: AxisOperationalReadinessBlocker,
+): Readonly<Record<string, string>> {
+  const source = blocker as unknown as Record<string, unknown>;
+  return Object.freeze(
+    Object.fromEntries(
+      [
+        'releaseCode',
+        'profileCode',
+        'publicationCode',
+        'taskCode',
+        'mediaManifestCode',
+        'sourceCode',
+      ]
+        .map((key) => [key, source[key]])
+        .filter(
+          (entry): entry is [string, string] =>
+            typeof entry[1] === 'string' && entry[1].trim().length > 0,
+        ),
+    ),
+  );
+}
+
+// Presentation-only disclosure; readiness and executable repair eligibility remain backend-owned.
+function TechnicalDisclosure({
+  id,
+  title,
+  subtitle,
+  expanded,
+  onToggle,
+  status,
+  severity,
+  icon,
+  count,
+  number,
+  visual = false,
+  preview,
+  action,
+  children,
+}: {
+  readonly id: string;
+  readonly title: string;
+  readonly subtitle?: string | undefined;
+  readonly expanded: boolean;
+  readonly onToggle: () => void;
+  readonly status: string;
+  readonly severity: ActionCardModel['severity'];
+  readonly icon: string;
+  readonly count?: string | undefined;
+  readonly number?: number | undefined;
+  readonly visual?: boolean;
+  readonly preview?: ReactNode;
+  readonly action?: ReactNode;
+  readonly children: ReactNode;
+}) {
+  const detailId = `axis-dashboard-${id}-details`;
+  return (
+    <Box
+      sx={{
+        minWidth: 0,
+        border: visual ? '1px solid' : 0,
+        borderBottom: '1px solid',
+        borderColor: 'divider',
+        '&:last-child': { borderBottom: 0 },
+        ...(visual
+          ? {
+              display: 'flex',
+              flexDirection: 'column',
+              height: '100%',
+              borderColor: 'divider',
+              borderRadius: '8px',
+              bgcolor: 'background.paper',
+              overflow: 'hidden',
+              borderTop: '3px solid',
+              borderTopColor: `${severity}.main`,
+              '&:last-child': {
+                borderBottom: '1px solid',
+                borderBottomColor: 'divider',
+              },
+            }
+          : {}),
+      }}
+    >
+      <ButtonBase
+        disableRipple
+        aria-label={`${expanded ? 'Collapse' : 'Expand'} ${title}`}
+        aria-controls={detailId}
+        aria-expanded={expanded}
+        onClick={onToggle}
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: {
+            xs: '28px minmax(0, 1fr) 20px',
+            md: visual
+              ? '28px minmax(0, 1fr) 20px'
+              : '28px minmax(0, 1fr) minmax(100px, 190px) 20px',
+          },
+          gap: { xs: 1, sm: 1.5 },
+          textAlign: 'left',
+          width: '100%',
+          p: { xs: 1.5, sm: 2 },
+          alignItems: 'center',
+          '&:hover': { bgcolor: 'action.hover' },
+          '&.Mui-focusVisible': {
+            outline: '2px solid',
+            outlineColor: 'info.main',
+            outlineOffset: -2,
+          },
+        }}
+      >
+        <Box
+          component="span"
+          sx={{
+            alignSelf: 'start',
+            color: statusToneColor(severity),
+            fontWeight: 700,
+            pt: 0.25,
+            ...(visual
+              ? {
+                  bgcolor: `${severity}.light`,
+                  borderRadius: '6px',
+                  width: 28,
+                  height: 28,
+                  display: 'grid',
+                  placeItems: 'center',
+                  pt: 0,
+                }
+              : {}),
+          }}
+        >
+          {number ?? <ShellIcon name={icon} fontSize="small" />}
+        </Box>
+        <Box component="span" sx={{ minWidth: 0 }}>
+          <Typography
+            component="span"
+            variant="subtitle2"
+            sx={{ display: 'block', fontSize: 15 }}
+          >
+            {title}
+          </Typography>
+          {subtitle ? (
+            <Typography
+              component="span"
+              color="text.secondary"
+              variant="body2"
+              sx={{ display: 'block', mt: 0.5, overflowWrap: 'anywhere' }}
+            >
+              {subtitle}
+            </Typography>
+          ) : null}
+        </Box>
+        <Box
+          component="span"
+          sx={{
+            gridColumn: { xs: 2, md: visual ? 2 : 'auto' },
+            gridRow: { xs: 2, md: visual ? 2 : 'auto' },
+            display: 'flex',
+            gap: 0.75,
+            alignItems: 'center',
+            justifyContent: { md: visual ? 'flex-start' : 'flex-end' },
+            flexWrap: 'wrap',
+          }}
+        >
+          <Typography
+            component="span"
+            variant="caption"
+            sx={{
+              color: statusToneColor(severity),
+              fontWeight: 700,
+              textTransform: 'capitalize',
+            }}
+          >
+            {status}
+          </Typography>
+          {count ? (
+            <Typography component="span" variant="caption" color="text.secondary">
+              {count}
+            </Typography>
+          ) : null}
+        </Box>
+        <Box
+          component="span"
+          sx={{
+            gridColumn: { xs: 3, md: visual ? 3 : 'auto' },
+            gridRow: { xs: 1, md: visual ? 1 : 'auto' },
+            color: 'text.secondary',
+          }}
+        >
+          <ShellIcon name={expanded ? 'chevron-up' : 'chevron-down'} fontSize="small" />
+        </Box>
+      </ButtonBase>
+      {preview && (
+        <Box sx={{ px: 2, pb: 1.5, overflowWrap: 'anywhere' }}>{preview}</Box>
+      )}
+      {action && <Box sx={{ px: 2, pb: 2, mt: 'auto' }}>{action}</Box>}
+      <Collapse in={expanded} timeout="auto" unmountOnExit id={detailId}>
+        <Box
+          sx={{
+            px: { xs: 1.5, sm: 2 },
+            pl: { sm: 7 },
+            pb: 2,
+            overflowWrap: 'anywhere',
+          }}
+        >
+          {children}
+        </Box>
+      </Collapse>
+    </Box>
+  );
+}
+
+function TechnicalEvidence({
+  rows,
+}: {
+  readonly rows: readonly { readonly label: string; readonly value: string }[];
+}) {
+  return (
+    <Box
+      component="dl"
+      sx={{
+        m: 0,
+        display: 'grid',
+        gridTemplateColumns: { xs: '1fr', sm: 'minmax(120px, 1fr) minmax(0, 2fr)' },
+        columnGap: 2,
+      }}
+    >
+      {rows.map((row) => (
+        <Fragment key={row.label}>
+          <Typography
+            component="dt"
+            variant="body2"
+            color="text.secondary"
+            sx={{ py: 0.75, borderTop: '1px solid', borderColor: 'divider' }}
+          >
+            {row.label}
+          </Typography>
+          <Typography
+            component="dd"
+            variant="body2"
+            sx={{
+              m: 0,
+              py: 0.75,
+              borderTop: { sm: '1px solid' },
+              borderColor: { xs: 'divider', sm: 'divider' },
+              overflowWrap: 'anywhere',
+            }}
+          >
+            {row.value}
+          </Typography>
+        </Fragment>
+      ))}
+    </Box>
+  );
+}
+
+export function AxisTechnicalDashboard({
+  visual = false,
+  sections,
+  accessToken,
+  bootstrap,
+  runtime,
+}: AxisDashboardRoutePageProps) {
+  const navigate = useNavigate();
+  const [expandedPanels, setExpandedPanels] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [repairResult, setRepairResult] = useState<
+    ReadinessRepairResultModel | undefined
+  >(undefined);
+  const togglePanel = (panel: string) => {
+    setExpandedPanels((current) => {
+      const next = new Set(current);
+      if (next.has(panel)) next.delete(panel);
+      else next.add(panel);
+      return next;
+    });
+  };
+  const backofficeConnection = selectModuleConnection(bootstrap, 'backoffice');
+  const releaseConnections = useMemo(
+    () => selectReleaseCatalogueConnections(bootstrap, runtime),
+    [bootstrap, runtime],
+  );
+  const dataConfiguration = useMemo(
+    () => ({
+      accessToken,
+      enterpriseCode: runtime.enterpriseCode,
+      timeoutMs: runtime.requestTimeoutMs,
+    }),
+    [accessToken, runtime.enterpriseCode, runtime.requestTimeoutMs],
+  );
+  const registryConfiguration = useMemo(
+    () => ({
+      ...dataConfiguration,
+      projectCode: runtime.projectCode,
+    }),
+    [dataConfiguration, runtime.projectCode],
+  );
+
+  const registeredModulesQuery = useQuery({
+    enabled: Boolean(backofficeConnection),
+    queryKey: ['axis-dashboard', 'registered-modules', runtime.enterpriseCode],
+    queryFn: () => {
+      if (!backofficeConnection) throw new Error('Module Registry is unavailable');
+      return loadRegisteredFunctionalModules(
+        backofficeConnection,
+        registryConfiguration,
+      );
+    },
+  });
+  const availableModulesQuery = useQuery({
+    enabled: Boolean(backofficeConnection),
+    queryKey: ['axis-dashboard', 'available-modules', runtime.enterpriseCode],
+    queryFn: () => {
+      if (!backofficeConnection) throw new Error('Module Registry is unavailable');
+      return loadAvailableFunctionalModules(
+        backofficeConnection,
+        registryConfiguration,
+      );
+    },
+  });
+  const releasesQuery = useQuery({
+    enabled: releaseConnections.length > 0,
+    queryKey: ['axis-dashboard', 'data-releases', runtime.enterpriseCode],
+    queryFn: () => loadDataReleasesByDestination(releaseConnections, dataConfiguration),
+  });
+  const applicationProfiles = bootstrap.applicationInitializationProfiles ?? [];
+  const applicationStatusQueries = useQueries({
+    queries: applicationProfiles.map((profile) => ({
+      enabled: Boolean(backofficeConnection),
+      queryKey: ['axis-dashboard', 'application-status', profile.code],
+      queryFn: () => {
+        if (!backofficeConnection) {
+          throw new Error('Application initialization is unavailable');
+        }
+        return createApplicationInitializationClient({
+          connection: backofficeConnection,
+          enterpriseCode: runtime.enterpriseCode,
+          accessToken,
+          timeoutMs: runtime.requestTimeoutMs,
+          profileCode: profile.code,
+        }).getStatus();
+      },
+    })),
+  });
+  const documentationSources = bootstrap.documentationSources.filter(
+    isConfiguredCmsDocumentationSource,
+  );
+  const documentationStatusQueries = useQueries({
+    queries: documentationSources.map((source) => ({
+      enabled: Boolean(backofficeConnection),
+      queryKey: [
+        'axis-dashboard',
+        'documentation-status',
+        source.initializationProfile,
+      ],
+      queryFn: () => {
+        if (!backofficeConnection) {
+          throw new Error('Documentation publication is unavailable');
+        }
+        return createDocumentationPublicationClient({
+          connection: backofficeConnection,
+          enterpriseCode: runtime.enterpriseCode,
+          accessToken,
+          timeoutMs: runtime.requestTimeoutMs,
+          profileCode: source.initializationProfile,
+        }).getStatus();
+      },
+    })),
+  });
+  const repairMutation = useMutation({
+    mutationFn: async ({
+      fix,
+      dryRun,
+    }: {
+      readonly fix: OperationalFixModel;
+      readonly dryRun: boolean;
+    }) => {
+      const repair = fix.blocker.repair;
+      const key = idempotencyKey(dryRun ? 'repair-dry-run' : 'repair-execute');
+      return parseReadinessRepairResult(
+        await invokeOperationalOwner<unknown>(
+          {
+            bootstrap,
+            accessToken,
+            enterpriseCode: runtime.enterpriseCode,
+            timeoutMs: runtime.requestTimeoutMs,
+          },
+          'backoffice',
+          '/operations/readiness/repairs',
+          {
+            repairContractVersion: 1,
+            idempotencyKey: key,
+            correlationId: key,
+            timeoutMs: runtime.requestTimeoutMs,
+            dryRun,
+            operation: repair.operation,
+            action: repair.action ?? repair.actionCode,
+            ownerModule: fix.ownerModule,
+            ownerType: fix.blocker.ownerType,
+            source: fix.source,
+            blockerCode: fix.blocker.code,
+            route: fix.route,
+            eligibility: repair.eligibility,
+            available: repair.available,
+            label: repair.label,
+            targetIdentifiers: blockerTargetIdentifiers(fix.blocker),
+            reason: dryRun
+              ? 'Axis readiness repair dry run requested by an authorized operator.'
+              : 'Axis readiness repair execution requested by an authorized operator.',
+            context: {
+              sectionTitle: fix.sectionTitle,
+              businessImpact: fix.blocker.businessImpact,
+              recoveryHint: fix.blocker.recoveryHint,
+            },
+          },
+        ),
+      );
+    },
+    onSuccess: (result) => {
+      setRepairResult(result);
+    },
+  });
+
+  const registeredModules = registeredModulesQuery.data ?? [];
+  const availableModules = availableModulesQuery.data ?? [];
+  const releases = releasesQuery.data ?? [];
+  const applicationStatuses = applicationStatusQueries
+    .map((query) => query.data)
+    .filter((status): status is ApplicationInitializationStatus => Boolean(status));
+  const documentationStatuses = documentationStatusQueries
+    .map((query) => query.data)
+    .filter((status): status is DocumentationPublicationStatus => Boolean(status));
+  const allPublicationStatuses = [...applicationStatuses, ...documentationStatuses];
+  const availableModuleActionCount = availableModules.filter(moduleNeedsAction).length;
+  const registeredModuleActionCount =
+    registeredModules.filter(moduleNeedsAction).length;
+  const moduleActionCount = availableModuleActionCount + registeredModuleActionCount;
+  const startupValidationReported = Boolean(bootstrap.startupValidation);
+  const startupValidation = bootstrap.startupValidation ?? readyStartupValidation;
+  const operationalReadiness = bootstrap.operationalReadiness;
+  const importReadiness = readinessSection(bootstrap, 'imports');
+  const publishingReadiness = readinessSection(bootstrap, 'publishing');
+  const approvalReadiness = readinessSection(bootstrap, 'approval');
+  const mediaReadiness = readinessSection(bootstrap, 'media');
+  const searchReadiness = readinessSection(bootstrap, 'search');
+  const assistantReadiness = readinessSection(bootstrap, 'assistant');
+  const documentationReadiness = readinessSection(bootstrap, 'documentation');
+  const applicationsReadiness = readinessSection(bootstrap, 'applications');
+  const repairGovernanceReadiness = readinessSection(bootstrap, 'repairGovernance');
+  const documentationSectionActionCount =
+    readinessSectionActionCount(documentationReadiness);
+  const applicationsSectionActionCount =
+    readinessSectionActionCount(applicationsReadiness);
+  const repairGovernanceSectionActionCount = readinessSectionActionCount(
+    repairGovernanceReadiness,
+  );
+  const assistantSectionActionCount = readinessSectionActionCount(assistantReadiness);
+  const readinessFixes = operationalFixes(operationalReadiness);
+  const readinessTimelineItems = readinessTimeline(operationalReadiness);
+  const readinessRecoveryLaneItems = readinessRecoveryLanes(operationalReadiness);
+  const operationalBlockerCount = operationalReadiness?.summary.blockers;
+  const operationalBlockerValue =
+    typeof operationalBlockerCount === 'number' ? operationalBlockerCount : undefined;
+  const initReleaseCount = releases.filter((release) => release.dataType === 'init');
+  const coreReleaseCount = releases.filter((release) => release.dataType === 'core');
+  const sampleReleaseCount = releases.filter(
+    (release) => release.dataType === 'sample',
+  );
+  const dataActionCount = releases.filter(dataReleaseNeedsAction).length;
+  const startupActionCount = startupValidationNeedsAction(startupValidation)
+    ? startupValidation.summary.total
+    : 0;
+  const startupErrorCount = startupValidation.summary.errors;
+  const startupWarningCount = startupValidation.summary.warnings;
+  const startupBootstrapMissingCount = startupValidation.bootstrapChecks.missing;
+  const startupBootstrapAttentionCount =
+    startupValidation.bootstrapChecks.needsAttention;
+  const approvalCount = allPublicationStatuses.filter(publicationNeedsApproval).length;
+  const publicationActionCount =
+    allPublicationStatuses.filter(publicationNeedsAction).length;
+  const visiblePublicationActionCount = approvalCount + publicationActionCount;
+  const readyApplicationCount = applicationStatuses.filter(publicationIsReady).length;
+  const applicationActionCount = applicationStatuses.filter(
+    applicationNeedsSetupAction,
+  ).length;
+  const activeModuleCount = registeredModules.filter(
+    (module) => module.enabled && module.runtimeState === 'ACTIVE',
+  ).length;
+  const currentReleaseCount = releases.filter(
+    (release) => release.status === 'CURRENT',
+  ).length;
+  const readyPublicationCount =
+    allPublicationStatuses.filter(publicationIsReady).length;
+  const readyDocumentationCount =
+    documentationStatuses.filter(publicationIsReady).length;
+  const documentationActionCount =
+    documentationStatuses.filter(publicationNeedsAction).length +
+    documentationStatuses.filter(publicationNeedsApproval).length;
+  const readyApplicationParityCount =
+    applicationStatuses.filter(publicationIsReady).length;
+  const applicationParityActionCount =
+    applicationStatuses.filter(applicationNeedsSetupAction).length +
+    applicationStatuses.filter(publicationNeedsApproval).length;
+  const allConnections = Object.values(bootstrap.moduleConnections).flat();
+  const liveConnections = Object.values(bootstrap.moduleConnections)
+    .flat()
+    .filter(
+      (connection) => connection.state === 'UP' || connection.state === 'DEGRADED',
+    );
+  const degradedConnections = allConnections.filter(
+    (connection) => connection.state === 'DEGRADED',
+  );
+  const unavailableConnections = allConnections.filter(
+    (connection) =>
+      connection.state === 'UNAVAILABLE' || connection.state === 'UNKNOWN',
+  );
+  const runtimeCommunicationActionCount =
+    degradedConnections.length +
+    unavailableConnections.length +
+    (backofficeConnection ? 0 : 1);
+  const runtimeServerCount = new Set(
+    liveConnections.map((connection) => connection.server).filter(Boolean),
+  ).size;
+  const runtimeRoleCount = new Set(
+    liveConnections.map((connection) => connection.runtimeRole?.code).filter(Boolean),
+  ).size;
+  const workbenchCount = bootstrap.navigation.filter(
+    (item) => item.workbenchTarget && item.featureState !== 'HIDDEN',
+  ).length;
+  const visibleRouteCount = bootstrap.navigation.filter(
+    (item) => item.featureState !== 'HIDDEN',
+  ).length;
+  const configurationWorkspaceAvailable = bootstrap.navigation.some(
+    (item) =>
+      item.featureState !== 'HIDDEN' &&
+      item.backendWorkspace?.workspaceCode === 'system.runtimeConfiguration',
+  );
+  const discoveryWorkspaceCount = bootstrap.navigation.filter(
+    (item) =>
+      item.featureState !== 'HIDDEN' &&
+      (item.moduleName === 'discoveryConfig' ||
+        item.moduleName === 'commerceSearchCore' ||
+        item.route.startsWith('/discovery')),
+  ).length;
+  const searchableWorkbenchCount = bootstrap.navigation.filter(
+    (item) =>
+      item.featureState !== 'HIDDEN' && Boolean(item.workbenchTarget?.searchRoute),
+  ).length;
+  const sourceControlActionCount =
+    (configurationWorkspaceAvailable ? 0 : 1) + (discoveryWorkspaceCount > 0 ? 0 : 1);
+  const primaryStartupBootstrapCheck = startupValidation.bootstrapChecks.checks.find(
+    (check) => check.state === 'MISSING' || check.state === 'NEEDS_ATTENTION',
+  );
+  const primaryStartupFinding = startupValidation.findings[0];
+  const startupPrimaryMeta = primaryStartupBootstrapCheck
+    ? `${primaryStartupBootstrapCheck.owner}: ${primaryStartupBootstrapCheck.message}`
+    : primaryStartupFinding
+      ? `${primaryStartupFinding.owner}: ${primaryStartupFinding.message}`
+      : undefined;
+  const startupRepairLabel = primaryStartupFinding?.repair
+    ? primaryStartupFinding.repair.available
+      ? `${primaryStartupFinding.repair.label} · ${primaryStartupFinding.repair.operation}`
+      : (primaryStartupFinding.repair.unavailableReason ??
+        `${primaryStartupFinding.repair.label} unavailable`)
+    : undefined;
+  const totalActionCount =
+    startupActionCount +
+    moduleActionCount +
+    dataActionCount +
+    approvalCount +
+    runtimeCommunicationActionCount +
+    sourceControlActionCount +
+    documentationActionCount +
+    documentationSectionActionCount +
+    applicationsSectionActionCount +
+    repairGovernanceSectionActionCount +
+    assistantSectionActionCount +
+    (operationalReadiness && operationalReadiness.state !== 'READY'
+      ? (operationalBlockerValue ?? 1)
+      : 0);
+  const loading =
+    registeredModulesQuery.isLoading ||
+    availableModulesQuery.isLoading ||
+    releasesQuery.isLoading ||
+    applicationStatusQueries.some((query) => query.isLoading) ||
+    documentationStatusQueries.some((query) => query.isLoading);
+  const firstError =
+    registeredModulesQuery.error ??
+    availableModulesQuery.error ??
+    releasesQuery.error ??
+    applicationStatusQueries.find((query) => query.error)?.error ??
+    documentationStatusQueries.find((query) => query.error)?.error;
+  const actionCards: readonly ActionCardModel[] = [
+    startupActionCount > 0
+      ? {
+          id: 'startup',
+          title: 'Review startup configuration',
+          description:
+            'Server bootstrap detected configuration values or policies that need operator review before this environment is treated as ready.',
+          icon: 'settings',
+          route: startupValidationRoute(bootstrap),
+          primaryAction: 'Open Runtime Configuration',
+          severity: startupErrorCount > 0 ? 'error' : 'warning',
+          count: startupActionCount,
+          meta: startupPrimaryMeta,
+          detailRows: [
+            {
+              label: 'Bootstrap prerequisites',
+              value:
+                startupBootstrapMissingCount > 0
+                  ? `${String(startupBootstrapMissingCount)} missing`
+                  : startupBootstrapAttentionCount > 0
+                    ? `${String(startupBootstrapAttentionCount)} needs attention`
+                    : `${String(startupValidation.bootstrapChecks.ready)} ready`,
+              severity:
+                startupBootstrapMissingCount > 0
+                  ? 'error'
+                  : startupBootstrapAttentionCount > 0
+                    ? 'warning'
+                    : 'success',
+            },
+            {
+              label: 'Blocking errors',
+              value: String(startupErrorCount),
+              severity: startupErrorCount > 0 ? 'error' : 'success',
+            },
+            {
+              label: 'Warnings',
+              value: String(startupWarningCount),
+              severity: startupWarningCount > 0 ? 'warning' : 'success',
+            },
+            {
+              label: 'Dismissible with audit',
+              value: String(startupValidation.summary.dismissible),
+              severity: startupValidation.summary.dismissible > 0 ? 'warning' : 'info',
+            },
+            {
+              label: 'Acknowledged by backend',
+              value: String(startupValidation.summary.acknowledged),
+              severity: startupValidation.summary.acknowledged > 0 ? 'info' : 'success',
+            },
+            ...(startupRepairLabel
+              ? [
+                  {
+                    label: 'Repair guidance',
+                    value: startupRepairLabel,
+                    severity: primaryStartupFinding?.repair?.available
+                      ? 'info'
+                      : 'warning',
+                  } as const,
+                ]
+              : []),
+          ],
+        }
+      : {
+          id: 'startup',
+          title: 'Startup checks are clear',
+          description:
+            'BackOffice did not report startup configuration blockers for this operator workspace.',
+          icon: 'settings',
+          route: startupValidationRoute(bootstrap),
+          primaryAction: 'Review Configuration',
+          severity: 'success',
+          meta: startupValidationReported
+            ? `Checked ${new Date(startupValidation.checkedAt).toLocaleString()}`
+            : undefined,
+          detailRows: [
+            {
+              label: 'Bootstrap prerequisites',
+              value:
+                startupValidation.bootstrapChecks.total > 0
+                  ? `${String(startupValidation.bootstrapChecks.ready)} ready`
+                  : 'Not reported',
+              severity:
+                startupValidation.bootstrapChecks.total > 0 ? 'success' : 'info',
+            },
+            {
+              label: 'Blocking errors',
+              value: '0',
+              severity: 'success',
+            },
+            {
+              label: 'Warnings',
+              value: '0',
+              severity: 'success',
+            },
+            {
+              label: 'Source',
+              value: startupValidation.source,
+              severity: 'info',
+            },
+          ],
+        },
+    ...(operationalReadiness
+      ? [
+          {
+            id: 'operational-readiness',
+            title:
+              operationalReadiness.state === 'READY'
+                ? 'Backend readiness aggregate is clear'
+                : 'Backend readiness aggregate needs review',
+            description:
+              'BackOffice now publishes one canonical readiness aggregate for bootstrap, runtime communication, imports, publishing, approvals, docs, media, search, assistant, and customer applications.',
+            icon: 'activity',
+            route: '/dashboard',
+            primaryAction: 'Review Readiness',
+            severity: readinessSeverity(operationalReadiness.state),
+            count:
+              operationalReadiness.state === 'READY'
+                ? undefined
+                : (operationalBlockerValue ?? operationalReadiness.sections.length),
+            meta: `${String(operationalReadiness.sections.length)} backend-owned sections`,
+            detailRows: [
+              {
+                label: 'State',
+                value: operationalReadiness.state,
+                severity: readinessSeverity(operationalReadiness.state),
+              },
+              {
+                label: 'Import releases',
+                value: importReadiness?.businessStatus ?? 'Not reported',
+                severity: readinessSeverity(importReadiness?.businessStatus),
+              },
+              {
+                label: 'Publishing',
+                value: publishingReadiness?.businessStatus ?? 'Not reported',
+                severity: readinessSeverity(publishingReadiness?.businessStatus),
+              },
+              {
+                label: 'Approval process',
+                value: approvalReadiness?.businessStatus ?? 'Not reported',
+                severity: readinessSeverity(approvalReadiness?.businessStatus),
+              },
+              {
+                label: 'Media references',
+                value: mediaReadiness?.businessStatus ?? 'Not reported',
+                severity: readinessSeverity(mediaReadiness?.businessStatus),
+              },
+              {
+                label: 'Search and discovery',
+                value: searchReadiness?.businessStatus ?? 'Not reported',
+                severity: readinessSeverity(searchReadiness?.businessStatus),
+              },
+              {
+                label: 'Assistant knowledge',
+                value: assistantReadiness?.businessStatus ?? 'Not reported',
+                severity: readinessSeverity(assistantReadiness?.businessStatus),
+              },
+              {
+                label: 'Documentation readiness',
+                value: documentationReadiness?.businessStatus ?? 'Not reported',
+                severity: readinessSeverity(documentationReadiness?.businessStatus),
+              },
+              {
+                label: 'Customer applications',
+                value: applicationsReadiness?.businessStatus ?? 'Not reported',
+                severity: readinessSeverity(applicationsReadiness?.businessStatus),
+              },
+              {
+                label: 'Repair governance',
+                value: repairGovernanceReadiness?.businessStatus ?? 'Not reported',
+                severity: readinessSeverity(repairGovernanceReadiness?.businessStatus),
+              },
+            ],
+          } satisfies ActionCardModel,
+        ]
+      : []),
+    {
+      id: 'documentation-readiness',
+      title:
+        documentationReadiness && documentationReadiness.businessStatus !== 'READY'
+          ? 'Documentation readiness needs attention'
+          : 'Documentation readiness is governed',
+      description:
+        documentationReadiness?.nextAction ??
+        'BackOffice reports documentation pack install, Staged, Online, and indexing readiness for Axis.',
+      icon: 'content',
+      route: documentationReadiness?.route || documentationRoute(bootstrap),
+      primaryAction: 'Open Documentation',
+      severity: readinessSeverity(documentationReadiness?.businessStatus ?? 'READY'),
+      count:
+        documentationSectionActionCount > 0
+          ? documentationSectionActionCount
+          : undefined,
+      meta: documentationReadiness
+        ? `${documentationReadiness.ownerModule} · ${documentationReadiness.source}`
+        : `${String(documentationSources.length)} documentation sources`,
+      detailRows: readinessSectionDetailRows(documentationReadiness, [
+        {
+          label: 'Documentation sources',
+          value: String(documentationSources.length),
+          severity: documentationSources.length > 0 ? 'success' : 'warning',
+        },
+        {
+          label: 'Docs needing action',
+          value: String(documentationActionCount),
+          severity: documentationActionCount > 0 ? 'warning' : 'success',
+        },
+        {
+          label: 'Docs Online ready',
+          value: String(readyDocumentationCount),
+          severity: readyDocumentationCount > 0 ? 'success' : 'info',
+        },
+      ]),
+    },
+    {
+      id: 'assistant-readiness',
+      title:
+        assistantReadiness && assistantReadiness.businessStatus !== 'READY'
+          ? 'Assistant knowledge needs indexing'
+          : 'Assistant knowledge is ready',
+      description:
+        assistantReadiness?.nextAction ??
+        'BackOffice reports source, index, provider, and model readiness before Axis Assistant answers business questions.',
+      icon: 'assistant',
+      route: assistantReadiness?.route || '/assistant',
+      primaryAction: 'Open Assistant',
+      severity: readinessSeverity(assistantReadiness?.businessStatus ?? 'READY'),
+      count: assistantSectionActionCount > 0 ? assistantSectionActionCount : undefined,
+      meta: assistantReadiness
+        ? `${assistantReadiness.ownerModule} · ${assistantReadiness.source}`
+        : 'Assistant readiness not reported',
+      detailRows: readinessSectionDetailRows(assistantReadiness, [
+        {
+          label: 'Backend status',
+          value: assistantReadiness?.businessStatus ?? 'Not reported',
+          severity: readinessSeverity(assistantReadiness?.businessStatus),
+        },
+      ]),
+    },
+    {
+      id: 'application-parity-readiness',
+      title:
+        applicationsReadiness && applicationsReadiness.businessStatus !== 'READY'
+          ? 'Application parity needs review'
+          : 'Application parity is aligned',
+      description:
+        applicationsReadiness?.nextAction ??
+        'Nexus, Agora, Circa, and future customer applications are checked against setup, Staged, Online, and publication parity.',
+      icon: 'storefront',
+      route: applicationsReadiness?.route || '/setup-accelerators',
+      primaryAction: 'Open Setup',
+      severity: readinessSeverity(applicationsReadiness?.businessStatus ?? 'READY'),
+      count:
+        applicationsSectionActionCount > 0 ? applicationsSectionActionCount : undefined,
+      meta: applicationsReadiness
+        ? `${applicationsReadiness.ownerModule} · ${applicationsReadiness.source}`
+        : `${String(applicationProfiles.length)} setup profiles`,
+      detailRows: readinessSectionDetailRows(applicationsReadiness, [
+        {
+          label: 'Project profiles',
+          value: String(applicationProfiles.length),
+          severity: applicationProfiles.length > 0 ? 'success' : 'warning',
+        },
+        {
+          label: 'Apps ready',
+          value: String(readyApplicationParityCount),
+          severity: readyApplicationParityCount > 0 ? 'success' : 'info',
+        },
+        {
+          label: 'App profiles needing action',
+          value: String(applicationParityActionCount),
+          severity: applicationParityActionCount > 0 ? 'warning' : 'success',
+        },
+      ]),
+    },
+    {
+      id: 'repair-governance-readiness',
+      title:
+        repairGovernanceReadiness &&
+        repairGovernanceReadiness.businessStatus !== 'READY'
+          ? 'Repair governance needs attention'
+          : 'Repair governance is ready',
+      description:
+        repairGovernanceReadiness?.nextAction ??
+        'Repair actions are shown only when backend providers declare availability, safety, ownership, and eligibility.',
+      icon: 'registry',
+      route: repairGovernanceReadiness?.route || '/registry',
+      primaryAction: 'Open Module Registry',
+      severity: readinessSeverity(repairGovernanceReadiness?.businessStatus ?? 'READY'),
+      count:
+        repairGovernanceSectionActionCount > 0
+          ? repairGovernanceSectionActionCount
+          : undefined,
+      meta: repairGovernanceReadiness
+        ? `${repairGovernanceReadiness.ownerModule} · ${repairGovernanceReadiness.source}`
+        : 'Provider registry readiness not reported',
+      detailRows: readinessSectionDetailRows(repairGovernanceReadiness, [
+        {
+          label: 'Repair execution',
+          value: 'Backend governed',
+          severity: 'success',
+        },
+        {
+          label: 'Unsafe actions',
+          value: 'Hidden unless provider allows them',
+          severity: 'info',
+        },
+      ]),
+    },
+    moduleActionCount > 0
+      ? {
+          id: 'modules',
+          title: 'Register and activate modules',
+          description:
+            'Review available capabilities, activate required modules, and bring hidden journeys into the BackOffice.',
+          icon: 'registry',
+          route: '/registry',
+          primaryAction: 'Open Module Registry',
+          severity: 'warning',
+          count: moduleActionCount,
+          meta: `${String(activeModuleCount)} active modules`,
+          detailRows: [
+            {
+              label: 'Available to register',
+              value: String(availableModuleActionCount),
+              severity: availableModuleActionCount > 0 ? 'warning' : 'success',
+            },
+            {
+              label: 'Registered needing action',
+              value: String(registeredModuleActionCount),
+              severity: registeredModuleActionCount > 0 ? 'warning' : 'success',
+            },
+            {
+              label: 'Runtime active',
+              value: String(activeModuleCount),
+              severity: activeModuleCount > 0 ? 'success' : 'info',
+            },
+          ],
+        }
+      : {
+          id: 'modules',
+          title: 'Module foundation is active',
+          description:
+            'Registered modules are online for the current operator workspace.',
+          icon: 'registry',
+          route: '/registry',
+          primaryAction: 'Review Registry',
+          severity: 'success',
+          meta: `${String(activeModuleCount)} active modules`,
+          detailRows: [
+            {
+              label: 'Runtime active',
+              value: String(activeModuleCount),
+              severity: 'success',
+            },
+            {
+              label: 'Registered modules',
+              value: String(registeredModules.length),
+              severity: 'success',
+            },
+            {
+              label: 'Available actions',
+              value: '0',
+              severity: 'success',
+            },
+          ],
+        },
+    dataActionCount > 0
+      ? {
+          id: 'data',
+          title: 'Install release data',
+          description:
+            'Import init, core, and sample releases that are not installed or need an update before business journeys can run.',
+          icon: 'import',
+          route: '/operations/imports-exports',
+          primaryAction: 'Open Data Releases',
+          severity: 'warning',
+          count: dataActionCount,
+          meta: `${String(currentReleaseCount)} releases current`,
+          detailRows: [
+            {
+              label: 'Init releases',
+              value: String(initReleaseCount.length),
+              severity: initReleaseCount.some(dataReleaseNeedsAction)
+                ? 'warning'
+                : 'success',
+            },
+            {
+              label: 'Core releases',
+              value: String(coreReleaseCount.length),
+              severity: coreReleaseCount.some(dataReleaseNeedsAction)
+                ? 'warning'
+                : 'success',
+            },
+            {
+              label: 'Sample releases',
+              value: String(sampleReleaseCount.length),
+              severity: sampleReleaseCount.some(dataReleaseNeedsAction)
+                ? 'warning'
+                : 'info',
+            },
+          ],
+        }
+      : {
+          id: 'data',
+          title: 'Release data is current',
+          description:
+            'Available module data releases are installed for this environment.',
+          icon: 'import',
+          route: '/operations/imports-exports',
+          primaryAction: 'Review Data',
+          severity: 'success',
+          meta: `${String(currentReleaseCount)} releases current`,
+          detailRows: [
+            {
+              label: 'Init releases',
+              value: String(initReleaseCount.length),
+              severity: 'success',
+            },
+            {
+              label: 'Core releases',
+              value: String(coreReleaseCount.length),
+              severity: 'success',
+            },
+            {
+              label: 'Sample releases',
+              value: String(sampleReleaseCount.length),
+              severity: 'info',
+            },
+          ],
+        },
+    approvalCount > 0
+      ? {
+          id: 'publishing',
+          title: 'Approval queue needs review',
+          description:
+            'Governed publication requests are waiting for an authorized decision before Online visibility changes.',
+          icon: 'approve',
+          route: '/publishing',
+          primaryAction: 'Review Approvals',
+          severity: 'error',
+          count: approvalCount,
+          meta: `${String(visiblePublicationActionCount)} ${plural(
+            visiblePublicationActionCount,
+            'publication item needs',
+            'publication items need',
+          )} action`,
+          detailRows: [
+            {
+              label: 'Waiting approval',
+              value: String(approvalCount),
+              severity: 'error',
+            },
+            {
+              label: 'Needs publication action',
+              value: String(publicationActionCount),
+              severity: publicationActionCount > 0 ? 'warning' : 'success',
+            },
+            {
+              label: 'Online ready',
+              value: String(readyPublicationCount),
+              severity: readyPublicationCount > 0 ? 'success' : 'info',
+            },
+          ],
+        }
+      : {
+          id: 'publishing',
+          title: 'Publishing flow is clear',
+          description:
+            'No visible dashboard publication request is waiting for approval.',
+          icon: 'approve',
+          route: '/publishing',
+          primaryAction: 'Open Publishing',
+          severity: 'success',
+          meta: `${String(readyPublicationCount)} Online-ready sources`,
+          detailRows: [
+            {
+              label: 'Waiting approval',
+              value: '0',
+              severity: 'success',
+            },
+            {
+              label: 'Online ready',
+              value: String(readyPublicationCount),
+              severity: 'success',
+            },
+            {
+              label: 'Tracked sources',
+              value: String(allPublicationStatuses.length),
+              severity: 'info',
+            },
+          ],
+        },
+    {
+      id: 'setup',
+      title: 'Prepare project accelerators',
+      description:
+        'Initialize documentation packs and project accelerators, then publish approved Staged packages to Online.',
+      icon: 'storefront',
+      route: '/setup-accelerators',
+      primaryAction: 'Open Setup',
+      severity:
+        applicationActionCount > 0 || visiblePublicationActionCount > 0
+          ? 'warning'
+          : 'info',
+      count: applicationProfiles.length > 0 ? applicationActionCount : undefined,
+      meta: `${String(applicationProfiles.length)} setup profiles`,
+      detailRows: [
+        {
+          label: 'Project profiles',
+          value: String(applicationProfiles.length),
+          severity: applicationProfiles.length > 0 ? 'info' : 'warning',
+        },
+        {
+          label: 'Applications ready',
+          value: String(readyApplicationCount),
+          severity: readyApplicationCount > 0 ? 'success' : 'info',
+        },
+        {
+          label: 'Needs setup action',
+          value: String(applicationActionCount),
+          severity: applicationActionCount > 0 ? 'warning' : 'success',
+        },
+        {
+          label: 'Documentation sources',
+          value: String(documentationSources.length),
+          severity: documentationSources.length > 0 ? 'info' : 'warning',
+        },
+      ],
+    },
+    {
+      id: 'runtime-communication',
+      title:
+        runtimeCommunicationActionCount > 0
+          ? 'Runtime communication needs attention'
+          : 'Runtime communication is healthy',
+      description:
+        'Runtime-to-runtime health is based on backend module leases, observed servers, and runtime roles, not static project server lists.',
+      icon: 'health',
+      route: '/registry',
+      primaryAction: 'Review Runtime Registry',
+      severity: runtimeCommunicationActionCount > 0 ? 'warning' : 'success',
+      count:
+        runtimeCommunicationActionCount > 0
+          ? runtimeCommunicationActionCount
+          : undefined,
+      meta: `${String(liveConnections.length)} live runtime module connection${liveConnections.length === 1 ? '' : 's'}`,
+      detailRows: [
+        {
+          label: 'Live connections',
+          value: String(liveConnections.length),
+          severity: liveConnections.length > 0 ? 'success' : 'warning',
+        },
+        {
+          label: 'Observed servers',
+          value: String(runtimeServerCount),
+          severity: runtimeServerCount > 0 ? 'success' : 'warning',
+        },
+        {
+          label: 'Runtime roles',
+          value: String(runtimeRoleCount),
+          severity: runtimeRoleCount > 0 ? 'success' : 'info',
+        },
+        {
+          label: 'Unavailable/degraded',
+          value: String(degradedConnections.length + unavailableConnections.length),
+          severity:
+            degradedConnections.length + unavailableConnections.length > 0
+              ? 'warning'
+              : 'success',
+        },
+      ],
+    },
+    {
+      id: 'source-control',
+      title:
+        sourceControlActionCount > 0
+          ? 'Search and configuration controls need setup'
+          : 'Search and configuration controls are visible',
+      description:
+        'Runtime configuration and search/read-source policy controls are owned by backend modules and exposed through authorized Axis workspaces.',
+      icon: 'search',
+      route:
+        sourceControlActionCount > 0
+          ? startupValidationRoute(bootstrap)
+          : discoveryRoute(bootstrap),
+      primaryAction:
+        sourceControlActionCount > 0
+          ? 'Open Runtime Configuration'
+          : 'Open Discovery Controls',
+      severity: sourceControlActionCount > 0 ? 'warning' : 'success',
+      count: sourceControlActionCount > 0 ? sourceControlActionCount : undefined,
+      meta: `${String(discoveryWorkspaceCount)} discovery workspace${discoveryWorkspaceCount === 1 ? '' : 's'}`,
+      detailRows: [
+        {
+          label: 'Runtime config workspace',
+          value: configurationWorkspaceAvailable ? 'Available' : 'Missing',
+          severity: configurationWorkspaceAvailable ? 'success' : 'warning',
+        },
+        {
+          label: 'Discovery controls',
+          value: String(discoveryWorkspaceCount),
+          severity: discoveryWorkspaceCount > 0 ? 'success' : 'warning',
+        },
+        {
+          label: 'Searchable workbenches',
+          value: String(searchableWorkbenchCount),
+          severity: searchableWorkbenchCount > 0 ? 'info' : 'warning',
+        },
+      ],
+    },
+    {
+      id: 'docs-parity',
+      title:
+        documentationActionCount + applicationParityActionCount > 0
+          ? 'Docs and app publishing parity needs review'
+          : 'Docs and app publishing parity is clear',
+      description:
+        'Documentation packs and customer-facing application profiles are tracked together so post-reset publish gaps are visible before manual browser validation.',
+      icon: 'content',
+      route:
+        documentationActionCount > 0 ? documentationRoute(bootstrap) : '/publishing',
+      primaryAction:
+        documentationActionCount > 0 ? 'Open Documentation' : 'Open Publishing',
+      severity:
+        documentationActionCount + applicationParityActionCount > 0
+          ? 'warning'
+          : 'success',
+      count:
+        documentationActionCount + applicationParityActionCount > 0
+          ? documentationActionCount + applicationParityActionCount
+          : undefined,
+      meta: `${String(readyDocumentationCount)} docs, ${String(readyApplicationParityCount)} apps ready`,
+      detailRows: [
+        {
+          label: 'Documentation sources',
+          value: String(documentationSources.length),
+          severity: documentationSources.length > 0 ? 'success' : 'warning',
+        },
+        {
+          label: 'Docs needing action',
+          value: String(documentationActionCount),
+          severity: documentationActionCount > 0 ? 'warning' : 'success',
+        },
+        {
+          label: 'App profiles needing action',
+          value: String(applicationParityActionCount),
+          severity: applicationParityActionCount > 0 ? 'warning' : 'success',
+        },
+        {
+          label: 'Post-reset bootstrap',
+          value:
+            startupValidation.bootstrapChecks.missing > 0
+              ? `${String(startupValidation.bootstrapChecks.missing)} missing`
+              : `${String(startupValidation.bootstrapChecks.ready)} ready`,
+          severity:
+            startupValidation.bootstrapChecks.missing > 0 ? 'warning' : 'success',
+        },
+        {
+          label: 'CLI evidence',
+          value: 'project:post-reset-readiness --live --json',
+          severity: startupValidation.state === 'READY' ? 'success' : 'info',
+        },
+      ],
+    },
+  ];
+
+  return (
+    <Stack
+      spacing={3}
+      sx={{
+        minWidth: 0,
+        '& .MuiChip-root': { maxWidth: '100%', height: 'auto', minHeight: 24 },
+        '& .MuiChip-label': {
+          whiteSpace: 'normal',
+          overflowWrap: 'anywhere',
+          py: 0.25,
+        },
+        '& .MuiButton-root': { whiteSpace: 'normal' },
+      }}
+    >
+      {renderDashboardSections(sections, {
+        context: () => (
+          <>
+            <Stack
+              direction="row"
+              useFlexGap
+              spacing={1}
+              sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+            >
+              <Typography variant="body2" color="text.secondary" sx={{ flexGrow: 1 }}>
+                {runtime.projectCode} · Tenant {bootstrap.tenantCode}
+              </Typography>
+              {loading ? (
+                <CircularProgress size={16} aria-label="Refreshing technical signals" />
+              ) : null}
+              <Tooltip title="Refresh catalogues and publication status">
+                <span>
+                  <IconButton
+                    aria-label="Refresh technical signals"
+                    disabled={loading}
+                    onClick={() => {
+                      void registeredModulesQuery.refetch();
+                      void availableModulesQuery.refetch();
+                      void releasesQuery.refetch();
+                      for (const query of [
+                        ...applicationStatusQueries,
+                        ...documentationStatusQueries,
+                      ])
+                        void query.refetch();
+                    }}
+                  >
+                    <ShellIcon name="refresh" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </Stack>
+            {firstError ? (
+              <Alert severity="warning">
+                Some dashboard signals are unavailable: {dashboardError(firstError)}
+              </Alert>
+            ) : null}
+            {visual && (
+              <Stack
+                component="nav"
+                direction="row"
+                useFlexGap
+                spacing={1}
+                sx={{ flexWrap: 'wrap' }}
+              >
+                {sections
+                  .filter((section) => {
+                    const kind = section.properties.kind;
+                    return (
+                      kind === 'workspaces' ||
+                      (kind === 'recovery' && readinessRecoveryLaneItems.length > 0) ||
+                      (kind === 'blockers' && readinessFixes.length > 0) ||
+                      (kind === 'timeline' && readinessTimelineItems.length > 0)
+                    );
+                  })
+                  .map((section) => (
+                    <Button
+                      key={section.code}
+                      component="a"
+                      href={`#technical-${String(section.properties.kind)}`}
+                      color="inherit"
+                      size="small"
+                      startIcon={
+                        <ShellIcon
+                          name={
+                            section.properties.kind === 'timeline'
+                              ? 'cronjob'
+                              : section.properties.kind === 'blockers'
+                                ? 'info'
+                                : section.properties.kind === 'recovery'
+                                  ? 'health'
+                                  : 'module'
+                          }
+                        />
+                      }
+                    >
+                      {dashboardText(section, 'title')}
+                    </Button>
+                  ))}
+              </Stack>
+            )}
+          </>
+        ),
+        metrics: (component) => (
+          <>
+            <Box
+              component="section"
+              aria-label={dashboardText(component, 'title')}
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: {
+                  xs: 'repeat(2, minmax(0, 1fr))',
+                  md: 'repeat(4, minmax(0, 1fr))',
+                },
+                borderBlock: '1px solid',
+                borderColor: 'divider',
+                bgcolor: 'background.paper',
+                ...(visual ? { gap: 2, border: 0, bgcolor: 'transparent' } : {}),
+              }}
+            >
+              {[
+                {
+                  label: 'Live connections',
+                  value: liveConnections.length,
+                  total: allConnections.length,
+                  color: 'info' as const,
+                  icon: 'health',
+                  available: true,
+                },
+                {
+                  label: 'Modules active',
+                  value: activeModuleCount,
+                  total: Math.max(registeredModules.length, activeModuleCount),
+                  color: 'success' as const,
+                  icon: 'module',
+                  available:
+                    !registeredModulesQuery.isPending &&
+                    !registeredModulesQuery.isError,
+                },
+                {
+                  label: 'Data current',
+                  value: currentReleaseCount,
+                  total: Math.max(releases.length, currentReleaseCount),
+                  color: 'info' as const,
+                  icon: 'storage',
+                  available: !releasesQuery.isPending && !releasesQuery.isError,
+                },
+                {
+                  label: 'Online-ready sources',
+                  value: readyPublicationCount,
+                  total: Math.max(allPublicationStatuses.length, readyPublicationCount),
+                  color: 'success' as const,
+                  icon: 'workflow',
+                  available: ![
+                    ...applicationStatusQueries,
+                    ...documentationStatusQueries,
+                  ].some((query) => query.isPending || query.isError),
+                },
+              ].map((item) => (
+                <Box
+                  key={item.label}
+                  sx={{
+                    px: { xs: 1.5, md: 2.5 },
+                    py: 2,
+                    minWidth: 0,
+                    ...(visual
+                      ? {
+                          bgcolor: 'background.paper',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          borderRadius: '8px',
+                          borderTop: '3px solid',
+                          borderTopColor: `${item.color}.main`,
+                        }
+                      : {}),
+                  }}
+                >
+                  {visual && (
+                    <ShellIcon
+                      name={item.icon}
+                      sx={{ color: `${item.color}.main`, mb: 1 }}
+                    />
+                  )}
+                  <Typography color="text.secondary" variant="body2">
+                    {item.label}
+                  </Typography>
+                  <Stack
+                    direction="row"
+                    spacing={0.75}
+                    sx={{ alignItems: 'baseline', mt: 0.75 }}
+                  >
+                    <Typography
+                      component="span"
+                      sx={{
+                        fontSize: 28,
+                        fontWeight: 700,
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
+                      {visual && !item.available ? '—' : item.value}
+                    </Typography>
+                    <Typography color="text.secondary" variant="body2">
+                      / {item.total}
+                    </Typography>
+                  </Stack>
+                  {visual ? (
+                    <Stack
+                      direction="row"
+                      sx={{ mt: 2, gap: 1.5, alignItems: 'center' }}
+                    >
+                      <Box
+                        sx={{
+                          width: 56,
+                          height: 56,
+                          position: 'relative',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <CircularProgress
+                          variant="determinate"
+                          value={100}
+                          size={56}
+                          thickness={4}
+                          aria-hidden
+                          sx={{ color: 'action.hover', position: 'absolute', inset: 0 }}
+                        />
+                        {item.available && item.total > 0 && (
+                          <CircularProgress
+                            variant="determinate"
+                            value={progressPercent(item.value, item.total)}
+                            size={56}
+                            thickness={4}
+                            color={item.color}
+                            aria-label={item.label}
+                            sx={{ position: 'absolute', inset: 0 }}
+                          />
+                        )}
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            position: 'absolute',
+                            inset: 0,
+                            display: 'grid',
+                            placeItems: 'center',
+                            fontWeight: 700,
+                          }}
+                        >
+                          {item.available && item.total > 0
+                            ? `${Math.round(progressPercent(item.value, item.total))}%`
+                            : '—'}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ flex: 1 }}>
+                        <LinearProgress
+                          color={item.color}
+                          variant="determinate"
+                          value={
+                            item.available ? progressPercent(item.value, item.total) : 0
+                          }
+                          aria-hidden
+                          sx={{ height: 6, borderRadius: '3px' }}
+                        />
+                      </Box>
+                    </Stack>
+                  ) : (
+                    <LinearProgress
+                      aria-label={item.label}
+                      color={item.color}
+                      value={progressPercent(item.value, item.total)}
+                      variant="determinate"
+                      sx={{ mt: 1.25, height: 3 }}
+                    />
+                  )}
+                </Box>
+              ))}
+            </Box>
+          </>
+        ),
+        receipts: () => (
+          <>
+            {repairResult || repairMutation.error ? (
+              <Box
+                component="section"
+                sx={{
+                  borderBottom: '1px solid',
+                  borderColor: 'divider',
+                  px: 3,
+                  py: 2,
+                }}
+              >
+                <Alert
+                  severity={
+                    repairMutation.error
+                      ? 'error'
+                      : repairResult?.state === 'COMPLETED'
+                        ? 'success'
+                        : 'info'
+                  }
+                  variant="outlined"
+                >
+                  {repairMutation.error
+                    ? dashboardError(repairMutation.error)
+                    : `${repairResult?.state ?? 'UNKNOWN'} · ${repairResult?.message ?? ''} ${repairResult ? `Next: ${repairResult.nextAction}` : ''}`}
+                </Alert>
+                {repairResult ? (
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gap: 1,
+                      gridTemplateColumns: { xs: '1fr', md: 'repeat(4, 1fr)' },
+                      mt: 1,
+                    }}
+                  >
+                    {[
+                      ['Changed', String(repairResult.changedCount)],
+                      ['Skipped', String(repairResult.skippedCount)],
+                      ['Remaining blockers', String(repairResult.blockersRemaining)],
+                      [
+                        'Retry safe',
+                        repairResult.retrySafe === undefined
+                          ? 'Unknown'
+                          : repairResult.retrySafe
+                            ? 'Yes'
+                            : 'No',
+                      ],
+                      ['Evidence', repairResult.evidenceReference ?? 'Not supplied'],
+                      [
+                        'Rollback',
+                        repairResult.rollbackAvailable === undefined
+                          ? 'Unknown'
+                          : repairResult.rollbackAvailable
+                            ? 'Available'
+                            : 'Not available',
+                      ],
+                      [
+                        'Targets',
+                        Object.values(repairResult.targetIdentifiers).join(', ') ||
+                          'Not supplied',
+                      ],
+                      [
+                        'Preview',
+                        repairResult.previewTargetCodes.join(', ') ||
+                          'No preview targets',
+                      ],
+                      ['Provider', repairResult.providerCode ?? 'Not supplied'],
+                      ['Provider state', repairResult.providerState ?? 'Unknown'],
+                      ['Safety', repairResult.safetyLevel ?? 'Unknown'],
+                      ['Receipt', repairResult.receiptCode ?? 'Not created'],
+                      [
+                        'Refresh event',
+                        repairResult.eventEmitted === undefined
+                          ? 'Unknown'
+                          : repairResult.eventEmitted
+                            ? 'Emitted'
+                            : 'Not emitted',
+                      ],
+                      [
+                        'Refresh scopes',
+                        repairResult.refreshScopes.join(', ') || 'Not supplied',
+                      ],
+                      [
+                        'Plan',
+                        repairResult.businessSteps.join(' -> ') || 'Not supplied',
+                      ],
+                    ].map(([label, value]) => (
+                      <Box
+                        key={label}
+                        sx={{
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          borderRadius: 1,
+                          px: 1,
+                          py: 0.75,
+                        }}
+                      >
+                        <Typography color="text.secondary" variant="caption">
+                          {label}
+                        </Typography>
+                        <Typography sx={{ overflowWrap: 'anywhere' }} variant="body2">
+                          {value}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                ) : null}
+              </Box>
+            ) : null}
+          </>
+        ),
+        recovery: (component) => (
+          <>
+            {readinessRecoveryLaneItems.length > 0 ? (
+              <Box
+                component="section"
+                id="technical-recovery"
+                sx={{ scrollMarginTop: 90 }}
+              >
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  sx={{
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    mb: 1.5,
+                  }}
+                >
+                  <Typography component="h2" variant="h6">
+                    {dashboardText(component, 'title')}
+                  </Typography>
+                  <Typography color="text.secondary" variant="body2">
+                    {
+                      readinessRecoveryLaneItems.filter((lane) => lane.blockerCount > 0)
+                        .length
+                    }{' '}
+                    of {readinessRecoveryLaneItems.length} need attention
+                  </Typography>
+                </Stack>
+                {visual && (
+                  <Box
+                    sx={{ display: 'flex', gap: 0.75, mb: 2 }}
+                    aria-label={dashboardText(component, 'title')}
+                  >
+                    {readinessRecoveryLaneItems.map((lane) => (
+                      <Tooltip
+                        key={lane.key}
+                        title={`${lane.label}: ${lane.state.replaceAll('_', ' ')}`}
+                      >
+                        <Box
+                          tabIndex={0}
+                          role="img"
+                          aria-label={`${lane.label}: ${lane.state.replaceAll('_', ' ')}`}
+                          sx={{
+                            flex: 1,
+                            height: 12,
+                            borderRadius: '3px',
+                            bgcolor: `${readinessSeverity(lane.state)}.main`,
+                            '&:focus-visible': {
+                              outline: '2px solid',
+                              outlineColor: 'text.primary',
+                              outlineOffset: 2,
+                            },
+                          }}
+                        />
+                      </Tooltip>
+                    ))}
+                  </Box>
+                )}
+                <Box
+                  sx={{
+                    borderBlock: '1px solid',
+                    borderColor: 'divider',
+                    bgcolor: 'background.paper',
+                    ...(visual
+                      ? {
+                          display: 'grid',
+                          gridTemplateColumns: {
+                            xs: '1fr',
+                            md: 'repeat(2,minmax(0,1fr))',
+                            xl: 'repeat(3,minmax(0,1fr))',
+                          },
+                          gap: 2,
+                          border: 0,
+                          bgcolor: 'transparent',
+                          alignItems: 'start',
+                        }
+                      : {}),
+                  }}
+                >
+                  {readinessRecoveryLaneItems.map((lane, index) => (
+                    <TechnicalDisclosure
+                      key={lane.key}
+                      id={`lane-${lane.key}`}
+                      title={lane.label}
+                      subtitle={lane.description}
+                      expanded={expandedPanels.has(`lane-${lane.key}`)}
+                      onToggle={() => togglePanel(`lane-${lane.key}`)}
+                      icon={lane.blockerCount > 0 ? 'info' : 'approve'}
+                      status={lane.state.replaceAll('_', ' ').toLowerCase()}
+                      severity={readinessSeverity(lane.state)}
+                      count={
+                        lane.blockerCount > 0
+                          ? `${lane.blockerCount} ${plural(lane.blockerCount, 'blocker')}`
+                          : undefined
+                      }
+                      number={index + 1}
+                      visual={visual}
+                      preview={
+                        visual && (
+                          <Typography variant="body2" color="text.secondary">
+                            {lane.nextAction || lane.businessImpact}
+                          </Typography>
+                        )
+                      }
+                      action={
+                        visual && (
+                          <Button
+                            size="small"
+                            color="inherit"
+                            variant="outlined"
+                            endIcon={<ShellIcon name="chevron-right" />}
+                            onClick={() => void navigate(lane.route)}
+                          >
+                            Open {lane.label.toLowerCase()}
+                          </Button>
+                        )
+                      }
+                    >
+                      <Stack spacing={1.5}>
+                        <Typography variant="body2">{lane.businessImpact}</Typography>
+                        <Typography color="text.secondary" variant="body2">
+                          {lane.nextAction}
+                        </Typography>
+                        <TechnicalEvidence
+                          rows={[
+                            { label: 'Owner', value: lane.ownerModule },
+                            {
+                              label: 'Issue codes',
+                              value:
+                                [...new Set(lane.issueCodes)].join(', ') ||
+                                'None reported',
+                            },
+                            {
+                              label: 'Repair actions',
+                              value: lane.repairActions.join('; ') || 'None reported',
+                            },
+                            {
+                              label: 'Runtime dependencies',
+                              value:
+                                lane.runtimeDependencies.join(', ') || 'None reported',
+                            },
+                          ]}
+                        />
+                        {!visual && (
+                          <Button
+                            variant="outlined"
+                            color="inherit"
+                            size="small"
+                            sx={{ alignSelf: 'flex-start' }}
+                            endIcon={<ShellIcon name="chevron-right" />}
+                            onClick={() => void navigate(lane.route)}
+                          >
+                            Open {lane.label.toLowerCase()}
+                          </Button>
+                        )}
+                      </Stack>
+                    </TechnicalDisclosure>
+                  ))}
+                </Box>
+              </Box>
+            ) : null}
+          </>
+        ),
+        blockers: (component) => (
+          <>
+            {readinessFixes.length > 0 ? (
+              <Box
+                component="section"
+                id="technical-blockers"
+                sx={{ scrollMarginTop: 90 }}
+              >
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  sx={{
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    mb: 1.5,
+                  }}
+                >
+                  <Typography component="h2" variant="h6">
+                    {dashboardText(component, 'title')}
+                  </Typography>
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    color="warning"
+                    label={`${readinessFixes.length} reported blockers`}
+                  />
+                </Stack>
+                <Box
+                  sx={{
+                    borderBlock: '1px solid',
+                    borderColor: 'divider',
+                    bgcolor: 'background.paper',
+                    ...(visual
+                      ? {
+                          display: 'grid',
+                          gridTemplateColumns: {
+                            xs: '1fr',
+                            lg: 'repeat(2,minmax(0,1fr))',
+                          },
+                          gap: 2,
+                          border: 0,
+                          bgcolor: 'transparent',
+                          alignItems: 'start',
+                        }
+                      : {}),
+                  }}
+                >
+                  {readinessFixes
+                    .slice(0, expandedPanels.has('all-fixes') ? undefined : 5)
+                    .map((fix) => (
+                      <TechnicalDisclosure
+                        key={fix.id}
+                        id={`fix-${fix.id}`}
+                        title={fix.title}
+                        subtitle={fix.message}
+                        expanded={expandedPanels.has(`fix-${fix.id}`)}
+                        onToggle={() => togglePanel(`fix-${fix.id}`)}
+                        status={fix.sectionTitle}
+                        severity={fix.severity}
+                        icon="info"
+                        visual={visual}
+                        preview={
+                          visual && (
+                            <Typography variant="body2" color="text.secondary">
+                              {fix.action}
+                            </Typography>
+                          )
+                        }
+                        action={
+                          visual && (
+                            <Button
+                              size="small"
+                              color="inherit"
+                              variant="outlined"
+                              endIcon={<ShellIcon name="chevron-right" />}
+                              onClick={() => void navigate(fix.route)}
+                            >
+                              Open repair workspace
+                            </Button>
+                          )
+                        }
+                      >
+                        <Stack spacing={1.5}>
+                          <Typography variant="caption" color="text.secondary">
+                            {fix.ownerModule} · {fix.source} · {fix.blocker.code}
+                          </Typography>
+                          <TechnicalEvidence rows={fix.detailRows} />
+                          <Stack
+                            direction="row"
+                            useFlexGap
+                            spacing={1}
+                            sx={{ flexWrap: 'wrap' }}
+                          >
+                            {!visual && (
+                              <Button
+                                variant="outlined"
+                                color="inherit"
+                                size="small"
+                                endIcon={<ShellIcon name="chevron-right" />}
+                                onClick={() => void navigate(fix.route)}
+                              >
+                                Open repair workspace
+                              </Button>
+                            )}
+                            {repairExecutable(fix.blocker) ? (
+                              <>
+                                <Button
+                                  color="inherit"
+                                  disabled={repairMutation.isPending}
+                                  onClick={() =>
+                                    repairMutation.mutate({ fix, dryRun: true })
+                                  }
+                                  size="small"
+                                  variant="outlined"
+                                >
+                                  Dry run repair
+                                </Button>
+                                <Button
+                                  disabled={repairMutation.isPending}
+                                  onClick={() => {
+                                    const repairLabel =
+                                      typeof fix.blocker.repair.label === 'string'
+                                        ? fix.blocker.repair.label
+                                        : fix.action;
+                                    if (
+                                      window.confirm(
+                                        `Execute ${repairLabel} from ${fix.ownerModule}?`,
+                                      )
+                                    )
+                                      repairMutation.mutate({ fix, dryRun: false });
+                                  }}
+                                  size="small"
+                                  variant="contained"
+                                >
+                                  Execute repair
+                                </Button>
+                              </>
+                            ) : null}
+                          </Stack>
+                        </Stack>
+                      </TechnicalDisclosure>
+                    ))}
+                </Box>
+                {readinessFixes.length > 5 ? (
+                  <Button
+                    sx={{ mt: 1 }}
+                    color="inherit"
+                    onClick={() => togglePanel('all-fixes')}
+                    endIcon={
+                      <ShellIcon
+                        name={
+                          expandedPanels.has('all-fixes')
+                            ? 'chevron-up'
+                            : 'chevron-down'
+                        }
+                      />
+                    }
+                  >
+                    {expandedPanels.has('all-fixes')
+                      ? 'Show fewer blockers'
+                      : `Show all ${readinessFixes.length} blockers`}
+                  </Button>
+                ) : null}
+              </Box>
+            ) : null}
+          </>
+        ),
+        workspaces: (component) => (
+          <>
+            <Box
+              component="section"
+              id="technical-workspaces"
+              sx={{ scrollMarginTop: 90 }}
+            >
+              <Stack
+                direction="row"
+                spacing={1}
+                sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}
+              >
+                <Typography component="h2" variant="h6">
+                  {dashboardText(component, 'title')}
+                </Typography>
+                <Tooltip title="Reported actions may overlap across readiness sections">
+                  <Typography color="text.secondary" variant="body2">
+                    {totalActionCount} reported actions
+                  </Typography>
+                </Tooltip>
+              </Stack>
+              <Box
+                sx={{
+                  borderBlock: '1px solid',
+                  borderColor: 'divider',
+                  bgcolor: 'background.paper',
+                  ...(visual
+                    ? {
+                        display: 'grid',
+                        gridTemplateColumns: {
+                          xs: '1fr',
+                          md: 'repeat(2,minmax(0,1fr))',
+                          xl: 'repeat(3,minmax(0,1fr))',
+                        },
+                        gap: 2,
+                        border: 0,
+                        bgcolor: 'transparent',
+                        alignItems: 'start',
+                      }
+                    : {}),
+                }}
+              >
+                {actionCards.map((card) => (
+                  <Box
+                    key={card.id}
+                    sx={{
+                      borderBottom: '1px solid',
+                      borderColor: 'divider',
+                      '&:last-child': { borderBottom: 0 },
+                      ...(visual ? { border: 0, minWidth: 0 } : {}),
+                    }}
+                  >
+                    <TechnicalDisclosure
+                      id={card.id}
+                      title={card.title}
+                      subtitle={card.meta ?? card.description}
+                      expanded={expandedPanels.has(card.id)}
+                      onToggle={() => togglePanel(card.id)}
+                      status={statusToneLabel(card.severity)}
+                      severity={card.severity}
+                      icon={card.icon}
+                      count={card.count ? String(card.count) : undefined}
+                      visual={visual}
+                      preview={
+                        visual && (
+                          <Typography variant="body2" color="text.secondary">
+                            {card.description}
+                          </Typography>
+                        )
+                      }
+                      action={
+                        visual && (
+                          <Button
+                            color="inherit"
+                            size="small"
+                            endIcon={<ShellIcon name="chevron-right" />}
+                            onClick={() => void navigate(card.route)}
+                          >
+                            {card.primaryAction}
+                          </Button>
+                        )
+                      }
+                    >
+                      <Stack spacing={1.5}>
+                        <Typography color="text.secondary" variant="body2">
+                          {card.description}
+                        </Typography>
+                        <TechnicalEvidence rows={card.detailRows} />
+                      </Stack>
+                    </TechnicalDisclosure>
+                    {!visual && (
+                      <Box sx={{ px: { xs: 1.5, sm: 2 }, pb: 1.25, pl: { sm: 7 } }}>
+                        <Button
+                          color="inherit"
+                          size="small"
+                          endIcon={<ShellIcon name="chevron-right" />}
+                          onClick={() => void navigate(card.route)}
+                        >
+                          {card.primaryAction}
+                        </Button>
+                      </Box>
+                    )}
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          </>
+        ),
+        timeline: (component) => (
+          <>
+            {readinessTimelineItems.length > 0 ? (
+              <Box
+                component="section"
+                id="technical-timeline"
+                sx={{
+                  borderBlock: '1px solid',
+                  borderColor: 'divider',
+                  scrollMarginTop: 90,
+                }}
+              >
+                <TechnicalDisclosure
+                  id="timeline"
+                  title={dashboardText(component, 'title')}
+                  icon="history"
+                  expanded={
+                    visual
+                      ? !expandedPanels.has('timeline')
+                      : expandedPanels.has('timeline')
+                  }
+                  onToggle={() => togglePanel('timeline')}
+                  status={`${readinessTimelineItems.length} snapshots`}
+                  severity="info"
+                >
+                  <Stack
+                    divider={
+                      <Box sx={{ borderTop: '1px solid', borderColor: 'divider' }} />
+                    }
+                  >
+                    {readinessTimelineItems.map((item) => (
+                      <Stack
+                        key={item.id}
+                        direction={{ xs: 'column', sm: 'row' }}
+                        spacing={1}
+                        sx={{ py: 1.5, justifyContent: 'space-between' }}
+                      >
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography variant="subtitle2">{item.label}</Typography>
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{ overflowWrap: 'anywhere' }}
+                          >
+                            {item.source}
+                          </Typography>
+                        </Box>
+                        <Box sx={{ flexShrink: 0 }}>
+                          <Typography variant="body2">
+                            {item.state} · {item.blockerCount} blockers
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {item.checkedAt}
+                          </Typography>
+                        </Box>
+                      </Stack>
+                    ))}
+                  </Stack>
+                </TechnicalDisclosure>
+              </Box>
+            ) : null}
+          </>
+        ),
+        footnotes: () => (
+          <>
+            <Stack
+              direction="row"
+              useFlexGap
+              spacing={1.5}
+              sx={{
+                flexWrap: 'wrap',
+                borderTop: '1px solid',
+                borderColor: 'divider',
+                pt: 2,
+              }}
+            >
+              <Typography color="text.secondary" variant="caption">
+                {visibleRouteCount} routes
+              </Typography>
+              <Typography color="text.secondary" variant="caption">
+                {workbenchCount} workbenches
+              </Typography>
+              <Typography color="text.secondary" variant="caption">
+                {runtimeServerCount} observed runtimes
+              </Typography>
+            </Stack>
+          </>
+        ),
+      })}
+    </Stack>
+  );
+}

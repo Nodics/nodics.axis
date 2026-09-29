@@ -6,9 +6,7 @@ import { AxisInitializationWorkspace } from '../../src/initialization/AxisInitia
 import { BundledLoginPage } from '../../src/initialization/BundledLoginPage';
 
 describe('bundled Axis initialization experience', () => {
-  it('offers the authorized registry recovery action and disables it while initialization is running', async () => {
-    const user = userEvent.setup();
-    const onManageModules = vi.fn();
+  it('does not expose module selection during initialization, including while busy', () => {
     const props = {
       onApprove: vi.fn(),
       onInitiate: vi.fn(),
@@ -19,21 +17,11 @@ describe('bundled Axis initialization experience', () => {
     expect(
       screen.queryByRole('button', { name: 'Prepare required modules' }),
     ).toBeNull();
-    view.rerender(
-      <AxisInitializationWorkspace
-        {...props}
-        busy={false}
-        onManageModules={onManageModules}
-      />,
-    );
-    await user.click(screen.getByRole('button', { name: 'Prepare required modules' }));
-    expect(onManageModules).toHaveBeenCalledOnce();
-    view.rerender(
-      <AxisInitializationWorkspace {...props} busy onManageModules={onManageModules} />,
-    );
+    expect(screen.getByRole('button', { name: 'Refresh status' })).toBeEnabled();
+    view.rerender(<AxisInitializationWorkspace {...props} busy />);
     expect(
-      screen.getByRole('button', { name: 'Prepare required modules' }),
-    ).toBeDisabled();
+      screen.queryByRole('button', { name: 'Prepare required modules' }),
+    ).toBeNull();
   });
   it('authenticates through the supplied existing Profile action without storing credentials', async () => {
     const user = userEvent.setup();

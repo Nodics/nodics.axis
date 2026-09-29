@@ -4,6 +4,15 @@ Setup & Accelerators renders BackOffice-owned application capability readiness.
 Axis must not infer setup dependencies, publication state, approval state, or
 repair operations from local page logic.
 
+Dashboard reviews render the owner's inert `setupPlan` contract. The
+`?profile=<code>` entry opens only that authorized catalogue offering. Technical
+details stay collapsed unless explicitly expanded; their state uses the `expanded`
+query parameter. Unknown codes do not fall back to a different offering. All
+applications clears the focus. Categories are discovered from profile metadata,
+including future categories; never add an accelerator-name switch in Axis.
+This focused navigation is not durable setup intent or automatic activation.
+See [dashboard contributor guidance](../../dashboard/README.md).
+
 Capability blockers may include backend-declared `repair` metadata. Axis may
 render an executable repair action only when all of these are true:
 

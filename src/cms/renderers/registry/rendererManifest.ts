@@ -6,6 +6,18 @@ export interface CmsRendererManifestEntry {
 }
 
 export const CMS_RENDERER_MANIFEST = Object.freeze({
+  'axis.component.dashboard-workspace': {
+    kind: 'component',
+    contractVersions: Object.freeze([1]),
+  },
+  'axis.component.dashboard-tab': {
+    kind: 'component',
+    contractVersions: Object.freeze([1]),
+  },
+  'axis.component.dashboard-section': {
+    kind: 'component',
+    contractVersions: Object.freeze([1]),
+  },
   'axis.page.authentication': {
     kind: 'page',
     contractVersions: Object.freeze([0, 1]),

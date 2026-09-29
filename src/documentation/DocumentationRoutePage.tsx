@@ -31,6 +31,7 @@ import {
 } from '../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../runtime/runtimeConfig';
 import { createDocumentationContentPackClient } from './api/documentationContentPackClient';
+import { loadDocumentationProductSources } from './api/documentationProductClient';
 import {
   createDocumentationPublicationClient,
   type DocumentationPublicationReadiness,
@@ -75,17 +76,14 @@ const documentationSecondaryActionButtonSx = {
   },
 } as const;
 
+/** Selects only a backend-declared route boundary; unknown products never borrow another Site. */
 function sourceForPath(
   sources: readonly AxisDocumentationSource[],
   path: string,
 ): AxisDocumentationSource | undefined {
-  return (
-    sources
-      .filter((source) => path === source.route || path.startsWith(`${source.route}/`))
-      .sort((left, right) => right.route.length - left.route.length)[0] ??
-    sources.find((source) => source.id === 'framework') ??
-    sources[0]
-  );
+  return sources
+    .filter((source) => path === source.route || path.startsWith(`${source.route}/`))
+    .sort((left, right) => right.route.length - left.route.length)[0];
 }
 
 const documentationLifecycleSteps = Object.freeze([
@@ -767,7 +765,87 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
   );
 }
 
+/** Adds CMS product records to this reader view without persisting a client-side source registry. */
 export function DocumentationRoutePage(props: DocumentationRoutePageProps) {
+  const profiles = (props.bootstrap.applicationInitializationProfiles ?? []).filter(
+    (profile) =>
+      profile.type === 'DOCUMENTATION_BUNDLE' &&
+      profile.contentPackCode &&
+      !props.bootstrap.documentationSources.some(
+        (source) => source.type === 'CMS' && source.site === profile.siteCode,
+      ),
+  );
+  const needsDiscovery =
+    profiles.length > 0 &&
+    (props.path === '/docs' ||
+      !sourceForPath(props.bootstrap.documentationSources, props.path));
+  const connection = selectModuleConnection(props.bootstrap, 'cms', {
+    publicationRole: 'STAGED',
+  });
+  const products = useQuery({
+    queryKey: [
+      'documentation-products',
+      props.runtime.enterpriseCode,
+      props.bootstrap.tenantCode,
+      props.employeeId,
+      connection?.instanceId,
+      connection?.endpoint,
+      profiles,
+    ],
+    enabled: needsDiscovery && Boolean(connection),
+    retry: false,
+    queryFn: () =>
+      loadDocumentationProductSources(
+        connection!,
+        {
+          accessToken: props.accessToken,
+          enterpriseCode: props.runtime.enterpriseCode,
+          timeoutMs: props.runtime.requestTimeoutMs,
+        },
+        profiles,
+      ),
+  });
+  if (needsDiscovery && (!connection || products.isError)) {
+    return (
+      <Alert
+        severity="warning"
+        action={
+          connection ? (
+            <Button onClick={() => void products.refetch()}>Retry</Button>
+          ) : undefined
+        }
+      >
+        Documentation product discovery is unavailable. No alternative Site was
+        selected.
+      </Alert>
+    );
+  }
+  if (needsDiscovery && products.isPending) {
+    return <CircularProgress aria-label="Loading documentation products" size={24} />;
+  }
+  const sources = [
+    ...props.bootstrap.documentationSources,
+    ...(needsDiscovery ? (products.data ?? []) : []),
+  ];
+  if (
+    new Set(sources.map((source) => source.id)).size !== sources.length ||
+    new Set(sources.map((source) => source.route)).size !== sources.length
+  ) {
+    return (
+      <Alert severity="warning">
+        Documentation product discovery returned ambiguous sources.
+      </Alert>
+    );
+  }
+  return (
+    <ResolvedDocumentationRoutePage
+      {...props}
+      bootstrap={{ ...props.bootstrap, documentationSources: sources }}
+    />
+  );
+}
+
+function ResolvedDocumentationRoutePage(props: DocumentationRoutePageProps) {
   if (props.path === '/docs') {
     return (
       <WorkspaceContainer>
@@ -784,7 +862,7 @@ export function DocumentationRoutePage(props: DocumentationRoutePageProps) {
   if (!source) {
     return (
       <Alert severity="warning">
-        No authorized documentation sources are available.
+        No authorized documentation source is available for this route.
       </Alert>
     );
   }

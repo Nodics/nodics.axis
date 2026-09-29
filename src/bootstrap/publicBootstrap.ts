@@ -1,3 +1,9 @@
+import { parseApplicationSetupPlan } from '../operations/setupAccelerators/api/applicationSetupPlan';
+import {
+  parseApplicationVisual,
+  type ApplicationVisual,
+} from '../operations/setupAccelerators/api/applicationVisual';
+
 export interface AxisPublicBootstrap {
   readonly contractVersion: number;
   readonly clientContractVersion: number;
@@ -437,6 +443,10 @@ export interface AxisAuthenticatedBootstrap {
 }
 
 export interface AxisApplicationInitializationProfile {
+  readonly visual?: ApplicationVisual | undefined;
+  readonly setupPlan?:
+    | import('../operations/setupAccelerators/api/applicationSetupPlan').ApplicationSetupPlan
+    | undefined;
   readonly code: string;
   readonly title: string;
   readonly kind: string;
@@ -2114,6 +2124,8 @@ function parseApplicationInitializationProfiles(
         : [];
       return Object.freeze({
         code: text(profile.code, 'application initialization profile code'),
+        setupPlan: parseApplicationSetupPlan(profile.setupPlan),
+        visual: parseApplicationVisual(profile.visual),
         title: text(profile.title, 'application initialization profile title'),
         kind: text(profile.kind, 'application initialization profile kind'),
         category: text(profile.category, 'application initialization profile category'),

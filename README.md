@@ -42,6 +42,11 @@ test. The Axis component and favicon tests are the current executable reference.
 
 ## Implemented capabilities
 
+- Application-first dashboard with discovered categories, searchable offerings,
+  read-only owner setup plans and focused continuation into existing setup.
+  Technical readiness remains on a separate tab. See the
+  [dashboard contract](src/dashboard/README.md) for scope and customization.
+
 - Employee-only login, recovery, persistent browser sessions, screen lock, and
   logout through Profile-owned contracts.
 - CMS-driven pages, templates, components, configurable copy, and Axis-owned
@@ -55,6 +60,9 @@ test. The Axis component and favicon tests are the current executable reference.
 - Schema Workbench discovery, search, record operations, and relationship
   coordination through module-owned schema and CRUD APIs.
 - Module registry and health views backed by sanitized Back Office projections.
+- First-run Axis setup is limited to the default Axis baseline. Optional module
+  selection is available only inside the initialized workspace; direct registry
+  navigation redirects to initialization until baseline readiness is READY.
 - Governed initialization, core, and sample data release operations through
   nImport.
 - Fail-closed Axis baseline approval review showing the backend-owned immutable

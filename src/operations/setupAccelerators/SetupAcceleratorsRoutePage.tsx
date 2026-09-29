@@ -25,7 +25,7 @@ import {
   Typography,
 } from '@mui/material';
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
 import { ShellIcon } from '../../app/shell/ShellIcon';
@@ -70,12 +70,7 @@ type AcceleratorOperation =
   | 'approve'
   | 'reject';
 
-type AcceleratorFilter =
-  | 'ALL'
-  | 'PROJECT'
-  | 'CUSTOMIZATION'
-  | 'DOCUMENTATION'
-  | 'NEEDS_ACTION';
+type AcceleratorFilter = string;
 
 type DestructiveAcceleratorOperation = Extract<
   AcceleratorOperation,
@@ -89,10 +84,7 @@ interface DestructiveConfirmationState {
 }
 
 interface RepairConfirmationState {
-  readonly operation: Extract<
-    AcceleratorOperation,
-    'prepare' | 'reconcileApproval'
-  >;
+  readonly operation: Extract<AcceleratorOperation, 'prepare' | 'reconcileApproval'>;
   readonly blocker: ApplicationCapabilityBlocker;
   readonly profile: ApplicationInitializationProfile;
   readonly status: ApplicationInitializationStatus;
@@ -301,7 +293,9 @@ function capabilityBusinessStatus(
   return status?.capability?.businessStatus;
 }
 
-function capabilityIsOnline(status: ApplicationInitializationStatus | undefined): boolean {
+function capabilityIsOnline(
+  status: ApplicationInitializationStatus | undefined,
+): boolean {
   const businessStatus = capabilityBusinessStatus(status);
   return businessStatus ? businessStatus === 'ONLINE' : status?.readiness === 'READY';
 }
@@ -329,17 +323,6 @@ function capabilityNeedsAction(
     !isCustomizationProfile(profile) &&
     (status?.readiness !== 'READY' || status?.releaseStatus === 'UPDATE_AVAILABLE')
   );
-}
-
-function capabilityGroupKey(
-  profile: ApplicationInitializationProfile,
-  status: ApplicationInitializationStatus | undefined,
-): 'projects' | 'customizations' | 'documentation' {
-  if (status?.capability?.group === 'DOCUMENTATION_PACK') return 'documentation';
-  if (status?.capability?.group === 'PROJECT_ACCELERATOR') return 'projects';
-  if (status?.capability?.group === 'APPLICATION_CONTENT') return 'customizations';
-  if (profile.kind !== 'PROJECT') return 'documentation';
-  return isCustomizationProfile(profile) ? 'customizations' : 'projects';
 }
 
 function preparationStatusLabel(status: string | undefined, trigger: string): string {
@@ -757,8 +740,20 @@ function RowIconAction({
 export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const focusedProfile = searchParams.get('profile');
   const [filter, setFilter] = useState<AcceleratorFilter>('ALL');
-  const [expandedProfile, setExpandedProfile] = useState<string>();
+  const expandedProfile = searchParams.get('expanded') ?? undefined;
+  const setExpandedProfile = (value: string | undefined) => {
+    setSearchParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        next.set('expanded', value ?? '');
+        return next;
+      },
+      { replace: true },
+    );
+  };
   const [destructiveConfirmation, setDestructiveConfirmation] =
     useState<DestructiveConfirmationState>();
   const [destructiveReason, setDestructiveReason] = useState('');
@@ -771,9 +766,10 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
   const profiles = useMemo(
     () =>
       (props.bootstrap.applicationInitializationProfiles ?? [])
+        .filter((profile) => !focusedProfile || profile.code === focusedProfile)
         .slice()
         .sort((left, right) => left.order - right.order),
-    [props.bootstrap.applicationInitializationProfiles],
+    [props.bootstrap.applicationInitializationProfiles, focusedProfile],
   );
   const clients = useMemo(() => {
     if (!backofficeConnection)
@@ -879,22 +875,17 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
             }),
           );
         }
-        await completeProcessTask(
-          processConnection,
-          configuration,
-          task.code,
-          {
-            approved: operation === 'approve',
-            outcome:
-              operation === 'approve'
-                ? 'approved-from-setup-accelerators'
-                : 'rejected-from-setup-accelerators',
-            reason:
-              operation === 'approve'
-                ? `${profile.title} approved from Setup & Accelerators`
-                : `${profile.title} rejected from Setup & Accelerators; Online remains unchanged`,
-          },
-        );
+        await completeProcessTask(processConnection, configuration, task.code, {
+          approved: operation === 'approve',
+          outcome:
+            operation === 'approve'
+              ? 'approved-from-setup-accelerators'
+              : 'rejected-from-setup-accelerators',
+          reason:
+            operation === 'approve'
+              ? `${profile.title} approved from Setup & Accelerators`
+              : `${profile.title} rejected from Setup & Accelerators; Online remains unchanged`,
+        });
         return client.getStatus();
       }
       if (operation === 'prepare') {
@@ -962,8 +953,8 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
   const pendingCount = statuses.filter((item) =>
     capabilityNeedsApproval(item.query.data),
   ).length;
-  const actionCount = statuses.filter(
-    (item) => capabilityNeedsAction(item.profile, item.query.data),
+  const actionCount = statuses.filter((item) =>
+    capabilityNeedsAction(item.profile, item.query.data),
   ).length;
   const recoveryGuidance = statuses
     .filter((item) => !item.query.isPending && !item.query.error)
@@ -974,45 +965,20 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
   const loading = queries.some((query) => query.isPending);
   const filteredStatuses = statuses.filter((item) => {
     if (filter === 'ALL') return true;
-    if (filter === 'PROJECT') {
-      return capabilityGroupKey(item.profile, item.query.data) === 'projects';
-    }
-    if (filter === 'CUSTOMIZATION')
-      return capabilityGroupKey(item.profile, item.query.data) === 'customizations';
-    if (filter === 'DOCUMENTATION')
-      return capabilityGroupKey(item.profile, item.query.data) === 'documentation';
-    return capabilityNeedsAction(item.profile, item.query.data);
+    if (filter === 'NEEDS_ACTION')
+      return capabilityNeedsAction(item.profile, item.query.data);
+    return `category:${item.profile.category}` === filter;
   });
   const destructiveReasonIsValid = destructiveReason.trim().length >= 12;
-  const statusGroups = [
-    {
-      key: 'projects',
-      title: 'Project accelerators',
-      description:
-        'Business applications such as Nexus, Agora, partner storefronts, and future accelerators.',
-      items: filteredStatuses.filter(
-        (item) => capabilityGroupKey(item.profile, item.query.data) === 'projects',
-      ),
-    },
-    {
-      key: 'customizations',
-      title: 'Customer customizations',
-      description:
-        'Optional project-layer overlays that change an already initialized site or accelerator.',
-      items: filteredStatuses.filter(
-        (item) => capabilityGroupKey(item.profile, item.query.data) === 'customizations',
-      ),
-    },
-    {
-      key: 'documentation',
-      title: 'Documentation packs',
-      description:
-        'Framework, product, and project documentation that can be installed and published Online.',
-      items: filteredStatuses.filter(
-        (item) => capabilityGroupKey(item.profile, item.query.data) === 'documentation',
-      ),
-    },
-  ].filter((group) => group.items.length > 0);
+  const categories = Array.from(new Set(profiles.map((profile) => profile.category)));
+  const statusGroups = categories
+    .map((category) => ({
+      key: category,
+      title: category,
+      description: '',
+      items: filteredStatuses.filter((item) => item.profile.category === category),
+    }))
+    .filter((group) => group.items.length > 0);
 
   if (!backofficeConnection) {
     return (
@@ -1029,6 +995,16 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
         help={props.routeNavigation?.help}
         title="Setup & Accelerators"
       />
+      {focusedProfile ? (
+        <Button
+          startIcon={<ShellIcon name="chevron-left" />}
+          onClick={() => {
+            setSearchParams({});
+          }}
+        >
+          All applications
+        </Button>
+      ) : null}
       <Stack spacing={2}>
         {profiles.length === 0 ? (
           <Alert severity="warning">
@@ -1088,18 +1064,18 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
               >
                 <TextField
                   label="View"
-                  onChange={(event) =>
-                    setFilter(event.target.value as AcceleratorFilter)
-                  }
+                  onChange={(event) => setFilter(event.target.value)}
                   select
                   size="small"
                   sx={{ minWidth: { xs: '100%', sm: 220 } }}
                   value={filter}
                 >
                   <MenuItem value="NEEDS_ACTION">Needs action</MenuItem>
-                  <MenuItem value="PROJECT">Project accelerators</MenuItem>
-                  <MenuItem value="CUSTOMIZATION">Customer customizations</MenuItem>
-                  <MenuItem value="DOCUMENTATION">Documentation packs</MenuItem>
+                  {categories.map((category) => (
+                    <MenuItem key={category} value={`category:${category}`}>
+                      {category}
+                    </MenuItem>
+                  ))}
                   <MenuItem value="ALL">All profiles</MenuItem>
                 </TextField>
                 <Button
@@ -1219,9 +1195,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                         </Typography>
                       </Box>
                       <Button
-                        color={
-                          guidance.severity === 'error' ? 'warning' : 'primary'
-                        }
+                        color={guidance.severity === 'error' ? 'warning' : 'primary'}
                         onClick={() => void navigate(guidance.route)}
                         size="small"
                         sx={{
@@ -1481,8 +1455,8 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                     mutation.variables?.operation ===
                                       executableRepairOperation
                                       ? 'Repairing...'
-                                      : executableRepair.repair?.label ??
-                                        operationLabel(executableRepairOperation)}
+                                      : (executableRepair.repair?.label ??
+                                        operationLabel(executableRepairOperation))}
                                   </Button>
                                 ) : status && canInitialize ? (
                                   <Button
@@ -1904,12 +1878,14 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                                 const operation =
                                                   supportedRepairOperation(blocker);
                                                 if (!operation) return;
-                                                if (blocker.repair?.requiresConfirmation) {
+                                                if (
+                                                  blocker.repair?.requiresConfirmation
+                                                ) {
                                                   setRepairConfirmation({
-                                                      blocker,
-                                                      operation,
-                                                      profile,
-                                                      status,
+                                                    blocker,
+                                                    operation,
+                                                    profile,
+                                                    status,
                                                   });
                                                   return;
                                                 }

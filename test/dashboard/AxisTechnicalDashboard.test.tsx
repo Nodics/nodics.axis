@@ -1,0 +1,1254 @@
+import { dashboardFixture } from './dashboardCompositionFixture';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { AxisThemeProvider } from '../../src/app/AxisThemeProvider';
+import type { AxisAuthenticatedBootstrap } from '../../src/bootstrap/publicBootstrap';
+import { AxisTechnicalDashboard as AxisDashboardRoutePage } from '../../src/dashboard/AxisTechnicalDashboard';
+import type { AxisRuntimeConfig } from '../../src/runtime/runtimeConfig';
+
+const runtime: AxisRuntimeConfig = {
+  backofficeBaseUrl: 'http://localhost:4300',
+  enterpriseCode: 'default',
+  projectCode: 'nodics.kickoff',
+  clientContractVersion: 1,
+  requestTimeoutMs: 1_000,
+  browserSessionCsrfCookieName: 'csrf',
+  assistantMaximumEventBytes: 1_024,
+  assistantReconnectWindowMs: 1_000,
+  assistantIdleTimeoutMs: 1_000,
+};
+
+const bootstrap: AxisAuthenticatedBootstrap = {
+  axisPolicy: {
+    contractVersion: 1,
+    screenLockEnabled: true,
+    idleTimeoutSeconds: 900,
+    recentNavigationLimit: 12,
+    revision: 1,
+    source: 'DEFAULT',
+  },
+  navigation: [
+    {
+      id: 'runtime-configuration',
+      label: 'Runtime Configuration',
+      route: '/administration/runtime-configuration',
+      order: 5,
+      moduleName: 'system',
+      category: 'platform',
+      icon: 'settings',
+      availability: 'UP',
+      backendWorkspace: {
+        contractVersion: 1,
+        renderer: 'axis.workspace.native',
+        workspaceCode: 'system.runtimeConfiguration',
+        viewCode: 'runtimeConfiguration.overview',
+        title: 'Runtime Configuration',
+        description: 'Review module-owned runtime configuration schemas.',
+        tabs: [],
+      },
+    },
+    {
+      id: 'registry',
+      label: 'Module Registry',
+      route: '/registry',
+      order: 10,
+      moduleName: 'backoffice',
+      category: 'system',
+      icon: 'registry',
+      availability: 'UP',
+    },
+    {
+      id: 'products',
+      label: 'Products',
+      route: '/commerce/catalog/products',
+      order: 20,
+      moduleName: 'product',
+      category: 'commerce',
+      icon: 'product',
+      availability: 'UP',
+      workbenchTarget: {
+        moduleName: 'product',
+        schemaName: 'product',
+        searchRoute: '/commerce/catalog/products/search',
+      },
+    },
+    {
+      id: 'media-management',
+      label: 'Media',
+      route: '/media',
+      order: 30,
+      moduleName: 'media',
+      category: 'content',
+      icon: 'media',
+      availability: 'UP',
+    },
+    {
+      id: 'discovery-management',
+      label: 'Discovery',
+      route: '/discovery',
+      order: 35,
+      moduleName: 'discoveryConfig',
+      category: 'search',
+      icon: 'search',
+      availability: 'UP',
+    },
+    {
+      id: 'documentation-dashboard',
+      label: 'Documentation',
+      route: '/docs',
+      order: 40,
+      moduleName: 'nodics.docs',
+      category: 'documentation',
+      icon: 'content',
+      availability: 'UP',
+    },
+  ],
+  environments: ['kickoffLocal'],
+  moduleCatalog: {},
+  moduleConnections: {
+    backoffice: [
+      {
+        moduleName: 'backoffice',
+        instanceId: 'kickoffLocal:platformServer:backoffice:0',
+        endpoint: 'http://localhost:4300/nodics/backoffice',
+        environment: 'kickoffLocal',
+        server: 'platformServer',
+        runtimeRole: { code: 'PLATFORM', publication: 'OPERATIONAL' },
+        state: 'UP',
+      },
+    ],
+    import: [
+      {
+        moduleName: 'import',
+        instanceId: 'kickoffLocal:wcmsStagedServer:import:0',
+        endpoint: 'http://localhost:4312/nodics/import',
+        environment: 'kickoffLocal',
+        server: 'wcmsStagedServer',
+        runtimeRole: { code: 'WCMS_STAGED', publication: 'STAGED' },
+        state: 'UP',
+      },
+    ],
+  },
+  applicationInitializationProfiles: [
+    {
+      code: 'agoraapparel',
+      title: 'Agora Apparel',
+      kind: 'application',
+      category: 'project',
+      summary: 'Apparel storefront',
+      order: 10,
+      type: 'PROJECT_ACCELERATOR',
+      owner: 'agora.apparel',
+      applicationCode: 'agora-apparel',
+      siteCode: 'agora-apparel',
+      baselineCode: 'agoraapparel',
+      requiredServers: ['wcmsStagedServer'],
+      dataPackages: [],
+      activationPolicy: {
+        approvalRequiredForOnline: true,
+        requiredDataTrigger: 'ACTIVATION',
+        sampleDataTrigger: 'USER',
+      },
+    },
+  ],
+  documentationSources: [
+    {
+      id: 'framework',
+      label: 'Framework docs',
+      type: 'CMS',
+      route: '/docs/framework',
+      order: 10,
+      ownerModule: 'nodics.docs',
+      connectionModule: 'cms',
+      site: 'nodics-docs',
+      catalog: 'nodics-docs',
+      defaultPage: '/docs/framework',
+      packCode: 'nodicsDocumentation',
+      initializationProfile: 'frameworkdocs',
+      dashboard: { audiences: ['developer'] },
+    },
+  ],
+  startupValidation: {
+    state: 'READY',
+    checkedAt: '2026-09-23T00:00:00.000Z',
+    source: 'backoffice.operationalReadiness',
+    summary: {
+      total: 0,
+      errors: 0,
+      warnings: 0,
+      info: 0,
+      dismissible: 0,
+      acknowledged: 0,
+    },
+    bootstrapChecks: {
+      total: 3,
+      ready: 3,
+      missing: 0,
+      needsAttention: 0,
+      checks: [
+        {
+          code: 'BOOTSTRAP_ADMIN_PASSWORD_PRESENT',
+          state: 'READY',
+          owner: 'nAuth',
+          ownerType: 'AUTHENTICATION',
+          propertyPath: 'bootstrapIdentity.adminPassword',
+          message: 'Bootstrap administrator password path is resolved.',
+          action:
+            'Repair the profile init data or owning private configuration before Axis login.',
+          auditRequired: false,
+        },
+      ],
+    },
+    findings: [],
+  },
+  tenantCode: 'default',
+};
+
+function response(data: unknown): Response {
+  return new Response(JSON.stringify({ data }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function urlOf(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.toString();
+  return input.url;
+}
+
+function release(status: string, dataType = 'core') {
+  return {
+    moduleName: 'cms',
+    displayName: 'Content Management',
+    canonicalIdentity: `nodics.wcms:cms:${dataType}`,
+    dataType,
+    version: '0.1.0',
+    description: 'CMS release data',
+    checksum: 'a'.repeat(64),
+    releaseCode: `cms-${dataType}-v001`,
+    destinationRole: 'WCMS_STAGED',
+    status,
+  };
+}
+
+function moduleItem(
+  functionalModule: string,
+  registrationState: string,
+  enabled: boolean,
+) {
+  return {
+    project: 'nodics.kickoff',
+    functionalModule,
+    displayName: functionalModule.replace('nodics.', ''),
+    registrationState,
+    enabled,
+    required: false,
+    runtimeState: enabled ? 'ACTIVE' : 'OFFLINE',
+    technicalModules: [functionalModule.replace('nodics.', '')],
+    observedServers: ['platformServer'],
+    catalogueRevision: 1,
+  };
+}
+
+function renderPageWithBootstrap(
+  pageBootstrap: AxisAuthenticatedBootstrap = bootstrap,
+  visual = false,
+) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <AxisThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AxisDashboardRoutePage
+            visual={visual}
+            sections={
+              dashboardFixture.components.find(
+                (tab) => tab.properties.view === 'technical',
+              )!.components
+            }
+            accessToken="employee-token"
+            bootstrap={pageBootstrap}
+            runtime={runtime}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
+    </AxisThemeProvider>,
+  );
+}
+
+function renderPage() {
+  return renderPageWithBootstrap();
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('AxisDashboardRoutePage', () => {
+  it('guides a first-time operator with live module, data, and approval signals', async () => {
+    const fetchImplementation = vi.fn<typeof fetch>((input) => {
+      const url = urlOf(input);
+      if (url.includes('/runtime/modules/available')) {
+        return Promise.resolve(
+          response({ items: [moduleItem('nodics.discovery', 'AVAILABLE', false)] }),
+        );
+      }
+      if (url.includes('/runtime/modules/registrations')) {
+        return Promise.resolve(
+          response({ items: [moduleItem('nodics.platform', 'REGISTERED', true)] }),
+        );
+      }
+      if (url.endsWith('/v0/init'))
+        return Promise.resolve(response([release('CURRENT', 'init')]));
+      if (url.endsWith('/v0/core'))
+        return Promise.resolve(response([release('NOT_INSTALLED', 'core')]));
+      if (url.endsWith('/v0/sample')) {
+        return Promise.resolve(response([release('NOT_INSTALLED', 'sample')]));
+      }
+      if (url.includes('/applications/agoraapparel/initialization')) {
+        return Promise.resolve(
+          response({
+            profileCode: 'agoraapparel',
+            type: 'PROJECT_ACCELERATOR',
+            owner: 'agora.apparel',
+            applicationCode: 'agora-apparel',
+            siteCode: 'agora-apparel',
+            readiness: 'PUBLICATION_PENDING',
+            releaseCode: 'agoraapparel-v001',
+            releaseVersion: '0.1.0',
+            releaseStatus: 'CURRENT',
+            allowedActions: ['INITIALIZE'],
+            publication: {
+              code: 'pub-1',
+              state: 'PENDING_APPROVAL',
+              revision: 1,
+              workflowRef: 'wf-1',
+            },
+          }),
+        );
+      }
+      if (url.includes('/applications/frameworkdocs/initialization')) {
+        return Promise.resolve(
+          response({
+            profileCode: 'frameworkdocs',
+            siteCode: 'nodics-docs',
+            readiness: 'READY',
+            releaseCode: 'nodicsDocumentation',
+            releaseVersion: '0.16.7',
+            releaseStatus: 'CURRENT',
+            allowedActions: ['ROLLBACK'],
+          }),
+        );
+      }
+      return Promise.resolve(response({}));
+    });
+    vi.stubGlobal('fetch', fetchImplementation);
+
+    renderPage();
+
+    expect(
+      await screen.findByText('Register and activate modules'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Install release data')).toBeInTheDocument();
+    expect(screen.getByText('Approval queue needs review')).toBeInTheDocument();
+    expect(
+      screen.getByRole('region', { name: 'Technical signals' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('1 active modules')).toBeInTheDocument();
+    expect(screen.getByText('1 releases current')).toBeInTheDocument();
+    expect(screen.getByText('1 publication item needs action')).toBeInTheDocument();
+
+    const moduleToggle = screen.getByRole('button', {
+      name: 'Expand Register and activate modules',
+    });
+    expect(moduleToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Available to register')).not.toBeInTheDocument();
+    moduleToggle.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(moduleToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Available to register')).toBeInTheDocument();
+    await userEvent.click(moduleToggle);
+    expect(moduleToggle).toHaveAttribute('aria-expanded', 'false');
+
+    expect(
+      screen.getByRole('progressbar', { name: 'Modules active' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('separator', { name: 'Resize application overview panel' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps dashboard actions explicit when the environment is current', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>((input) => {
+        const url = urlOf(input);
+        if (url.includes('/runtime/modules/available'))
+          return Promise.resolve(response({ items: [] }));
+        if (url.includes('/runtime/modules/registrations')) {
+          return Promise.resolve(
+            response({ items: [moduleItem('nodics.platform', 'REGISTERED', true)] }),
+          );
+        }
+        if (url.endsWith('/v0/init'))
+          return Promise.resolve(response([release('CURRENT', 'init')]));
+        if (url.endsWith('/v0/core'))
+          return Promise.resolve(response([release('CURRENT', 'core')]));
+        if (url.endsWith('/v0/sample')) return Promise.resolve(response([]));
+        if (url.includes('/applications/')) {
+          return Promise.resolve(
+            response({
+              profileCode: 'agoraapparel',
+              siteCode: 'agora-apparel',
+              readiness: 'READY',
+              releaseCode: 'agoraapparel-v001',
+              releaseVersion: '0.1.0',
+              releaseStatus: 'CURRENT',
+              allowedActions: ['ROLLBACK'],
+            }),
+          );
+        }
+        if (url.includes('/operations/readiness/repairs')) {
+          return Promise.resolve(
+            response({
+              contractVersion: 1,
+              idempotencyKey: 'repair-dry-run-test',
+              dryRun: true,
+              state: 'DRY_RUN',
+              operation: 'tooling.acceptance.browserValidation',
+              action: 'CAPTURE_BROWSER_VALIDATION',
+              ownerModule: 'tooling',
+              provider: {
+                ownerModule: 'tooling',
+                providerCode: 'toolingAcceptanceRepairProvider',
+                lifecycleState: 'READY',
+              },
+              targetIdentifiers: { sourceCode: 'browser-validation' },
+              preview: {
+                changedCount: 1,
+                skippedCount: 0,
+                targetCodes: ['browser-validation'],
+              },
+              transaction: { atomic: false, rollbackAvailable: false },
+              retryPolicy: { safeToRetry: true, reuseIdempotencyKey: true },
+              safety: { level: 'SAFE', destructiveDisabled: false },
+              plan: {
+                businessSteps: ['Capture browser evidence', 'Refresh readiness'],
+              },
+              receipt: {
+                receiptCode: 'repair:tooling:browser-validation',
+                receiptType: 'OPERATIONAL_READINESS_REPAIR',
+              },
+              events: {
+                emitted: true,
+                refreshScopes: ['acceptance', 'operationalReadiness'],
+              },
+              changedCount: 0,
+              skippedCount: 0,
+              blockersRemaining: 1,
+              retryable: true,
+              evidenceReference: 'acceptance:browser-validation',
+              nextAction: 'Execute repair after reviewing dry-run evidence.',
+              message: 'Dry run completed for the owner repair operation.',
+              checkedAt: '2026-09-24T00:07:00.000Z',
+            }),
+          );
+        }
+        return Promise.resolve(response({}));
+      }),
+    );
+
+    renderPage();
+
+    expect(
+      await screen.findByRole('button', {
+        name: /Review Registry/u,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Review Data/u })).toBeInTheDocument();
+    expect(
+      screen.getAllByRole('button', { name: /Open Publishing/u })[0],
+    ).toBeInTheDocument();
+    expect(screen.getByText('Runtime communication is healthy')).toBeInTheDocument();
+    expect(
+      screen.getByText('Search and configuration controls are visible'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Docs and app publishing parity is clear'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Operational workspaces')).toBeInTheDocument();
+  });
+
+  it('surfaces backend-owned startup configuration warnings', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>((input) => {
+        const url = urlOf(input);
+        if (url.includes('/runtime/modules/available'))
+          return Promise.resolve(response({ items: [] }));
+        if (url.includes('/runtime/modules/registrations')) {
+          return Promise.resolve(
+            response({ items: [moduleItem('nodics.platform', 'REGISTERED', true)] }),
+          );
+        }
+        if (url.endsWith('/v0/init') || url.endsWith('/v0/core')) {
+          return Promise.resolve(response([release('CURRENT', 'core')]));
+        }
+        if (url.endsWith('/v0/sample')) return Promise.resolve(response([]));
+        if (url.includes('/applications/')) {
+          return Promise.resolve(
+            response({
+              profileCode: 'agoraapparel',
+              siteCode: 'agora-apparel',
+              readiness: 'READY',
+              releaseCode: 'agoraapparel-v001',
+              releaseVersion: '0.1.0',
+              releaseStatus: 'CURRENT',
+              allowedActions: ['ROLLBACK'],
+            }),
+          );
+        }
+        if (url.includes('/operations/readiness/repairs')) {
+          return Promise.resolve(
+            response({
+              contractVersion: 1,
+              repairContractVersion: 1,
+              idempotencyKey: 'repair-dry-run-test',
+              dryRun: true,
+              state: 'DRY_RUN',
+              operation: 'tooling.acceptance.browserValidation',
+              action: 'CAPTURE_BROWSER_VALIDATION',
+              ownerModule: 'tooling',
+              provider: {
+                ownerModule: 'tooling',
+                providerCode: 'toolingAcceptanceRepairProvider',
+                lifecycleState: 'READY',
+              },
+              targetIdentifiers: { sourceCode: 'browser-validation' },
+              preview: {
+                changedCount: 1,
+                skippedCount: 0,
+                targetCodes: ['browser-validation'],
+              },
+              transaction: { atomic: false, rollbackAvailable: false },
+              retryPolicy: { safeToRetry: true, reuseIdempotencyKey: true },
+              safety: { level: 'SAFE', destructiveDisabled: false },
+              plan: {
+                businessSteps: ['Capture browser evidence', 'Refresh readiness'],
+              },
+              receipt: {
+                receiptCode: 'repair:tooling:browser-validation',
+                receiptType: 'OPERATIONAL_READINESS_REPAIR',
+              },
+              events: {
+                emitted: true,
+                refreshScopes: ['acceptance', 'operationalReadiness'],
+              },
+              changedCount: 0,
+              skippedCount: 0,
+              blockersRemaining: 1,
+              retryable: true,
+              evidenceReference: 'acceptance:browser-validation',
+              nextAction: 'Execute repair after reviewing dry-run evidence.',
+              message: 'Dry run completed for the owner repair operation.',
+              checkedAt: '2026-09-24T00:07:00.000Z',
+            }),
+          );
+        }
+        return Promise.resolve(response({}));
+      }),
+    );
+    const warnedBootstrap: AxisAuthenticatedBootstrap = {
+      ...bootstrap,
+      startupValidation: {
+        state: 'NEEDS_ATTENTION',
+        checkedAt: '2026-09-23T00:00:00.000Z',
+        source: 'backoffice.operationalReadiness',
+        summary: {
+          total: 1,
+          errors: 0,
+          warnings: 1,
+          info: 0,
+          dismissible: 1,
+          acknowledged: 0,
+        },
+        bootstrapChecks: {
+          total: 3,
+          ready: 2,
+          missing: 1,
+          needsAttention: 0,
+          checks: [
+            {
+              code: 'BOOTSTRAP_ADMIN_PASSWORD_PRESENT',
+              state: 'MISSING',
+              owner: 'nAuth',
+              ownerType: 'AUTHENTICATION',
+              propertyPath: 'bootstrapIdentity.adminPassword',
+              message: 'Bootstrap administrator password path is missing.',
+              action:
+                'Repair the profile init data or owning private configuration before Axis login.',
+              auditRequired: true,
+            },
+          ],
+        },
+        findings: [
+          {
+            code: 'LOCAL_SAMPLE_ADMIN_PASSWORD',
+            severity: 'WARNING',
+            owner: 'nAuth',
+            ownerType: 'AUTHENTICATION',
+            propertyPath: 'bootstrapIdentity.adminPassword',
+            message: 'A local or sample bootstrap admin password is active.',
+            action:
+              'Rotate the bootstrap admin password through the owning configuration layer.',
+            dismissible: true,
+            auditRequired: true,
+          },
+        ],
+      },
+    };
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <AxisThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <AxisDashboardRoutePage
+              sections={
+                dashboardFixture.components.find(
+                  (tab) => tab.properties.view === 'technical',
+                )!.components
+              }
+              accessToken="employee-token"
+              bootstrap={warnedBootstrap}
+              runtime={runtime}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </AxisThemeProvider>,
+    );
+
+    expect(await screen.findByText('Review startup configuration')).toBeInTheDocument();
+    expect(
+      screen.getByText('nAuth: Bootstrap administrator password path is missing.'),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Expand Review startup configuration' }),
+    );
+    expect(screen.getByText('Bootstrap prerequisites')).toBeInTheDocument();
+    expect(screen.getByText('1 missing')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Open Runtime Configuration/u }),
+    ).toBeInTheDocument();
+  });
+
+  it('surfaces backend-owned acceptance and browser-validation evidence', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>((input) => {
+        const url = urlOf(input);
+        if (url.includes('/runtime/modules/available')) {
+          return Promise.resolve(response({ items: [] }));
+        }
+        if (url.includes('/runtime/modules/registrations')) {
+          return Promise.resolve(
+            response({ items: [moduleItem('nodics.platform', 'REGISTERED', true)] }),
+          );
+        }
+        if (url.endsWith('/v0/init') || url.endsWith('/v0/core')) {
+          return Promise.resolve(response([release('CURRENT', 'core')]));
+        }
+        if (url.endsWith('/v0/sample')) return Promise.resolve(response([]));
+        if (url.includes('/applications/')) {
+          return Promise.resolve(
+            response({
+              profileCode: 'agoraapparel',
+              siteCode: 'agora-apparel',
+              readiness: 'READY',
+              releaseCode: 'agoraapparel-v001',
+              releaseVersion: '0.1.0',
+              releaseStatus: 'CURRENT',
+              allowedActions: ['ROLLBACK'],
+            }),
+          );
+        }
+        if (url.includes('/operations/readiness/repairs')) {
+          return Promise.resolve(
+            response({
+              contractVersion: 1,
+              repairContractVersion: 1,
+              idempotencyKey: 'repair-dry-run-test',
+              dryRun: true,
+              state: 'DRY_RUN',
+              operation: 'tooling.acceptance.browserValidation',
+              action: 'CAPTURE_BROWSER_VALIDATION',
+              ownerModule: 'tooling',
+              provider: {
+                ownerModule: 'tooling',
+                providerCode: 'toolingAcceptanceRepairProvider',
+                lifecycleState: 'READY',
+              },
+              targetIdentifiers: { sourceCode: 'browser-validation' },
+              preview: {
+                changedCount: 1,
+                skippedCount: 0,
+                targetCodes: ['browser-validation'],
+              },
+              transaction: { atomic: false, rollbackAvailable: false },
+              retryPolicy: { safeToRetry: true, reuseIdempotencyKey: true },
+              safety: { level: 'SAFE', destructiveDisabled: false },
+              plan: {
+                businessSteps: ['Capture browser evidence', 'Refresh readiness'],
+              },
+              receipt: {
+                receiptCode: 'repair:tooling:browser-validation',
+                receiptType: 'OPERATIONAL_READINESS_REPAIR',
+              },
+              events: {
+                emitted: true,
+                refreshScopes: ['acceptance', 'operationalReadiness'],
+              },
+              changedCount: 0,
+              skippedCount: 0,
+              blockersRemaining: 1,
+              retryable: true,
+              evidenceReference: 'acceptance:browser-validation',
+              nextAction: 'Execute repair after reviewing dry-run evidence.',
+              message: 'Dry run completed for the owner repair operation.',
+              checkedAt: '2026-09-24T00:07:00.000Z',
+            }),
+          );
+        }
+        return Promise.resolve(response({}));
+      }),
+    );
+    const acceptanceBootstrap: AxisAuthenticatedBootstrap = {
+      ...bootstrap,
+      operationalReadiness: {
+        contractVersion: 1,
+        state: 'NEEDS_ATTENTION',
+        checkedAt: '2026-09-24T00:00:00.000Z',
+        source: 'backoffice.operationalReadiness',
+        summary: {
+          total: 1,
+          blockers: 1,
+          NEEDS_ATTENTION: 1,
+          recoveryMatrix: [
+            {
+              key: 'imports',
+              label: 'Import data',
+              description:
+                'Install and repair business data releases from owner catalogues.',
+              state: 'READY',
+              ownerModule: 'import',
+              source: 'IMPORT_RELEASE_CATALOGUE',
+              route: '/operations/imports-exports',
+              blockerCount: 0,
+              issueCodes: [],
+              repairActions: [],
+              runtimeDependencies: [],
+              businessImpact:
+                'Required business data may be missing or stale, so application setup and publication validation can be misleading.',
+              nextAction: 'Data releases are prepared in the owning import catalogues.',
+            },
+            {
+              key: 'approval',
+              label: 'Complete approvals',
+              description:
+                'Resolve governed Process approval tasks before Online publication.',
+              state: 'NEEDS_ATTENTION',
+              ownerModule: 'workflow',
+              source: 'PUBLICATION_APPROVAL',
+              route: '/process/approval-queue',
+              blockerCount: 1,
+              issueCodes: ['TASK_NOT_ACTIONABLE'],
+              repairActions: [
+                'Open Approval Queue · process.approval.review · REVIEW_APPROVAL_TASK',
+              ],
+              runtimeDependencies: ['processServer/PROCESS/default'],
+              businessImpact:
+                'Governed publication cannot move Online until the approval task is actionable and complete.',
+              nextAction:
+                'Open Approval Queue and reconcile governed publication approval tasks.',
+            },
+          ],
+          timeline: [
+            {
+              id: '2026-09-24T00:00:00.000Z:NEEDS_ATTENTION',
+              eventType: 'backoffice.operationalReadiness.snapshot',
+              label: 'Operational readiness',
+              state: 'NEEDS_ATTENTION',
+              checkedAt: '2026-09-24T00:00:00.000Z',
+              blockerCount: 1,
+              source: 'backoffice.operationalReadiness.snapshot',
+            },
+          ],
+        },
+        sections: [
+          {
+            key: 'acceptance',
+            title: 'Acceptance and browser validation',
+            businessStatus: 'NEEDS_ATTENTION',
+            ownerModule: 'tooling',
+            source: 'NTOOLING_ACCEPTANCE_READINESS',
+            route: '/dashboard',
+            summary: {
+              browserValidationEnabled: true,
+              browserValidationState: 'FAILED',
+              browserValidationCheckedAt: '2026-09-24T00:06:00.000Z',
+              browserValidationRunId: 'provider-browser-smoke-failed',
+              browserValidationFailedStep: 'circaMiniApp',
+              browserValidationSource: 'NTOOLING_ACCEPTANCE_EVIDENCE',
+              browserValidationEvidenceFile:
+                'envs/kickoffLocal/generated/acceptance/browser-validation-evidence.json',
+              browserValidationCommand: 'npm run docker-local:acceptance',
+              operatorCommands: [
+                'npm run docker-local:acceptance',
+                'npm run project:post-reset-readiness -- --live --json',
+                'Refresh Axis dashboard bootstrap',
+              ],
+              onlineProfileCount: 1,
+              pendingProfileCount: 0,
+              blockerCount: 1,
+            },
+            blockers: [
+              {
+                blockerCode: 'BROWSER_VALIDATION_EVIDENCE_REQUIRED',
+                code: 'BROWSER_VALIDATION_EVIDENCE_REQUIRED',
+                severity: 'NEEDS_ATTENTION',
+                ownerType: 'ACCEPTANCE',
+                source: 'NTOOLING_BROWSER_VALIDATION',
+                action: 'Run local browser validation',
+                message:
+                  'Browser validation is enabled for this environment but the latest captured evidence is not attached to readiness.',
+                disabledReason:
+                  'Browser validation is enabled for this environment but the latest captured evidence is not attached to readiness.',
+                repair: {
+                  available: true,
+                  operation: 'tooling.acceptance.browserValidation',
+                  action: 'CAPTURE_BROWSER_VALIDATION',
+                  eligibility: 'MANUAL',
+                  label: 'Run local browser validation',
+                },
+                businessImpact:
+                  'Acceptance evidence is required before the local recovery state can be trusted.',
+                recoveryHint:
+                  'Run the local acceptance/browser smoke and refresh Axis after evidence is captured.',
+                suggestedAction:
+                  'Run the local acceptance/browser smoke and refresh Axis after evidence is captured.',
+              },
+            ],
+            nextAction:
+              'Complete application parity and capture configured local browser-validation evidence.',
+          },
+        ],
+      },
+    };
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <AxisThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <AxisDashboardRoutePage
+              sections={
+                dashboardFixture.components.find(
+                  (tab) => tab.properties.view === 'technical',
+                )!.components
+              }
+              accessToken="employee-token"
+              bootstrap={acceptanceBootstrap}
+              runtime={runtime}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </AxisThemeProvider>,
+    );
+
+    expect(await screen.findByText('Go-live recovery')).toBeInTheDocument();
+    expect(screen.getByText('Import data')).toBeInTheDocument();
+    expect(screen.getByText('Complete approvals')).toBeInTheDocument();
+    expect(screen.queryByText('TASK_NOT_ACTIONABLE')).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Expand Complete approvals' }),
+    );
+    expect(screen.getByText('TASK_NOT_ACTIONABLE')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Governed publication cannot move Online until the approval task is actionable and complete.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Open Approval Queue · process.approval.review · REVIEW_APPROVAL_TASK',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('processServer/PROCESS/default')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Open Approval Queue and reconcile governed publication approval tasks.',
+      ),
+    ).toBeInTheDocument();
+    expect(await screen.findByText('Fix these first')).toBeInTheDocument();
+    expect(screen.getByText('Acceptance and browser validation')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Dry run repair' }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: 'Expand Run the local acceptance/browser smoke and refresh Axis after evidence is captured.',
+      }),
+    );
+    expect(
+      screen.getAllByText(
+        'Run the local acceptance/browser smoke and refresh Axis after evidence is captured.',
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getByText(
+        'Browser validation is enabled for this environment but the latest captured evidence is not attached to readiness.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Evidence state')).toBeInTheDocument();
+    expect(screen.getByText('Business impact')).toBeInTheDocument();
+    expect(screen.getByText('Repair operation')).toBeInTheDocument();
+    expect(screen.getByText('Repair available')).toBeInTheDocument();
+    expect(screen.getByText('Yes')).toBeInTheDocument();
+    expect(screen.getByText('FAILED')).toBeInTheDocument();
+    expect(screen.getByText('provider-browser-smoke-failed')).toBeInTheDocument();
+    expect(screen.getByText('circaMiniApp')).toBeInTheDocument();
+    expect(screen.getByText('NTOOLING_ACCEPTANCE_EVIDENCE')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'npm run docker-local:acceptance -> npm run project:post-reset-readiness -- --live --json -> Refresh Axis dashboard bootstrap',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Readiness timeline')).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Expand Readiness timeline' }),
+    );
+    expect(screen.getAllByText('1 blocker').length).toBeGreaterThan(0);
+    expect(
+      screen.getByText('backoffice.operationalReadiness.snapshot'),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Dry run repair/u }));
+    await waitFor(() => {
+      const calls = vi.mocked(fetch).mock.calls;
+      expect(
+        calls.some((call) => {
+          const target = call[0];
+          const url =
+            typeof target === 'string'
+              ? target
+              : target instanceof URL
+                ? target.toString()
+                : target instanceof Request
+                  ? target.url
+                  : '';
+          return url.includes('/operations/readiness/repairs');
+        }),
+      ).toBe(true);
+    });
+    expect(
+      await screen.findByText('acceptance:browser-validation'),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText('browser-validation').length).toBeGreaterThan(0);
+    expect(screen.getByText('toolingAcceptanceRepairProvider')).toBeInTheDocument();
+    expect(screen.getByText('repair:tooling:browser-validation')).toBeInTheDocument();
+    expect(screen.getByText('acceptance, operationalReadiness')).toBeInTheDocument();
+    expect(
+      screen.getByText('Capture browser evidence -> Refresh readiness'),
+    ).toBeInTheDocument();
+    const beforeCancel = vi.mocked(fetch).mock.calls.length;
+    const confirmation = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    await userEvent.click(screen.getByRole('button', { name: 'Execute repair' }));
+    expect(confirmation).toHaveBeenCalled();
+    expect(vi.mocked(fetch).mock.calls).toHaveLength(beforeCancel);
+  });
+
+  it('surfaces documentation, assistant, application parity, and repair governance readiness', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>((input) => {
+        const url = urlOf(input);
+        if (url.includes('/runtime/modules/available')) {
+          return Promise.resolve(response({ items: [] }));
+        }
+        if (url.includes('/runtime/modules/registrations')) {
+          return Promise.resolve(
+            response({ items: [moduleItem('nodics.platform', 'REGISTERED', true)] }),
+          );
+        }
+        if (url.endsWith('/v0/init') || url.endsWith('/v0/core')) {
+          return Promise.resolve(response([release('CURRENT', 'core')]));
+        }
+        if (url.endsWith('/v0/sample')) return Promise.resolve(response([]));
+        if (url.includes('/applications/')) {
+          return Promise.resolve(
+            response({
+              profileCode: 'agoraapparel',
+              siteCode: 'agora-apparel',
+              readiness: 'READY',
+              releaseCode: 'agoraapparel-v001',
+              releaseVersion: '0.1.0',
+              releaseStatus: 'CURRENT',
+              allowedActions: ['ROLLBACK'],
+            }),
+          );
+        }
+        return Promise.resolve(response({}));
+      }),
+    );
+    renderPageWithBootstrap({
+      ...bootstrap,
+      operationalReadiness: {
+        contractVersion: 1,
+        state: 'NEEDS_ATTENTION',
+        checkedAt: '2026-09-24T00:00:00.000Z',
+        source: 'backoffice.operationalReadiness',
+        summary: { blockers: 1 },
+        sections: [
+          {
+            key: 'documentation',
+            title: 'Documentation readiness',
+            businessStatus: 'NEEDS_ATTENTION',
+            ownerModule: 'documentation',
+            source: 'DOCUMENTATION_PUBLICATION_READINESS',
+            route: '/docs',
+            summary: {
+              documentationSourceCount: 3,
+              readyDocumentationCount: 2,
+              pendingDocumentationCount: 1,
+              lastIndexedAt: '2026-09-24T00:00:00.000Z',
+            },
+            blockers: [],
+            nextAction:
+              'Install staged docs, approve publication, and refresh documentation indexing.',
+          },
+          {
+            key: 'assistant',
+            title: 'Assistant knowledge readiness',
+            businessStatus: 'NEEDS_ATTENTION',
+            ownerModule: 'copilotKnowledge',
+            source: 'COPILOT_KNOWLEDGE_READINESS',
+            route: '/assistant',
+            summary: {
+              sourceCount: 4,
+              indexedSourceCount: 3,
+              modelProvider: 'openai',
+              indexName: 'axis-knowledge-local',
+            },
+            blockers: [],
+            nextAction:
+              'Index authorized documentation sources before answering business questions.',
+          },
+          {
+            key: 'applications',
+            title: 'Application parity readiness',
+            businessStatus: 'READY',
+            ownerModule: 'backoffice',
+            source: 'APPLICATION_PARITY_READINESS',
+            route: '/setup-accelerators',
+            summary: {
+              applicationCount: 3,
+              readyApplicationCount: 3,
+              attentionApplicationCount: 0,
+            },
+            blockers: [],
+            nextAction: 'All application publication profiles are aligned.',
+          },
+          {
+            key: 'repairGovernance',
+            title: 'Repair governance readiness',
+            businessStatus: 'READY',
+            ownerModule: 'backoffice',
+            source: 'REPAIR_PROVIDER_REGISTRY',
+            route: '/registry',
+            summary: {
+              providerCount: 7,
+              readyProviderCount: 7,
+              unavailableProviderCount: 0,
+            },
+            blockers: [],
+            nextAction: 'Repair providers are registered and safe actions are exposed.',
+          },
+        ],
+      },
+    });
+
+    expect(
+      await screen.findByText('Documentation readiness needs attention'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Assistant knowledge needs indexing')).toBeInTheDocument();
+    expect(screen.getByText('Application parity is aligned')).toBeInTheDocument();
+    expect(screen.getByText('Repair governance is ready')).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: 'Expand Documentation readiness needs attention',
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Expand Assistant knowledge needs indexing' }),
+    );
+    expect(
+      screen.getByText(
+        'Install staged docs, approve publication, and refresh documentation indexing.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Index authorized documentation sources before answering business questions.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/DOCUMENTATION_PUBLICATION_READINESS/u),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/COPILOT_KNOWLEDGE_READINESS/u)).toBeInTheDocument();
+    expect(screen.getByText(/APPLICATION_PARITY_READINESS/u)).toBeInTheDocument();
+    expect(screen.getByText(/REPAIR_PROVIDER_REGISTRY/u)).toBeInTheDocument();
+  });
+
+  it('deduplicates the same release across runtime catalogue projections', async () => {
+    const duplicateCoreRelease = {
+      ...release('CURRENT', 'core'),
+      destinationRole: undefined,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>((input) => {
+        const url = urlOf(input);
+        if (url.includes('/runtime/modules/available'))
+          return Promise.resolve(response({ items: [] }));
+        if (url.includes('/runtime/modules/registrations')) {
+          return Promise.resolve(
+            response({ items: [moduleItem('nodics.platform', 'REGISTERED', true)] }),
+          );
+        }
+        if (url.endsWith('/v0/core'))
+          return Promise.resolve(response([duplicateCoreRelease]));
+        if (url.endsWith('/v0/init') || url.endsWith('/v0/sample'))
+          return Promise.resolve(response([]));
+        if (url.includes('/applications/')) {
+          return Promise.resolve(
+            response({
+              profileCode: 'agoraapparel',
+              siteCode: 'agora-apparel',
+              readiness: 'READY',
+              releaseCode: 'agoraapparel-v001',
+              releaseVersion: '0.1.0',
+              releaseStatus: 'CURRENT',
+              allowedActions: ['ROLLBACK'],
+            }),
+          );
+        }
+        return Promise.resolve(response({}));
+      }),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText('1 releases current')).toBeInTheDocument();
+    expect(screen.getByText('Data current')).toBeInTheDocument();
+  });
+
+  it.each([false, true])(
+    'reveals every blocker without executing repairs (visual=%s)',
+    async (visual) => {
+      const fetchMock = vi.fn<typeof fetch>(() => Promise.resolve(response({})));
+      vi.stubGlobal('fetch', fetchMock);
+      renderPageWithBootstrap(
+        {
+          ...bootstrap,
+          operationalReadiness: {
+            contractVersion: 1,
+            state: 'NEEDS_ATTENTION',
+            checkedAt: '2026-09-25T12:00:00Z',
+            source: 'backoffice.operationalReadiness',
+            summary: { total: 1, blockers: 6 },
+            sections: [
+              {
+                key: 'imports',
+                title: 'Import readiness',
+                businessStatus: 'NEEDS_ATTENTION',
+                ownerModule: 'import',
+                source: 'IMPORT_READINESS',
+                route: '/imports',
+                summary: {},
+                nextAction: 'Review imports',
+                blockers: Array.from({ length: 6 }, (_, index) => ({
+                  blockerCode: `IMPORT_${index}`,
+                  code: `IMPORT_${index}`,
+                  severity: 'NEEDS_ATTENTION',
+                  ownerType: 'IMPORT',
+                  source: 'IMPORT_READINESS',
+                  action: `Review release ${index + 1}`,
+                  message: `Release ${index + 1} requires review`,
+                  disabledReason: '',
+                  suggestedAction: `Review release ${index + 1}`,
+                  repair: { available: false },
+                })),
+              },
+            ],
+          },
+        },
+        visual,
+      );
+      if (visual) {
+        expect(
+          await screen.findAllByRole('button', { name: 'Open repair workspace' }),
+        ).toHaveLength(5);
+        expect(
+          screen.getByText('Review release 1', { selector: 'p' }),
+        ).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Fix these first' })).toHaveAttribute(
+          'href',
+          '#technical-blockers',
+        );
+        expect(
+          screen.queryByRole('button', { name: 'Execute repair' }),
+        ).not.toBeInTheDocument();
+      }
+      expect(
+        await screen.findByRole('button', { name: 'Expand Review release 5' }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Expand Review release 6' }),
+      ).not.toBeInTheDocument();
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Show all 6 blockers' }),
+      );
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Expand Review release 6' }),
+      );
+      expect(screen.getByText(/IMPORT_5/)).toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Execute repair' }),
+      ).not.toBeInTheDocument();
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Show fewer blockers' }),
+      );
+      expect(
+        screen.queryByRole('button', { name: 'Collapse Review release 6' }),
+      ).not.toBeInTheDocument();
+      expect(
+        fetchMock.mock.calls.some(([input]) =>
+          (typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.href
+              : input.url
+          ).includes('/operations/readiness/repairs'),
+        ),
+      ).toBe(false);
+    },
+  );
+});

@@ -3,6 +3,21 @@ import { lazy, type ComponentType } from 'react';
 import type { CmsComponentRendererProps } from '../shared/rendererTypes';
 
 export const COMPONENT_RENDERER_REGISTRY = Object.freeze({
+  'axis.component.dashboard-workspace': lazy(() =>
+    import('../components/dashboard/DashboardWorkspaceRenderer').then((module) => ({
+      default: module.DashboardWorkspaceRenderer,
+    })),
+  ),
+  'axis.component.dashboard-tab': lazy(() =>
+    import('../components/dashboard/DashboardWorkspaceRenderer').then((module) => ({
+      default: module.DashboardCompositionNodeRenderer,
+    })),
+  ),
+  'axis.component.dashboard-section': lazy(() =>
+    import('../components/dashboard/DashboardWorkspaceRenderer').then((module) => ({
+      default: module.DashboardCompositionNodeRenderer,
+    })),
+  ),
   'axis.component.brand': lazy(() =>
     import('../components/shared/BrandRenderer').then((module) => ({
       default: module.BrandRenderer,

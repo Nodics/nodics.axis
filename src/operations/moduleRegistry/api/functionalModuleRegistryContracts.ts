@@ -93,6 +93,34 @@ export interface FunctionalModuleDependencyState {
   readonly satisfied: boolean;
 }
 
+export interface FunctionalModuleSelectionItem {
+  readonly functionalModule: string;
+  readonly expectedRevision: number;
+  readonly selected: boolean;
+}
+
+export type FunctionalModuleSelectionAction =
+  | 'registerActivate'
+  | 'activate'
+  | 'deactivate'
+  | 'unchanged';
+
+export type FunctionalModuleSelectionStatus = 'APPLIED' | 'UNCHANGED';
+
+export interface FunctionalModuleSelectionApplyItem {
+  readonly functionalModule: string;
+  readonly selected: boolean;
+  readonly action: FunctionalModuleSelectionAction;
+  readonly status: FunctionalModuleSelectionStatus;
+  readonly module: FunctionalModuleRegistration;
+}
+
+export interface FunctionalModuleSelectionApplyResult {
+  readonly project: string;
+  readonly applied: number;
+  readonly items: readonly FunctionalModuleSelectionApplyItem[];
+}
+
 function record(value: unknown, name: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error(`${name} must be an object`);
@@ -362,4 +390,56 @@ export function parseFunctionalModuleCatalogue(
       ),
     ),
   );
+}
+
+function selectionAction(value: unknown): FunctionalModuleSelectionAction {
+  if (!['registerActivate', 'activate', 'deactivate', 'unchanged'].includes(String(value))) {
+    throw new Error('Functional-module selection action is unsupported');
+  }
+  return value as FunctionalModuleSelectionAction;
+}
+
+function selectionStatus(value: unknown): FunctionalModuleSelectionStatus {
+  if (!['APPLIED', 'UNCHANGED'].includes(String(value))) {
+    throw new Error('Functional-module selection status is unsupported');
+  }
+  return value as FunctionalModuleSelectionStatus;
+}
+
+export function parseFunctionalModuleSelectionApplyResult(
+  value: unknown,
+): FunctionalModuleSelectionApplyResult {
+  const data = record(value, 'Functional-module selection result');
+  if (!Array.isArray(data.items)) {
+    throw new Error('Functional-module selection result items must be a list');
+  }
+  return Object.freeze({
+    project: text(data.project, 'Functional-module selection project'),
+    applied: Number(data.applied ?? 0),
+    items: Object.freeze(
+      data.items.map((item, index) => {
+        const recordItem = record(
+          item,
+          `Functional-module selection item ${String(index)}`,
+        );
+        const functionalModule = text(
+          recordItem.functionalModule,
+          `Functional-module selection item ${String(index)} identity`,
+        );
+        return Object.freeze({
+          functionalModule,
+          selected: boolean(
+            recordItem.selected,
+            `Functional-module selection item ${String(index)} selected flag`,
+          ),
+          action: selectionAction(recordItem.action),
+          status: selectionStatus(recordItem.status),
+          module: parseFunctionalModuleRegistration(
+            recordItem.module,
+            `Functional-module selection item ${functionalModule} module`,
+          ),
+        });
+      }),
+    ),
+  });
 }

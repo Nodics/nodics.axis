@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -172,57 +172,83 @@ afterEach(() => {
 });
 
 describe('FunctionalModuleRegistryRoutePage', () => {
-  it('clears prior success and refreshes the revision after a rejected activation without retrying it', async () => {
-    let registered = false;
-    let activationRequests = 0;
-    let registeredReads = 0;
-    const fetchMock = vi.fn<typeof fetch>((input) => {
-      const url = urlOf(input);
-      if (url.endsWith('/register')) {
-        registered = true;
-        return Promise.resolve(response(moduleItem('nodics.commerce', 'Commerce')));
-      }
-      if (url.endsWith('/activate')) {
-        activationRequests++;
-        return Promise.resolve(
-          new Response(JSON.stringify({ message: 'Catalogue revision conflict' }), {
-            status: 400,
+  it('separates activated modules from pending and orders pending prerequisites first', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>((input) =>
+        Promise.resolve(
+          response({
+            items: urlOf(input).includes('/runtime/modules/available')
+              ? [
+                  moduleItem('nodics.platform', 'Platform', {
+                    registrationState: 'AVAILABLE',
+                  }),
+                ]
+              : [
+                  moduleItem('nodics.docs', 'Documentation', { enabled: true }),
+                  moduleItem('nodics.commerce', 'Commerce'),
+                ],
           }),
-        );
-      }
-      if (url.includes('/runtime/modules/available')) {
+        ),
+      ),
+    );
+    renderPage();
+    await screen.findByText('Commerce');
+    const active = within(
+      screen.getByRole('list', { name: 'Registered and activated' }),
+    );
+    const pending = within(screen.getByRole('list', { name: 'Pending' }));
+    expect(pending.getByText('Depends on: Platform')).toBeInTheDocument();
+    expect(pending.getAllByText('Runtime connected')).toHaveLength(2);
+    expect(pending.getAllByText('Ready to enable')).toHaveLength(2);
+    expect(active.getByText('Documentation')).toBeInTheDocument();
+    expect(active.queryByText('Commerce')).not.toBeInTheDocument();
+    expect(
+      pending
+        .getAllByRole('listitem')
+        .map((row) => within(row).getByRole('button').getAttribute('aria-label')),
+    ).toEqual(['Details for Platform', 'Details for Commerce']);
+    expect(pending.queryByText('Documentation')).not.toBeInTheDocument();
+  });
+  it('refreshes after a rejected selection without retrying or losing the selection', async () => {
+    let selectionRequests = 0;
+    let catalogueReads = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>((input) => {
+        const url = urlOf(input);
+        if (url.endsWith('/selection/apply')) {
+          selectionRequests++;
+          return Promise.resolve(
+            new Response(JSON.stringify({ message: 'Catalogue revision conflict' }), {
+              status: 400,
+            }),
+          );
+        }
+        catalogueReads++;
         return Promise.resolve(
           response({
-            items: registered
-              ? []
-              : [
+            items: url.includes('/runtime/modules/available')
+              ? [
                   moduleItem('nodics.commerce', 'Commerce', {
                     registrationState: 'AVAILABLE',
                   }),
-                ],
+                ]
+              : [],
           }),
         );
-      }
-      registeredReads++;
-      return Promise.resolve(
-        response({
-          items: registered ? [moduleItem('nodics.commerce', 'Commerce')] : [],
-        }),
-      );
-    });
-    vi.stubGlobal('fetch', fetchMock);
+      }),
+    );
     renderPage();
-    await userEvent.click(await screen.findByRole('button', { name: 'Register' }));
-    await screen.findByText(/Commerce is registered\. Registry data is refreshed/);
-    const readsBefore = registeredReads;
-    await userEvent.click(await screen.findByRole('button', { name: 'Activate' }));
+    await userEvent.click(
+      await screen.findByRole('checkbox', { name: 'Select Commerce' }),
+    );
+    const readsBefore = catalogueReads;
+    await userEvent.click(screen.getByRole('button', { name: 'Enable selected (1)' }));
     await screen.findByText(/Catalogue revision conflict/);
-    expect(
-      screen.queryByText(/Commerce is registered\. Registry data is refreshed/),
-    ).not.toBeInTheDocument();
-    expect(activationRequests).toBe(1);
-    expect(registeredReads).toBeGreaterThan(readsBefore);
-    expect(screen.getAllByText('1 observed').length).toBeGreaterThan(0);
+    expect(selectionRequests).toBe(1);
+    expect(catalogueReads).toBeGreaterThan(readsBefore);
+    expect(screen.getByRole('checkbox', { name: 'Select Commerce' })).toBeChecked();
   });
   it('explains each dependency blocker using backend reasons and recovery guidance', async () => {
     const blockedModule = {
@@ -283,7 +309,12 @@ describe('FunctionalModuleRegistryRoutePage', () => {
     );
     renderPage();
     await screen.findByText('Accelerators');
-    await userEvent.click(screen.getByRole('button', { name: 'Expand Accelerators' }));
+    expect(
+      screen.getByRole('checkbox', { name: 'Select Accelerators' }),
+    ).toBeDisabled();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Details for Accelerators' }),
+    );
     expect(screen.getAllByText('Commerce is not registered.')[0]).toBeInTheDocument();
     expect(
       screen.getAllByText('Register and activate Commerce.')[0],
@@ -295,10 +326,10 @@ describe('FunctionalModuleRegistryRoutePage', () => {
     expect(screen.getByText('Readiness: BLOCKED')).toBeInTheDocument();
     expect(screen.queryByText('Readiness: READY')).not.toBeInTheDocument();
     expect(screen.queryByText(/Activation is waiting for/)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Register' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Enable' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Activate' })).not.toBeInTheDocument();
   });
-  it('renders a compact control center with expandable module details', async () => {
+  it('renders each module once, filters the list, and discloses diagnostics on demand', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn<typeof fetch>((input) => {
@@ -333,30 +364,36 @@ describe('FunctionalModuleRegistryRoutePage', () => {
 
     renderPage();
 
-    expect(await screen.findByText('Registry control center')).toBeInTheDocument();
-    expect(screen.getByText('Runtime smoke readiness')).toBeInTheDocument();
+    await screen.findByText('Commerce');
+    expect(screen.getAllByText('Commerce')).toHaveLength(1);
+    expect(screen.queryByText('Capability selection')).not.toBeInTheDocument();
+    expect(screen.queryByText('Runtime smoke readiness')).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Select Platform' })).toBeDisabled();
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Search modules' }),
+      'Commerce',
+    );
+    expect(screen.queryByText('Documentation')).not.toBeInTheDocument();
+    await userEvent.clear(screen.getByRole('textbox', { name: 'Search modules' }));
+    expect(screen.getByText('Documentation')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Runtime health/ }));
     expect(screen.getByText('Data import runtime is unavailable')).toBeInTheDocument();
-    expect(screen.getByText('Process approval runtime is unavailable')).toBeInTheDocument();
+    expect(
+      screen.getByText('Process approval runtime is unavailable'),
+    ).toBeInTheDocument();
     expect(screen.getByText('Commerce data target is not visible')).toBeInTheDocument();
-    expect(
-      screen.getByText('Protected foundation modules for this project.'),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText('Project capabilities selected for operators.'),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText('Runtime-observed capabilities not yet added to this project.'),
-    ).toBeInTheDocument();
     expect(screen.getByText('Commerce')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Activate' })).toBeInTheDocument();
     expect(screen.queryByText('Registry identity')).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Expand Commerce' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Details for Commerce' }));
+    expect(screen.getByRole('button', { name: 'Activate' })).toBeInTheDocument();
 
     expect(screen.getByText('Registry identity')).toBeInTheDocument();
     expect(screen.getByText('nodics.commerce')).toBeInTheDocument();
     expect(screen.getByText('Runtime observations')).toBeInTheDocument();
-    expect(screen.getAllByText(/platformServer · node default/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/platformServer · node default/).length).toBeGreaterThan(
+      0,
+    );
     expect(screen.getByText('Data packages')).toBeInTheDocument();
   });
 
@@ -387,11 +424,12 @@ describe('FunctionalModuleRegistryRoutePage', () => {
     renderPage();
 
     await screen.findByText('Loyalty');
+    expect(screen.getByText('Runtime needs attention')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Details for Loyalty' }));
     expect(screen.getByText('No heartbeat')).toBeInTheDocument();
     expect(
       screen.getByText(/Start the owning runtime server, verify heartbeat evidence/iu),
     ).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Expand Loyalty' }));
 
     expect(screen.getByText('Capability readiness')).toBeInTheDocument();
     expect(screen.getByText('MODULE_RUNTIME_nodics.loyalty')).toBeInTheDocument();

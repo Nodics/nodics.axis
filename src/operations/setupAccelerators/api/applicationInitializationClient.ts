@@ -1,4 +1,9 @@
 import type { AxisModuleConnection } from '../../../bootstrap/publicBootstrap';
+import { parseApplicationVisual, type ApplicationVisual } from './applicationVisual';
+import {
+  parseApplicationSetupPlan,
+  type ApplicationSetupPlan,
+} from './applicationSetupPlan';
 
 export type ApplicationInitializationReadiness =
   | 'NOT_IMPORTED'
@@ -15,6 +20,8 @@ export type ApplicationInitializationReadiness =
 export type ApplicationInitializationAction = 'INITIALIZE' | 'ROLLBACK' | 'RETIRE';
 
 export interface ApplicationInitializationProfile {
+  readonly visual?: ApplicationVisual | undefined;
+  readonly setupPlan?: ApplicationSetupPlan | undefined;
   readonly code: string;
   readonly title: string;
   readonly kind: string;
@@ -165,14 +172,16 @@ export interface ApplicationCapabilityDependencyEvidence {
   readonly trigger?: string | undefined;
   readonly dataType?: string | undefined;
   readonly classification?: string | undefined;
-  readonly runtimeEvidence?: Readonly<{
-    readonly source?: string | undefined;
-    readonly status?: string | undefined;
-    readonly registrationState?: string | undefined;
-    readonly enabled?: boolean | undefined;
-    readonly stale?: boolean | undefined;
-    readonly observedServers?: readonly string[] | undefined;
-  }> | undefined;
+  readonly runtimeEvidence?:
+    | Readonly<{
+        readonly source?: string | undefined;
+        readonly status?: string | undefined;
+        readonly registrationState?: string | undefined;
+        readonly enabled?: boolean | undefined;
+        readonly stale?: boolean | undefined;
+        readonly observedServers?: readonly string[] | undefined;
+      }>
+    | undefined;
   readonly runtimeDiagnostic?: ApplicationRuntimeDiagnostic | undefined;
   readonly approvalDiagnostic?: ApplicationApprovalDiagnostic | undefined;
 }
@@ -325,11 +334,15 @@ function booleanValue(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
-function parseRuntimeDiagnostic(value: unknown): ApplicationRuntimeDiagnostic | undefined {
+function parseRuntimeDiagnostic(
+  value: unknown,
+): ApplicationRuntimeDiagnostic | undefined {
   const diagnostic = optionalRecord(value);
   if (!diagnostic) return undefined;
   return Object.freeze({
-    ...(optionalText(diagnostic.phase) ? { phase: optionalText(diagnostic.phase) } : {}),
+    ...(optionalText(diagnostic.phase)
+      ? { phase: optionalText(diagnostic.phase) }
+      : {}),
     ...(optionalText(diagnostic.sourceServer)
       ? { sourceServer: optionalText(diagnostic.sourceServer) }
       : {}),
@@ -439,7 +452,9 @@ function parseApprovalDiagnostic(
     ...(optionalText(diagnostic.assignee)
       ? { assignee: optionalText(diagnostic.assignee) }
       : {}),
-    ...(optionalText(diagnostic.queue) ? { queue: optionalText(diagnostic.queue) } : {}),
+    ...(optionalText(diagnostic.queue)
+      ? { queue: optionalText(diagnostic.queue) }
+      : {}),
     ...(optionalText(diagnostic.message)
       ? { message: optionalText(diagnostic.message) }
       : {}),
@@ -518,8 +533,12 @@ function parseCapabilityDependencyEvidence(
     ...(optionalText(evidence.targetRuntimeRole)
       ? { targetRuntimeRole: optionalText(evidence.targetRuntimeRole) }
       : {}),
-    ...(optionalText(evidence.trigger) ? { trigger: optionalText(evidence.trigger) } : {}),
-    ...(optionalText(evidence.dataType) ? { dataType: optionalText(evidence.dataType) } : {}),
+    ...(optionalText(evidence.trigger)
+      ? { trigger: optionalText(evidence.trigger) }
+      : {}),
+    ...(optionalText(evidence.dataType)
+      ? { dataType: optionalText(evidence.dataType) }
+      : {}),
     ...(optionalText(evidence.classification)
       ? { classification: optionalText(evidence.classification) }
       : {}),
@@ -535,9 +554,7 @@ function parseCapabilityDependencyEvidence(
   });
 }
 
-function parseCapabilityDependency(
-  value: unknown,
-): ApplicationCapabilityDependency {
+function parseCapabilityDependency(value: unknown): ApplicationCapabilityDependency {
   const dependency = record(value, 'Capability dependency');
   return Object.freeze({
     kind: text(dependency.kind, 'Capability dependency kind'),
@@ -614,11 +631,17 @@ function parsePublicationSummary(
   const summary = optionalRecord(value);
   if (!summary) return undefined;
   return Object.freeze({
-    ...(optionalText(summary.installed) ? { installed: optionalText(summary.installed) } : {}),
+    ...(optionalText(summary.installed)
+      ? { installed: optionalText(summary.installed) }
+      : {}),
     ...(optionalText(summary.staged) ? { staged: optionalText(summary.staged) } : {}),
-    ...(optionalText(summary.approval) ? { approval: optionalText(summary.approval) } : {}),
+    ...(optionalText(summary.approval)
+      ? { approval: optionalText(summary.approval) }
+      : {}),
     ...(optionalText(summary.online) ? { online: optionalText(summary.online) } : {}),
-    ...(optionalText(summary.runtime) ? { runtime: optionalText(summary.runtime) } : {}),
+    ...(optionalText(summary.runtime)
+      ? { runtime: optionalText(summary.runtime) }
+      : {}),
     ...(optionalText(summary.media) ? { media: optionalText(summary.media) } : {}),
   });
 }
@@ -713,6 +736,8 @@ function parseProfile(value: unknown): ApplicationInitializationProfile {
   );
   return Object.freeze({
     code: text(data.code, 'Application profile'),
+    setupPlan: parseApplicationSetupPlan(data.setupPlan),
+    visual: parseApplicationVisual(data.visual),
     title: text(data.title, 'Application profile title'),
     kind: text(data.kind, 'Application profile kind'),
     category: text(data.category, 'Application profile category'),
@@ -918,8 +943,14 @@ function parse(value: unknown): ApplicationInitializationStatus {
             owningModule: text(capability.owningModule, 'Capability owner'),
             capabilityType: text(capability.capabilityType, 'Capability type'),
             group: text(capability.group, 'Capability group'),
-            businessStatus: text(capability.businessStatus, 'Capability business status'),
-            technicalStatus: text(capability.technicalStatus, 'Capability technical status'),
+            businessStatus: text(
+              capability.businessStatus,
+              'Capability business status',
+            ),
+            technicalStatus: text(
+              capability.technicalStatus,
+              'Capability technical status',
+            ),
             ...(optionalText(capability.releaseStatus)
               ? { releaseStatus: optionalText(capability.releaseStatus) }
               : {}),
@@ -1002,9 +1033,7 @@ function parse(value: unknown): ApplicationInitializationStatus {
                         : {}),
                       ...(optionalText(blocker.targetRuntimeRole)
                         ? {
-                            targetRuntimeRole: optionalText(
-                              blocker.targetRuntimeRole,
-                            ),
+                            targetRuntimeRole: optionalText(blocker.targetRuntimeRole),
                           }
                         : {}),
                       ...(optionalText(blocker.technicalStatus)
@@ -1087,7 +1116,7 @@ async function invoke(
                   ? 'Axis Setup & Accelerators initialization requested'
                   : operation === 'reconcile-approval'
                     ? 'Axis Setup & Accelerators approval reconciliation requested'
-                  : `Axis Setup & Accelerators ${operation} requested`),
+                    : `Axis Setup & Accelerators ${operation} requested`),
               forceRefresh: input.forceRefresh === true ? true : undefined,
             }),
           }

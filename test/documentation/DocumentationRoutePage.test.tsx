@@ -5,6 +5,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
 
 import { DocumentationRoutePage } from '../../src/documentation/DocumentationRoutePage';
+import type {
+  AxisDocumentationSource,
+  AxisApplicationInitializationProfile,
+} from '../../src/bootstrap/publicBootstrap';
+import * as productClient from '../../src/documentation/api/documentationProductClient';
 
 const runtime = {
   backofficeBaseUrl: 'http://localhost:3000',
@@ -50,7 +55,19 @@ const bootstrap = {
   },
   moduleConnections: {
     system: [connection],
-    cms: [{ ...connection, moduleName: 'cms' }],
+    cms: [
+      {
+        ...connection,
+        moduleName: 'cms',
+        instanceId: 'cms-staged',
+        runtimeRole: { code: 'WCMS_STAGED', publication: 'STAGED' },
+      },
+      {
+        ...connection,
+        moduleName: 'cms',
+        runtimeRole: { code: 'WCMS_ONLINE', publication: 'ONLINE' },
+      },
+    ],
     backoffice: [{ ...connection, moduleName: 'backoffice' }],
     workflow: [
       {
@@ -147,7 +164,11 @@ const packResponse = {
   },
 };
 
-function renderPage(path = '/docs') {
+function renderPage(
+  path = '/docs',
+  sources: readonly AxisDocumentationSource[] = bootstrap.documentationSources,
+  profiles: readonly AxisApplicationInitializationProfile[] = [],
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -156,7 +177,11 @@ function renderPage(path = '/docs') {
       <QueryClientProvider client={queryClient}>
         <DocumentationRoutePage
           accessToken="token"
-          bootstrap={bootstrap}
+          bootstrap={{
+            ...bootstrap,
+            documentationSources: sources,
+            applicationInitializationProfiles: profiles,
+          }}
           channel="web"
           cmsBaseUrl="http://localhost:3000"
           employeeId="admin"
@@ -176,6 +201,108 @@ function requestPathname(request: URL | RequestInfo): string {
 }
 
 describe('DocumentationRoutePage', () => {
+  it.each(['/docs/unregistered-project', '/docs/framework-other'])(
+    'does not request another Site for an undeclared route %s',
+    (path) => {
+      const fetchMock = vi.spyOn(globalThis, 'fetch');
+      renderPage(path);
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'No authorized documentation source is available for this route.',
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+      fetchMock.mockRestore();
+    },
+  );
+
+  it('uses the declared project Site and profile for a nested project route', async () => {
+    const source: AxisDocumentationSource = {
+      ...bootstrap.documentationSources[0]!,
+      type: 'CMS',
+      id: 'acme',
+      label: 'Acme Handbook',
+      route: '/docs/acme',
+      connectionModule: 'cms',
+      ownerModule: 'cms',
+      order: 400,
+      site: 'acmeDocsSite',
+      catalog: 'acmeDocsCatalog',
+      defaultPage: '/docs/acme',
+      packCode: 'acmeDocs',
+      initializationProfile: 'acmedocs',
+    };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((request) => {
+      const pathname = requestPathname(request);
+      if (pathname.includes('/applications/acmedocs/initialization')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: {
+                ...response.data,
+                profileCode: 'acmedocs',
+                readiness: 'READY',
+                allowedActions: [],
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }));
+    });
+    const profile: AxisApplicationInitializationProfile = {
+      code: 'acmedocs',
+      title: 'Acme',
+      kind: 'DOCUMENTATION',
+      category: 'documentation',
+      summary: '',
+      order: 400,
+      type: 'DOCUMENTATION_BUNDLE',
+      owner: 'acme',
+      applicationCode: 'acme',
+      siteCode: 'acmeDocsSite',
+      baselineCode: 'acme',
+      contentPackCode: 'acmeDocs',
+      requiredServers: [],
+      dataPackages: [],
+      activationPolicy: {
+        approvalRequiredForOnline: true,
+        requiredDataTrigger: 'USER',
+        sampleDataTrigger: 'USER',
+      },
+    };
+    const discovery = vi
+      .spyOn(productClient, 'loadDocumentationProductSources')
+      .mockResolvedValue([source]);
+    renderPage('/docs/acme/setup', bootstrap.documentationSources, [profile]);
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([request]) =>
+          requestPathname(request).includes('/delivery/pages/resolve'),
+        ),
+      ).toBe(true),
+    );
+    const request = fetchMock.mock.calls.find(([value]) =>
+      requestPathname(value).includes('/delivery/pages/resolve'),
+    )![0];
+    const url = new URL(request instanceof Request ? request.url : String(request));
+    expect(url.searchParams.get('site')).toBe('acmeDocsSite');
+    expect(url.searchParams.get('path')).toBe('/docs/acme/setup');
+    expect(
+      fetchMock.mock.calls.some(([value]) =>
+        requestPathname(value).includes('/applications/frameworkdocs/'),
+      ),
+    ).toBe(false);
+    expect(discovery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runtimeRole: { code: 'WCMS_STAGED', publication: 'STAGED' },
+      }),
+      expect.objectContaining({ accessToken: 'token' }),
+      [profile],
+    );
+    discovery.mockRestore();
+    fetchMock.mockRestore();
+  });
+
   it('renders the documentation dashboard from registered documentation sources once published', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((request) => {
       const pathname = requestPathname(request);

@@ -2,7 +2,6 @@ import { wasteOverviewAliases } from '../operations/wasteManagement/wasteOvervie
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router';
 import { useQueries, useQueryClient, type Query } from '@tanstack/react-query';
-import { Box, Button, Stack, Typography } from '@mui/material';
 
 import {
   authenticateEmployee,
@@ -58,7 +57,6 @@ import { WasteManagementRoutePage } from '../operations/wasteManagement/WasteMan
 import { RulesManagementRoutePage } from '../operations/rulesManagement/RulesManagementRoutePage';
 import { RuntimeConfigurationRoutePage } from '../operations/runtimeConfiguration/RuntimeConfigurationRoutePage';
 import { EnterpriseRelationshipsRoutePage } from '../operations/enterprise/EnterpriseRelationshipsRoutePage';
-import { AxisDashboardRoutePage } from '../dashboard/AxisDashboardRoutePage';
 import { useIdleScreenLock } from '../auth/useIdleScreenLock';
 import { AxisInitializationWorkspace } from '../initialization/AxisInitializationWorkspace';
 import { BundledLoginPage } from '../initialization/BundledLoginPage';
@@ -1432,16 +1430,6 @@ export function App() {
         onApprove={() => void approveInitialization()}
         onLogout={logout}
         onRefresh={() => void refreshInitialization()}
-        onManageModules={
-          session &&
-          !locked &&
-          moduleRegistryNavigation &&
-          ['UP', 'DEGRADED'].includes(moduleRegistryNavigation.availability)
-            ? () => {
-                void navigate('/registry');
-              }
-            : undefined
-        }
         status={initializationStatus}
       />
     );
@@ -1453,49 +1441,6 @@ export function App() {
       <AxisLocalizationBoundary value={localization}>
         <Routes>
           <Route path={axisInitializationRoute} element={initializationElement} />
-          <Route
-            path="/registry"
-            element={
-              session &&
-              !locked &&
-              authenticatedBootstrap &&
-              moduleRegistryNavigation &&
-              ['UP', 'DEGRADED'].includes(moduleRegistryNavigation.availability) ? (
-                <Box
-                  component="main"
-                  sx={{ mx: 'auto', maxWidth: 1440, p: { xs: 2, md: 4 } }}
-                >
-                  <Stack spacing={2} sx={{ mb: 3 }}>
-                    <Typography component="h1" variant="h5">
-                      Prepare Axis dependencies
-                    </Typography>
-                    <Typography color="text.secondary">
-                      Register and activate Process to make governed publication
-                      approvals available, then return to Axis setup.
-                    </Typography>
-                    <Button
-                      onClick={() => {
-                        void navigate(axisInitializationRoute);
-                        void refreshInitialization();
-                      }}
-                      sx={{ alignSelf: 'flex-start' }}
-                    >
-                      Return to Axis setup
-                    </Button>
-                  </Stack>
-                  <FunctionalModuleRegistryRoutePage
-                    accessToken={session.accessToken}
-                    bootstrap={authenticatedBootstrap}
-                    onBootstrapRefresh={refreshAuthenticatedBootstrap}
-                    routeNavigation={moduleRegistryNavigation}
-                    runtime={runtime}
-                  />
-                </Box>
-              ) : (
-                <Navigate replace to={axisInitializationRoute} />
-              )
-            }
-          />
           <Route path="*" element={<Navigate replace to={axisInitializationRoute} />} />
         </Routes>
       </AxisLocalizationBoundary>
@@ -1562,11 +1507,13 @@ export function App() {
           element={
             session && !locked && authenticatedBootstrap ? (
               authenticatedShell(
-                <AxisDashboardRoutePage
-                  accessToken={session.accessToken}
-                  bootstrap={authenticatedBootstrap}
-                  runtime={runtime}
-                />,
+                page(axisDashboardRoute, session.accessToken, {
+                  dashboard: {
+                    accessToken: session.accessToken,
+                    bootstrap: authenticatedBootstrap,
+                    runtime,
+                  },
+                }),
               )
             ) : (
               <Navigate

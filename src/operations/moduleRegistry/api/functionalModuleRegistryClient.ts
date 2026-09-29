@@ -2,8 +2,11 @@ import type { AxisModuleConnection } from '../../../bootstrap/publicBootstrap';
 import {
   parseFunctionalModuleCatalogue,
   parseFunctionalModuleRegistration,
+  parseFunctionalModuleSelectionApplyResult,
   type FunctionalModuleActivationReceipt,
   type FunctionalModuleRegistration,
+  type FunctionalModuleSelectionApplyResult,
+  type FunctionalModuleSelectionItem,
 } from './functionalModuleRegistryContracts';
 
 export interface FunctionalModuleRegistryClientConfiguration {
@@ -189,6 +192,31 @@ export async function applyFunctionalModuleLifecycleAction(
       configuration,
       { body, method: 'POST' },
       effectiveFetch,
+    ),
+  );
+}
+
+export async function applyFunctionalModuleSelection(
+  connection: AxisModuleConnection,
+  modules: readonly FunctionalModuleSelectionItem[],
+  configuration: FunctionalModuleRegistryClientConfiguration,
+  fetchImplementation: typeof fetch = fetch,
+): Promise<FunctionalModuleSelectionApplyResult> {
+  return parseFunctionalModuleSelectionApplyResult(
+    await request(
+      connection,
+      '/runtime/modules/registrations/selection/apply',
+      configuration,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          project: configuration.projectCode,
+          reason:
+            'Axis Module Registry capability selection applied by an authorized employee.',
+          modules,
+        }),
+      },
+      fetchImplementation,
     ),
   );
 }

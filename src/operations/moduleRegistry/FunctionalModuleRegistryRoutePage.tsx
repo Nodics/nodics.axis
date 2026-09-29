@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   CardContent,
+  Checkbox,
   Chip,
   CircularProgress,
   Collapse,
@@ -13,9 +14,12 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  Drawer,
   Grid,
   IconButton,
+  InputAdornment,
   Stack,
+  TextField,
   Tooltip,
   Typography,
 } from '@mui/material';
@@ -39,6 +43,7 @@ import {
 } from '../readiness/CapabilityReadinessPanel';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
+  applyFunctionalModuleSelection,
   applyFunctionalModuleLifecycleAction,
   installFunctionalModuleSampleData,
   loadAvailableFunctionalModules,
@@ -89,7 +94,7 @@ function formatTime(value: string | undefined): string {
 function sortedModules(
   modules: readonly FunctionalModuleRegistration[],
 ): readonly FunctionalModuleRegistration[] {
-  return [...modules].sort((left, right) => {
+  const remaining = [...modules].sort((left, right) => {
     const leftIndex = Number(left.moduleIndex);
     const rightIndex = Number(right.moduleIndex);
     if (Number.isFinite(leftIndex) && Number.isFinite(rightIndex)) {
@@ -102,6 +107,22 @@ function sortedModules(
     if (Number.isFinite(rightIndex)) return 1;
     return left.functionalModule.localeCompare(right.functionalModule);
   });
+  const ordered: FunctionalModuleRegistration[] = [];
+  // Order only declared, present prerequisites. Cycles retain catalogue order.
+  while (remaining.length > 0) {
+    const pendingCodes = new Set(remaining.map((module) => module.functionalModule));
+    const next = remaining.findIndex((module) =>
+      (module.activationData?.preflight.dependencies ?? []).every(
+        (dependency) => !pendingCodes.has(dependency),
+      ),
+    );
+    if (next === -1) {
+      ordered.push(...remaining);
+      break;
+    }
+    ordered.push(...remaining.splice(next, 1));
+  }
+  return ordered;
 }
 
 const registryQueryRoot = ['functional-module-registry'] as const;
@@ -166,7 +187,7 @@ function activationMode(module: FunctionalModuleRegistration): string {
   if (missing && missing.length > 0) {
     return `Waiting for ${missing.map((item) => item.displayName).join(', ')}`;
   }
-  if (module.registrationState === 'AVAILABLE') return 'Register before activation';
+  if (module.registrationState === 'AVAILABLE') return 'Ready to enable';
   if (module.enabled) return 'Active in Axis';
   if (module.activationData?.packages.length === 0) {
     return 'Ready to activate; no required data import';
@@ -284,7 +305,8 @@ function runtimeSmokeReadiness(
       severity: 'warning',
       title: 'Process approval runtime is unavailable',
       detail: 'Publishing approvals may not create or resolve governed Process tasks.',
-      action: 'Start processServer before approving Nexus, Agora, Circa, or docs publishing.',
+      action:
+        'Start processServer before approving Nexus, Agora, Circa, or docs publishing.',
     });
   }
   modules
@@ -299,7 +321,8 @@ function runtimeSmokeReadiness(
             module.observedServers.length > 0
               ? `Observed server(s): ${module.observedServers.join(', ')}.`
               : 'No runtime server has reported this module.',
-          action: 'Start the owning runtime server or refresh module registration after startup.',
+          action:
+            'Start the owning runtime server or refresh module registration after startup.',
         });
       } else if (module.observedServers.length === 0) {
         issues.push({
@@ -379,8 +402,7 @@ function moduleCapabilityReadiness(
       source: 'RUNTIME_HEARTBEAT',
       message: 'The module is active but Axis cannot show which server owns it.',
       action: 'Refresh runtime registration',
-      disabledReason:
-        'The runtime is active, but owner/server evidence is incomplete.',
+      disabledReason: 'The runtime is active, but owner/server evidence is incomplete.',
       technicalStatus: module.runtimeState,
       repair: {
         available: false,
@@ -409,8 +431,7 @@ function moduleCapabilityReadiness(
           dependency.reason ||
           `${dependency.displayName} must be registered, active, and enabled first.`,
         action: dependency.resolution || 'Prepare required dependency',
-        disabledReason:
-          'A required framework or accelerator capability is not ready.',
+        disabledReason: 'A required framework or accelerator capability is not ready.',
         technicalStatus: dependency.runtimeState,
         repair: {
           available: false,
@@ -435,8 +456,7 @@ function moduleCapabilityReadiness(
       source: 'ACTIVATION_PREFLIGHT',
       message: reason,
       action: 'Review module activation preflight',
-      disabledReason:
-        'Module activation preflight reported a blocking condition.',
+      disabledReason: 'Module activation preflight reported a blocking condition.',
       technicalStatus: module.activationData?.readiness,
     });
   });
@@ -470,7 +490,7 @@ function runtimeCardHint(module: FunctionalModuleRegistration): string | undefin
     return undefined;
   }
   if (module.registrationState !== 'REGISTERED') {
-    return 'Register and activate this module before expecting runtime heartbeat evidence.';
+    return 'Enable this capability before expecting runtime heartbeat evidence.';
   }
   if (!module.enabled) {
     return 'Activate this registered module, then refresh bootstrap after the owning runtime reports heartbeat evidence.';
@@ -496,9 +516,11 @@ function runtimeServerSummary(module: FunctionalModuleRegistration): string {
 function runtimeObservationTitle(
   observation: FunctionalModuleRegistration['runtimeObservations'][number],
 ): string {
-  return [observation.server, observation.node ? `node ${observation.node}` : undefined]
-    .filter(Boolean)
-    .join(' · ') || observation.observedServer;
+  return (
+    [observation.server, observation.node ? `node ${observation.node}` : undefined]
+      .filter(Boolean)
+      .join(' · ') || observation.observedServer
+  );
 }
 
 function sampleReceipt(module: FunctionalModuleRegistration) {
@@ -580,6 +602,7 @@ interface ModuleCardProps {
     module: FunctionalModuleRegistration,
     action: ModuleAction,
   ) => void;
+  readonly onEnableCapability: (module: FunctionalModuleRegistration) => void;
   readonly onSampleData: (module: FunctionalModuleRegistration) => void;
   readonly pendingAction?: ModuleAction | undefined;
   readonly pendingSampleData?: boolean | undefined;
@@ -915,7 +938,11 @@ function RuntimeSmokeReadinessCard({
         <Stack spacing={1.25}>
           <Stack
             direction={{ xs: 'column', md: 'row' }}
-            sx={{ alignItems: { md: 'center' }, gap: 1, justifyContent: 'space-between' }}
+            sx={{
+              alignItems: { md: 'center' },
+              gap: 1,
+              justifyContent: 'space-between',
+            }}
           >
             <Box>
               <Typography component="h2" variant="h6">
@@ -977,8 +1004,8 @@ function RuntimeSmokeReadinessCard({
               ))}
               {readiness.issues.length > 6 ? (
                 <Typography color="text.secondary" variant="caption">
-                  {String(readiness.issues.length - 6)} more issue(s) are listed on
-                  the related module cards.
+                  {String(readiness.issues.length - 6)} more issue(s) are listed on the
+                  related module cards.
                 </Typography>
               ) : null}
             </Stack>
@@ -998,13 +1025,14 @@ function ModuleCard({
   disabled,
   module,
   onAction,
+  onEnableCapability,
   onSampleData,
   pendingAction,
   pendingSampleData,
   sampleDataDisabled,
   visibility,
 }: ModuleCardProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const [technicalExpanded, setTechnicalExpanded] = useState(false);
   const isRegistered = module.registrationState === 'REGISTERED';
   const canRegister = module.registrationState === 'AVAILABLE';
@@ -1070,8 +1098,8 @@ function ModuleCard({
   const primaryActionLabel =
     primaryAction === 'register'
       ? pendingAction === 'register'
-        ? 'Registering...'
-        : 'Register'
+        ? 'Enabling...'
+        : 'Enable'
       : primaryAction === 'activate'
         ? pendingAction === 'activate'
           ? 'Activating...'
@@ -1237,9 +1265,16 @@ function ModuleCard({
                   disabled={
                     disabled ||
                     pending ||
+                    (primaryAction === 'register' &&
+                      (module.runtimeState !== 'ACTIVE' ||
+                        missingDependencyCount > 0)) ||
                     (primaryAction === 'preview' && !isRegistered)
                   }
-                  onClick={() => onAction(module, primaryAction)}
+                  onClick={() =>
+                    primaryAction === 'register'
+                      ? onEnableCapability(module)
+                      : onAction(module, primaryAction)
+                  }
                   size="small"
                   startIcon={
                     <ShellIcon
@@ -1594,6 +1629,12 @@ export function FunctionalModuleRegistryRoutePage(
 ) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [search, setSearch] = useState('');
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [detailModuleCode, setDetailModuleCode] = useState<string>();
+  const [selectedAvailableModules, setSelectedAvailableModules] = useState<
+    readonly string[]
+  >([]);
   const [navigationRefreshState, setNavigationRefreshState] = useState<
     | undefined
     | {
@@ -1653,6 +1694,52 @@ export function FunctionalModuleRegistryRoutePage(
       return loadAvailableFunctionalModules(connection, configuration);
     },
     refetchOnWindowFocus: true,
+  });
+  const selection = useMutation({
+    onMutate: () => setNavigationRefreshState(undefined),
+    mutationFn: async (modules: readonly FunctionalModuleRegistration[]) => {
+      if (!connection) throw new Error('BackOffice is unavailable');
+      return applyFunctionalModuleSelection(
+        connection,
+        modules.map((module) => ({
+          functionalModule: module.functionalModule,
+          expectedRevision: module.catalogueRevision,
+          selected: true,
+        })),
+        configuration,
+      );
+    },
+    onSuccess: async (result) => {
+      setSelectedAvailableModules([]);
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: [...registryQueryRoot, 'registered', configuration.projectCode],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: [...registryQueryRoot, 'available', configuration.projectCode],
+        }),
+      ])
+        .then(() => props.onBootstrapRefresh?.())
+        .then(() => {
+          setNavigationRefreshState({
+            severity: 'success',
+            message: `${String(result.applied)} capability change(s) applied. Axis navigation was refreshed from the BackOffice bootstrap contract.`,
+          });
+        })
+        .catch((error: unknown) => {
+          setNavigationRefreshState({
+            severity: 'warning',
+            message:
+              error instanceof Error
+                ? `Capability selection completed, but Axis could not refresh navigation automatically: ${error.message}`
+                : 'Capability selection completed, but Axis could not refresh navigation automatically.',
+          });
+        });
+    },
+    onError: async () => {
+      setNavigationRefreshState(undefined);
+      await queryClient.invalidateQueries({ queryKey: registryQueryRoot });
+    },
   });
   const lifecycle = useMutation({
     onMutate: () => setNavigationRefreshState(undefined),
@@ -1782,20 +1869,39 @@ export function FunctionalModuleRegistryRoutePage(
     () => registered.filter((module) => module.required),
     [registered],
   );
-  const optional = useMemo(
-    () => registered.filter((module) => !module.required),
-    [registered],
-  );
   const available = useMemo(
     () => sortedModules(availableModules.data ?? []),
     [availableModules.data],
+  );
+  const enableCandidates = useMemo(
+    () =>
+      [...registered, ...available].filter(
+        (module) =>
+          !module.required &&
+          !(module.registrationState === 'REGISTERED' && module.enabled),
+      ),
+    [registered, available],
+  );
+  const readyAvailable = useMemo(
+    () =>
+      enableCandidates.filter(
+        (module) =>
+          module.runtimeState === 'ACTIVE' &&
+          (module.activationData?.preflight.missingDependencies.length ?? 0) === 0,
+      ),
+    [enableCandidates],
+  );
+  const selectedAvailable = useMemo(
+    () =>
+      readyAvailable.filter((module) =>
+        selectedAvailableModules.includes(module.functionalModule),
+      ),
+    [readyAvailable, selectedAvailableModules],
   );
   const pendingModule = lifecycle.isPending
     ? lifecycle.variables?.module.functionalModule
     : undefined;
   const pendingAction = lifecycle.isPending ? lifecycle.variables?.action : undefined;
-  const requiredRegistered = required.length;
-  const optionalRegistered = optional.length;
   const enabledRegistered = registered.filter((module) => module.enabled).length;
   const moduleVisibility = useMemo(
     () =>
@@ -1807,16 +1913,35 @@ export function FunctionalModuleRegistryRoutePage(
       ),
     [available, props.bootstrap.navigation, registered],
   );
-  const blockedRegistered = registered.filter(
-    (module) => moduleReadiness(module) === 'Blocked',
-  ).length;
-  const warningRegistered = registered.filter(
-    (module) => moduleReadiness(module) === 'Active with warnings',
-  ).length;
-  const activeRouteTotal = Array.from(moduleVisibility.values()).reduce(
-    (total, visibility) => total + visibility.activeRoutes,
-    0,
+  const allModules = sortedModules([...registered, ...available]);
+  const visibleModules = allModules.filter((module) =>
+    `${module.displayName} ${module.functionalModule}`
+      .toLowerCase()
+      .includes(search.trim().toLowerCase()),
   );
+  const moduleGroups = [
+    {
+      title: 'Registered and activated',
+      modules: visibleModules.filter(
+        (module) => module.registrationState === 'REGISTERED' && module.enabled,
+      ),
+    },
+    {
+      title: 'Pending',
+      modules: visibleModules.filter(
+        (module) => !(module.registrationState === 'REGISTERED' && module.enabled),
+      ),
+    },
+  ];
+  const detailModule = allModules.find(
+    (module) => module.functionalModule === detailModuleCode,
+  );
+  const visibleReadyModules = readyAvailable.filter((module) =>
+    visibleModules.some(
+      (visible) => visible.functionalModule === module.functionalModule,
+    ),
+  );
+  const busy = selection.isPending || lifecycle.isPending || sampleData.isPending;
   const smokeReadiness = useMemo(
     () => runtimeSmokeReadiness(props.bootstrap, registered),
     [props.bootstrap, registered],
@@ -1831,6 +1956,13 @@ export function FunctionalModuleRegistryRoutePage(
       return;
     }
     lifecycle.mutate({ action, module });
+  };
+  const requestCapabilitySelection = (
+    modules: readonly FunctionalModuleRegistration[],
+  ) => {
+    lifecycle.reset();
+    sampleData.reset();
+    selection.mutate(modules);
   };
 
   if (!connection) {
@@ -1849,13 +1981,14 @@ export function FunctionalModuleRegistryRoutePage(
         ? availableModules.error
         : undefined;
   const lifecycleError = lifecycle.error instanceof Error ? lifecycle.error : undefined;
+  const selectionError = selection.error instanceof Error ? selection.error : undefined;
   const sampleDataError =
     sampleData.error instanceof Error ? sampleData.error : undefined;
 
   return (
     <WorkspaceContainer>
       <WorkspaceHeading
-        description={`Project ${configuration.projectCode} module lifecycle from BackOffice authority.`}
+        description={configuration.projectCode}
         help={props.routeNavigation?.help}
         title="Module Registry"
       />
@@ -1868,6 +2001,11 @@ export function FunctionalModuleRegistryRoutePage(
                   lifecycleError?.message ?? 'Module lifecycle request failed'
                 }`
               : (lifecycleError?.message ?? 'Module lifecycle request failed')}
+          </Alert>
+        ) : null}
+        {selection.isError ? (
+          <Alert severity="error">
+            {selectionError?.message ?? 'Capability selection request failed'}
           </Alert>
         ) : null}
         {sampleData.isError ? (
@@ -1898,286 +2036,535 @@ export function FunctionalModuleRegistryRoutePage(
           <Alert severity="error">{loadError.message}</Alert>
         ) : (
           <Stack spacing={2}>
-            <Card variant="outlined" sx={{ borderRadius: 1, overflow: 'hidden' }}>
-              <CardContent
-                sx={{
-                  '&:last-child': { pb: 1.5 },
-                  background: (theme) =>
-                    `linear-gradient(135deg, ${alpha(
-                      theme.palette.primary.main,
-                      theme.palette.mode === 'light' ? 0.14 : 0.2,
-                    )} 0%, ${alpha(theme.palette.background.paper, 0)} 62%)`,
-                  borderRadius: 1,
-                  pb: 1.5,
-                  px: 2,
-                  pt: 1.5,
-                }}
-              >
-                <Stack
-                  direction={{ xs: 'column', md: 'row' }}
-                  spacing={1.25}
+            <Box
+              aria-label="Registry overview"
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: {
+                  xs: 'repeat(2, minmax(0, 1fr))',
+                  md: 'repeat(4, minmax(0, 1fr))',
+                },
+                borderTop: '1px solid',
+                borderBottom: '1px solid',
+                borderColor: 'divider',
+                py: 2,
+                gap: 2,
+              }}
+            >
+              {[
+                {
+                  label: 'Activated',
+                  value: enabledRegistered,
+                  detail: `${required.length} required modules`,
+                  color: 'success.main',
+                },
+                {
+                  label: 'Pending',
+                  value: allModules.length - enabledRegistered,
+                  detail: 'Not yet enabled',
+                  color: 'text.primary',
+                },
+                {
+                  label: 'Ready to enable',
+                  value: readyAvailable.length,
+                  detail: 'Runtime and prerequisites ready',
+                  color: 'info.main',
+                },
+                {
+                  label: 'Runtime issues',
+                  value: smokeReadiness.issueCount,
+                  detail: 'Reported by runtime health',
+                  color: smokeReadiness.issueCount ? 'warning.dark' : 'success.main',
+                },
+              ].map((metric) => (
+                <Box
+                  key={metric.label}
                   sx={{
-                    alignItems: { md: 'center' },
-                    justifyContent: 'space-between',
+                    px: 2,
+                    borderLeft: '2px solid',
+                    borderColor: metric.color,
+                    minWidth: 0,
                   }}
                 >
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography
-                      component="h2"
-                      sx={{ fontSize: '1.18rem', fontWeight: 800, lineHeight: 1.2 }}
-                      variant="h6"
-                    >
-                      Registry control center
-                    </Typography>
-                    <Typography
-                      color="text.secondary"
-                      sx={{ fontSize: '0.86rem', lineHeight: 1.25, mt: 0.25 }}
-                      variant="body2"
-                    >
-                      Register available capabilities, activate what this project needs,
-                      and keep Axis navigation current.
-                    </Typography>
-                  </Box>
-                  <Button
-                    onClick={() => {
-                      void navigate('/setup-accelerators');
+                  <Typography variant="body2" color="text.secondary">
+                    {metric.label}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      fontSize: '1.75rem',
+                      lineHeight: 1.4,
+                      fontWeight: 700,
+                      color: metric.color,
                     }}
-                    size="small"
-                    startIcon={<ShellIcon fontSize="small" name="automation" />}
-                    sx={{ flexShrink: 0, minHeight: 34 }}
-                    variant="outlined"
                   >
-                    Setup & Accelerators
+                    {metric.value}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {metric.detail}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' } }}
+            >
+              <TextField
+                label="Search modules"
+                value={search}
+                size="small"
+                onChange={(event) => setSearch(event.target.value)}
+                slotProps={{
+                  input: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <ShellIcon name="search" fontSize="small" />
+                      </InputAdornment>
+                    ),
+                  },
+                }}
+                sx={{
+                  width: { xs: '100%', sm: 320 },
+                  maxWidth: '100%',
+                  bgcolor: 'background.paper',
+                }}
+              />
+              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                <Button
+                  size="small"
+                  color="inherit"
+                  variant="outlined"
+                  onClick={() => setDiagnosticsOpen((open) => !open)}
+                  aria-expanded={diagnosticsOpen}
+                  aria-controls="registry-diagnostics"
+                >
+                  Runtime health
+                  {smokeReadiness.issueCount > 0
+                    ? ` (${smokeReadiness.issueCount})`
+                    : ''}
+                </Button>
+                <Button
+                  size="small"
+                  color="inherit"
+                  endIcon={<ShellIcon name="chevron-right" fontSize="small" />}
+                  onClick={() => {
+                    void navigate('/setup-accelerators');
+                  }}
+                >
+                  Setup & Accelerators
+                </Button>
+              </Stack>
+            </Stack>
+            <Collapse in={diagnosticsOpen} unmountOnExit id="registry-diagnostics">
+              <RuntimeSmokeReadinessCard readiness={smokeReadiness} />
+            </Collapse>
+            <Box>
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={1.5}
+                sx={{
+                  py: 1,
+                  px: 2,
+                  bgcolor: 'background.paper',
+                  borderTop: '1px solid',
+                  borderBottom: '1px solid',
+                  borderColor: 'divider',
+                  alignItems: { sm: 'center' },
+                  justifyContent: 'space-between',
+                }}
+              >
+                <Typography variant="body2" sx={{ fontWeight: 600 }} aria-live="polite">
+                  {selectedAvailable.length
+                    ? `${selectedAvailable.length} module${selectedAvailable.length === 1 ? '' : 's'} selected`
+                    : `${visibleReadyModules.length} module${visibleReadyModules.length === 1 ? '' : 's'} ready to enable`}
+                </Typography>
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  sx={{ flexWrap: 'wrap', alignItems: 'center', gap: 0.5 }}
+                >
+                  <Button
+                    size="small"
+                    color="inherit"
+                    disabled={visibleReadyModules.length === 0 || busy}
+                    onClick={() =>
+                      setSelectedAvailableModules((selected) => [
+                        ...new Set([
+                          ...selected,
+                          ...visibleReadyModules.map(
+                            (module) => module.functionalModule,
+                          ),
+                        ]),
+                      ])
+                    }
+                  >
+                    Select ready
+                  </Button>
+                  <Button
+                    size="small"
+                    color="inherit"
+                    disabled={selectedAvailableModules.length === 0 || busy}
+                    onClick={() => setSelectedAvailableModules([])}
+                  >
+                    Clear
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    disabled={selectedAvailable.length === 0 || busy}
+                    onClick={() => requestCapabilitySelection(selectedAvailable)}
+                    startIcon={
+                      selection.isPending ? (
+                        <CircularProgress color="inherit" size={16} />
+                      ) : (
+                        <ShellIcon fontSize="small" name="approve" />
+                      )
+                    }
+                  >
+                    {selection.isPending
+                      ? 'Applying...'
+                      : `Enable selected (${selectedAvailable.length})`}
                   </Button>
                 </Stack>
-                <Grid container spacing={1} sx={{ mt: 1.25 }}>
-                  <Grid size={{ xs: 6, md: 2.4 }}>
-                    <RegistryMetric
-                      label="Enabled"
-                      tone="success"
-                      value={String(enabledRegistered)}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 6, md: 2.4 }}>
-                    <RegistryMetric
-                      label="Required"
-                      value={String(requiredRegistered)}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 6, md: 2.4 }}>
-                    <RegistryMetric
-                      label="Optional"
-                      value={String(optionalRegistered)}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 6, md: 2.4 }}>
-                    <RegistryMetric
-                      label="Available"
-                      tone={available.length > 0 ? 'warning' : 'success'}
-                      value={String(available.length)}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 6, md: 2.4 }}>
-                    <RegistryMetric
-                      label="Visible routes"
-                      tone={activeRouteTotal > 0 ? 'info' : 'default'}
-                      value={String(activeRouteTotal)}
-                    />
-                  </Grid>
-                </Grid>
-                {blockedRegistered > 0 || warningRegistered > 0 ? (
-                  <Alert severity="warning" sx={{ mt: 2 }}>
-                    {String(blockedRegistered)} blocked and {String(warningRegistered)}{' '}
-                    warning module(s) need attention.
-                  </Alert>
-                ) : null}
-              </CardContent>
-            </Card>
-
-            <RuntimeSmokeReadinessCard readiness={smokeReadiness} />
-
-            <Box>
-              <Stack
-                direction={{ xs: 'column', sm: 'row' }}
-                spacing={1}
-                sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
-              >
-                <Box>
-                  <Typography component="h2" variant="h5">
-                    Required modules
+              </Stack>
+              {moduleGroups.map((group) => (
+                <Box component="section" key={group.title} sx={{ mt: 2 }}>
+                  <Typography
+                    component="h2"
+                    variant="subtitle1"
+                    sx={{
+                      fontWeight: 700,
+                      py: 1.5,
+                      px: 2,
+                      borderLeft: '3px solid',
+                      borderColor:
+                        group.title === 'Pending' ? 'info.main' : 'success.main',
+                      color: 'text.primary',
+                      bgcolor: (theme) =>
+                        alpha(
+                          group.title === 'Pending'
+                            ? theme.palette.info.main
+                            : theme.palette.success.main,
+                          0.08,
+                        ),
+                      fontSize: '1.125rem',
+                    }}
+                  >
+                    {group.title} ({group.modules.length})
                   </Typography>
-                  <Typography color="text.secondary" variant="body2">
-                    Protected foundation modules for this project.
-                  </Typography>
+                  <Box
+                    sx={{
+                      display: { xs: 'none', md: 'grid' },
+                      gridTemplateColumns:
+                        '40px minmax(0, 1fr) minmax(0, 1fr) 160px 40px',
+                      gap: 1.5,
+                      px: 2,
+                      py: 1,
+                      borderBottom: '1px solid',
+                      borderColor: 'divider',
+                    }}
+                  >
+                    <Box />
+                    {['Module', 'Runtime & prerequisites', 'Activation'].map(
+                      (label) => (
+                        <Typography
+                          key={label}
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ fontWeight: 700 }}
+                        >
+                          {label}
+                        </Typography>
+                      ),
+                    )}
+                  </Box>
+                  <Box
+                    component="ul"
+                    aria-label={group.title}
+                    sx={{
+                      listStyle: 'none',
+                      m: 0,
+                      p: 0,
+                      borderTop: '1px solid',
+                      borderColor: 'divider',
+                    }}
+                  >
+                    {group.modules.map((module) => {
+                      const enabled =
+                        module.registrationState === 'REGISTERED' && module.enabled;
+                      const selectable = readyAvailable.some(
+                        (item) => item.functionalModule === module.functionalModule,
+                      );
+                      const checked = selectedAvailableModules.includes(
+                        module.functionalModule,
+                      );
+                      const needsAttention =
+                        module.runtimeState !== 'ACTIVE' ||
+                        (module.activationData?.preflight.missingDependencies.length ??
+                          0) > 0;
+                      const missingDependencies =
+                        module.activationData?.preflight.missingDependencies ?? [];
+                      const dependencies =
+                        module.activationData?.preflight.dependencies ?? [];
+                      const dependencyNames = (codes: readonly string[]) =>
+                        codes
+                          .map(
+                            (code) =>
+                              allModules.find((item) => item.functionalModule === code)
+                                ?.displayName ?? code,
+                          )
+                          .join(', ');
+                      return (
+                        <Box
+                          component="li"
+                          key={module.functionalModule}
+                          sx={{
+                            display: 'grid',
+                            gridTemplateColumns: {
+                              xs: '40px minmax(0, 1fr) 40px',
+                              md: '40px minmax(0, 1fr) minmax(0, 1fr) 160px 40px',
+                            },
+                            alignItems: 'center',
+                            gap: 1.5,
+                            py: 1.5,
+                            px: 2,
+                            '&:hover': { bgcolor: 'action.hover' },
+                            borderBottom: '1px solid',
+                            borderColor: 'divider',
+                            bgcolor: checked ? 'action.selected' : 'background.paper',
+                          }}
+                        >
+                          <Checkbox
+                            checked={enabled || checked}
+                            disabled={!selectable || busy}
+                            slotProps={{
+                              input: { 'aria-label': `Select ${module.displayName}` },
+                            }}
+                            onChange={(event) =>
+                              setSelectedAvailableModules((selected) =>
+                                event.target.checked
+                                  ? [
+                                      ...selected.filter(
+                                        (code) => code !== module.functionalModule,
+                                      ),
+                                      module.functionalModule,
+                                    ]
+                                  : selected.filter(
+                                      (code) => code !== module.functionalModule,
+                                    ),
+                              )
+                            }
+                          />
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography
+                              sx={{ fontWeight: 600, overflowWrap: 'anywhere' }}
+                            >
+                              {module.displayName}
+                            </Typography>
+                            {module.required ? (
+                              <Typography variant="caption" color="text.secondary">
+                                Required
+                              </Typography>
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">
+                                {module.technicalModules.length} technical modules
+                              </Typography>
+                            )}
+                          </Box>
+                          <Box
+                            sx={{
+                              minWidth: 0,
+                              gridColumn: { xs: 2, md: 'auto' },
+                              gridRow: { xs: 2, md: 'auto' },
+                            }}
+                          >
+                            <Stack
+                              direction="row"
+                              spacing={1}
+                              sx={{ alignItems: 'center' }}
+                            >
+                              <Box
+                                aria-hidden
+                                sx={{
+                                  width: 7,
+                                  height: 7,
+                                  borderRadius: '50%',
+                                  flexShrink: 0,
+                                  bgcolor:
+                                    module.runtimeState === 'ACTIVE'
+                                      ? 'success.main'
+                                      : 'warning.main',
+                                }}
+                              />
+                              <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                {module.runtimeState === 'ACTIVE'
+                                  ? 'Runtime connected'
+                                  : `Runtime: ${module.runtimeState.toLowerCase()}`}
+                              </Typography>
+                            </Stack>
+                            <Typography
+                              variant="caption"
+                              color={
+                                missingDependencies.length
+                                  ? 'warning.dark'
+                                  : 'text.secondary'
+                              }
+                              sx={{
+                                display: 'block',
+                                mt: 0.5,
+                                overflowWrap: 'anywhere',
+                              }}
+                            >
+                              {missingDependencies.length
+                                ? `Requires: ${dependencyNames(missingDependencies)}`
+                                : dependencies.length
+                                  ? `Depends on: ${dependencyNames(dependencies)}`
+                                  : module.activationData
+                                    ? 'No prerequisites'
+                                    : 'Prerequisites not reported'}
+                            </Typography>
+                          </Box>
+                          <Stack
+                            spacing={0.5}
+                            sx={{
+                              gridColumn: { xs: 2, md: 'auto' },
+                              gridRow: { xs: 3, md: 'auto' },
+                              alignItems: 'flex-start',
+                            }}
+                          >
+                            <Chip
+                              size="small"
+                              variant="filled"
+                              color={
+                                enabled ? 'success' : selectable ? 'info' : 'default'
+                              }
+                              sx={(theme) => ({
+                                borderRadius: 1,
+                                fontWeight: 600,
+                                bgcolor: alpha(
+                                  enabled
+                                    ? theme.palette.success.main
+                                    : selectable
+                                      ? theme.palette.info.main
+                                      : theme.palette.text.secondary,
+                                  0.1,
+                                ),
+                                color: enabled
+                                  ? 'success.dark'
+                                  : selectable
+                                    ? 'info.dark'
+                                    : 'text.secondary',
+                              })}
+                              label={
+                                enabled
+                                  ? 'Enabled'
+                                  : selectable
+                                    ? 'Ready to enable'
+                                    : 'Not enabled'
+                              }
+                            />
+                            {needsAttention ? (
+                              <Typography variant="caption" color="warning.dark">
+                                {module.runtimeState !== 'ACTIVE'
+                                  ? 'Runtime needs attention'
+                                  : 'Prerequisites missing'}
+                              </Typography>
+                            ) : null}
+                          </Stack>
+                          <Tooltip title={`Details for ${module.displayName}`}>
+                            <IconButton
+                              aria-label={`Details for ${module.displayName}`}
+                              onClick={() =>
+                                setDetailModuleCode(module.functionalModule)
+                              }
+                              sx={{
+                                gridColumn: { xs: 3, md: 'auto' },
+                                gridRow: { xs: 1, md: 'auto' },
+                              }}
+                            >
+                              <ShellIcon name="chevron-right" fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                  {group.modules.length === 0 ? (
+                    <Typography color="text.secondary" variant="body2" sx={{ py: 2 }}>
+                      {search.trim()
+                        ? 'No matching modules.'
+                        : group.title === 'Pending'
+                          ? 'No pending modules.'
+                          : 'No modules activated yet.'}
+                    </Typography>
+                  ) : null}
                 </Box>
-                <Chip label={`${String(required.length)} required`} />
-              </Stack>
-              <Stack spacing={2} sx={{ mt: 2 }}>
-                {required.length === 0 ? (
-                  <Alert severity="warning">
-                    No required functional modules were returned for this project.
-                  </Alert>
-                ) : (
-                  required.map((module) => (
-                    <ModuleCard
-                      key={module.functionalModule}
-                      disabled={
-                        lifecycle.isPending && pendingModule === module.functionalModule
-                      }
-                      module={module}
-                      pendingAction={
-                        pendingModule === module.functionalModule
-                          ? pendingAction
-                          : undefined
-                      }
-                      pendingSampleData={
-                        sampleData.isPending &&
-                        sampleData.variables.functionalModule ===
-                          module.functionalModule
-                      }
-                      sampleDataDisabled={
-                        !selectSampleDataConnection(props.bootstrap, module)
-                      }
-                      visibility={
-                        moduleVisibility.get(module.functionalModule) ?? {
-                          activeRoutes: 0,
-                          hiddenRoutes: 0,
-                          unavailableRoutes: 0,
-                        }
-                      }
-                      onAction={requestModuleAction}
-                      onSampleData={(nextModule) => {
-                        lifecycle.reset();
-                        sampleData.mutate(nextModule);
-                      }}
-                    />
-                  ))
-                )}
-              </Stack>
-            </Box>
-
-            <Box>
-              <Stack
-                direction={{ xs: 'column', sm: 'row' }}
-                spacing={1}
-                sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
-              >
-                <Box>
-                  <Typography component="h2" variant="h5">
-                    Optional registered modules
-                  </Typography>
-                  <Typography color="text.secondary" variant="body2">
-                    Project capabilities selected for operators.
-                  </Typography>
-                </Box>
-                <Chip label={`${String(optional.length)} optional registered`} />
-              </Stack>
-              <Stack spacing={2} sx={{ mt: 2 }}>
-                {optional.length === 0 ? (
-                  <Alert severity="info">
-                    No optional functional modules are registered yet.
-                  </Alert>
-                ) : (
-                  optional.map((module) => (
-                    <ModuleCard
-                      key={module.functionalModule}
-                      disabled={
-                        lifecycle.isPending && pendingModule === module.functionalModule
-                      }
-                      module={module}
-                      pendingAction={
-                        pendingModule === module.functionalModule
-                          ? pendingAction
-                          : undefined
-                      }
-                      pendingSampleData={
-                        sampleData.isPending &&
-                        sampleData.variables.functionalModule ===
-                          module.functionalModule
-                      }
-                      sampleDataDisabled={
-                        !selectSampleDataConnection(props.bootstrap, module)
-                      }
-                      visibility={
-                        moduleVisibility.get(module.functionalModule) ?? {
-                          activeRoutes: 0,
-                          hiddenRoutes: 0,
-                          unavailableRoutes: 0,
-                        }
-                      }
-                      onAction={requestModuleAction}
-                      onSampleData={(nextModule) => {
-                        lifecycle.reset();
-                        sampleData.mutate(nextModule);
-                      }}
-                    />
-                  ))
-                )}
-              </Stack>
-            </Box>
-
-            <Box>
-              <Stack
-                direction={{ xs: 'column', sm: 'row' }}
-                spacing={1}
-                sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
-              >
-                <Box>
-                  <Typography component="h2" variant="h5">
-                    Available to register
-                  </Typography>
-                  <Typography color="text.secondary" variant="body2">
-                    Runtime-observed capabilities not yet added to this project.
-                  </Typography>
-                </Box>
-                <Chip label={`${available.length} available`} />
-              </Stack>
-              <Stack spacing={2} sx={{ mt: 2 }}>
-                {available.length === 0 ? (
-                  <Alert severity="success">
-                    No unregistered functional modules are waiting for registration.
-                  </Alert>
-                ) : (
-                  available.map((module) => (
-                    <ModuleCard
-                      key={module.functionalModule}
-                      disabled={
-                        lifecycle.isPending && pendingModule === module.functionalModule
-                      }
-                      module={module}
-                      pendingAction={
-                        pendingModule === module.functionalModule
-                          ? pendingAction
-                          : undefined
-                      }
-                      pendingSampleData={
-                        sampleData.isPending &&
-                        sampleData.variables.functionalModule ===
-                          module.functionalModule
-                      }
-                      sampleDataDisabled={
-                        !selectSampleDataConnection(props.bootstrap, module)
-                      }
-                      visibility={
-                        moduleVisibility.get(module.functionalModule) ?? {
-                          activeRoutes: 0,
-                          hiddenRoutes: 0,
-                          unavailableRoutes: 0,
-                        }
-                      }
-                      onAction={requestModuleAction}
-                      onSampleData={(nextModule) => {
-                        lifecycle.reset();
-                        sampleData.mutate(nextModule);
-                      }}
-                    />
-                  ))
-                )}
-              </Stack>
+              ))}
+              {visibleModules.length === 0 ? (
+                <Typography color="text.secondary" sx={{ py: 3 }}>
+                  No modules found.
+                </Typography>
+              ) : null}
             </Box>
           </Stack>
         )}
       </Stack>
+      <Drawer
+        anchor="right"
+        open={Boolean(detailModule)}
+        onClose={() => setDetailModuleCode(undefined)}
+        slotProps={{
+          paper: { sx: { width: { xs: '100%', md: 760 }, maxWidth: '100%', p: 2 } },
+        }}
+      >
+        <Stack
+          direction="row"
+          sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 2 }}
+        >
+          <Typography component="h2" variant="h6">
+            Module details
+          </Typography>
+          <IconButton
+            aria-label="Close module details"
+            onClick={() => setDetailModuleCode(undefined)}
+          >
+            <ShellIcon name="close" />
+          </IconButton>
+        </Stack>
+        {detailModule ? (
+          <ModuleCard
+            key={detailModule.functionalModule}
+            module={detailModule}
+            disabled={busy}
+            pendingAction={
+              pendingModule === detailModule.functionalModule
+                ? pendingAction
+                : undefined
+            }
+            pendingSampleData={
+              sampleData.isPending &&
+              sampleData.variables.functionalModule === detailModule.functionalModule
+            }
+            sampleDataDisabled={
+              !selectSampleDataConnection(props.bootstrap, detailModule)
+            }
+            visibility={
+              moduleVisibility.get(detailModule.functionalModule) ?? {
+                activeRoutes: 0,
+                hiddenRoutes: 0,
+                unavailableRoutes: 0,
+              }
+            }
+            onAction={requestModuleAction}
+            onEnableCapability={(module) => requestCapabilitySelection([module])}
+            onSampleData={(module) => {
+              lifecycle.reset();
+              sampleData.mutate(module);
+            }}
+          />
+        ) : null}
+      </Drawer>
       <Dialog
         fullWidth
         maxWidth="sm"
