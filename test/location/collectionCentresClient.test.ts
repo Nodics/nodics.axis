@@ -365,9 +365,7 @@ describe('collectionCentresClient', () => {
     expect(mockedLoadWorkbenchRecords).toHaveBeenCalledTimes(3);
     expect(data.records[0]?.code).toBe('WCP_1');
     expect(data.records[0]?.addressLine).toBe('Business Bay');
-    expect(data.records[0]?.operatorEnterpriseName).toBe(
-      'Nodics Waste Management Co.',
-    );
+    expect(data.records[0]?.operatorEnterpriseName).toBe('Nodics Waste Management Co.');
     expect(data.records[0]?.latitude).toBe(25.2);
     expect(data.records[0]?.longitude).toBe(55.3);
     expect(data.sourceCounts).toEqual({

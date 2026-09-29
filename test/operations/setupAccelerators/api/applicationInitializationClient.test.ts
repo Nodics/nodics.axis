@@ -107,8 +107,7 @@ describe('application initialization client', () => {
               status: 'NEEDS_PROCESS_REVIEW',
               idempotent: true,
               previousWorkflowRef: 'workflow-before',
-              message:
-                'Publication approval could not be reconciled automatically.',
+              message: 'Publication approval could not be reconciled automatically.',
             },
           },
         }),
@@ -133,9 +132,11 @@ describe('application initialization client', () => {
       '/nodics/backoffice/v0/applications/agoraapparel/initialization/prepare',
     );
     expect(init?.method).toBe('POST');
-    expect(JSON.parse(typeof init?.body === 'string' ? init.body : '{}')).toMatchObject({
-      reason: 'Prepare setup only',
-    });
+    expect(JSON.parse(typeof init?.body === 'string' ? init.body : '{}')).toMatchObject(
+      {
+        reason: 'Prepare setup only',
+      },
+    );
     expect(status.preparationOperation).toMatchObject({
       operation: 'applicationInitialization.prepareCapability',
       beforeStatus: 'UPDATE_AVAILABLE',
@@ -189,25 +190,25 @@ describe('application initialization client', () => {
                 {
                   kind: 'MODULE',
                   code: 'nodics.commerce',
-	                  label: 'Commerce',
-	                  required: true,
-	                  classification: 'FUNCTIONAL_MODULE',
-	                  status: 'NOT_STARTED',
-	                  evidence: {
-	                    classification: 'FUNCTIONAL_MODULE',
-	                    runtimeState: 'OFFLINE',
-	                    registrationState: 'REGISTERED',
-	                    observedServers: [],
-	                    runtimeEvidence: {
-	                      source: 'FUNCTIONAL_MODULE_CATALOGUE',
-	                      status: 'OFFLINE',
-	                      registrationState: 'REGISTERED',
-	                      enabled: true,
-	                      stale: true,
-	                      observedServers: [],
-	                    },
-	                  },
-	                },
+                  label: 'Commerce',
+                  required: true,
+                  classification: 'FUNCTIONAL_MODULE',
+                  status: 'NOT_STARTED',
+                  evidence: {
+                    classification: 'FUNCTIONAL_MODULE',
+                    runtimeState: 'OFFLINE',
+                    registrationState: 'REGISTERED',
+                    observedServers: [],
+                    runtimeEvidence: {
+                      source: 'FUNCTIONAL_MODULE_CATALOGUE',
+                      status: 'OFFLINE',
+                      registrationState: 'REGISTERED',
+                      enabled: true,
+                      stale: true,
+                      observedServers: [],
+                    },
+                  },
+                },
                 {
                   kind: 'PROCESS',
                   code: 'publicationApproval',
@@ -223,8 +224,8 @@ describe('application initialization client', () => {
                     },
                   },
                 },
-	              ],
-	              dependencyGraph: {
+              ],
+              dependencyGraph: {
                 nodes: [
                   {
                     id: 'agoraapparel',
@@ -233,18 +234,18 @@ describe('application initialization client', () => {
                   },
                   {
                     id: 'MODULE:nodics.commerce',
-	                    kind: 'MODULE',
-	                    label: 'Commerce',
-	                    status: 'NOT_STARTED',
-	                    evidence: {
-	                      runtimeEvidence: {
-	                        source: 'FUNCTIONAL_MODULE_CATALOGUE',
-	                        status: 'OFFLINE',
-	                        stale: true,
-	                      },
-	                    },
-	                  },
-	                ],
+                    kind: 'MODULE',
+                    label: 'Commerce',
+                    status: 'NOT_STARTED',
+                    evidence: {
+                      runtimeEvidence: {
+                        source: 'FUNCTIONAL_MODULE_CATALOGUE',
+                        status: 'OFFLINE',
+                        stale: true,
+                      },
+                    },
+                  },
+                ],
                 edges: [
                   {
                     from: 'MODULE:nodics.commerce',
@@ -345,24 +346,22 @@ describe('application initialization client', () => {
     expect(status.capability?.businessStatus).toBe('NEEDS_ATTENTION');
     expect(status.capability?.subject?.owner).toBe('agora.apparel');
     expect(status.capability?.status).toBe('NEEDS_ATTENTION');
-    expect(status.capability?.source).toBe(
-      'backoffice.applicationInitialization',
-    );
+    expect(status.capability?.source).toBe('backoffice.applicationInitialization');
     expect(status.capability?.stale).toBe(false);
-	    expect(status.capability?.dependencies?.[0]).toMatchObject({
-	      kind: 'MODULE',
-	      code: 'nodics.commerce',
-	      status: 'NOT_STARTED',
-	      classification: 'FUNCTIONAL_MODULE',
-	      evidence: {
-	        classification: 'FUNCTIONAL_MODULE',
-	        runtimeState: 'OFFLINE',
-	        runtimeEvidence: {
-	          source: 'FUNCTIONAL_MODULE_CATALOGUE',
-	          stale: true,
-	        },
-	      },
-	    });
+    expect(status.capability?.dependencies?.[0]).toMatchObject({
+      kind: 'MODULE',
+      code: 'nodics.commerce',
+      status: 'NOT_STARTED',
+      classification: 'FUNCTIONAL_MODULE',
+      evidence: {
+        classification: 'FUNCTIONAL_MODULE',
+        runtimeState: 'OFFLINE',
+        runtimeEvidence: {
+          source: 'FUNCTIONAL_MODULE_CATALOGUE',
+          stale: true,
+        },
+      },
+    });
     expect(status.capability?.dependencies?.[1]).toMatchObject({
       kind: 'PROCESS',
       status: 'UNAVAILABLE',
@@ -373,12 +372,12 @@ describe('application initialization client', () => {
         },
       },
     });
-	    expect(status.capability?.dependencyGraph?.nodes[1]?.evidence).toMatchObject({
-	      runtimeEvidence: {
-	        source: 'FUNCTIONAL_MODULE_CATALOGUE',
-	        status: 'OFFLINE',
-	      },
-	    });
+    expect(status.capability?.dependencyGraph?.nodes[1]?.evidence).toMatchObject({
+      runtimeEvidence: {
+        source: 'FUNCTIONAL_MODULE_CATALOGUE',
+        status: 'OFFLINE',
+      },
+    });
     expect(status.capability?.dependencyGraph?.edges[0]).toMatchObject({
       relationship: 'REQUIRED_FOR',
     });
@@ -402,12 +401,8 @@ describe('application initialization client', () => {
     expect(status.capability?.blockers[0]?.repair?.operation).toBe(
       'moduleRegistry.prepareDependency',
     );
-    expect(status.capability?.blockers[0]?.repair?.eligibility).toBe(
-      'NOT_AVAILABLE',
-    );
-    expect(status.capability?.repairActions?.[0]?.action).toBe(
-      'PREPARE_DEPENDENCY',
-    );
+    expect(status.capability?.blockers[0]?.repair?.eligibility).toBe('NOT_AVAILABLE');
+    expect(status.capability?.repairActions?.[0]?.action).toBe('PREPARE_DEPENDENCY');
     expect(status.capability?.blockers[0]?.runtimeDiagnostic).toMatchObject({
       phase: 'runtimeResolution',
       sourceServer: 'platformServer',

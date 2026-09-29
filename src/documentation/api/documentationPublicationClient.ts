@@ -88,14 +88,16 @@ export interface DocumentationCapabilityDependencyEvidence {
   readonly trigger?: string | undefined;
   readonly dataType?: string | undefined;
   readonly classification?: string | undefined;
-  readonly runtimeEvidence?: Readonly<{
-    readonly source?: string | undefined;
-    readonly status?: string | undefined;
-    readonly registrationState?: string | undefined;
-    readonly enabled?: boolean | undefined;
-    readonly stale?: boolean | undefined;
-    readonly observedServers?: readonly string[] | undefined;
-  }> | undefined;
+  readonly runtimeEvidence?:
+    | Readonly<{
+        readonly source?: string | undefined;
+        readonly status?: string | undefined;
+        readonly registrationState?: string | undefined;
+        readonly enabled?: boolean | undefined;
+        readonly stale?: boolean | undefined;
+        readonly observedServers?: readonly string[] | undefined;
+      }>
+    | undefined;
   readonly runtimeDiagnostic?: DocumentationRuntimeDiagnostic | undefined;
   readonly approvalDiagnostic?: DocumentationApprovalDiagnostic | undefined;
 }
@@ -232,11 +234,15 @@ function booleanValue(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
-function parseRuntimeDiagnostic(value: unknown): DocumentationRuntimeDiagnostic | undefined {
+function parseRuntimeDiagnostic(
+  value: unknown,
+): DocumentationRuntimeDiagnostic | undefined {
   const diagnostic = optionalRecord(value);
   if (!diagnostic) return undefined;
   return Object.freeze({
-    ...(optionalText(diagnostic.phase) ? { phase: optionalText(diagnostic.phase) } : {}),
+    ...(optionalText(diagnostic.phase)
+      ? { phase: optionalText(diagnostic.phase) }
+      : {}),
     ...(optionalText(diagnostic.sourceServer)
       ? { sourceServer: optionalText(diagnostic.sourceServer) }
       : {}),
@@ -312,8 +318,12 @@ function parseCapabilityDependencyEvidence(
     ...(optionalText(evidence.targetRuntimeRole)
       ? { targetRuntimeRole: optionalText(evidence.targetRuntimeRole) }
       : {}),
-    ...(optionalText(evidence.trigger) ? { trigger: optionalText(evidence.trigger) } : {}),
-    ...(optionalText(evidence.dataType) ? { dataType: optionalText(evidence.dataType) } : {}),
+    ...(optionalText(evidence.trigger)
+      ? { trigger: optionalText(evidence.trigger) }
+      : {}),
+    ...(optionalText(evidence.dataType)
+      ? { dataType: optionalText(evidence.dataType) }
+      : {}),
     ...(optionalText(evidence.classification)
       ? { classification: optionalText(evidence.classification) }
       : {}),
@@ -337,7 +347,10 @@ function parseCapabilityRepairAction(
   return Object.freeze({
     available: booleanValue(repair.available, false),
     label: text(repair.label, 'Documentation capability blocker repair label'),
-    operation: text(repair.operation, 'Documentation capability blocker repair operation'),
+    operation: text(
+      repair.operation,
+      'Documentation capability blocker repair operation',
+    ),
     action: text(repair.action, 'Documentation capability blocker repair action'),
     idempotent: booleanValue(repair.idempotent, false),
     requiresConfirmation: booleanValue(repair.requiresConfirmation, true),
@@ -411,7 +424,9 @@ function parseApprovalDiagnostic(
     ...(optionalText(diagnostic.assignee)
       ? { assignee: optionalText(diagnostic.assignee) }
       : {}),
-    ...(optionalText(diagnostic.queue) ? { queue: optionalText(diagnostic.queue) } : {}),
+    ...(optionalText(diagnostic.queue)
+      ? { queue: optionalText(diagnostic.queue) }
+      : {}),
     ...(optionalText(diagnostic.message)
       ? { message: optionalText(diagnostic.message) }
       : {}),
@@ -442,9 +457,7 @@ function parseCapabilitySubject(
   });
 }
 
-function parseCapabilityDependency(
-  value: unknown,
-): DocumentationCapabilityDependency {
+function parseCapabilityDependency(value: unknown): DocumentationCapabilityDependency {
   const dependency = record(value, 'Documentation capability dependency');
   return Object.freeze({
     kind: text(dependency.kind, 'Documentation capability dependency kind'),
@@ -521,11 +534,17 @@ function parsePublicationSummary(
   const summary = optionalRecord(value);
   if (!summary) return undefined;
   return Object.freeze({
-    ...(optionalText(summary.installed) ? { installed: optionalText(summary.installed) } : {}),
+    ...(optionalText(summary.installed)
+      ? { installed: optionalText(summary.installed) }
+      : {}),
     ...(optionalText(summary.staged) ? { staged: optionalText(summary.staged) } : {}),
-    ...(optionalText(summary.approval) ? { approval: optionalText(summary.approval) } : {}),
+    ...(optionalText(summary.approval)
+      ? { approval: optionalText(summary.approval) }
+      : {}),
     ...(optionalText(summary.online) ? { online: optionalText(summary.online) } : {}),
-    ...(optionalText(summary.runtime) ? { runtime: optionalText(summary.runtime) } : {}),
+    ...(optionalText(summary.runtime)
+      ? { runtime: optionalText(summary.runtime) }
+      : {}),
     ...(optionalText(summary.media) ? { media: optionalText(summary.media) } : {}),
   });
 }
@@ -539,7 +558,9 @@ function parseCapabilityReadiness(
     ...(parseCapabilitySubject(capability.subject)
       ? { subject: parseCapabilitySubject(capability.subject) }
       : {}),
-    ...(optionalText(capability.status) ? { status: optionalText(capability.status) } : {}),
+    ...(optionalText(capability.status)
+      ? { status: optionalText(capability.status) }
+      : {}),
     capabilityCode: text(capability.capabilityCode, 'Documentation capability code'),
     displayName: text(capability.displayName, 'Documentation capability display name'),
     owningModule: text(capability.owningModule, 'Documentation capability owner'),
@@ -572,9 +593,7 @@ function parseCapabilityReadiness(
       : {}),
     ...(parseCapabilityDependencyGraph(capability.dependencyGraph)
       ? {
-          dependencyGraph: parseCapabilityDependencyGraph(
-            capability.dependencyGraph,
-          ),
+          dependencyGraph: parseCapabilityDependencyGraph(capability.dependencyGraph),
         }
       : {}),
     ...(Array.isArray(capability.repairActions)
@@ -590,9 +609,7 @@ function parseCapabilityReadiness(
       : {}),
     ...(parsePublicationSummary(capability.publicationSummary)
       ? {
-          publicationSummary: parsePublicationSummary(
-            capability.publicationSummary,
-          ),
+          publicationSummary: parsePublicationSummary(capability.publicationSummary),
         }
       : {}),
     ...(parseApprovalDiagnostic(capability.approvalDiagnostic)

@@ -582,7 +582,8 @@ const legacyMapStyles = {
     lineHeight: 1,
     minHeight: '30px',
     padding: '6px 9px',
-    transition: 'background-color 120ms ease, border-color 120ms ease, color 120ms ease',
+    transition:
+      'background-color 120ms ease, border-color 120ms ease, color 120ms ease',
     whiteSpace: 'nowrap',
   },
   '.filter-button--repair': {
@@ -1330,291 +1331,291 @@ function MapPanel({
         </Box>
       ) : null}
       <AxisLocationMapFrame
-      className={`collection-centres-map ${
-        rendererWarning ? 'collection-centres-map--with-warning' : ''
-      }`}
-      ariaLabel="Collection centres map"
-      styles={legacyMapStyles}
-      sx={{
-        height: { xs: 360, md: 430, xl: 500 },
-        minWidth: 0,
-        width: '100%',
-      }}
-    >
-      {rendererWarning ? (
-        <Alert
-          action={
-            <Button component={RouterLink} size="small" to="/location/maps">
-              Check configuration
-            </Button>
-          }
-          severity="warning"
-          sx={{
-            left: 16,
-            position: 'absolute',
-            right: 16,
-            top: 16,
-            zIndex: 5,
-          }}
-        >
-          {rendererWarning}
-        </Alert>
-      ) : null}
-      {!rendererReady ? (
-        <Stack
-          spacing={2}
-          sx={{
-            alignItems: 'center',
-            bgcolor: 'background.default',
-            height: '100%',
-            justifyContent: 'center',
-            p: 4,
-            textAlign: 'center',
-          }}
-        >
-          <Typography variant="h6">Map provider setup required</Typography>
-          <Typography color="text.secondary" sx={{ maxWidth: 560 }}>
-            Location Map has not returned a frontend-safe renderer for the Axis
-            collection-centre map.
-          </Typography>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-            <Button component={RouterLink} to="/location/maps" variant="contained">
-              Configure Location Map
-            </Button>
-            {canUseBasicFallback(mapConfiguration) ? (
-              <Button
-                onClick={() => {
-                  setRendererFailureMessage(
-                    'Axis is showing the OSM fallback. Check Map Configuration before publishing this setup to customer-facing apps.',
-                  );
-                  setUseFallbackStyle(true);
-                }}
-                variant="outlined"
-              >
-                Use basic map
+        className={`collection-centres-map ${
+          rendererWarning ? 'collection-centres-map--with-warning' : ''
+        }`}
+        ariaLabel="Collection centres map"
+        styles={legacyMapStyles}
+        sx={{
+          height: { xs: 360, md: 430, xl: 500 },
+          minWidth: 0,
+          width: '100%',
+        }}
+      >
+        {rendererWarning ? (
+          <Alert
+            action={
+              <Button component={RouterLink} size="small" to="/location/maps">
+                Check configuration
               </Button>
-            ) : null}
-          </Stack>
-        </Stack>
-      ) : effectiveTileDescriptor ? (
-        <Box className="leaflet-street-map">
-          <MapContainer
-            key={configurationRevision}
-            attributionControl
-            center={[initialViewState.latitude, initialViewState.longitude]}
-            maxZoom={mapConfiguration?.maximumZoom ?? 18}
-            minZoom={mapConfiguration?.minimumZoom ?? 3}
-            ref={leafletRef}
-            scrollWheelZoom={false}
-            style={{ height: '100%', width: '100%' }}
-            zoom={initialViewState.zoom}
-            zoomControl={false}
-            zoomAnimation
-            zoomDelta={mapConfiguration?.interaction?.wheelStep || 1}
-            zoomSnap={mapConfiguration?.interaction?.wheelStep || 1}
+            }
+            severity="warning"
+            sx={{
+              left: 16,
+              position: 'absolute',
+              right: 16,
+              top: 16,
+              zIndex: 5,
+            }}
           >
-            <TileLayer
-              attribution={tileRendererAttribution(effectiveTileDescriptor)}
-              tileSize={fallbackTileSize}
-              url={tileRendererTileUrl(effectiveTileDescriptor)}
-            />
-            <LeafletMapSizeController />
-            <LeafletModifierWheelZoom
-              interaction={mapConfiguration?.interaction}
-              maximumZoom={mapConfiguration?.maximumZoom ?? 18}
-              minimumZoom={mapConfiguration?.minimumZoom ?? 3}
-            />
-            {mapConfiguration?.enabledControls.includes('ZOOM') && (
-              <ZoomControl position="bottomright" />
-            )}
-            {mapConfiguration?.enabledControls.includes('SCALE') && (
-              <LeafletScaleControl />
-            )}
-            {visibleRecords.map((record) => (
-              <LeafletMarker
-                eventHandlers={{
-                  click: () => {
-                    setPopupCode(record.code);
-                    onSelect(record);
-                  },
+            {rendererWarning}
+          </Alert>
+        ) : null}
+        {!rendererReady ? (
+          <Stack
+            spacing={2}
+            sx={{
+              alignItems: 'center',
+              bgcolor: 'background.default',
+              height: '100%',
+              justifyContent: 'center',
+              p: 4,
+              textAlign: 'center',
+            }}
+          >
+            <Typography variant="h6">Map provider setup required</Typography>
+            <Typography color="text.secondary" sx={{ maxWidth: 560 }}>
+              Location Map has not returned a frontend-safe renderer for the Axis
+              collection-centre map.
+            </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              <Button component={RouterLink} to="/location/maps" variant="contained">
+                Configure Location Map
+              </Button>
+              {canUseBasicFallback(mapConfiguration) ? (
+                <Button
+                  onClick={() => {
+                    setRendererFailureMessage(
+                      'Axis is showing the OSM fallback. Check Map Configuration before publishing this setup to customer-facing apps.',
+                    );
+                    setUseFallbackStyle(true);
+                  }}
+                  variant="outlined"
+                >
+                  Use basic map
+                </Button>
+              ) : null}
+            </Stack>
+          </Stack>
+        ) : effectiveTileDescriptor ? (
+          <Box className="leaflet-street-map">
+            <MapContainer
+              key={configurationRevision}
+              attributionControl
+              center={[initialViewState.latitude, initialViewState.longitude]}
+              maxZoom={mapConfiguration?.maximumZoom ?? 18}
+              minZoom={mapConfiguration?.minimumZoom ?? 3}
+              ref={leafletRef}
+              scrollWheelZoom={false}
+              style={{ height: '100%', width: '100%' }}
+              zoom={initialViewState.zoom}
+              zoomControl={false}
+              zoomAnimation
+              zoomDelta={mapConfiguration?.interaction?.wheelStep || 1}
+              zoomSnap={mapConfiguration?.interaction?.wheelStep || 1}
+            >
+              <TileLayer
+                attribution={tileRendererAttribution(effectiveTileDescriptor)}
+                tileSize={fallbackTileSize}
+                url={tileRendererTileUrl(effectiveTileDescriptor)}
+              />
+              <LeafletMapSizeController />
+              <LeafletModifierWheelZoom
+                interaction={mapConfiguration?.interaction}
+                maximumZoom={mapConfiguration?.maximumZoom ?? 18}
+                minimumZoom={mapConfiguration?.minimumZoom ?? 3}
+              />
+              {mapConfiguration?.enabledControls.includes('ZOOM') && (
+                <ZoomControl position="bottomright" />
+              )}
+              {mapConfiguration?.enabledControls.includes('SCALE') && (
+                <LeafletScaleControl />
+              )}
+              {visibleRecords.map((record) => (
+                <LeafletMarker
+                  eventHandlers={{
+                    click: () => {
+                      setPopupCode(record.code);
+                      onSelect(record);
+                    },
+                  }}
+                  icon={leafletCollectionCentreIcon(record)}
+                  key={record.code}
+                  position={[record.latitude, record.longitude]}
+                  title={`${record.name} marker`}
+                />
+              ))}
+              {/* Mount on the map so the selected popup opens on the first click. */}
+              {popupRecord ? (
+                <LeafletPopup
+                  position={[popupRecord.latitude, popupRecord.longitude]}
+                  autoPan
+                  closeButton={false}
+                  closeOnClick={false}
+                  offset={[15, -45]}
+                >
+                  <LocationPopupContent
+                    directionsEnabled={
+                      mapConfiguration?.enabledControls.includes('DIRECTIONS') === true
+                    }
+                    directionsOrigin={userLocation.coordinate}
+                    location={popupRecord}
+                    onClose={() => setPopupCode(undefined)}
+                  />
+                </LeafletPopup>
+              ) : null}
+              {userLocation.coordinate ? (
+                <LeafletMarker
+                  eventHandlers={{
+                    click: () => {
+                      if (userLocation.coordinate) {
+                        openUserLocationPopup(userLocation.coordinate);
+                      }
+                    },
+                  }}
+                  icon={leafletUserLocationIcon()}
+                  position={[
+                    userLocation.coordinate.latitude,
+                    userLocation.coordinate.longitude,
+                  ]}
+                  title="User location marker"
+                  zIndexOffset={1000}
+                >
+                  {userLocationAddress.status !== 'idle' ? (
+                    <LeafletPopup
+                      autoPan
+                      closeButton={false}
+                      closeOnClick={false}
+                      offset={[15, -58]}
+                    >
+                      <UserLocationPopupContent
+                        addressState={userLocationAddress}
+                        onClose={closeUserLocationPopup}
+                      />
+                    </LeafletPopup>
+                  ) : null}
+                </LeafletMarker>
+              ) : null}
+            </MapContainer>
+            {visibleRecords.length === 0 ? (
+              <Box
+                sx={{
+                  bgcolor: 'rgba(255,255,255,0.88)',
+                  borderRadius: 1,
+                  left: '50%',
+                  px: 2,
+                  py: 1,
+                  position: 'absolute',
+                  top: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  zIndex: 2,
                 }}
-                icon={leafletCollectionCentreIcon(record)}
+              >
+                <Typography align="center" color="text.secondary">
+                  No matching collection centres
+                </Typography>
+              </Box>
+            ) : null}
+          </Box>
+        ) : effectiveMapboxDescriptor ? (
+          <AxisMapboxCanvas
+            key={configurationRevision}
+            interaction={mapConfiguration?.interaction}
+            minimumZoom={mapConfiguration?.minimumZoom}
+            maximumZoom={mapConfiguration?.maximumZoom}
+            accessToken={effectiveMapboxDescriptor.publicAccessToken}
+            initialViewState={initialViewState}
+            mapStyle={effectiveMapboxDescriptor.styleUrl}
+            onError={(event) => {
+              const message = event.error?.message ?? '';
+              if (canUseBasicFallback(mapConfiguration)) {
+                setRendererFailureMessage(
+                  message
+                    ? 'The active map renderer reported an issue. Axis is showing the OSM fallback; check Map Configuration.'
+                    : 'The active map renderer could not be reached. Axis is showing the OSM fallback; check Map Configuration.',
+                );
+                setUseFallbackStyle(true);
+              }
+            }}
+            mapRef={mapRef}
+            transformRequest={transformMapboxRequest}
+          >
+            {mapConfiguration?.enabledControls.includes('ZOOM') && (
+              <NavigationControl
+                position="bottom-right"
+                style={{ marginBottom: '20px', marginRight: '20px' }}
+              />
+            )}
+            {mapConfiguration?.enabledControls.includes('SCALE') && <ScaleControl />}
+            {visibleRecords.map((record) => (
+              <Marker
+                aria-label={`${record.name} marker`}
+                anchor="bottom"
+                color={markerColor(record)}
                 key={record.code}
-                position={[record.latitude, record.longitude]}
-                title={`${record.name} marker`}
+                latitude={record.latitude}
+                longitude={record.longitude}
+                offset={[0, -10]}
+                onClick={handleMarkerClick(record)}
+                style={{ cursor: 'pointer' }}
               />
             ))}
-            {/* Mount on the map so the selected popup opens on the first click. */}
             {popupRecord ? (
-              <LeafletPopup
-                position={[popupRecord.latitude, popupRecord.longitude]}
-                autoPan
-                closeButton={false}
-                closeOnClick={false}
-                offset={[15, -45]}
-              >
-                <LocationPopupContent
-                  directionsEnabled={
-                    mapConfiguration?.enabledControls.includes('DIRECTIONS') === true
-                  }
-                  directionsOrigin={userLocation.coordinate}
-                  location={popupRecord}
-                  onClose={() => setPopupCode(undefined)}
-                />
-              </LeafletPopup>
+              <LocationPopup
+                directionsEnabled={
+                  mapConfiguration?.enabledControls.includes('DIRECTIONS') === true
+                }
+                directionsOrigin={userLocation.coordinate}
+                location={popupRecord}
+                onClose={() => setPopupCode(undefined)}
+              />
             ) : null}
             {userLocation.coordinate ? (
-              <LeafletMarker
-                eventHandlers={{
-                  click: () => {
+              <Marker
+                anchor="bottom"
+                latitude={userLocation.coordinate.latitude}
+                longitude={userLocation.coordinate.longitude}
+                offset={[0, -10]}
+                style={{ cursor: 'pointer', zIndex: 5 }}
+              >
+                <CurrentLocationMarker
+                  coordinate={userLocation.coordinate}
+                  onClick={() => {
                     if (userLocation.coordinate) {
                       openUserLocationPopup(userLocation.coordinate);
                     }
-                  },
-                }}
-                icon={leafletUserLocationIcon()}
-                position={[
-                  userLocation.coordinate.latitude,
-                  userLocation.coordinate.longitude,
-                ]}
-                title="User location marker"
-                zIndexOffset={1000}
-              >
-                {userLocationAddress.status !== 'idle' ? (
-                  <LeafletPopup
-                    autoPan
-                    closeButton={false}
-                    closeOnClick={false}
-                    offset={[15, -58]}
-                  >
-                    <UserLocationPopupContent
-                      addressState={userLocationAddress}
-                      onClose={closeUserLocationPopup}
-                    />
-                  </LeafletPopup>
-                ) : null}
-              </LeafletMarker>
+                  }}
+                />
+              </Marker>
             ) : null}
-          </MapContainer>
-          {visibleRecords.length === 0 ? (
-            <Box
-              sx={{
-                bgcolor: 'rgba(255,255,255,0.88)',
-                borderRadius: 1,
-                left: '50%',
-                px: 2,
-                py: 1,
-                position: 'absolute',
-                top: '50%',
-                transform: 'translate(-50%, -50%)',
-                zIndex: 2,
-              }}
-            >
-              <Typography align="center" color="text.secondary">
-                No matching collection centres
-              </Typography>
-            </Box>
-          ) : null}
-        </Box>
-      ) : effectiveMapboxDescriptor ? (
-        <AxisMapboxCanvas
-          key={configurationRevision}
-          interaction={mapConfiguration?.interaction}
-          minimumZoom={mapConfiguration?.minimumZoom}
-          maximumZoom={mapConfiguration?.maximumZoom}
-          accessToken={effectiveMapboxDescriptor.publicAccessToken}
-          initialViewState={initialViewState}
-          mapStyle={effectiveMapboxDescriptor.styleUrl}
-          onError={(event) => {
-            const message = event.error?.message ?? '';
-            if (canUseBasicFallback(mapConfiguration)) {
-              setRendererFailureMessage(
-                message
-                  ? 'The active map renderer reported an issue. Axis is showing the OSM fallback; check Map Configuration.'
-                  : 'The active map renderer could not be reached. Axis is showing the OSM fallback; check Map Configuration.',
-              );
-              setUseFallbackStyle(true);
-            }
-          }}
-          mapRef={mapRef}
-          transformRequest={transformMapboxRequest}
-        >
-          {mapConfiguration?.enabledControls.includes('ZOOM') && (
-            <NavigationControl
-              position="bottom-right"
-              style={{ marginBottom: '20px', marginRight: '20px' }}
-            />
-          )}
-          {mapConfiguration?.enabledControls.includes('SCALE') && <ScaleControl />}
-          {visibleRecords.map((record) => (
-            <Marker
-              aria-label={`${record.name} marker`}
-              anchor="bottom"
-              color={markerColor(record)}
-              key={record.code}
-              latitude={record.latitude}
-              longitude={record.longitude}
-              offset={[0, -10]}
-              onClick={handleMarkerClick(record)}
-              style={{ cursor: 'pointer' }}
-            />
-          ))}
-          {popupRecord ? (
-            <LocationPopup
-              directionsEnabled={
-                mapConfiguration?.enabledControls.includes('DIRECTIONS') === true
-              }
-              directionsOrigin={userLocation.coordinate}
-              location={popupRecord}
-              onClose={() => setPopupCode(undefined)}
-            />
-          ) : null}
-          {userLocation.coordinate ? (
-            <Marker
-              anchor="bottom"
-              latitude={userLocation.coordinate.latitude}
-              longitude={userLocation.coordinate.longitude}
-              offset={[0, -10]}
-              style={{ cursor: 'pointer', zIndex: 5 }}
-            >
-              <CurrentLocationMarker
+            {userLocation.coordinate && userLocationAddress.status !== 'idle' ? (
+              <UserLocationPopup
+                addressState={userLocationAddress}
                 coordinate={userLocation.coordinate}
-                onClick={() => {
-                  if (userLocation.coordinate) {
-                    openUserLocationPopup(userLocation.coordinate);
-                  }
-                }}
+                onClose={closeUserLocationPopup}
               />
-            </Marker>
-          ) : null}
-          {userLocation.coordinate && userLocationAddress.status !== 'idle' ? (
-            <UserLocationPopup
-              addressState={userLocationAddress}
-              coordinate={userLocation.coordinate}
-              onClose={closeUserLocationPopup}
-            />
-          ) : null}
-          {visibleRecords.length === 0 ? (
-            <Box
-              sx={{
-                bgcolor: 'rgba(255,255,255,0.88)',
-                borderRadius: 1,
-                left: '50%',
-                px: 2,
-                py: 1,
-                position: 'absolute',
-                top: '50%',
-                transform: 'translate(-50%, -50%)',
-                zIndex: 2,
-              }}
-            >
-              <Typography align="center" color="text.secondary">
-                No matching collection centres
-              </Typography>
-            </Box>
-          ) : null}
-        </AxisMapboxCanvas>
-      ) : null}
+            ) : null}
+            {visibleRecords.length === 0 ? (
+              <Box
+                sx={{
+                  bgcolor: 'rgba(255,255,255,0.88)',
+                  borderRadius: 1,
+                  left: '50%',
+                  px: 2,
+                  py: 1,
+                  position: 'absolute',
+                  top: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  zIndex: 2,
+                }}
+              >
+                <Typography align="center" color="text.secondary">
+                  No matching collection centres
+                </Typography>
+              </Box>
+            ) : null}
+          </AxisMapboxCanvas>
+        ) : null}
       </AxisLocationMapFrame>
     </Stack>
   );
@@ -1693,11 +1694,7 @@ function SelectedCentrePanel({
           >
             {record.addressLine || record.city || record.locationCode}
           </Typography>
-          <Stack
-            direction="row"
-            spacing={1.5}
-            sx={{ flexWrap: 'wrap', minWidth: 0 }}
-          >
+          <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', minWidth: 0 }}>
             <Typography color="text.secondary" variant="caption">
               Operator: {record.operatorEnterpriseName}
             </Typography>

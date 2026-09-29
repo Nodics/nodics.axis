@@ -426,7 +426,10 @@ export async function loadCollectionCentreWorkspaceData(
         configuration,
         schemas,
       );
-      const enrichedRecords = buildCollectionCentreRecords(page.records, referencePages);
+      const enrichedRecords = buildCollectionCentreRecords(
+        page.records,
+        referencePages,
+      );
       return Object.freeze({
         records: enrichedRecords,
         sourceCounts: Object.freeze({

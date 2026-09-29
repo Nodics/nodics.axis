@@ -120,15 +120,11 @@ describe('data release client', () => {
     expect(result[0]?.readiness?.blockers[0]?.blockerCode).toBe('VERSION_MISMATCH');
     expect(result[0]?.readiness?.blockers[0]?.severity).toBe('REPAIR_REQUIRED');
     expect(result[0]?.readiness?.blockers[0]?.ownerType).toBe('DATA_RELEASE');
-    expect(result[0]?.readiness?.blockers[0]?.source).toBe(
-      'IMPORT_RELEASE_CATALOGUE',
-    );
+    expect(result[0]?.readiness?.blockers[0]?.source).toBe('IMPORT_RELEASE_CATALOGUE');
     expect(result[0]?.readiness?.blockers[0]?.disabledReason).toContain(
       'installed release is behind',
     );
-    expect(result[0]?.readiness?.blockers[0]?.technicalStatus).toBe(
-      'UPDATE_AVAILABLE',
-    );
+    expect(result[0]?.readiness?.blockers[0]?.technicalStatus).toBe('UPDATE_AVAILABLE');
     expect(result[0]?.readiness?.blockers[0]?.repair?.operation).toBe(
       'dataRelease.install',
     );

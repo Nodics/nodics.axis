@@ -123,14 +123,14 @@ export interface CapabilityApprovalDiagnostic {
 }
 
 interface CapabilityReadinessPanelProps {
-  readonly actionSlot?: ((blocker: CapabilityReadinessBlocker) => ReactNode) | undefined;
+  readonly actionSlot?:
+    | ((blocker: CapabilityReadinessBlocker) => ReactNode)
+    | undefined;
   readonly caption?: string | undefined;
   readonly readiness: CapabilityReadinessSummary;
 }
 
-function severityTone(
-  severity: string,
-): 'error' | 'warning' | 'info' | 'success' {
+function severityTone(severity: string): 'error' | 'warning' | 'info' | 'success' {
   if (severity === 'BLOCKED') return 'error';
   if (severity === 'REPAIR_REQUIRED' || severity === 'WARNING') return 'warning';
   if (severity === 'INFO') return 'info';
@@ -495,11 +495,7 @@ export function CapabilityReadinessPanel({
                 <Chip label={blocker.targetServer} size="small" variant="outlined" />
               ) : null}
               {blocker.technicalStatus ? (
-                <Chip
-                  label={blocker.technicalStatus}
-                  size="small"
-                  variant="outlined"
-                />
+                <Chip label={blocker.technicalStatus} size="small" variant="outlined" />
               ) : null}
               {approvalEvidenceLabels(blocker.approvalDiagnostic).map((label) => (
                 <Chip key={label} label={label} size="small" variant="outlined" />

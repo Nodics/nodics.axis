@@ -127,7 +127,9 @@ export function RuntimeConfigurationRoutePage(
   });
   const groups = useMemo(() => {
     const byKey = new Map<string, string>();
-    (schemas.data ?? []).forEach((schema) => byKey.set(groupKey(schema), groupLabel(schema)));
+    (schemas.data ?? []).forEach((schema) =>
+      byKey.set(groupKey(schema), groupLabel(schema)),
+    );
     return [...byKey.entries()].sort((left, right) => left[1].localeCompare(right[1]));
   }, [schemas.data]);
   const filteredSchemas = useMemo(() => {
@@ -155,7 +157,11 @@ export function RuntimeConfigurationRoutePage(
   const validate = useMutation({
     mutationFn: async () => {
       if (!selectedSchema) throw new Error('Select a configuration schema');
-      return validateRuntimeConfigurationUpdate(configuration, selectedSchema.code, payload);
+      return validateRuntimeConfigurationUpdate(
+        configuration,
+        selectedSchema.code,
+        payload,
+      );
     },
     onSuccess: (result) => {
       setError(result.valid ? '' : (result.errors ?? []).join(' '));
@@ -169,7 +175,11 @@ export function RuntimeConfigurationRoutePage(
   const save = useMutation({
     mutationFn: async () => {
       if (!selectedSchema) throw new Error('Select a configuration schema');
-      return saveRuntimeConfigurationUpdate(configuration, selectedSchema.code, payload);
+      return saveRuntimeConfigurationUpdate(
+        configuration,
+        selectedSchema.code,
+        payload,
+      );
     },
     onSuccess: async () => {
       setDraft({});
@@ -289,8 +299,7 @@ export function RuntimeConfigurationRoutePage(
                       {title(selectedSchema.label, selectedSchema.code)}
                     </Typography>
                     <Typography color="text.secondary">
-                      {selectedSchema.ownerModule || 'Unowned'} /{' '}
-                      {selectedSchema.code}
+                      {selectedSchema.ownerModule || 'Unowned'} / {selectedSchema.code}
                     </Typography>
                   </Box>
                   <Stack
@@ -396,11 +405,7 @@ export function RuntimeConfigurationRoutePage(
                   })}
                 </Stack>
                 <Divider />
-                <Stack
-                  direction="row"
-                  spacing={1}
-                  sx={{ justifyContent: 'flex-end' }}
-                >
+                <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
                   <Button
                     variant="outlined"
                     disabled={!hasDraft || validate.isPending || save.isPending}

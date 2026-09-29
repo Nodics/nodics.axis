@@ -58,11 +58,7 @@ if (verifyWasteLocation) {
     '/enterprises/BEAH_RECYCLING_SERVICES',
   );
 }
-const requiredModules = [
-  'nodics.foundation',
-  'nodics.platform',
-  'nodics.wcms',
-];
+const requiredModules = ['nodics.foundation', 'nodics.platform', 'nodics.wcms'];
 const optionalObservedModules = ['nodics.process'];
 const documentationPacks = [
   'nodicsDocumentation',

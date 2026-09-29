@@ -238,7 +238,10 @@ function parseDryRunSummary(value: unknown): DataReleaseDryRunSummary | undefine
   }
   const source = record(value, 'Data release dry-run summary');
   const mode = text(source.mode, 'Data release dry-run mode');
-  const dataType = text(source.dataType, 'Data release dry-run type') as DataReleaseType;
+  const dataType = text(
+    source.dataType,
+    'Data release dry-run type',
+  ) as DataReleaseType;
   if (mode !== 'VALIDATE' || !types.has(dataType)) {
     throw new Error('Data release dry-run summary is incompatible');
   }
@@ -262,9 +265,7 @@ function parseDryRunSummary(value: unknown): DataReleaseDryRunSummary | undefine
         ),
         ...(optionalText(followUp.initialPublicationPolicy)
           ? {
-              initialPublicationPolicy: optionalText(
-                followUp.initialPublicationPolicy,
-              ),
+              initialPublicationPolicy: optionalText(followUp.initialPublicationPolicy),
             }
           : {}),
         ...(optionalText(followUp.targetRole)
@@ -293,7 +294,10 @@ function parseDryRunSummary(value: unknown): DataReleaseDryRunSummary | undefine
         return undefined;
       }
       const outcome = item as Record<string, unknown>;
-      const status = text(outcome.status, 'Dry-run release status') as DataReleaseStatus;
+      const status = text(
+        outcome.status,
+        'Dry-run release status',
+      ) as DataReleaseStatus;
       const operation = text(
         outcome.operation,
         'Dry-run release operation',
@@ -304,7 +308,11 @@ function parseDryRunSummary(value: unknown): DataReleaseDryRunSummary | undefine
       const blockers = boundedArray(
         outcome.blockers,
         (blocker) => {
-          if (typeof blocker !== 'object' || blocker === null || Array.isArray(blocker)) {
+          if (
+            typeof blocker !== 'object' ||
+            blocker === null ||
+            Array.isArray(blocker)
+          ) {
             return undefined;
           }
           const parsed = parseReleaseReadiness({

@@ -250,10 +250,7 @@ function mergeDataReleaseDryRuns(
       (total, dryRun) => total + dryRun.executableReleases,
       0,
     ),
-    alreadyCurrent: dryRuns.reduce(
-      (total, dryRun) => total + dryRun.alreadyCurrent,
-      0,
-    ),
+    alreadyCurrent: dryRuns.reduce((total, dryRun) => total + dryRun.alreadyCurrent, 0),
     blockedReleases: dryRuns.reduce(
       (total, dryRun) => total + dryRun.blockedReleases,
       0,
@@ -413,11 +410,7 @@ async function executeDataReleaseOperationByDestination(
     dataType: releaseType,
     tenant: results[0]?.tenant ?? configuration.enterpriseCode,
     releases: Object.freeze(results.flatMap((result) => result.releases)),
-    dryRun: mergeDataReleaseDryRuns(
-      releaseType,
-      configuration.enterpriseCode,
-      results,
-    ),
+    dryRun: mergeDataReleaseDryRuns(releaseType, configuration.enterpriseCode, results),
   });
 }
 

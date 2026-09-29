@@ -9,10 +9,7 @@ import type {
   DataReleaseDryRunSummary,
 } from '../../../../src/operations/importExport/api/dataReleaseContracts';
 
-function release(
-  releaseCode: string,
-  status: DataRelease['status'],
-): DataRelease {
+function release(releaseCode: string, status: DataRelease['status']): DataRelease {
   const sectionCode = releaseCode.split(':')[1] ?? releaseCode;
   return {
     releaseCode,
@@ -37,7 +34,8 @@ function release(
       businessStatus: status === 'CURRENT' ? 'PREPARED_STAGED' : 'NOT_PREPARED',
       technicalStatus: status,
       releaseStatus: status,
-      nextAction: status === 'CURRENT' ? 'No import action required' : 'Prepare capability',
+      nextAction:
+        status === 'CURRENT' ? 'No import action required' : 'Prepare capability',
       blockers:
         status === 'CURRENT'
           ? []
@@ -100,7 +98,9 @@ describe('DataReleaseWorkbench', () => {
     expect(screen.getByText('Business packs')).toBeInTheDocument();
     expect(screen.getByText(/Start from the business outcome/iu)).toBeInTheDocument();
     expect(screen.getByText('Select pack')).toBeInTheDocument();
-    expect(screen.getByLabelText('Recommended preparation sequence')).toBeInTheDocument();
+    expect(
+      screen.getByLabelText('Recommended preparation sequence'),
+    ).toBeInTheDocument();
     expect(screen.getByText('Step 1')).toBeInTheDocument();
     expect(screen.getByText('1/2 current · 1 need action')).toBeInTheDocument();
     expect(screen.getByText('Circa eWaste')).toBeInTheDocument();
@@ -114,7 +114,9 @@ describe('DataReleaseWorkbench', () => {
     ).toBeInTheDocument();
     expect(screen.getAllByText('1/2 current').length).toBeGreaterThan(0);
     expect(screen.getByText('Repair available')).toBeInTheDocument();
-    expect(screen.getByText(/PREPARE_CAPABILITY · dataRelease\.install/u)).toBeInTheDocument();
+    expect(
+      screen.getByText(/PREPARE_CAPABILITY · dataRelease\.install/u),
+    ).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'Select 1' }));
 
@@ -170,9 +172,7 @@ describe('DataReleaseWorkbench', () => {
             'Imported data remains staged until governed publication makes it Online.',
         },
       ],
-      messages: [
-        'Dry-run validated the selected release plan. No data was imported.',
-      ],
+      messages: ['Dry-run validated the selected release plan. No data was imported.'],
     };
     render(
       <AxisThemeProvider>

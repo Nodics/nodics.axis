@@ -899,7 +899,8 @@ function CmsDocumentationReadinessCard({
           reason: `${source.label} approval task reconciliation requested from Documentation Dashboard`,
         });
         reconciliationMessage = repaired.repair?.message;
-        publicationWorkflowRef = repaired.publication?.workflowRef ?? publicationWorkflowRef;
+        publicationWorkflowRef =
+          repaired.publication?.workflowRef ?? publicationWorkflowRef;
         tasks = await loadProcessTasks(
           processConnection,
           configuration,
@@ -1433,12 +1434,8 @@ export function DocumentationDashboard({
         return [profileCode, publicationQueries[index]?.data] as const;
       })
       .filter(
-        (
-          item,
-        ): item is readonly [
-          string,
-          DocumentationPublicationStatus | undefined,
-        ] => Boolean(item),
+        (item): item is readonly [string, DocumentationPublicationStatus | undefined] =>
+          Boolean(item),
       ),
   );
   const lockedDocumentationSources = cmsSources

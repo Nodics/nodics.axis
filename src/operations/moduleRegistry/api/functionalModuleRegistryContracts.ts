@@ -393,7 +393,9 @@ export function parseFunctionalModuleCatalogue(
 }
 
 function selectionAction(value: unknown): FunctionalModuleSelectionAction {
-  if (!['registerActivate', 'activate', 'deactivate', 'unchanged'].includes(String(value))) {
+  if (
+    !['registerActivate', 'activate', 'deactivate', 'unchanged'].includes(String(value))
+  ) {
     throw new Error('Functional-module selection action is unsupported');
   }
   return value as FunctionalModuleSelectionAction;

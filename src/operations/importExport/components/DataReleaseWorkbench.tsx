@@ -153,7 +153,7 @@ function releaseFallbackReadiness(release: DataRelease): DataReleaseReadiness {
                   ? 'Retry failed import'
                   : release.status === 'INVALID_RELEASE'
                     ? 'Repair release manifest'
-                  : 'Update release',
+                    : 'Update release',
           disabledReason:
             releaseDisabledReason(release) ?? 'Data release readiness requires review.',
           technicalStatus: release.status,
@@ -221,9 +221,10 @@ function releaseReadiness(release: DataRelease): DataReleaseReadiness {
 }
 
 function readinessStatusLabel(status: string): string {
-  return status.replaceAll('_', ' ').toLowerCase().replace(/(^|\s)\S/gu, (value) =>
-    value.toUpperCase(),
-  );
+  return status
+    .replaceAll('_', ' ')
+    .toLowerCase()
+    .replace(/(^|\s)\S/gu, (value) => value.toUpperCase());
 }
 
 function readinessStatusColor(status: string) {
@@ -234,9 +235,10 @@ function readinessStatusColor(status: string) {
 }
 
 function dryRunOperationLabel(operation: DataReleaseDryRunOperation): string {
-  return operation.replaceAll('_', ' ').toLowerCase().replace(/(^|\s)\S/gu, (value) =>
-    value.toUpperCase(),
-  );
+  return operation
+    .replaceAll('_', ' ')
+    .toLowerCase()
+    .replace(/(^|\s)\S/gu, (value) => value.toUpperCase());
 }
 
 function dryRunOperationColor(operation: DataReleaseDryRunOperation) {
@@ -247,9 +249,7 @@ function dryRunOperationColor(operation: DataReleaseDryRunOperation) {
   return 'success' as const;
 }
 
-function DryRunSummaryPanel(props: {
-  readonly dryRun: DataReleaseDryRunSummary;
-}) {
+function DryRunSummaryPanel(props: { readonly dryRun: DataReleaseDryRunSummary }) {
   const counters = [
     ['Install', props.dryRun.summary.install, 'import'],
     ['Update', props.dryRun.summary.update, 'refresh'],
@@ -347,7 +347,9 @@ function DryRunSummaryPanel(props: {
           <Stack spacing={0.75}>
             {props.dryRun.outcomes.slice(0, 8).map((outcome) => (
               <Box
-                key={outcome.releaseCode ?? `${outcome.moduleName}:${outcome.displayName}`}
+                key={
+                  outcome.releaseCode ?? `${outcome.moduleName}:${outcome.displayName}`
+                }
                 sx={(theme) => ({
                   border: 1,
                   borderColor: alpha(theme.palette.divider, 0.82),
@@ -358,7 +360,11 @@ function DryRunSummaryPanel(props: {
               >
                 <Stack
                   direction={{ xs: 'column', md: 'row' }}
-                  sx={{ alignItems: { md: 'center' }, gap: 1, justifyContent: 'space-between' }}
+                  sx={{
+                    alignItems: { md: 'center' },
+                    gap: 1,
+                    justifyContent: 'space-between',
+                  }}
                 >
                   <Box sx={{ minWidth: 0 }}>
                     <Stack
@@ -430,7 +436,11 @@ function DryRunSummaryPanel(props: {
                 >
                   <Stack
                     direction={{ xs: 'column', md: 'row' }}
-                    sx={{ alignItems: { md: 'center' }, gap: 1, justifyContent: 'space-between' }}
+                    sx={{
+                      alignItems: { md: 'center' },
+                      gap: 1,
+                      justifyContent: 'space-between',
+                    }}
                   >
                     <Box sx={{ minWidth: 0 }}>
                       <Typography sx={{ fontWeight: 700 }} variant="body2">
@@ -921,19 +931,27 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
           >
             <Stack
               direction={{ xs: 'column', md: 'row' }}
-              sx={{ alignItems: { md: 'center' }, gap: 1, justifyContent: 'space-between' }}
+              sx={{
+                alignItems: { md: 'center' },
+                gap: 1,
+                justifyContent: 'space-between',
+              }}
             >
               <Box>
                 <Typography component="h2" variant="subtitle1">
                   Business packs
                 </Typography>
                 <Typography color="text.secondary" variant="body2">
-                  Start from the business outcome, then expand release details only
-                  when support evidence is needed.
+                  Start from the business outcome, then expand release details only when
+                  support evidence is needed.
                 </Typography>
               </Box>
               <Chip
-                color={businessPacks.some((pack) => pack.actionable.length > 0) ? 'primary' : 'success'}
+                color={
+                  businessPacks.some((pack) => pack.actionable.length > 0)
+                    ? 'primary'
+                    : 'success'
+                }
                 label={`${businessPacks.length.toString()} pack${businessPacks.length === 1 ? '' : 's'}`}
                 size="small"
                 variant="outlined"
@@ -977,7 +995,13 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                         {pack.label}
                       </Typography>
                       <Chip
-                        color={complete ? 'success' : pack.actionable.length > 0 ? 'primary' : 'default'}
+                        color={
+                          complete
+                            ? 'success'
+                            : pack.actionable.length > 0
+                              ? 'primary'
+                              : 'default'
+                        }
                         label={`${pack.current.toString()}/${pack.releases.length.toString()} current`}
                         size="small"
                         variant={complete ? 'filled' : 'outlined'}
@@ -1016,7 +1040,11 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                     </Stack>
                     <Stack
                       direction={{ xs: 'column', sm: 'row' }}
-                      sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between', gap: 1 }}
+                      sx={{
+                        alignItems: { sm: 'center' },
+                        justifyContent: 'space-between',
+                        gap: 1,
+                      }}
                     >
                       <Typography color="text.secondary" variant="caption">
                         {pack.actionable.length > 0
@@ -1027,7 +1055,11 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                         <Button
                           size="small"
                           startIcon={<ShellIcon fontSize="small" name="tasks" />}
-                          variant={selectedPackCount === pack.actionable.length ? 'contained' : 'outlined'}
+                          variant={
+                            selectedPackCount === pack.actionable.length
+                              ? 'contained'
+                              : 'outlined'
+                          }
                           onClick={() => props.onSelectReleases(pack.actionable)}
                         >
                           {selectedPackCount === pack.actionable.length
@@ -1065,7 +1097,11 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
           >
             <Stack
               direction={{ xs: 'column', md: 'row' }}
-              sx={{ alignItems: { md: 'center' }, gap: 1, justifyContent: 'space-between' }}
+              sx={{
+                alignItems: { md: 'center' },
+                gap: 1,
+                justifyContent: 'space-between',
+              }}
             >
               <Box>
                 <Typography component="h2" variant="subtitle1">
@@ -1094,102 +1130,109 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                   props.selectedReleaseKeys.has(releaseKey(release)),
                 );
               return (
-              <Box
-                key={`readiness:${group.key}`}
-                sx={(theme) => ({
-                  border: 1,
-                  borderColor: alpha(
-                    theme.palette[
-                      firstBlocker?.severity === 'BLOCKED' ? 'error' : 'warning'
-                    ].main,
-                    0.24,
-                  ),
-                  borderRadius: '8px',
-                  p: { xs: 1.25, md: 1.5 },
-                })}
-              >
-                <Stack
-                  direction={{ xs: 'column', md: 'row' }}
-                  sx={{ alignItems: { md: 'center' }, gap: 1.25, justifyContent: 'space-between' }}
+                <Box
+                  key={`readiness:${group.key}`}
+                  sx={(theme) => ({
+                    border: 1,
+                    borderColor: alpha(
+                      theme.palette[
+                        firstBlocker?.severity === 'BLOCKED' ? 'error' : 'warning'
+                      ].main,
+                      0.24,
+                    ),
+                    borderRadius: '8px',
+                    p: { xs: 1.25, md: 1.5 },
+                  })}
                 >
-                  <Stack spacing={0.55} sx={{ minWidth: 0 }}>
-                    <Stack direction="row" sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 0.75 }}>
-                      <Typography component="h3" variant="subtitle1">
-                        {group.readiness.displayName}
-                      </Typography>
-                      <Chip
-                        color={readinessStatusColor(group.readiness.businessStatus)}
-                        label={readinessStatusLabel(group.readiness.businessStatus)}
-                        size="small"
-                        variant="outlined"
-                      />
-                      <Chip
-                        label={readinessGroupLabel(group.readiness.group)}
-                        size="small"
-                        variant="outlined"
-                      />
-                      <Chip
-                        label={`${group.current.toString()}/${group.releases.length.toString()} current`}
-                        size="small"
-                        variant="outlined"
-                      />
-                    </Stack>
-                    {group.readiness.blockers.length ? (
-                      <CapabilityReadinessPanel
-                        caption="Readiness blocker"
-                        readiness={group.readiness}
-                      />
-                    ) : (
-                      <Typography color="text.secondary" variant="body2">
-                        {group.releases[0]?.description}
-                      </Typography>
-                    )}
-                    {group.readiness.businessOutcome ? (
-                      <Typography color="text.secondary" variant="body2">
-                        Outcome: {group.readiness.businessOutcome}
-                      </Typography>
-                    ) : null}
-                    <Typography color="text.secondary" variant="body2">
-                      {readinessGroupHelp(group.readiness.group)}
-                    </Typography>
-                    <Typography color="text.secondary" variant="caption">
-                      Owner {group.readiness.owningModule} ·{' '}
-                      {group.readiness.extendsCapability
-                        ? `extends ${group.readiness.extendsCapability} · `
-                        : ''}
-                      {group.readiness.capabilityCode}
-                    </Typography>
-                  </Stack>
                   <Stack
-                    direction={{ xs: 'column', sm: 'row' }}
-                    sx={{ alignItems: { sm: 'center' }, flexShrink: 0, gap: 1 }}
+                    direction={{ xs: 'column', md: 'row' }}
+                    sx={{
+                      alignItems: { md: 'center' },
+                      gap: 1.25,
+                      justifyContent: 'space-between',
+                    }}
                   >
-                    <Chip
-                      color={
-                        firstBlocker?.severity === 'BLOCKED'
-                          ? 'error'
-                          : firstBlocker?.severity === 'INFO'
-                            ? 'info'
-                            : 'warning'
-                      }
-                      label={firstBlocker?.action ?? group.readiness.nextAction}
-                      variant="filled"
-                    />
-                    {group.actionable.length > 0 ? (
-                      <Button
-                        size="small"
-                        startIcon={<ShellIcon fontSize="small" name="tasks" />}
-                        variant={allActionableSelected ? 'contained' : 'outlined'}
-                        onClick={() => props.onSelectReleases(group.actionable)}
+                    <Stack spacing={0.55} sx={{ minWidth: 0 }}>
+                      <Stack
+                        direction="row"
+                        sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 0.75 }}
                       >
-                        {allActionableSelected
-                          ? 'Selected'
-                          : `Select ${group.actionable.length.toString()}`}
-                      </Button>
-                    ) : null}
+                        <Typography component="h3" variant="subtitle1">
+                          {group.readiness.displayName}
+                        </Typography>
+                        <Chip
+                          color={readinessStatusColor(group.readiness.businessStatus)}
+                          label={readinessStatusLabel(group.readiness.businessStatus)}
+                          size="small"
+                          variant="outlined"
+                        />
+                        <Chip
+                          label={readinessGroupLabel(group.readiness.group)}
+                          size="small"
+                          variant="outlined"
+                        />
+                        <Chip
+                          label={`${group.current.toString()}/${group.releases.length.toString()} current`}
+                          size="small"
+                          variant="outlined"
+                        />
+                      </Stack>
+                      {group.readiness.blockers.length ? (
+                        <CapabilityReadinessPanel
+                          caption="Readiness blocker"
+                          readiness={group.readiness}
+                        />
+                      ) : (
+                        <Typography color="text.secondary" variant="body2">
+                          {group.releases[0]?.description}
+                        </Typography>
+                      )}
+                      {group.readiness.businessOutcome ? (
+                        <Typography color="text.secondary" variant="body2">
+                          Outcome: {group.readiness.businessOutcome}
+                        </Typography>
+                      ) : null}
+                      <Typography color="text.secondary" variant="body2">
+                        {readinessGroupHelp(group.readiness.group)}
+                      </Typography>
+                      <Typography color="text.secondary" variant="caption">
+                        Owner {group.readiness.owningModule} ·{' '}
+                        {group.readiness.extendsCapability
+                          ? `extends ${group.readiness.extendsCapability} · `
+                          : ''}
+                        {group.readiness.capabilityCode}
+                      </Typography>
+                    </Stack>
+                    <Stack
+                      direction={{ xs: 'column', sm: 'row' }}
+                      sx={{ alignItems: { sm: 'center' }, flexShrink: 0, gap: 1 }}
+                    >
+                      <Chip
+                        color={
+                          firstBlocker?.severity === 'BLOCKED'
+                            ? 'error'
+                            : firstBlocker?.severity === 'INFO'
+                              ? 'info'
+                              : 'warning'
+                        }
+                        label={firstBlocker?.action ?? group.readiness.nextAction}
+                        variant="filled"
+                      />
+                      {group.actionable.length > 0 ? (
+                        <Button
+                          size="small"
+                          startIcon={<ShellIcon fontSize="small" name="tasks" />}
+                          variant={allActionableSelected ? 'contained' : 'outlined'}
+                          onClick={() => props.onSelectReleases(group.actionable)}
+                        >
+                          {allActionableSelected
+                            ? 'Selected'
+                            : `Select ${group.actionable.length.toString()}`}
+                        </Button>
+                      ) : null}
+                    </Stack>
                   </Stack>
-                </Stack>
-              </Box>
+                </Box>
               );
             })}
           </Stack>

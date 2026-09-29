@@ -168,10 +168,16 @@ describe('CapabilityReadinessPanel', () => {
       />,
     );
 
-    expect(screen.getAllByText('Approval TASK_REFERENCE_MISSING').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Publication PENDING_APPROVAL').length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText('Approval TASK_REFERENCE_MISSING').length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText('Publication PENDING_APPROVAL').length).toBeGreaterThan(
+      0,
+    );
     expect(screen.getByText('Governed publication approval')).toBeVisible();
-    expect(screen.getByText('No actionable Process approval task was found.')).toBeVisible();
+    expect(
+      screen.getByText('No actionable Process approval task was found.'),
+    ).toBeVisible();
     expect(screen.getByRole('link', { name: 'Open Process' })).toHaveAttribute(
       'href',
       '/process',
