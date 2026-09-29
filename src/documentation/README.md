@@ -37,6 +37,10 @@ routes, nested customer delivery using the declared Site/profile, Framework and
 OpenAPI rendering, and governed publication controls. Run it with
 `npm run test -- test/documentation/DocumentationRoutePage.test.tsx`, then typecheck.
 Live browser and registration acceptance remain deployment verification.
+The employee login journey also verifies restoration of a documentation deep
+link and anchor within its backend-declared source route. Test fixtures must
+declare the same route boundary they request; do not restore cross-Site fallback
+to make legacy fixture URLs resolve.
 
 `test/documentation/api/documentationProductClient.test.ts` additionally covers
 canonical identity projection, paging, authorization failures, ambiguous bindings

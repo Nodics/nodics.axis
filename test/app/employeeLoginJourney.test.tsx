@@ -188,7 +188,7 @@ const schemaWorkbenchPage = {
 
 const documentationPage = {
   ...validResolvedPage,
-  path: '/docs/capabilities/content-publishing/wcms-authoring-model',
+  path: '/docs/framework/capabilities/content-publishing/wcms-authoring-model',
   page: {
     ...validResolvedPage.page,
     code: 'wcmsAuthoringModelDocumentationPage',
@@ -743,7 +743,7 @@ describe('employee login journey', () => {
     window.history.pushState(
       {},
       '',
-      '/docs/capabilities/content-publishing/wcms-authoring-model#websites',
+      '/docs/framework/capabilities/content-publishing/wcms-authoring-model#websites',
     );
     document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
     const request = vi.fn<typeof fetch>().mockImplementation((input, options) => {
@@ -897,7 +897,7 @@ describe('employee login journey', () => {
         const authenticated = new Headers(options?.headers).get('Authorization');
         expect(authenticated).toBeNull();
         expect(new URL(url).searchParams.get('path')).toBe(
-          '/docs/capabilities/content-publishing/wcms-authoring-model',
+          '/docs/framework/capabilities/content-publishing/wcms-authoring-model',
         );
         return Promise.resolve(
           new Response(JSON.stringify({ result: documentationPage }), { status: 200 }),
@@ -923,6 +923,8 @@ describe('employee login journey', () => {
         fetchInputUrl(input).includes('/employee/browser/restore'),
       ),
     ).toBe(true);
+    expect(window.location.pathname).toBe(documentationPage.path);
+    expect(window.location.hash).toBe('#websites');
   });
 
   it('opens the documentation dashboard from source registry without a navigation item', async () => {
