@@ -1,11 +1,20 @@
 import type { AxisAuthenticatedBootstrap } from '../../../bootstrap/publicBootstrap';
 import { invokeOperationalOwner as invoke } from '../../shared/operationalOwnerClient';
+import type { OperationalOwnerConfiguration } from '../../shared/operationalOwnerClient';
 
 export interface RuntimeConfigurationClientConfiguration {
   readonly bootstrap: AxisAuthenticatedBootstrap;
   readonly accessToken: string;
   readonly enterpriseCode: string;
   readonly timeoutMs: number;
+  readonly ownerSelector?: OperationalOwnerConfiguration['ownerSelector'];
+}
+
+/** Content-free prerequisite supplied by the selected runtime's nSystem owner. */
+export interface RuntimeConfigurationSecretPersistence {
+  readonly required: boolean;
+  readonly ready: boolean;
+  readonly reason: string;
 }
 
 export interface RuntimeConfigurationFieldSchema {
@@ -21,6 +30,7 @@ export interface RuntimeConfigurationFieldSchema {
 }
 
 export interface RuntimeConfigurationSchemaSummary {
+  readonly secretPersistence?: RuntimeConfigurationSecretPersistence | undefined;
   readonly code: string;
   readonly ownerModule?: string;
   readonly label?: string;
@@ -41,6 +51,7 @@ export interface RuntimeConfigurationEffectiveValue {
 }
 
 export interface RuntimeConfigurationEffective {
+  readonly secretPersistence?: RuntimeConfigurationSecretPersistence | undefined;
   readonly code: string;
   readonly ownerModule?: string;
   readonly status: 'CONFIGURED' | 'UNCONFIGURED' | (string & {});

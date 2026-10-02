@@ -24,10 +24,20 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
+import {
+  importHistoryRoute,
+  resolveImportHistoryHandoff,
+} from '../importExport/importHistoryHandoff';
+import { resolveMediaPublicationHandoff } from '../readiness/mediaPublicationHandoff';
+import {
+  applicationReadinessInProgress,
+  applicationReadinessCooldownUntil,
+  applicationReadinessPollInterval,
+} from './api/applicationReadinessPolling';
 import { ShellIcon } from '../../app/shell/ShellIcon';
 import { WorkspaceContainer } from '../../app/shell/ShellPrimitives';
 import {
@@ -50,6 +60,7 @@ import {
   type ApplicationCapabilityBlocker,
   type ApplicationInitializationProfile,
   type ApplicationInitializationStatus,
+  type ApplicationPreparationFailure,
   type ApplicationPreparationStep,
 } from './api/applicationInitializationClient';
 
@@ -144,38 +155,57 @@ function supportedRepairOperation(
   return undefined;
 }
 
+/** Binds only the owner's available, confirmation-free status descriptor to the existing GET read. */
+function supportsReadinessRefresh(blocker: ApplicationCapabilityBlocker): boolean {
+  return (
+    blocker.repair?.available === true &&
+    blocker.repair.action === 'REFRESH_READINESS' &&
+    blocker.repair.operation === 'applicationInitialization.status' &&
+    blocker.repair.requiresConfirmation === false
+  );
+}
+
 function firstExecutableRepair(
   status: ApplicationInitializationStatus | undefined,
 ): ApplicationCapabilityBlocker | undefined {
+  if (
+    status?.preparation?.status === 'RUNNING' ||
+    status?.capability?.businessStatus === 'PREPARING'
+  )
+    return undefined;
   return status?.capability?.blockers.find((blocker) =>
     Boolean(supportedRepairOperation(blocker)),
   );
 }
 
-function statusRefreshesAutomatically(
+/** Clears an operation error only after a newer owner read confirms its requested transition. */
+function operationConfirmed(
   status: ApplicationInitializationStatus | undefined,
+  previous: ApplicationInitializationStatus | undefined,
+  operation: AcceleratorOperation | undefined,
 ): boolean {
-  return Boolean(
-    status?.readiness === 'PUBLICATION_PENDING' ||
-    status?.readiness === 'IMPORTING' ||
-    status?.readiness === 'IMPORTED' ||
-    status?.releaseStatus === 'IMPORTING',
-  );
-}
-
-function suppressStaleOperationError(
-  status: ApplicationInitializationStatus | undefined,
-  message: string | undefined,
-): boolean {
-  return Boolean(
-    message &&
-    /still running|timed out/iu.test(message) &&
-    (status?.readiness === 'PUBLICATION_PENDING' ||
-      status?.readiness === 'IMPORTING' ||
-      status?.readiness === 'READY' ||
-      status?.releaseStatus === 'CURRENT' ||
-      status?.releaseStatus === 'IMPORTING'),
-  );
+  if (!status) return false;
+  if (operation === 'prepare')
+    return (
+      status.preparation?.status === 'CURRENT' &&
+      previous?.preparation?.status !== 'CURRENT'
+    );
+  if (operation === 'initiate')
+    return (
+      ['PUBLICATION_PENDING', 'READY'].includes(status.readiness) &&
+      status.readiness !== previous?.readiness
+    );
+  if (operation === 'approve')
+    return (
+      status.publication?.state === 'ONLINE' &&
+      previous?.publication?.state !== 'ONLINE'
+    );
+  if (operation === 'reject')
+    return (
+      status.publication?.state === 'REJECTED' &&
+      previous?.publication?.state !== 'REJECTED'
+    );
+  return false;
 }
 
 function preparationNeedsAction(
@@ -228,6 +258,7 @@ function blockedActionSummary(
 
 function setupActionLabel(status: ApplicationInitializationStatus | undefined): string {
   if (!status) return 'Initialize';
+  if (status.readiness === 'IMPORTED') return 'Submit for review';
   if (status.readiness === 'READY' && preparationNeedsAction(status)) {
     return 'Prepare setup';
   }
@@ -247,6 +278,7 @@ function readinessLabel(readiness: string): string {
   if (readiness === 'NOT_IMPORTED') return 'Not initialized';
   if (readiness === 'IMPORTING') return 'Preparing Staged';
   if (readiness === 'PUBLICATION_PENDING') return 'Approval in progress';
+  if (readiness === 'MEDIA_DEPENDENCIES_PENDING') return 'Media publication required';
   if (readiness === 'BLOCKED') return 'Setup blocked';
   if (readiness === 'READY') return 'Online ready';
   if (readiness === 'ROLLED_BACK') return 'Rolled back';
@@ -256,7 +288,7 @@ function readinessLabel(readiness: string): string {
 }
 
 function capabilityStatusLabel(status: ApplicationInitializationStatus): string {
-  const capabilityStatus = status.capability?.businessStatus;
+  const capabilityStatus = capabilityBusinessStatus(status);
   if (!capabilityStatus) return readinessLabel(status.readiness);
   if (capabilityStatus === 'NOT_PREPARED') return 'Not prepared';
   if (capabilityStatus === 'PREPARING') return 'Preparing';
@@ -273,7 +305,7 @@ function capabilityStatusLabel(status: ApplicationInitializationStatus): string 
 function capabilityStatusColor(
   status: ApplicationInitializationStatus,
 ): 'success' | 'warning' | 'error' | 'info' | 'default' {
-  const capabilityStatus = status.capability?.businessStatus;
+  const capabilityStatus = capabilityBusinessStatus(status);
   if (capabilityStatus === 'ONLINE') return 'success';
   if (capabilityStatus === 'NEEDS_ATTENTION') return 'error';
   if (
@@ -290,7 +322,16 @@ function capabilityStatusColor(
 function capabilityBusinessStatus(
   status: ApplicationInitializationStatus | undefined,
 ): string | undefined {
-  return status?.capability?.businessStatus;
+  const businessStatus = status?.capability?.businessStatus;
+  if (
+    businessStatus === 'ONLINE' &&
+    (status?.readiness !== 'READY' ||
+      status.capability?.blockers.some((blocker) =>
+        ['ERROR', 'BLOCKED', 'REPAIR_REQUIRED'].includes(blocker.severity),
+      ))
+  )
+    return 'NEEDS_ATTENTION';
+  return businessStatus;
 }
 
 function capabilityIsOnline(
@@ -481,8 +522,47 @@ function nextActionText(status: ApplicationInitializationStatus | undefined): st
 function publicationRecoveryGuidance(
   profile: ApplicationInitializationProfile,
   status: ApplicationInitializationStatus | undefined,
+  bootstrap: AxisAuthenticatedBootstrap,
+  observedFailure?: ApplicationPreparationFailure,
 ): PublicationRecoveryGuidance {
   const title = displayProfileTitle(profile);
+  const importFailure =
+    status?.preparation?.operationFailure ??
+    observedFailure ??
+    status?.capability?.blockers.find(
+      (blocker) =>
+        blocker.code === 'IMPORT_FAILED' &&
+        (blocker.owner === 'import' || blocker.ownerType === 'DATA_RELEASE'),
+    );
+  const historyBlocker = status?.capability?.blockers.find(
+    (blocker) =>
+      blocker.code === 'IMPORT_FAILED' &&
+      blocker.repair?.action === 'REVIEW_IMPORT_HISTORY' &&
+      blocker.targetServer === importFailure?.targetServer &&
+      blocker.targetRuntimeRole === importFailure?.targetRuntimeRole,
+  );
+  const historyAllowed =
+    !historyBlocker ||
+    (historyBlocker.repair?.available === true &&
+      historyBlocker.repair.operation === '' &&
+      historyBlocker.repair.requiresConfirmation === false);
+  const handoff =
+    historyBlocker?.repair?.handoff ??
+    (importFailure && 'historyHandoff' in importFailure
+      ? importFailure.historyHandoff
+      : undefined);
+  if (importFailure)
+    return {
+      key: `${profile.code}:import-failed`,
+      title: `${title}: import needs review`,
+      body: importFailure.message,
+      route: historyAllowed
+        ? (resolveImportHistoryHandoff(bootstrap, handoff) ?? '')
+        : '',
+      actionLabel: 'Review import history',
+      severity: 'error',
+      priority: 10,
+    };
   if (!status) {
     return {
       key: `${profile.code}:status-unavailable`,
@@ -505,6 +585,50 @@ function publicationRecoveryGuidance(
       actionLabel: 'Open Data Releases',
       severity: 'error',
       priority: 10,
+    };
+  }
+  const prerequisiteBlocker = status.capability?.blockers.find(
+    (blocker) =>
+      blocker.code === 'READINESS_VALIDATION_BLOCKED' &&
+      blocker.repair?.action === 'REVIEW_SETUP_PREREQUISITES' &&
+      blocker.repair.available === false &&
+      blocker.repair.operation === '',
+  );
+  const prerequisiteRepair = prerequisiteBlocker?.repair;
+  if (
+    prerequisiteBlocker &&
+    prerequisiteRepair &&
+    !status.capability?.blockers.some((blocker) =>
+      ['MODULE_INACTIVE', 'RUNTIME_UNAVAILABLE', 'MISSING_DEPENDENCY'].includes(
+        blocker.code,
+      ),
+    )
+  ) {
+    const targetServer =
+      prerequisiteBlocker.targetServer ?? prerequisiteRepair.targetServer;
+    const targetRuntimeRole =
+      prerequisiteBlocker.targetRuntimeRole ?? prerequisiteRepair.targetRuntimeRole;
+    const compatibleTarget =
+      (!prerequisiteBlocker.targetServer ||
+        !prerequisiteRepair.targetServer ||
+        prerequisiteBlocker.targetServer === prerequisiteRepair.targetServer) &&
+      (!prerequisiteBlocker.targetRuntimeRole ||
+        !prerequisiteRepair.targetRuntimeRole ||
+        prerequisiteBlocker.targetRuntimeRole === prerequisiteRepair.targetRuntimeRole);
+    const importNavigation = bootstrap.navigation.filter(
+      (item) => item.id === 'imports-exports' && item.moduleName === 'backoffice',
+    );
+    return {
+      key: `${profile.code}:prerequisites-held`,
+      title: `${title}: setup prerequisites need review`,
+      body: prerequisiteBlocker.disabledReason ?? prerequisiteBlocker.message,
+      route:
+        compatibleTarget && importNavigation.length === 1
+          ? (importHistoryRoute(bootstrap, { targetServer, targetRuntimeRole }) ?? '')
+          : '',
+      actionLabel: prerequisiteRepair.label,
+      severity: 'error',
+      priority: 20,
     };
   }
   if (preparationBlocked(status)) {
@@ -796,12 +920,20 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
     backofficeConnection,
     profiles,
   ]);
+  const polling = useMemo(
+    () => ({ clients, started: new Map<string, number>() }),
+    [clients],
+  );
+  const [cooldownTick, setCooldownTick] = useState(() => Date.now());
   const queries = useQueries({
     queries: profiles.map((profile) => ({
       enabled: Boolean(backofficeConnection),
       queryKey: [...queryRoot, profile.code],
+      retry: false,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
       queryFn: () => {
-        const client = clients.get(profile.code);
+        const client = polling.clients.get(profile.code);
         if (!client)
           throw new Error('BackOffice application initialization is unavailable');
         return client.getStatus();
@@ -813,10 +945,45 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
           ApplicationInitializationStatus,
           readonly unknown[]
         >,
-      ) => (statusRefreshesAutomatically(query.state.data) ? 2_000 : false),
+      ) => {
+        if (!applicationReadinessInProgress(query.state.data)) {
+          polling.started.delete(profile.code);
+          return false;
+        }
+        const startedAt = polling.started.get(profile.code) ?? Date.now();
+        polling.started.set(profile.code, startedAt);
+        return applicationReadinessPollInterval(
+          query.state.data,
+          query.state.error,
+          query.state.dataUpdateCount,
+          startedAt,
+          Date.now(),
+          query.state.dataUpdatedAt,
+        );
+      },
     })),
   });
+  useEffect(() => {
+    const now = Date.now();
+    const deadlines = queries
+      .map((query) =>
+        applicationReadinessCooldownUntil(query.data, query.error, query.dataUpdatedAt),
+      )
+      .filter((deadline) => deadline > now);
+    if (!deadlines.length) return;
+    const timer = window.setTimeout(
+      () => setCooldownTick(Date.now()),
+      Math.min(...deadlines) - now,
+    );
+    return () => window.clearTimeout(timer);
+  }, [queries, cooldownTick]);
   const mutation = useMutation({
+    retry: false,
+    onMutate: (variables) => ({
+      statusUpdatedAt:
+        queryClient.getQueryState([...queryRoot, variables.profile.code])
+          ?.dataUpdatedAt ?? 0,
+    }),
     mutationFn: async ({
       profile,
       status,
@@ -831,6 +998,30 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
       const client = clients.get(profile.code);
       if (!client)
         throw new Error('BackOffice application initialization is unavailable');
+      const current = queryClient.getQueryState<ApplicationInitializationStatus>([
+        ...queryRoot,
+        profile.code,
+      ]);
+      if (
+        !current?.data ||
+        current.status === 'error' ||
+        current.fetchStatus === 'fetching'
+      )
+        throw new Error('Refresh setup status before taking action.');
+      if (
+        operation === 'initiate' &&
+        !current.data.allowedActions.includes('INITIALIZE')
+      )
+        throw new Error('Initialization is not available in the current setup state.');
+      if (
+        (operation === 'approve' || operation === 'reject') &&
+        (current.data.publication?.code !== status?.publication?.code ||
+          current.data.publication?.revision !== status?.publication?.revision ||
+          current.data.publication?.workflowRef !== status?.publication?.workflowRef)
+      )
+        throw new Error(
+          'Publication changed. Refresh its review before taking action.',
+        );
       if (operation === 'approve' || operation === 'reject') {
         if (!processConnection || !status?.publication?.workflowRef) {
           throw new Error(
@@ -846,24 +1037,13 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
           enterpriseCode: props.runtime.enterpriseCode,
           timeoutMs: props.runtime.requestTimeoutMs,
         };
-        let workflowRef = status.publication.workflowRef;
-        let tasks = await loadProcessTasks(
+        const workflowRef = status.publication.workflowRef;
+        const tasks = await loadProcessTasks(
           processConnection,
           configuration,
           workflowRef,
         );
-        let task = findActionableProcessApprovalTask(tasks);
-        let reconciliationMessage: string | undefined;
-        if (!task) {
-          const repaired = await client.reconcileApproval({
-            forceRefresh: true,
-            reason: `${profile.title} approval task reconciliation requested from Setup & Accelerators`,
-          });
-          reconciliationMessage = repaired.repair?.message;
-          workflowRef = repaired.publication?.workflowRef ?? workflowRef;
-          tasks = await loadProcessTasks(processConnection, configuration, workflowRef);
-          task = findActionableProcessApprovalTask(tasks);
-        }
+        const task = findActionableProcessApprovalTask(tasks);
         if (!task) {
           throw new Error(
             processApprovalUnavailableMessage({
@@ -871,7 +1051,6 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
               hasProcessConnection: true,
               workflowRef,
               taskCount: tasks.length,
-              reconciliationMessage,
             }),
           );
         }
@@ -932,6 +1111,29 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
       ]);
     },
   });
+  // An operation receipt may not be persisted by the subsequent status GET.
+  // Keep it diagnostic-only; fresh query data remains every mutation's authority.
+  const observedImportFailure = (
+    profileCode: string,
+    status: ApplicationInitializationStatus | undefined,
+  ) => {
+    if (mutation.variables?.profile.code !== profileCode) return undefined;
+    const failure = mutation.data?.preparation?.operationFailure;
+    if (!failure) return undefined;
+    const steps = status?.preparation?.steps ?? [];
+    const confirmed =
+      failure.releaseCodes.length > 0 &&
+      failure.releaseCodes.every((code) =>
+        steps.some(
+          (step) =>
+            step.code === code &&
+            step.targetServer === failure.targetServer &&
+            step.targetRuntimeRole === failure.targetRuntimeRole &&
+            step.status === 'CURRENT',
+        ),
+      );
+    return confirmed ? undefined : failure;
+  };
   type AcceleratorStatusQuery = (typeof queries)[number];
   const statuses = profiles
     .map((profile, index) => {
@@ -958,7 +1160,14 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
   ).length;
   const recoveryGuidance = statuses
     .filter((item) => !item.query.isPending && !item.query.error)
-    .map((item) => publicationRecoveryGuidance(item.profile, item.query.data))
+    .map((item) =>
+      publicationRecoveryGuidance(
+        item.profile,
+        item.query.data,
+        props.bootstrap,
+        observedImportFailure(item.profile.code, item.query.data),
+      ),
+    )
     .filter((item) => item.severity !== 'success')
     .sort((left, right) => left.priority - right.priority)
     .slice(0, 4);
@@ -1197,6 +1406,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                       <Button
                         color={guidance.severity === 'error' ? 'warning' : 'primary'}
                         onClick={() => void navigate(guidance.route)}
+                        disabled={!guidance.route}
                         size="small"
                         sx={{
                           alignSelf: { sm: 'center' },
@@ -1253,30 +1463,56 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                     <Stack divider={<Divider flexItem />} spacing={0}>
                       {group.items.map(({ profile, query }) => {
                         const status = query.data;
-                        const guidance = publicationRecoveryGuidance(profile, status);
+                        const guidance = publicationRecoveryGuidance(
+                          profile,
+                          status,
+                          props.bootstrap,
+                          observedImportFailure(profile.code, status),
+                        );
                         const pending =
                           mutation.isPending &&
                           mutation.variables?.profile.code === profile.code;
+                        const commandsDisabled =
+                          mutation.isPending || query.isFetching || query.isError;
+                        const refreshDisabled =
+                          mutation.isPending ||
+                          query.isFetching ||
+                          Date.now() <
+                            applicationReadinessCooldownUntil(
+                              query.data,
+                              query.error,
+                              query.dataUpdatedAt,
+                            );
                         const expanded = expandedProfile === profile.code;
                         const canInitialize =
-                          Boolean(
-                            status?.allowedActions.includes('INITIALIZE') ||
-                            preparationNeedsAction(status),
-                          ) &&
+                          Boolean(status?.allowedActions.includes('INITIALIZE')) &&
                           !preparationBlocked(status) &&
                           status?.releaseStatus !== 'INVALID_RELEASE' &&
                           status?.readiness !== 'IMPORTING' &&
+                          status?.preparation?.status !== 'RUNNING' &&
+                          status?.capability?.businessStatus !== 'PREPARING' &&
                           status?.readiness !== 'PUBLICATION_PENDING';
                         const rowMutationError =
                           mutation.error instanceof Error &&
                           mutation.variables?.profile.code === profile.code &&
-                          !suppressStaleOperationError(status, mutation.error.message)
+                          !(
+                            query.dataUpdatedAt >
+                              (mutation.context?.statusUpdatedAt ?? Infinity) &&
+                            operationConfirmed(
+                              status,
+                              mutation.variables?.status,
+                              mutation.variables?.operation,
+                            )
+                          )
                             ? mutation.error.message
                             : undefined;
                         const approvalActionsVisible = Boolean(
                           status && canApprove(status),
                         );
                         const executableRepair = firstExecutableRepair(status);
+                        const readinessRefresh = status?.capability?.blockers.find(
+                          supportsReadinessRefresh,
+                        );
                         const executableRepairOperation =
                           supportedRepairOperation(executableRepair);
                         const lifecycleActionCount = [
@@ -1371,7 +1607,9 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                     sx={{ maxWidth: 480 }}
                                     variant="body2"
                                   >
-                                    {nextActionText(status)}
+                                    {guidance.key.endsWith(':import-failed')
+                                      ? 'Review import history'
+                                      : nextActionText(status)}
                                   </Typography>
                                   <Stack
                                     direction="row"
@@ -1419,12 +1657,30 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                   width: { xs: '100%', md: 'auto' },
                                 }}
                               >
-                                {status &&
-                                executableRepair &&
-                                executableRepairOperation ? (
+                                {guidance.key.endsWith(':import-failed') ? (
+                                  <Button
+                                    disabled={!guidance.route}
+                                    onClick={() => void navigate(guidance.route)}
+                                    startIcon={<ShellIcon name="history" />}
+                                    variant="contained"
+                                  >
+                                    Review import history
+                                  </Button>
+                                ) : readinessRefresh ? (
+                                  <Button
+                                    disabled={refreshDisabled}
+                                    onClick={() => void query.refetch()}
+                                    startIcon={<ShellIcon name="refresh" />}
+                                    variant="contained"
+                                  >
+                                    {readinessRefresh.repair?.label}
+                                  </Button>
+                                ) : status &&
+                                  executableRepair &&
+                                  executableRepairOperation ? (
                                   <Button
                                     color="warning"
-                                    disabled={pending}
+                                    disabled={commandsDisabled}
                                     onClick={() =>
                                       executableRepair.repair?.requiresConfirmation
                                         ? setRepairConfirmation({
@@ -1460,7 +1716,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                   </Button>
                                 ) : status && canInitialize ? (
                                   <Button
-                                    disabled={pending}
+                                    disabled={commandsDisabled}
                                     onClick={() =>
                                       mutation.mutate({
                                         operation: 'initiate',
@@ -1484,7 +1740,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                   </Button>
                                 ) : status && preparationBlocked(status) ? (
                                   <Button
-                                    disabled={pending}
+                                    disabled={commandsDisabled}
                                     onClick={() => void navigate('/registry')}
                                     size="small"
                                     sx={{
@@ -1509,7 +1765,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                 )}
                                 {approvalActionsVisible && status ? (
                                   <Button
-                                    disabled={pending}
+                                    disabled={commandsDisabled}
                                     onClick={() =>
                                       mutation.mutate({
                                         operation: 'approve',
@@ -1547,7 +1803,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                 {approvalActionsVisible && status ? (
                                   <Button
                                     color="warning"
-                                    disabled={pending}
+                                    disabled={commandsDisabled}
                                     onClick={() =>
                                       mutation.mutate({
                                         operation: 'reject',
@@ -1582,7 +1838,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                 {status?.allowedActions.includes('ROLLBACK') ? (
                                   <Button
                                     color="warning"
-                                    disabled={pending}
+                                    disabled={commandsDisabled}
                                     onClick={() => {
                                       setDestructiveReason(
                                         `${profile.title} rollback requested after Online evidence review.`,
@@ -1608,7 +1864,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                 {status?.allowedActions.includes('RETIRE') ? (
                                   <Button
                                     color="warning"
-                                    disabled={pending}
+                                    disabled={commandsDisabled}
                                     onClick={() => {
                                       setDestructiveReason(
                                         `${profile.title} retirement requested after Online evidence review.`,
@@ -1632,7 +1888,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                   </Button>
                                 ) : null}
                                 <RowIconAction
-                                  disabled={pending}
+                                  disabled={refreshDisabled}
                                   label={`Refresh ${profile.title} status`}
                                   name="refresh"
                                   onClick={() => void query.refetch()}
@@ -1645,7 +1901,6 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                     <IconButton
                                       aria-expanded={expanded}
                                       aria-label={`${expanded ? 'Hide' : 'Show'} ${profile.title} details`}
-                                      disabled={pending}
                                       onClick={() =>
                                         setExpandedProfile(
                                           expanded ? undefined : profile.code,
@@ -1671,6 +1926,16 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                             {rowMutationError ? (
                               <Alert severity="error" sx={{ mt: 1.5 }}>
                                 {profileErrorMessage(profile, rowMutationError)}
+                              </Alert>
+                            ) : null}
+                            {expanded && !status ? (
+                              <Alert
+                                severity={query.isError ? 'error' : 'info'}
+                                sx={{ mt: 1.5 }}
+                              >
+                                {query.isError
+                                  ? 'Dependency details are unavailable because the owning status read failed. Refresh status to inspect the prerequisites.'
+                                  : 'Dependency details are loading.'}
                               </Alert>
                             ) : null}
                             {expanded && status ? (
@@ -1748,6 +2013,47 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                       ))}
                                     </Stack>
                                   </Box>
+                                  {status.preparation?.operationFailure ? (
+                                    <Alert severity="error">
+                                      {status.preparation.operationFailure.message} (
+                                      {status.preparation.operationFailure.failureCode})
+                                      ·{' '}
+                                      {status.preparation.operationFailure.targetServer}{' '}
+                                      /{' '}
+                                      {
+                                        status.preparation.operationFailure
+                                          .targetRuntimeRole
+                                      }
+                                    </Alert>
+                                  ) : null}
+                                  {status.preparation?.groupReceipts?.map(
+                                    (group, index) => (
+                                      <Box
+                                        key={`${group.targetServer}:${group.dataType}:${index}`}
+                                      >
+                                        <Typography variant="body2">
+                                          {group.targetServer} /{' '}
+                                          {group.targetRuntimeRole} · {group.dataType} ·{' '}
+                                          {group.status}
+                                        </Typography>
+                                        {group.releases.map((receipt, index) => (
+                                          <Typography
+                                            key={index}
+                                            variant="caption"
+                                            sx={{ display: 'block' }}
+                                          >
+                                            {receipt.releaseCode} · {receipt.status} ·
+                                            Version {receipt.version ?? 'Unavailable'} ·
+                                            Installed{' '}
+                                            {receipt.installedVersion ?? 'Unavailable'}
+                                            {receipt.lastRunId
+                                              ? ` · Historical run reference: ${receipt.lastRunId} (not proof of this attempt)`
+                                              : ' · Current run evidence unavailable'}
+                                          </Typography>
+                                        ))}
+                                      </Box>
+                                    ),
+                                  )}
                                   {status.preparation?.steps.length ? (
                                     <Box>
                                       <Typography
@@ -1869,11 +2175,47 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                     <CapabilityReadinessPanel
                                       readiness={status.capability}
                                       actionSlot={(blocker) =>
-                                        supportedRepairOperation(blocker) ? (
+                                        supportsReadinessRefresh(blocker) ? (
+                                          <Button
+                                            disabled={refreshDisabled}
+                                            onClick={() => void query.refetch()}
+                                            startIcon={<ShellIcon name="refresh" />}
+                                            size="small"
+                                          >
+                                            {blocker.repair?.label}
+                                          </Button>
+                                        ) : blocker.repair?.action ===
+                                          'REVIEW_MEDIA_PUBLICATION' ? (
+                                          blocker.repair.available &&
+                                          resolveMediaPublicationHandoff(
+                                            props.bootstrap,
+                                            blocker.mediaDependency,
+                                          ) ? (
+                                            <Button
+                                              size="small"
+                                              startIcon={<ShellIcon name="media" />}
+                                              onClick={() => {
+                                                const route =
+                                                  resolveMediaPublicationHandoff(
+                                                    props.bootstrap,
+                                                    blocker.mediaDependency,
+                                                  );
+                                                if (route) void navigate(route);
+                                              }}
+                                            >
+                                              {blocker.mediaDependency?.handoff?.label}
+                                            </Button>
+                                          ) : (
+                                            <Button size="small" disabled>
+                                              {blocker.repair.unavailableReason ??
+                                                blocker.repair.label}
+                                            </Button>
+                                          )
+                                        ) : supportedRepairOperation(blocker) ? (
                                           <Box sx={{ mt: 1 }}>
                                             <Button
                                               color="warning"
-                                              disabled={pending}
+                                              disabled={commandsDisabled}
                                               onClick={() => {
                                                 const operation =
                                                   supportedRepairOperation(blocker);

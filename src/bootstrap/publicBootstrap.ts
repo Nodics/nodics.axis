@@ -1,5 +1,9 @@
 import { parseApplicationSetupPlan } from '../operations/setupAccelerators/api/applicationSetupPlan';
 import {
+  parseEnterpriseSetupDescriptor,
+  type EnterpriseSetupDescriptor,
+} from '../operations/enterprise/api/enterpriseSetupDescriptor';
+import {
   parseApplicationVisual,
   type ApplicationVisual,
 } from '../operations/setupAccelerators/api/applicationVisual';
@@ -190,13 +194,33 @@ export interface AxisBackendWorkspaceEndpoint {
   readonly method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   readonly path: string;
   readonly resultPath?: string | undefined;
+  readonly bodyShape?: 'FIELDS' | 'MODEL' | undefined;
+  readonly idempotencyField?: string | undefined;
 }
 
 export interface AxisBackendWorkspaceSection {
+  readonly rowNavigation?:
+    | Readonly<{
+        label: string;
+        route: string;
+        parameters: Readonly<Record<string, string>>;
+      }>
+    | undefined;
+  readonly readSource?:
+    | Readonly<{
+        endpoint: AxisBackendWorkspaceEndpoint;
+        parameter: string;
+        fields: Readonly<Record<string, string>>;
+        commandId: string;
+        unavailableMessage: string;
+        unavailableMessagePath?: string | undefined;
+      }>
+    | undefined;
   readonly id: string;
   readonly type: 'listing' | 'form';
   readonly title: string;
   readonly submitLabel?: string | undefined;
+  readonly successMessage?: string | undefined;
   readonly public?: boolean | undefined;
   readonly endpoint: AxisBackendWorkspaceEndpoint;
   readonly columns?: readonly AxisBackendWorkspaceColumn[] | undefined;
@@ -212,6 +236,13 @@ export interface AxisBackendWorkspaceTab {
 }
 
 export interface AxisBackendWorkspace {
+  readonly setupContinuation?: EnterpriseSetupDescriptor | undefined;
+  readonly ownerSelector?:
+    | Readonly<{
+        runtimeRoleCode?: string;
+        publicationRole?: string;
+      }>
+    | undefined;
   readonly workspaceCode?: string | undefined;
   readonly viewCode?: string | undefined;
   readonly contractVersion: number;
@@ -508,6 +539,7 @@ export function selectModuleConnection(
   bootstrap: AxisAuthenticatedBootstrap,
   moduleName: string,
   selector?: Readonly<{
+    instanceId?: string;
     server?: string;
     environment?: string;
     publicationRole?: string;
@@ -516,6 +548,7 @@ export function selectModuleConnection(
 ): AxisModuleConnection | undefined {
   const connections = (bootstrap.moduleConnections[moduleName] ?? []).filter(
     (connection) =>
+      (!selector?.instanceId || connection.instanceId === selector.instanceId) &&
       (!selector?.server || connection.server === selector.server) &&
       (!selector?.environment || connection.environment === selector.environment) &&
       (!selector?.publicationRole ||
@@ -739,7 +772,29 @@ function backendWorkspaceEndpoint(
   if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
     throw new Error(`${name} method is unsupported`);
   }
+  if (
+    source.bodyShape !== undefined &&
+    source.bodyShape !== 'FIELDS' &&
+    source.bodyShape !== 'MODEL'
+  ) {
+    throw new Error(`${name} body shape is unsupported`);
+  }
+  const idempotencyField = optionalText(
+    source.idempotencyField,
+    `${name} idempotency field`,
+  );
+  if (
+    idempotencyField !== undefined &&
+    !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(idempotencyField)
+  ) {
+    throw new Error(`${name} idempotency field is invalid`);
+  }
+  if (source.bodyShape === 'MODEL' && (method === 'GET' || !idempotencyField)) {
+    throw new Error(`${name} model command needs an idempotency field`);
+  }
   return Object.freeze({
+    bodyShape: source.bodyShape,
+    idempotencyField,
     method: method as AxisBackendWorkspaceEndpoint['method'],
     path: relativeRoute(source.path, `${name} path`),
     resultPath: optionalText(source.resultPath, `${name} result path`),
@@ -755,11 +810,175 @@ function backendWorkspaceSection(
   if (!['listing', 'form'].includes(type)) {
     throw new Error(`${name} type is unsupported`);
   }
+  const mapping = (value: unknown, label: string) => {
+    const parsed = record(value, label);
+    if (!Object.keys(parsed).length || Object.keys(parsed).length > 8)
+      throw new Error(`${label} is invalid`);
+    return Object.freeze(
+      Object.fromEntries(
+        Object.entries(parsed).map(([key, value]) => {
+          if (
+            !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(key) ||
+            typeof value !== 'string' ||
+            !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(value)
+          )
+            throw new Error(`${label} is invalid`);
+          return [key, value];
+        }),
+      ),
+    );
+  };
+  let rowNavigation: AxisBackendWorkspaceSection['rowNavigation'];
+  if (source.rowNavigation !== undefined) {
+    if (type !== 'listing') throw new Error('Row navigation requires a listing');
+    const action = record(source.rowNavigation, 'Workspace row navigation');
+    if (
+      Object.keys(action).some((key) => !['label', 'route', 'parameters'].includes(key))
+    )
+      throw new Error('Workspace row navigation is invalid');
+    const route = relativeRoute(action.route, 'Workspace row route');
+    if (route.length > 512 || !/^\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/.test(route))
+      throw new Error('Workspace row route is invalid');
+    const parameters = mapping(action.parameters, 'Row navigation parameters');
+    if (
+      Object.values(parameters).some(
+        (field) =>
+          !Array.isArray(source.columns) ||
+          !source.columns.some(
+            (column: unknown) =>
+              typeof column === 'object' &&
+              column !== null &&
+              (column as Record<string, unknown>).field === field,
+          ),
+      )
+    )
+      throw new Error('Row navigation requires declared columns');
+    const label = text(action.label, 'Row navigation label');
+    if (label.length > 128) throw new Error('Row navigation label is invalid');
+    rowNavigation = Object.freeze({
+      label,
+      route,
+      parameters,
+    });
+  }
+  let readSource: AxisBackendWorkspaceSection['readSource'];
+  if (source.readSource !== undefined) {
+    if (type !== 'form' || source.public === true)
+      throw new Error('Read source requires a private form');
+    const read = record(source.readSource, 'Workspace read source');
+    if (
+      Object.keys(read).some(
+        (key) =>
+          ![
+            'endpoint',
+            'parameter',
+            'fields',
+            'commandId',
+            'unavailableMessage',
+            'unavailableMessagePath',
+          ].includes(key),
+      )
+    )
+      throw new Error('Workspace read source is invalid');
+    const readEndpoint = record(read.endpoint, 'Workspace read endpoint');
+    if (
+      Object.keys(readEndpoint).some(
+        (key) => !['method', 'path', 'resultPath'].includes(key),
+      )
+    )
+      throw new Error('Read endpoint is invalid');
+    const endpoint = backendWorkspaceEndpoint(read.endpoint, 'Workspace read source');
+    const parameter = text(read.parameter, 'Read source parameter');
+    if (
+      endpoint.method !== 'GET' ||
+      !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(parameter) ||
+      !endpoint.path.includes(`{${parameter}}`)
+    )
+      throw new Error('Workspace read source must be a parameterized GET');
+    const segments = endpoint.path.split('/').slice(1);
+    if (
+      endpoint.path.length > 512 ||
+      segments.filter((segment) => segment === `{${parameter}}`).length !== 1 ||
+      segments.some(
+        (segment) => segment !== `{${parameter}}` && !/^[A-Za-z0-9_-]+$/.test(segment),
+      ) ||
+      (endpoint.resultPath !== undefined &&
+        (endpoint.resultPath.length > 256 ||
+          !/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*$/.test(
+            endpoint.resultPath,
+          )))
+    )
+      throw new Error('Read endpoint is invalid');
+    const write = backendWorkspaceEndpoint(source.endpoint, 'Workspace write endpoint');
+    const prefix = /^\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/v[0-9]+\//;
+    if (
+      write.method !== 'POST' ||
+      (write.bodyShape !== undefined && write.bodyShape !== 'FIELDS') ||
+      !/^\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/.test(write.path) ||
+      !endpoint.path.match(prefix) ||
+      endpoint.path.match(prefix)?.[0] !== write.path.match(prefix)?.[0]
+    )
+      throw new Error('Read source must share its fixed POST owner');
+    const mappedFields = mapping(read.fields, 'Read source fields');
+    if (
+      !Object.hasOwn(mappedFields, parameter) ||
+      Object.keys(mappedFields).some(
+        (name) =>
+          !Array.isArray(source.fields) ||
+          source.fields.filter(
+            (field: unknown) =>
+              typeof field === 'object' &&
+              field !== null &&
+              (field as Record<string, unknown>).name === name &&
+              (field as Record<string, unknown>).type === 'TEXT' &&
+              (field as Record<string, unknown>).required === true &&
+              (field as Record<string, unknown>).bindToPath !== true,
+          ).length !== 1,
+      )
+    )
+      throw new Error('Read source requires unique required TEXT fields');
+    const commandId = text(read.commandId, 'Read source command');
+    const unavailableMessage = text(
+      read.unavailableMessage,
+      'Read source unavailable message',
+    );
+    const unavailableMessagePath = optionalText(
+      read.unavailableMessagePath,
+      'Read source unavailable message path',
+    );
+    if (
+      unavailableMessagePath !== undefined &&
+      (unavailableMessagePath.length > 256 ||
+        !/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*$/.test(
+          unavailableMessagePath,
+        ) ||
+        unavailableMessagePath
+          .split('.')
+          .some((part) => ['constructor', 'prototype', '__proto__'].includes(part)))
+    )
+      throw new Error('Read source presentation is invalid');
+    if (
+      !/^[A-Za-z][A-Za-z0-9._-]{0,127}$/.test(commandId) ||
+      unavailableMessage.length > 512
+    )
+      throw new Error('Read source presentation is invalid');
+    readSource = Object.freeze({
+      endpoint,
+      parameter,
+      fields: mappedFields,
+      commandId,
+      unavailableMessage,
+      unavailableMessagePath,
+    });
+  }
   return Object.freeze({
+    rowNavigation,
+    readSource,
     id: text(source.id, `${name} id`),
     type: type as AxisBackendWorkspaceSection['type'],
     title: text(source.title, `${name} title`),
     submitLabel: optionalText(source.submitLabel, `${name} submit label`),
+    successMessage: optionalText(source.successMessage, `${name} success message`),
     public: optionalBoolean(source.public, `${name} public`),
     endpoint: backendWorkspaceEndpoint(source.endpoint, `${name} endpoint`),
     columns:
@@ -793,11 +1012,35 @@ function backendWorkspaceSection(
   });
 }
 
+/** Inert owner-role constraints; unavailable matches never fall back to another runtime. */
+function workspaceOwnerSelector(value: unknown): AxisBackendWorkspace['ownerSelector'] {
+  if (value === undefined) return undefined;
+  const source = record(value, 'Workspace owner selector');
+  if (
+    !Object.keys(source).length ||
+    Object.keys(source).some(
+      (key) => !['runtimeRoleCode', 'publicationRole'].includes(key),
+    )
+  )
+    throw new Error('Workspace owner selector is invalid');
+  const parsed: { runtimeRoleCode?: string; publicationRole?: string } = {};
+  for (const key of ['runtimeRoleCode', 'publicationRole'] as const) {
+    if (source[key] === undefined) continue;
+    const code = text(source[key], 'Workspace owner role');
+    if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(code))
+      throw new Error('Workspace owner role is invalid');
+    parsed[key] = code;
+  }
+  if (!Object.keys(parsed).length) throw new Error('Workspace owner selector is empty');
+  return Object.freeze(parsed);
+}
+
 export function parseBackendWorkspace(
   value: unknown,
   name = 'Backend workspace',
 ): AxisBackendWorkspace {
   const source = record(value, name);
+  const ownerSelector = workspaceOwnerSelector(source.ownerSelector);
   if (source.renderer === 'axis.workspace.native') {
     if (
       source.contractVersion !== 1 ||
@@ -810,6 +1053,7 @@ export function parseBackendWorkspace(
             'renderer',
             'workspaceCode',
             'viewCode',
+            'ownerSelector',
           ].includes(key),
       )
     )
@@ -827,6 +1071,7 @@ export function parseBackendWorkspace(
       contractVersion: 1,
       renderer: source.renderer,
       workspaceCode,
+      ownerSelector,
       viewCode,
       title: text(source.title, `${name} title`),
       description: optionalText(source.description, `${name} description`),
@@ -839,6 +1084,11 @@ export function parseBackendWorkspace(
     description: optionalText(source.description, `${name} description`),
     renderer: text(source.renderer, `${name} renderer`),
     defaultTab: optionalText(source.defaultTab, `${name} default tab`),
+    ownerSelector,
+    setupContinuation:
+      source.setupContinuation === undefined
+        ? undefined
+        : parseEnterpriseSetupDescriptor(source.setupContinuation),
     tabs: Object.freeze(
       array(source.tabs, `${name} tabs`).map((tab, index) => {
         const parsed = record(tab, `${name} tab ${String(index)}`);
@@ -2042,6 +2292,26 @@ export function parsePublicBootstrap(
   });
 }
 
+/** Transient public discovery outage; never used for authentication or writes. */
+export class PublicBootstrapUnavailableError extends Error {}
+
+/** Transient authenticated GET outage only; credential denial and malformed contracts remain permanent. */
+export class AuthenticatedBootstrapUnavailableError extends Error {
+  readonly retryAfterMs: number;
+  constructor(message: string, retryAfter: string | null = null, now = Date.now()) {
+    super(message);
+    const delay =
+      retryAfter && /^\d+$/.test(retryAfter)
+        ? Number(retryAfter) * 1000
+        : retryAfter
+          ? Date.parse(retryAfter) - now
+          : 0;
+    this.retryAfterMs = Number.isFinite(delay)
+      ? Math.min(300_000, Math.max(0, delay))
+      : 30_000;
+  }
+}
+
 export async function loadPublicBootstrap(
   backofficeBaseUrl: string,
   clientContractVersion: number,
@@ -2062,16 +2332,25 @@ export async function loadPublicBootstrap(
       credentials: 'omit',
       redirect: 'error',
       signal: controller.signal,
+    }).catch(() => {
+      throw new PublicBootstrapUnavailableError(
+        'Axis could not connect to the server.',
+      );
     });
     if (!response.ok) {
-      throw new Error(
+      const Failure = [408, 429, 502, 503, 504].includes(response.status)
+        ? PublicBootstrapUnavailableError
+        : Error;
+      throw new Failure(
         `BackOffice public bootstrap returned HTTP ${String(response.status)}`,
       );
     }
     return parsePublicBootstrap(await response.json(), clientContractVersion);
   } catch (error: unknown) {
     if (controller.signal.aborted) {
-      throw new Error('BackOffice public bootstrap timed out');
+      throw new PublicBootstrapUnavailableError(
+        'BackOffice public bootstrap timed out',
+      );
     }
     throw error instanceof Error
       ? error
@@ -2492,8 +2771,18 @@ export async function loadAuthenticatedBootstrap(
         redirect: 'error',
         signal: controller.signal,
       },
-    );
+    ).catch(() => {
+      throw new AuthenticatedBootstrapUnavailableError(
+        'BackOffice availability is temporarily unavailable.',
+      );
+    });
     if (!response.ok) {
+      if ([408, 429, 502, 503, 504].includes(response.status))
+        throw new AuthenticatedBootstrapUnavailableError(
+          'BackOffice availability is temporarily unavailable.',
+          response.headers.get('Retry-After') ??
+            (response.status === 429 ? '30' : null),
+        );
       throw new Error(
         response.status === 403
           ? 'This employee is not authorized to use Nodics Axis.'

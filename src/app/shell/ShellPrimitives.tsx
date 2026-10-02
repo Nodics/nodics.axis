@@ -46,6 +46,7 @@ export function WorkspaceContainer({ children }: PropsWithChildren) {
       data-axis-layout-boundary="workspace"
       sx={{
         display: 'grid',
+        gridTemplateColumns: 'minmax(0, 1fr)',
         gap: workspaceComponentGap,
         m: 0,
         minWidth: 0,

@@ -1,4 +1,12 @@
 import type { AxisModuleConnection } from '../../../bootstrap/publicBootstrap';
+import {
+  parseMediaPublicationDependency,
+  type MediaPublicationDependency,
+} from '../../readiness/mediaPublicationHandoff';
+import {
+  parseImportHistoryHandoff,
+  type ImportHistoryHandoff,
+} from '../../importExport/importHistoryHandoff';
 import { parseApplicationVisual, type ApplicationVisual } from './applicationVisual';
 import {
   parseApplicationSetupPlan,
@@ -10,6 +18,7 @@ export type ApplicationInitializationReadiness =
   | 'IMPORTING'
   | 'IMPORTED'
   | 'PUBLICATION_PENDING'
+  | 'MEDIA_DEPENDENCIES_PENDING'
   | 'BLOCKED'
   | 'READY'
   | 'REJECTED'
@@ -59,6 +68,7 @@ export interface ApplicationInitializationProfile {
 }
 
 export interface ApplicationPreparationStep {
+  readonly releaseReceipt?: ApplicationReleaseReceipt | undefined;
   readonly order: number;
   readonly type: string;
   readonly code: string;
@@ -78,6 +88,35 @@ export interface ApplicationPreparationStep {
   readonly runtimeDiagnostic?: ApplicationRuntimeDiagnostic | undefined;
 }
 
+/** Content-free owner installation evidence. lastRunId is historical, not proof of this attempt. */
+export interface ApplicationReleaseReceipt {
+  readonly releaseCode?: string | undefined;
+  readonly status?: string | undefined;
+  readonly version?: string | undefined;
+  readonly installedVersion?: string | undefined;
+  readonly lastRunId?: string | undefined;
+}
+export interface ApplicationPreparationGroupReceipt {
+  readonly targetServer: string;
+  readonly targetRuntimeRole: string;
+  readonly dataType: string;
+  readonly releaseCodes: readonly string[];
+  readonly status: string;
+  readonly failureCode?: string | undefined;
+  readonly releases: readonly ApplicationReleaseReceipt[];
+}
+export interface ApplicationPreparationFailure {
+  readonly historyHandoff?: ImportHistoryHandoff | undefined;
+  readonly owner: 'import';
+  readonly targetServer: string;
+  readonly targetRuntimeRole: string;
+  readonly dataType: string;
+  readonly releaseCodes: readonly string[];
+  readonly failureCode: string;
+  readonly message: string;
+  readonly automaticRetry: false;
+}
+
 export interface ApplicationInitializationStatus {
   readonly profileCode: string;
   readonly type: string;
@@ -93,6 +132,8 @@ export interface ApplicationInitializationStatus {
   readonly preparation?: Readonly<{
     readonly status: string;
     readonly steps: readonly ApplicationPreparationStep[];
+    readonly groupReceipts?: readonly ApplicationPreparationGroupReceipt[] | undefined;
+    readonly operationFailure?: ApplicationPreparationFailure | undefined;
   }>;
   readonly preparationOperation?: ApplicationPreparationOperationEvidence | undefined;
   readonly publication?: Readonly<{
@@ -211,6 +252,8 @@ export interface ApplicationCapabilityPublicationSummary {
 }
 
 export interface ApplicationCapabilityBlocker {
+  readonly mediaDependency?: MediaPublicationDependency | undefined;
+  readonly releaseReceipt?: ApplicationReleaseReceipt | undefined;
   readonly blockerCode?: string | undefined;
   readonly code: string;
   readonly severity: string;
@@ -241,6 +284,7 @@ export interface ApplicationRuntimeDiagnostic {
 }
 
 export interface ApplicationCapabilityRepairAction {
+  readonly handoff?: ImportHistoryHandoff;
   readonly available: boolean;
   readonly label: string;
   readonly operation: string;
@@ -324,6 +368,92 @@ function optionalText(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
+/** Accepts only safe scalar receipt evidence; never carries raw errors or import records. */
+function receiptIdentifier(value: unknown): string {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_.:-]{1,192}$/.test(value))
+    throw new Error('Application import receipt is incompatible');
+  return value;
+}
+function receiptCodes(value: unknown): readonly string[] {
+  if (!Array.isArray(value) || value.length > 256)
+    throw new Error('Application import receipt is incompatible');
+  return Object.freeze(value.map(receiptIdentifier));
+}
+function parseReleaseReceipt(value: unknown): ApplicationReleaseReceipt | undefined {
+  if (value === undefined) return undefined;
+  const source = record(value, 'Application release receipt');
+  return Object.freeze(
+    Object.fromEntries(
+      ['releaseCode', 'status', 'version', 'installedVersion', 'lastRunId']
+        .filter((key) => source[key] !== undefined)
+        .map((key) => [key, receiptIdentifier(source[key])]),
+    ),
+  );
+}
+function parseGroupReceipts(
+  value: unknown,
+): readonly ApplicationPreparationGroupReceipt[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 256)
+    throw new Error('Application import receipt is incompatible');
+  return Object.freeze(
+    value.map((item) => {
+      const source = record(item, 'Application import group receipt');
+      if (
+        !['COMPLETE', 'UNCONFIRMED', 'FAILED', 'NOT_ATTEMPTED'].includes(
+          String(source.status),
+        ) ||
+        !Array.isArray(source.releases) ||
+        source.releases.length > 256
+      )
+        throw new Error('Application import receipt is incompatible');
+      return Object.freeze({
+        targetServer: receiptIdentifier(source.targetServer),
+        targetRuntimeRole: receiptIdentifier(source.targetRuntimeRole),
+        dataType: receiptIdentifier(source.dataType),
+        releaseCodes: receiptCodes(source.releaseCodes),
+        status: String(source.status),
+        ...(source.failureCode !== undefined
+          ? { failureCode: receiptIdentifier(source.failureCode) }
+          : {}),
+        releases: Object.freeze(
+          source.releases.map((item) => parseReleaseReceipt(item)!),
+        ),
+      });
+    }),
+  );
+}
+function parsePreparationFailure(
+  value: unknown,
+): ApplicationPreparationFailure | undefined {
+  if (value === undefined) return undefined;
+  const source = record(value, 'Application import failure');
+  if (
+    source.owner !== 'import' ||
+    source.automaticRetry !== false ||
+    typeof source.message !== 'string' ||
+    !source.message.trim() ||
+    source.message.length > 512 ||
+    Array.from(source.message).some(
+      (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+    )
+  )
+    throw new Error('Application import failure is incompatible');
+  return Object.freeze({
+    owner: 'import',
+    targetServer: receiptIdentifier(source.targetServer),
+    targetRuntimeRole: receiptIdentifier(source.targetRuntimeRole),
+    dataType: receiptIdentifier(source.dataType),
+    releaseCodes: receiptCodes(source.releaseCodes),
+    failureCode: receiptIdentifier(source.failureCode),
+    message: source.message,
+    automaticRetry: false,
+    ...(source.historyHandoff !== undefined
+      ? { historyHandoff: parseImportHistoryHandoff(source.historyHandoff) }
+      : {}),
+  });
+}
+
 function optionalRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -375,13 +505,27 @@ function parseCapabilityRepairAction(
 ): ApplicationCapabilityRepairAction | undefined {
   if (value === undefined) return undefined;
   const repair = record(value, 'Capability blocker repair');
+  const handoff =
+    repair.action === 'REVIEW_IMPORT_HISTORY'
+      ? parseImportHistoryHandoff(repair.handoff)
+      : undefined;
+  if (handoff?.available && repair.route !== handoff.route)
+    throw new Error('Import history repair route is incompatible');
+  // Unavailable owner diagnostics need no command. Empty here represents absence,
+  // as for the existing read-only history handoff; never invent an operation.
+  const diagnosticOnly = repair.available === false && repair.operation === undefined;
   return Object.freeze({
     available: booleanValue(repair.available, false),
     label: text(repair.label, 'Capability blocker repair label'),
-    operation: text(repair.operation, 'Capability blocker repair operation'),
+    operation:
+      diagnosticOnly ||
+      (repair.action === 'REVIEW_IMPORT_HISTORY' && repair.operation === undefined)
+        ? ''
+        : text(repair.operation, 'Capability blocker repair operation'),
     action: text(repair.action, 'Capability blocker repair action'),
     idempotent: booleanValue(repair.idempotent, false),
     requiresConfirmation: booleanValue(repair.requiresConfirmation, true),
+    ...(handoff ? { handoff } : {}),
     ...(optionalText(repair.owner) ? { owner: optionalText(repair.owner) } : {}),
     ...(optionalText(repair.targetServer)
       ? { targetServer: optionalText(repair.targetServer) }
@@ -664,6 +808,20 @@ async function safeError(response: Response): Promise<string> {
   return `Application initialization returned HTTP ${String(response.status)}`;
 }
 
+/** A status GET throttle carries scheduling evidence only, never mutation retry authority. */
+export class ApplicationReadinessThrottleError extends Error {
+  readonly retryAt: number;
+
+  constructor(message: string, retryAfter: string | null, now = Date.now()) {
+    super(message);
+    const seconds = retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) : NaN;
+    const parsedDate = retryAfter ? Date.parse(retryAfter) : NaN;
+    const delay = Number.isFinite(seconds) ? seconds * 1_000 : parsedDate - now;
+    this.retryAt =
+      now + Math.min(300_000, Math.max(5_000, Number.isFinite(delay) ? delay : 30_000));
+  }
+}
+
 function parseProfile(value: unknown): ApplicationInitializationProfile {
   const data = record(value, 'Application initialization profile');
   const parseStep = (item: unknown): ApplicationPreparationStep => {
@@ -791,6 +949,7 @@ function parse(value: unknown): ApplicationInitializationStatus {
       'IMPORTING',
       'IMPORTED',
       'PUBLICATION_PENDING',
+      'MEDIA_DEPENDENCIES_PENDING',
       'BLOCKED',
       'READY',
       'REJECTED',
@@ -832,6 +991,9 @@ function parse(value: unknown): ApplicationInitializationStatus {
           const step = record(item, 'Application preparation step');
           return Object.freeze({
             order: Number(step.order ?? 1000),
+            ...(step.releaseReceipt !== undefined
+              ? { releaseReceipt: parseReleaseReceipt(step.releaseReceipt) }
+              : {}),
             type: text(step.type, 'Application preparation step type'),
             code: text(step.code, 'Application preparation step code'),
             kind: text(step.kind, 'Application preparation step kind'),
@@ -882,6 +1044,16 @@ function parse(value: unknown): ApplicationInitializationStatus {
           preparation: Object.freeze({
             status: text(preparation.status, 'Application preparation status'),
             steps: Object.freeze(preparationSteps),
+            ...(preparation.groupReceipts !== undefined
+              ? { groupReceipts: parseGroupReceipts(preparation.groupReceipts) }
+              : {}),
+            ...(preparation.operationFailure !== undefined
+              ? {
+                  operationFailure: parsePreparationFailure(
+                    preparation.operationFailure,
+                  ),
+                }
+              : {}),
           }),
         }
       : {}),
@@ -1010,7 +1182,34 @@ function parse(value: unknown): ApplicationInitializationStatus {
               Array.isArray(capability.blockers)
                 ? capability.blockers.map((item) => {
                     const blocker = record(item, 'Capability blocker');
+                    const mediaDependency = parseMediaPublicationDependency(
+                      blocker.mediaDependency,
+                    );
+                    if (mediaDependency && blocker.repair !== undefined) {
+                      const repair = record(blocker.repair, 'Media dependency repair');
+                      if (
+                        repair.action === 'REVIEW_MEDIA_PUBLICATION' &&
+                        repair.available === true &&
+                        (repair.route !== mediaDependency.handoff?.route ||
+                          JSON.stringify(
+                            parseMediaPublicationDependency({
+                              ...mediaDependency,
+                              owner: 'media',
+                              handoff: repair.handoff,
+                            }),
+                          ) !== JSON.stringify(mediaDependency))
+                      )
+                        throw new Error(
+                          'Media dependency repair handoff is incompatible',
+                        );
+                    }
                     return Object.freeze({
+                      ...(mediaDependency ? { mediaDependency } : {}),
+                      ...(blocker.releaseReceipt !== undefined
+                        ? {
+                            releaseReceipt: parseReleaseReceipt(blocker.releaseReceipt),
+                          }
+                        : {}),
                       ...(optionalText(blocker.blockerCode)
                         ? { blockerCode: optionalText(blocker.blockerCode) }
                         : {}),
@@ -1123,6 +1322,11 @@ async function invoke(
         : {}),
     });
     if (!response.ok) {
+      if (method === 'GET' && response.status === 429)
+        throw new ApplicationReadinessThrottleError(
+          await safeError(response),
+          response.headers.get('Retry-After'),
+        );
       throw new Error(await safeError(response));
     }
     return parse(await response.json());

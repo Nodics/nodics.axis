@@ -90,23 +90,32 @@ export function RuntimeConfigurationRoutePage(
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
-  const configuration = useMemo(
-    () => ({
-      bootstrap: props.bootstrap,
-      accessToken: props.accessToken,
-      enterpriseCode: props.runtime.enterpriseCode,
-      timeoutMs: props.runtime.requestTimeoutMs,
-      ownerSelector: { runtimeRoleCode: 'PLATFORM' },
-    }),
-    [
-      props.accessToken,
-      props.bootstrap,
-      props.runtime.enterpriseCode,
-      props.runtime.requestTimeoutMs,
-    ],
+  const targets = (props.bootstrap.moduleConnections.system ?? []).filter(
+    (connection) => ['UP', 'DEGRADED'].includes(connection.state),
   );
+  const [targetId, setTargetId] = useState<string>();
+  const target = targetId
+    ? targets.find((connection) => connection.instanceId === targetId)
+    : (targets.find((connection) => connection.runtimeRole?.code === 'PLATFORM') ??
+      targets[0]);
+  const targetKey = target
+    ? [target.instanceId, target.endpoint].join(':')
+    : 'unavailable';
+  const configuration = {
+    bootstrap: props.bootstrap,
+    accessToken: props.accessToken,
+    enterpriseCode: props.runtime.enterpriseCode,
+    timeoutMs: props.runtime.requestTimeoutMs,
+    ownerSelector: { instanceId: target?.instanceId ?? 'unavailable' },
+  };
   const schemas = useQuery({
-    queryKey: ['runtime-configuration-schemas', props.runtime.enterpriseCode],
+    enabled: Boolean(target),
+    retry: false,
+    queryKey: [
+      'runtime-configuration-schemas',
+      props.runtime.enterpriseCode,
+      targetKey,
+    ],
     queryFn: () => loadRuntimeConfigurationSchemas(configuration),
   });
   const selectedSchema = useMemo(() => {
@@ -114,10 +123,12 @@ export function RuntimeConfigurationRoutePage(
     return items.find((schema) => schema.code === selectedCode) ?? items[0];
   }, [schemas.data, selectedCode]);
   const effective = useQuery({
-    enabled: Boolean(selectedSchema),
+    enabled: Boolean(target && selectedSchema && !schemas.isError),
+    retry: false,
     queryKey: [
       'runtime-configuration-effective',
       props.runtime.enterpriseCode,
+      targetKey,
       selectedSchema?.code,
     ],
     queryFn: () => {
@@ -154,8 +165,34 @@ export function RuntimeConfigurationRoutePage(
     () => updatePayload(selectedSchema, draft),
     [draft, selectedSchema],
   );
+  const requiresSecrets =
+    selectedSchema?.fields.some((field) => field.sensitive) === true;
+  const secretProofs = [
+    selectedSchema?.secretPersistence,
+    effective.data?.secretPersistence,
+  ];
+  const secretBlocked =
+    secretProofs.some((proof) => proof?.required === true && proof.ready !== true) ||
+    (requiresSecrets && secretProofs.some((proof) => proof?.ready !== true));
+  const readBlocked =
+    !target ||
+    schemas.isFetching ||
+    schemas.isError ||
+    !effective.data ||
+    effective.isFetching ||
+    effective.isError ||
+    secretBlocked;
   const validate = useMutation({
+    retry: false,
     mutationFn: async () => {
+      if (readBlocked)
+        throw new Error('Runtime configuration prerequisites are not ready');
+      if (
+        selectedSchema?.fields.some((field) => field.sensitive && field.code in payload)
+      )
+        throw new Error(
+          'Secret replacements use the governed save operation, not public validation',
+        );
       if (!selectedSchema) throw new Error('Select a configuration schema');
       return validateRuntimeConfigurationUpdate(
         configuration,
@@ -173,7 +210,10 @@ export function RuntimeConfigurationRoutePage(
     },
   });
   const save = useMutation({
+    retry: false,
     mutationFn: async () => {
+      if (readBlocked)
+        throw new Error('Runtime configuration prerequisites are not ready');
       if (!selectedSchema) throw new Error('Select a configuration schema');
       return saveRuntimeConfigurationUpdate(
         configuration,
@@ -189,6 +229,7 @@ export function RuntimeConfigurationRoutePage(
         queryKey: [
           'runtime-configuration-effective',
           props.runtime.enterpriseCode,
+          targetKey,
           selectedSchema?.code,
         ],
       });
@@ -202,6 +243,10 @@ export function RuntimeConfigurationRoutePage(
     (value) => value.configured,
   ).length;
   const hasDraft = Object.keys(payload).length > 0;
+  const commandsDisabled = readBlocked || validate.isPending || save.isPending;
+  const hasSecretDraft = selectedSchema?.fields.some(
+    (field) => field.sensitive && field.code in payload,
+  );
 
   return (
     <WorkspaceContainer>
@@ -211,6 +256,55 @@ export function RuntimeConfigurationRoutePage(
         help={props.navigation.help}
       />
       <Stack spacing={2.5}>
+        <TextField
+          select
+          label="Runtime target"
+          value={target?.instanceId ?? ''}
+          disabled={validate.isPending || save.isPending}
+          onChange={(event) => {
+            setTargetId(event.target.value);
+            setSelectedCode(undefined);
+            setDraft({});
+            setNotice('');
+            setError('');
+          }}
+        >
+          {targets.map((connection) => (
+            <MenuItem key={connection.instanceId} value={connection.instanceId}>
+              {connection.runtimeRole?.code ??
+                connection.server ??
+                connection.instanceId}{' '}
+              / {connection.instanceId}
+            </MenuItem>
+          ))}
+        </TextField>
+        {!target && (
+          <Alert severity="warning">
+            No authorized runtime configuration target is available.
+          </Alert>
+        )}
+        {secretBlocked && (
+          <Alert severity="warning">
+            {secretProofs.some((proof) => proof?.reason === 'ENCRYPTION_KEY_REQUIRED')
+              ? 'Configure the selected runtime encryption key through its deployment configuration before entering or saving secrets. Refresh readiness after the prerequisite is installed.'
+              : 'Secret persistence readiness has not been confirmed by the selected runtime. Refresh readiness before entering or saving secrets.'}
+          </Alert>
+        )}
+        <Button
+          disabled={
+            !target ||
+            schemas.isFetching ||
+            effective.isFetching ||
+            validate.isPending ||
+            save.isPending
+          }
+          onClick={() => {
+            void schemas.refetch();
+            if (selectedSchema) void effective.refetch();
+          }}
+        >
+          Refresh readiness
+        </Button>
         {(schemas.isError || effective.isError || error) && (
           <Alert severity="error">
             {error ||
@@ -257,6 +351,7 @@ export function RuntimeConfigurationRoutePage(
             <List disablePadding sx={{ maxHeight: 560, overflow: 'auto' }}>
               {filteredSchemas.map((schema) => (
                 <ListItemButton
+                  disabled={validate.isPending || save.isPending}
                   key={schema.code}
                   selected={schema.code === selectedSchema?.code}
                   onClick={() => {
@@ -381,6 +476,7 @@ export function RuntimeConfigurationRoutePage(
                           )}
                         </Box>
                         <TextField
+                          disabled={commandsDisabled}
                           label="New value"
                           type={fieldInputType(field)}
                           value={draft[field.code] ?? ''}
@@ -408,14 +504,14 @@ export function RuntimeConfigurationRoutePage(
                 <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
                   <Button
                     variant="outlined"
-                    disabled={!hasDraft || validate.isPending || save.isPending}
+                    disabled={!hasDraft || commandsDisabled || hasSecretDraft}
                     onClick={() => validate.mutate()}
                   >
                     Validate
                   </Button>
                   <Button
                     variant="contained"
-                    disabled={!hasDraft || validate.isPending || save.isPending}
+                    disabled={!hasDraft || commandsDisabled}
                     onClick={() => save.mutate()}
                   >
                     Save

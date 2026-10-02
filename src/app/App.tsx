@@ -1,25 +1,53 @@
+import {
+  readEnterpriseContext,
+  rememberEnterpriseContext,
+  clearEnterpriseContext,
+  registrationSignInContext,
+  enterpriseContextCode,
+} from '../auth/enterpriseSessionContext';
 import { wasteOverviewAliases } from '../operations/wasteManagement/wasteOverviewAliases';
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router';
 import { useQueries, useQueryClient, type Query } from '@tanstack/react-query';
+import { Alert, Button, Stack } from '@mui/material';
 
 import {
   authenticateEmployee,
   logoutEmployee,
   restoreEmployeeSession,
+  switchEmployeeEnterprise,
   type EmployeeSession,
 } from '../auth/employeeAuthClient';
+import { subscribeEmployeeSessionExpired } from '../auth/employeeSessionEvents';
 import {
   loadAuthenticatedBootstrap,
   loadPublicBootstrap,
+  PublicBootstrapUnavailableError,
   selectModuleConnection,
   type AxisAuthenticatedBootstrap,
   type AxisEmployeePolicy,
   type AxisNavigationItem,
   type AxisPublicBootstrap,
 } from '../bootstrap/publicBootstrap';
+import {
+  NavigationAvailabilityRecoveryContext,
+  hasUnavailableBootstrap,
+  hasUnavailableNavigation,
+  useNavigationAvailabilityRecovery,
+} from '../bootstrap/useNavigationAvailabilityRecovery';
 import { AssistantRoutePage } from '../assistant/AssistantRoutePage';
 import { WorkbenchRoutePage } from '../workbench/WorkbenchRoutePage';
+import {
+  EnterpriseCreationCheckpoint,
+  enterpriseCreationReturnPath,
+} from '../operations/enterprise/enterpriseCreationCheckpoint';
 import { DocumentationRoutePage } from '../documentation/DocumentationRoutePage';
 import {
   createDocumentationPublicationClient,
@@ -57,12 +85,21 @@ import { WasteManagementRoutePage } from '../operations/wasteManagement/WasteMan
 import { RulesManagementRoutePage } from '../operations/rulesManagement/RulesManagementRoutePage';
 import { RuntimeConfigurationRoutePage } from '../operations/runtimeConfiguration/RuntimeConfigurationRoutePage';
 import { EnterpriseRelationshipsRoutePage } from '../operations/enterprise/EnterpriseRelationshipsRoutePage';
+import { EnterpriseTeamRoutePage } from '../operations/enterprise/EnterpriseTeamRoutePage';
+import { EnterpriseRecoveryRoutePage } from '../operations/enterprise/EnterpriseRecoveryRoutePage';
+import { CustomerParticipationRoutePage } from '../operations/enterprise/CustomerParticipationRoutePage';
+import { ApplicationRecoveryRoutePage } from '../operations/enterprise/ApplicationRecoveryRoutePage';
+import { EnterpriseAdministrationRoutePage } from '../operations/enterprise/EnterpriseAdministrationRoutePage';
+import { OrderNotificationRoutePage } from '../operations/notifications/OrderNotificationRoutePage';
+import { EnterpriseMembershipRoutePage } from '../operations/enterprise/EnterpriseMembershipRoutePage';
+import type { EnterpriseMembership } from '../operations/enterprise/api/enterpriseMembershipClient';
 import { useIdleScreenLock } from '../auth/useIdleScreenLock';
 import { AxisInitializationWorkspace } from '../initialization/AxisInitializationWorkspace';
 import { BundledLoginPage } from '../initialization/BundledLoginPage';
 import {
   initiateAxisInitialization,
   loadAxisInitializationStatus,
+  AxisInitializationUnavailableError,
   type AxisInitializationStatus,
 } from '../initialization/axisInitializationClient';
 import {
@@ -80,12 +117,16 @@ import {
   AxisLocalizationBoundary,
   useAxisLocalizationController,
 } from '../localization/AxisLocalizationContext';
-import { useRuntimeConfig } from '../runtime/RuntimeConfigContext';
+import {
+  RuntimeConfigContext,
+  useRuntimeConfig,
+} from '../runtime/RuntimeConfigContext';
 import {
   BackendOperationsWorkspaceRoutePage,
   PublicBackendOperationsWorkspaceRoutePage,
 } from './BackendOperationsWorkspaceRoutePage';
 import { CmsRoutePage } from './CmsRoutePage';
+import { EmployeeRegistrationRoutePage } from '../operations/enterprise/registration/EmployeeRegistrationRoutePage';
 import { LoadingScreen } from './LoadingScreen';
 import { ModuleWorkspacePlaceholder } from './ModuleWorkspacePlaceholder';
 import { RecoveryScreen } from './RecoveryScreen';
@@ -173,6 +214,24 @@ function safeReturnPath(value: string | null | undefined): string | undefined {
   return value;
 }
 
+/** Retains only an inert pathname across transient initialization reads; destination admission remains authoritative. */
+function initializationReturnPath(state: unknown): string | undefined {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) return undefined;
+  const path = (state as Record<string, unknown>).axisInitializationReturnPath;
+  if (
+    typeof path !== 'string' ||
+    path.length > 512 ||
+    !/^\/[A-Za-z0-9_~./-]+$/.test(path) ||
+    path.includes('//') ||
+    path.split('/').some((segment) => segment === '.' || segment === '..') ||
+    path === '/' ||
+    path === axisInitializationRoute ||
+    path.startsWith(`${axisInitializationRoute}/`)
+  )
+    return undefined;
+  return safeReturnPath(path);
+}
+
 function resolveCurrentNavigation(
   navigation: readonly AxisNavigationItem[] | undefined,
   pathname: string,
@@ -225,14 +284,34 @@ function isOrderLifecycleNavigation(item: AxisNavigationItem | undefined): boole
 }
 
 export function App() {
-  const runtime = useRuntimeConfig();
+  const baseRuntime = useRuntimeConfig();
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
   const [attempt, setAttempt] = useState(0);
   const [bootstrap, setBootstrap] = useState<AxisPublicBootstrap>();
   const [bootstrapError, setBootstrapError] = useState<string>();
+  const [discoveryReconnecting, setDiscoveryReconnecting] = useState(false);
+  const publicDiscoveryInFlight = useRef<Promise<AxisPublicBootstrap> | undefined>(
+    undefined,
+  );
   const [session, setSession] = useState<EmployeeSession>();
+  const [enterpriseCreationCheckpoint] = useState(
+    () => new EnterpriseCreationCheckpoint(),
+  );
+  const sessionInvalidated = useRef(false);
+  const admittedSession = useRef<EmployeeSession | undefined>(undefined);
+  const availabilityReadSequence = useRef(0);
+  const updateSession = useCallback(
+    (value: EmployeeSession | undefined, preserveCreationCheckpoint = false) => {
+      if (!preserveCreationCheckpoint) enterpriseCreationCheckpoint.clear();
+      if (value) sessionInvalidated.current = false;
+      admittedSession.current = value;
+      availabilityReadSequence.current += 1;
+      setSession(value);
+    },
+    [enterpriseCreationCheckpoint],
+  );
   const [authenticatedBootstrap, setAuthenticatedBootstrap] =
     useState<AxisAuthenticatedBootstrap>();
   const [employeePolicy, setEmployeePolicy] = useState<AxisEmployeePolicy>();
@@ -243,29 +322,84 @@ export function App() {
     useState<AxisInitializationStatus>();
   const [initializationError, setInitializationError] = useState<string>();
   const [initializationBusy, setInitializationBusy] = useState(false);
+  const initializationReadSequence = useRef(0);
+  const initializationRecoveryDeadline = useRef<number | undefined>(undefined);
+  const [initializationRecoveryAttempt, setInitializationRecoveryAttempt] = useState(0);
+  const [initializationStatusUnavailable, setInitializationStatusUnavailable] =
+    useState(false);
   const [restoringSession, setRestoringSession] = useState(true);
+  const [switchingContext, setSwitchingContext] = useState(false);
+  const contextTransition = useRef(false);
+  const lifetime = useRef({ active: true });
+  useEffect(() => {
+    const state = lifetime.current;
+    state.active = true;
+    return () => {
+      state.active = false;
+    };
+  }, []);
+  // Routing context never changes project endpoints or constitutes a grant.
+  const selectedEnterprise =
+    session?.enterpriseCode ??
+    registrationSignInContext(location.pathname, location.state) ??
+    readEnterpriseContext(baseRuntime.backofficeBaseUrl) ??
+    baseRuntime.enterpriseCode;
+  const runtime = useMemo(
+    () =>
+      selectedEnterprise === baseRuntime.enterpriseCode
+        ? baseRuntime
+        : { ...baseRuntime, enterpriseCode: selectedEnterprise },
+    [baseRuntime, selectedEnterprise],
+  );
   const localization = useAxisLocalizationController(bootstrap, runtime);
-  const currentRoutePath = `${location.pathname}${location.search}${location.hash}`;
+  const currentRoutePath = sessionInvalidated.current
+    ? location.pathname
+    : `${location.pathname}${location.search}${location.hash}`;
 
   useEffect(() => {
     let active = true;
-    void loadPublicBootstrap(
-      runtime.backofficeBaseUrl,
-      runtime.clientContractVersion,
-      runtime.requestTimeoutMs,
-    )
-      .then((value) => {
-        if (active) setBootstrap(value);
-      })
-      .catch((error: unknown) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = Date.now() + (runtime.publicDiscoveryRetryWindowMs ?? 300_000);
+    const discover = async (retryIndex: number) => {
+      // A manual retry or effect replacement waits for any outstanding GET.
+      await publicDiscoveryInFlight.current?.catch(() => undefined);
+      if (!active) return;
+      const request = loadPublicBootstrap(
+        runtime.backofficeBaseUrl,
+        runtime.clientContractVersion,
+        runtime.requestTimeoutMs,
+      );
+      publicDiscoveryInFlight.current = request;
+      try {
+        const value = await request;
         if (active) {
-          setBootstrapError(
-            error instanceof Error ? error.message : 'BackOffice discovery failed',
-          );
+          setBootstrap(value);
+          setBootstrapError(undefined);
+          setDiscoveryReconnecting(false);
         }
-      });
+      } catch (failure: unknown) {
+        if (!active) return;
+        setBootstrapError(
+          failure instanceof Error ? failure.message : 'BackOffice discovery failed',
+        );
+        const delay = Math.min(1000 * 2 ** Math.min(retryIndex, 4), 10_000);
+        const shouldRetry =
+          failure instanceof PublicBootstrapUnavailableError &&
+          Date.now() + delay <= deadline;
+        setDiscoveryReconnecting(shouldRetry);
+        if (shouldRetry)
+          timer = setTimeout(() => {
+            void discover(retryIndex + 1);
+          }, delay);
+      } finally {
+        if (publicDiscoveryInFlight.current === request)
+          publicDiscoveryInFlight.current = undefined;
+      }
+    };
+    void discover(0);
     return () => {
       active = false;
+      if (timer !== undefined) clearTimeout(timer);
     };
   }, [attempt, runtime]);
 
@@ -286,7 +420,9 @@ export function App() {
           runtime.requestTimeoutMs,
         );
         if (!active) return;
-        setSession(nextSession);
+        queryClient.clear();
+        rememberEnterpriseContext(runtime.backofficeBaseUrl, runtime.enterpriseCode);
+        updateSession(nextSession);
         setAuthenticatedBootstrap(employeeBootstrap);
         setEmployeePolicy(employeeBootstrap.axisPolicy);
         const persistedLock = restoreScreenLock();
@@ -300,7 +436,8 @@ export function App() {
       })
       .catch(() => {
         if (active) {
-          setSession(undefined);
+          queryClient.clear();
+          updateSession(undefined);
           setAuthenticatedBootstrap(undefined);
           setEmployeePolicy(undefined);
         }
@@ -318,21 +455,37 @@ export function App() {
     navigate,
     restoringSession,
     runtime,
+    queryClient,
+    updateSession,
   ]);
 
   const lockScreen = useCallback(() => {
     if (!session || locked) return;
+    availabilityReadSequence.current += 1;
     const returnPath = ['/login', '/forgot-password', '/lock-screen'].includes(
       location.pathname,
     )
       ? axisDashboardRoute
-      : location.pathname;
+      : enterpriseCreationReturnPath(
+          location.pathname,
+          location.search,
+          authenticatedBootstrap?.navigation.find(
+            (item) => item.moduleName === 'profile' && item.route === location.pathname,
+          )?.backendWorkspace,
+        );
     setLockedReturnPath(returnPath);
     persistScreenLock(returnPath);
     setAuthenticationError(undefined);
     setLocked(true);
     void navigate('/lock-screen', { replace: true });
-  }, [location.pathname, locked, navigate, session]);
+  }, [
+    location.pathname,
+    location.search,
+    authenticatedBootstrap,
+    locked,
+    navigate,
+    session,
+  ]);
 
   useIdleScreenLock(
     Boolean(session) && !locked && employeePolicy?.screenLockEnabled === true,
@@ -342,12 +495,21 @@ export function App() {
 
   const refreshAuthenticatedBootstrap = useCallback(async () => {
     if (!session || locked) return;
+    const originalSession = session;
+    const sequence = ++availabilityReadSequence.current;
     const employeeBootstrap = await loadAuthenticatedBootstrap(
       runtime.backofficeBaseUrl,
       runtime.clientContractVersion,
       session.accessToken,
       runtime.requestTimeoutMs,
     );
+    if (
+      !lifetime.current.active ||
+      contextTransition.current ||
+      admittedSession.current !== originalSession ||
+      sequence !== availabilityReadSequence.current
+    )
+      return;
     setAuthenticatedBootstrap(employeeBootstrap);
     setEmployeePolicy(employeeBootstrap.axisPolicy);
   }, [locked, runtime, session]);
@@ -366,28 +528,58 @@ export function App() {
     [queryClient, refreshAuthenticatedBootstrap, runtime.enterpriseCode],
   );
 
-  const refreshInitialization = useCallback(async () => {
-    if (!session) return;
-    setInitializationBusy(true);
-    setInitializationError(undefined);
-    try {
-      setInitializationStatus(
-        await loadAxisInitializationStatus(
+  const refreshInitialization = useCallback(
+    async (background = false) => {
+      if (!session) return;
+      const sequence = ++initializationReadSequence.current;
+      if (!background) {
+        setInitializationBusy(true);
+        setInitializationError(undefined);
+      }
+      try {
+        const status = await loadAxisInitializationStatus(
           runtime.backofficeBaseUrl,
           session.accessToken,
           runtime.requestTimeoutMs,
-        ),
-      );
-    } catch (error: unknown) {
-      setInitializationError(
-        error instanceof Error ? error.message : 'Axis initialization status failed',
-      );
-    } finally {
-      setInitializationBusy(false);
-    }
-  }, [runtime, session]);
+        );
+        if (sequence !== initializationReadSequence.current) return;
+        setInitializationStatus(status);
+        setInitializationStatusUnavailable(false);
+        if (initializationRecoveryDeadline.current !== undefined)
+          setInitializationError(undefined);
+        initializationRecoveryDeadline.current = undefined;
+        setInitializationRecoveryAttempt(0);
+        if (status.readiness === 'READY') {
+          setInitializationError(undefined);
+          await refreshAuthenticatedBootstrap();
+        }
+      } catch (error: unknown) {
+        if (sequence !== initializationReadSequence.current) return;
+        setInitializationStatusUnavailable(true);
+        const transient = error instanceof AxisInitializationUnavailableError;
+        if (transient && initializationRecoveryDeadline.current === undefined)
+          initializationRecoveryDeadline.current =
+            Date.now() + (runtime.publicDiscoveryRetryWindowMs ?? 300_000);
+        const recovering =
+          transient &&
+          Date.now() + 5_000 <= (initializationRecoveryDeadline.current ?? 0);
+        setInitializationRecoveryAttempt((current) => (recovering ? current + 1 : 0));
+        setInitializationError(
+          recovering
+            ? 'Setup services are still connecting. Status will refresh automatically.'
+            : error instanceof Error
+              ? error.message
+              : 'Axis initialization status failed',
+        );
+      } finally {
+        if (!background) setInitializationBusy(false);
+      }
+    },
+    [runtime, session, refreshAuthenticatedBootstrap],
+  );
 
   const approveInitialization = useCallback(async () => {
+    if (initializationBusy || initializationStatusUnavailable) return;
     const workflowRef = initializationStatus?.publication?.workflowRef;
     if (!session) {
       setInitializationError('Sign in again before approving the Axis baseline.');
@@ -403,6 +595,7 @@ export function App() {
       );
       return;
     }
+    initializationReadSequence.current += 1;
     setInitializationBusy(true);
     setInitializationError(undefined);
     try {
@@ -430,26 +623,14 @@ export function App() {
         enterpriseCode: runtime.enterpriseCode,
         timeoutMs: runtime.requestTimeoutMs,
       };
-      let tasks = await loadProcessTasks(processConnection, configuration, workflowRef);
-      let task = tasks.find((item) =>
+      const tasks = await loadProcessTasks(
+        processConnection,
+        configuration,
+        workflowRef,
+      );
+      const task = tasks.find((item) =>
         ['OPEN', 'CLAIMED', 'ESCALATED'].includes(item.status),
       );
-      if (!task) {
-        const replayed = await initiateAxisInitialization(
-          runtime.backofficeBaseUrl,
-          session.accessToken,
-          runtime.requestTimeoutMs,
-        );
-        const replayedWorkflowRef = replayed.publication?.workflowRef ?? workflowRef;
-        tasks = await loadProcessTasks(
-          processConnection,
-          configuration,
-          replayedWorkflowRef,
-        );
-        task = tasks.find((item) =>
-          ['OPEN', 'CLAIMED', 'ESCALATED'].includes(item.status),
-        );
-      }
       if (!task) {
         throw new Error(
           processApprovalUnavailableMessage({
@@ -472,17 +653,54 @@ export function App() {
     } finally {
       setInitializationBusy(false);
     }
-  }, [initializationStatus, refreshInitialization, runtime, session]);
+  }, [
+    initializationStatus,
+    initializationBusy,
+    initializationStatusUnavailable,
+    refreshInitialization,
+    runtime,
+    session,
+  ]);
 
   const hasAuthenticatedBootstrap = Boolean(authenticatedBootstrap);
   useEffect(() => {
     if (!session || !hasAuthenticatedBootstrap) {
+      initializationReadSequence.current += 1;
       setInitializationStatus(undefined);
       setInitializationError(undefined);
+      setInitializationStatusUnavailable(false);
       return;
     }
     void refreshInitialization();
   }, [hasAuthenticatedBootstrap, refreshInitialization, session]);
+
+  // Only transient status reads recover automatically; writes and approvals never retry.
+  useEffect(() => {
+    if (
+      !session ||
+      locked ||
+      initializationBusy ||
+      (initializationStatusUnavailable && initializationRecoveryAttempt === 0) ||
+      (initializationRecoveryAttempt === 0 &&
+        !['IMPORTING', 'PUBLICATION_PENDING'].includes(
+          initializationStatus?.readiness ?? '',
+        ))
+    )
+      return;
+    const timer = window.setTimeout(
+      () => void refreshInitialization(true),
+      initializationRecoveryAttempt > 0 ? 5_000 : 2_000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [
+    session,
+    locked,
+    initializationBusy,
+    initializationStatusUnavailable,
+    initializationRecoveryAttempt,
+    initializationStatus,
+    refreshInitialization,
+  ]);
 
   const documentationAdministrationConnection = authenticatedBootstrap
     ? selectModuleConnection(authenticatedBootstrap, 'backoffice')
@@ -560,10 +778,109 @@ export function App() {
     return Object.freeze([...baseNavigation, ...sourceItems]);
   }, [authenticatedBootstrap, onlineDocumentationProfiles]);
 
+  useEffect(
+    () =>
+      subscribeEmployeeSessionExpired((identity) => {
+        const current = admittedSession.current;
+        if (
+          !current ||
+          current.accessToken !== identity.accessToken ||
+          current.generation !== identity.generation ||
+          contextTransition.current
+        )
+          return;
+        initializationReadSequence.current += 1;
+        sessionInvalidated.current = true;
+        updateSession(undefined);
+        setAuthenticatedBootstrap(undefined);
+        setEmployeePolicy(undefined);
+        setInitializationStatus(undefined);
+        setInitializationError(undefined);
+        setInitializationStatusUnavailable(false);
+        setRestoringSession(false);
+        setLocked(false);
+        clearScreenLock();
+        void queryClient.cancelQueries();
+        queryClient.clear();
+        setAuthenticationError('Your session has expired. Sign in again.');
+        const returnPath = safeReturnPath(location.pathname);
+        const signIn = bootstrap?.uiComposition.defaultPublicPage ?? '/login';
+        void navigate(
+          returnPath ? `${signIn}?returnTo=${encodeURIComponent(returnPath)}` : signIn,
+          {
+            replace: true,
+            state: {
+              registrationSignIn: {
+                enterpriseCode: current.enterpriseCode ?? runtime.enterpriseCode,
+              },
+            },
+          },
+        );
+      }),
+    [
+      session,
+      queryClient,
+      location.pathname,
+      navigate,
+      bootstrap,
+      runtime.enterpriseCode,
+      updateSession,
+    ],
+  );
+
+  const currentNavigation = resolveCurrentNavigation(
+    authenticatedBootstrap?.navigation,
+    location.pathname,
+  );
+  const loadNavigationAvailability = useCallback(
+    async (signal: AbortSignal) => {
+      if (!session || locked || contextTransition.current) return undefined;
+      const originalSession = session;
+      const sequence = ++availabilityReadSequence.current;
+      const next = await loadAuthenticatedBootstrap(
+        runtime.backofficeBaseUrl,
+        runtime.clientContractVersion,
+        session.accessToken,
+        runtime.requestTimeoutMs,
+      );
+      if (
+        signal.aborted ||
+        !lifetime.current.active ||
+        contextTransition.current ||
+        admittedSession.current !== originalSession ||
+        sequence !== availabilityReadSequence.current
+      )
+        return undefined;
+      setAuthenticatedBootstrap(next);
+      setEmployeePolicy(next.axisPolicy);
+      return next;
+    },
+    [session, locked, runtime],
+  );
+  const navigationAvailabilityRecovery = useNavigationAvailabilityRecovery({
+    item: currentNavigation,
+    bootstrap: authenticatedBootstrap,
+    enabled:
+      Boolean(bootstrap && session) &&
+      !bootstrapError &&
+      !restoringSession &&
+      !locked &&
+      !switchingContext &&
+      initializationStatus?.readiness === 'READY',
+    scopeKey: `${session?.generation ?? 0}:${runtime.backofficeBaseUrl}:${runtime.enterpriseCode}`,
+    retryWindowMs: runtime.publicDiscoveryRetryWindowMs ?? 300_000,
+    load: loadNavigationAvailability,
+  });
+
   if (bootstrapError) {
     return (
       <RecoveryScreen
-        state={{ kind: 'backoffice', detail: bootstrapError, retryable: true }}
+        state={{
+          kind: 'backoffice',
+          detail: bootstrapError,
+          retryable: true,
+          reconnecting: discoveryReconnecting,
+        }}
         onRetry={() => {
           setBootstrap(undefined);
           setBootstrapError(undefined);
@@ -572,7 +889,7 @@ export function App() {
       />
     );
   }
-  if (!bootstrap || restoringSession) return <LoadingScreen />;
+  if (!bootstrap || restoringSession || switchingContext) return <LoadingScreen />;
 
   const composition = bootstrap.uiComposition;
   const assistantNavigation = authenticatedBootstrap?.navigation.find(
@@ -631,10 +948,6 @@ export function App() {
     authenticatedBootstrap?.navigation.find(
       (item) => item.route === '/publishing' && item.group?.id === 'publishing',
     ) ?? cmsWorkbenchNavigation;
-  const currentNavigation = resolveCurrentNavigation(
-    authenticatedBootstrap?.navigation,
-    location.pathname,
-  );
   const currentWorkbenchNavigation =
     resolveCurrentWorkbenchNavigation(
       authenticatedBootstrap?.navigation,
@@ -654,7 +967,7 @@ export function App() {
       authenticationError={authenticationError}
       channel={composition.channel}
       cmsBaseUrl={bootstrap.endpoints.cms}
-      enterpriseCode={runtime.enterpriseCode}
+      enterpriseCode={accessToken ? runtime.enterpriseCode : baseRuntime.enterpriseCode}
       locale={composition.locale}
       onLogout={onLogout}
       path={path}
@@ -664,7 +977,61 @@ export function App() {
     />
   );
 
+  const switchContext = async (membership: EnterpriseMembership) => {
+    if (!session || contextTransition.current || !membership.accepted) return;
+    contextTransition.current = true;
+    setSwitchingContext(true);
+    const current = session;
+    updateSession(undefined);
+    setAuthenticatedBootstrap(undefined);
+    setEmployeePolicy(undefined);
+    setInitializationStatus(undefined);
+    setInitializationError(undefined);
+    setAuthenticationError(undefined);
+    clearScreenLock();
+    setLocked(false);
+    try {
+      await queryClient.cancelQueries();
+      queryClient.clear();
+      const nextSession = await switchEmployeeEnterprise(
+        bootstrap.endpoints.profile,
+        current,
+        runtime.enterpriseCode,
+        membership,
+        runtime.browserSessionCsrfCookieName,
+        runtime.requestTimeoutMs,
+      );
+      const nextBootstrap = await loadAuthenticatedBootstrap(
+        runtime.backofficeBaseUrl,
+        runtime.clientContractVersion,
+        nextSession.accessToken,
+        runtime.requestTimeoutMs,
+      );
+      if (!lifetime.current.active) return;
+      rememberEnterpriseContext(runtime.backofficeBaseUrl, membership.enterpriseCode);
+      setAuthenticatedBootstrap(nextBootstrap);
+      setEmployeePolicy(nextBootstrap.axisPolicy);
+      updateSession(nextSession);
+      void navigate(composition.defaultAuthenticatedPage, { replace: true });
+    } catch {
+      if (!lifetime.current.active) return;
+      queryClient.clear();
+      clearEnterpriseContext(runtime.backofficeBaseUrl);
+      setAuthenticationError(
+        'Enterprise context could not be confirmed. Sign in again.',
+      );
+      void navigate('/login', {
+        replace: true,
+        state: { registrationSignIn: { enterpriseCode: membership.enterpriseCode } },
+      });
+    } finally {
+      contextTransition.current = false;
+      if (lifetime.current.active) setSwitchingContext(false);
+    }
+  };
+
   const login = async (loginId: string, password: string) => {
+    if (contextTransition.current) return;
     setAuthenticationError(undefined);
     try {
       const nextSession = await authenticateEmployee(
@@ -680,7 +1047,9 @@ export function App() {
         nextSession.accessToken,
         runtime.requestTimeoutMs,
       );
-      setSession(nextSession);
+      rememberEnterpriseContext(runtime.backofficeBaseUrl, runtime.enterpriseCode);
+      queryClient.clear();
+      updateSession(nextSession);
       setAuthenticatedBootstrap(employeeBootstrap);
       setEmployeePolicy(employeeBootstrap.axisPolicy);
       clearScreenLock();
@@ -692,19 +1061,30 @@ export function App() {
         replace: true,
       });
     } catch (error: unknown) {
-      setSession(undefined);
+      updateSession(undefined);
       setAuthenticationError(
         localization.formatError(error, 'Employee authentication failed'),
       );
     }
   };
 
-  const logout = () => {
+  const logout = (requestedEnterpriseCode?: string) => {
+    if (contextTransition.current) return;
+    const signInEnterpriseCode = enterpriseContextCode(requestedEnterpriseCode);
+    const showSignIn = () =>
+      void navigate(signInEnterpriseCode ? '/login' : composition.defaultPublicPage, {
+        replace: true,
+        state: signInEnterpriseCode
+          ? { registrationSignIn: { enterpriseCode: signInEnterpriseCode } }
+          : undefined,
+      });
     const current = session;
     if (!current) {
-      void navigate(composition.defaultPublicPage, { replace: true });
+      showSignIn();
       return;
     }
+    contextTransition.current = true;
+    setSwitchingContext(true);
     setAuthenticationError(undefined);
     void logoutEmployee(
       bootstrap.endpoints.profile,
@@ -713,12 +1093,15 @@ export function App() {
       runtime.requestTimeoutMs,
     )
       .then(() => {
-        setSession(undefined);
+        updateSession(undefined);
         setAuthenticatedBootstrap(undefined);
         setEmployeePolicy(undefined);
+        clearEnterpriseContext(runtime.backofficeBaseUrl);
+        queryClient.clear();
         clearScreenLock();
         setLocked(false);
-        void navigate(composition.defaultPublicPage, { replace: true });
+        // Explicit account-access sign-in retires the old session before routing to the new enterprise.
+        showSignIn();
       })
       .catch(() => {
         setAuthenticationError(
@@ -726,11 +1109,16 @@ export function App() {
         );
         setLocked(true);
         void navigate('/lock-screen', { replace: true });
+      })
+      .finally(() => {
+        contextTransition.current = false;
+        if (lifetime.current.active) setSwitchingContext(false);
       });
   };
 
   const initiateInitialization = async () => {
-    if (!session) return;
+    if (!session || initializationBusy || initializationStatusUnavailable) return;
+    initializationReadSequence.current += 1;
     setInitializationBusy(true);
     setInitializationError(undefined);
     try {
@@ -745,13 +1133,30 @@ export function App() {
       setInitializationError(
         error instanceof Error ? error.message : 'Axis initialization failed',
       );
+      // The write may have committed despite a failed response. Observe once, never replay.
+      try {
+        const status = await loadAxisInitializationStatus(
+          runtime.backofficeBaseUrl,
+          session.accessToken,
+          runtime.requestTimeoutMs,
+        );
+        setInitializationStatus(status);
+        setInitializationStatusUnavailable(false);
+        if (['PUBLICATION_PENDING', 'READY'].includes(status.readiness))
+          setInitializationError(undefined);
+        if (status.readiness === 'READY') await refreshAuthenticatedBootstrap();
+      } catch {
+        setInitializationStatusUnavailable(true);
+      }
     } finally {
       setInitializationBusy(false);
     }
   };
 
   const unlock = async (password: string) => {
-    if (!session) return;
+    if (!session || admittedSession.current !== session || contextTransition.current)
+      return;
+    const originalSession = session;
     setAuthenticationError(undefined);
     try {
       const nextSession = await authenticateEmployee(
@@ -767,32 +1172,77 @@ export function App() {
         nextSession.accessToken,
         runtime.requestTimeoutMs,
       );
-      setSession(nextSession);
+      if (
+        !lifetime.current.active ||
+        admittedSession.current !== originalSession ||
+        contextTransition.current
+      )
+        return;
+      rememberEnterpriseContext(runtime.backofficeBaseUrl, runtime.enterpriseCode);
+      queryClient.clear();
+      updateSession(
+        nextSession,
+        nextSession.loginId === session.loginId &&
+          nextSession.enterpriseCode === session.enterpriseCode &&
+          employeeBootstrap.tenantCode === authenticatedBootstrap?.tenantCode,
+      );
       setAuthenticatedBootstrap(employeeBootstrap);
       setEmployeePolicy(employeeBootstrap.axisPolicy);
       clearScreenLock();
       setLocked(false);
-      void navigate(lockedReturnPath, { replace: true });
     } catch (error: unknown) {
-      setAuthenticationError(localization.formatError(error, 'Employee unlock failed'));
+      if (
+        lifetime.current.active &&
+        admittedSession.current === originalSession &&
+        !contextTransition.current
+      )
+        setAuthenticationError(
+          localization.formatError(error, 'Employee unlock failed'),
+        );
     }
   };
 
   const authenticatedShell = (content: ReactNode) => (
-    <AppShell
-      catalog={composition.catalog}
-      employeeId={session?.loginId}
-      enterpriseCode={runtime.enterpriseCode}
-      environments={authenticatedBootstrap?.environments}
-      tenantCode={authenticatedBootstrap?.tenantCode}
-      navigation={shellNavigation}
-      recentNavigationLimit={authenticatedBootstrap?.axisPolicy.recentNavigationLimit}
-      site={composition.site}
-      onLock={lockScreen}
-      onLogout={logout}
-    >
-      {content}
-    </AppShell>
+    <RuntimeConfigContext.Provider value={runtime}>
+      <AppShell
+        catalog={composition.catalog}
+        employeeId={session?.loginId}
+        enterpriseCode={runtime.enterpriseCode}
+        environments={authenticatedBootstrap?.environments}
+        tenantCode={authenticatedBootstrap?.tenantCode}
+        navigation={shellNavigation}
+        recentNavigationLimit={authenticatedBootstrap?.axisPolicy.recentNavigationLimit}
+        site={composition.site}
+        onLock={lockScreen}
+        onLogout={logout}
+      >
+        <NavigationAvailabilityRecoveryContext.Provider
+          value={navigationAvailabilityRecovery}
+        >
+          {navigationAvailabilityRecovery &&
+          !hasUnavailableNavigation(currentNavigation) &&
+          (hasUnavailableBootstrap(authenticatedBootstrap) ||
+            (navigationAvailabilityRecovery.message &&
+              !navigationAvailabilityRecovery.refreshing)) ? (
+            <Alert
+              severity="info"
+              action={
+                <Button
+                  disabled={navigationAvailabilityRecovery.refreshing}
+                  onClick={navigationAvailabilityRecovery.refresh}
+                >
+                  Refresh availability
+                </Button>
+              }
+            >
+              {navigationAvailabilityRecovery.message ??
+                'Some workspaces are temporarily unavailable.'}
+            </Alert>
+          ) : null}
+          {content}
+        </NavigationAvailabilityRecoveryContext.Provider>
+      </AppShell>
+    </RuntimeConfigContext.Provider>
   );
   const sessionFallback = (
     <Navigate
@@ -847,6 +1297,92 @@ export function App() {
                 navigation={navigationItem}
                 runtime={runtime}
               />
+            ) : navigationItem.moduleName === 'profile' &&
+              navigationItem.backendWorkspace.workspaceCode ===
+                'profile.enterpriseMemberships' &&
+              navigationItem.backendWorkspace.viewCode === 'memberships' &&
+              ['UP', 'DEGRADED'].includes(navigationItem.availability) ? (
+              <EnterpriseMembershipRoutePage
+                key={`${navigationItem.moduleName}:${navigationItem.id}`}
+                accessToken={session.accessToken}
+                bootstrap={authenticatedBootstrap}
+                runtime={runtime}
+                onSwitch={switchContext}
+              />
+            ) : navigationItem.moduleName === 'profile' &&
+              navigationItem.backendWorkspace.workspaceCode ===
+                'profile.enterpriseTeam' &&
+              navigationItem.backendWorkspace.viewCode === 'team' &&
+              ['UP', 'DEGRADED'].includes(navigationItem.availability) ? (
+              <EnterpriseTeamRoutePage
+                key={`${navigationItem.moduleName}:${navigationItem.id}`}
+                accessToken={session.accessToken}
+                bootstrap={authenticatedBootstrap}
+                runtime={runtime}
+              />
+            ) : navigationItem.moduleName === 'profile' &&
+              navigationItem.backendWorkspace.workspaceCode ===
+                'profile.enterpriseRecovery' &&
+              navigationItem.backendWorkspace.viewCode === 'recovery' &&
+              ['UP', 'DEGRADED'].includes(navigationItem.availability) ? (
+              <EnterpriseRecoveryRoutePage
+                key={`${navigationItem.moduleName}:${navigationItem.id}`}
+                accessToken={session.accessToken}
+                bootstrap={authenticatedBootstrap}
+                runtime={runtime}
+                title={navigationItem.label}
+              />
+            ) : navigationItem.moduleName === 'profile' &&
+              navigationItem.backendWorkspace.workspaceCode ===
+                'profile.customerParticipation' &&
+              navigationItem.backendWorkspace.viewCode === 'terms' &&
+              navigationItem.featureState === 'ACTIVE' &&
+              ['UP', 'DEGRADED'].includes(navigationItem.availability) ? (
+              <CustomerParticipationRoutePage
+                key={`${navigationItem.moduleName}:${navigationItem.id}`}
+                accessToken={session.accessToken}
+                bootstrap={authenticatedBootstrap}
+                runtime={runtime}
+              />
+            ) : navigationItem.moduleName === 'profile' &&
+              navigationItem.backendWorkspace.workspaceCode ===
+                'profile.applicationRecovery' &&
+              navigationItem.backendWorkspace.viewCode === 'recovery' &&
+              ['UP', 'DEGRADED'].includes(navigationItem.availability) ? (
+              <ApplicationRecoveryRoutePage
+                key={`${navigationItem.moduleName}:${navigationItem.id}`}
+                accessToken={session.accessToken}
+                bootstrap={authenticatedBootstrap}
+                runtime={runtime}
+                title={navigationItem.label}
+              />
+            ) : navigationItem.moduleName === 'profile' &&
+              navigationItem.backendWorkspace.workspaceCode ===
+                'profile.enterpriseAdministration' &&
+              navigationItem.backendWorkspace.viewCode === 'administration' &&
+              navigationItem.featureState === 'ACTIVE' &&
+              ['UP', 'DEGRADED'].includes(navigationItem.availability) ? (
+              <EnterpriseAdministrationRoutePage
+                key={`${navigationItem.moduleName}:${navigationItem.id}`}
+                accessToken={session.accessToken}
+                bootstrap={authenticatedBootstrap}
+                runtime={runtime}
+                title={navigationItem.backendWorkspace.title || navigationItem.label}
+              />
+            ) : navigationItem.moduleName === 'digitalCore' &&
+              navigationItem.backendWorkspace.workspaceCode ===
+                'commerce.orderNotifications' &&
+              navigationItem.backendWorkspace.viewCode ===
+                'orderNotifications.detail' &&
+              navigationItem.featureState === 'ACTIVE' &&
+              ['UP', 'DEGRADED'].includes(navigationItem.availability) ? (
+              <OrderNotificationRoutePage
+                key={`${navigationItem.moduleName}:${navigationItem.id}`}
+                accessToken={session.accessToken}
+                bootstrap={authenticatedBootstrap}
+                runtime={runtime}
+                title={navigationItem.label}
+              />
             ) : navigationItem.backendWorkspace.workspaceCode === 'rules.policy' &&
               ['UP', 'DEGRADED'].includes(navigationItem.availability) ? (
               <RulesManagementRoutePage
@@ -872,13 +1408,46 @@ export function App() {
           )
         : navigationItem.workbenchTarget
           ? workbenchRouteElement(navigationItem)
-          : navigationItem.backendWorkspace
+          : navigationItem.backendWorkspace &&
+              selectModuleConnection(
+                authenticatedBootstrap,
+                navigationItem.moduleName,
+                navigationItem.backendWorkspace.ownerSelector,
+              )
             ? authenticatedShell(
                 <BackendOperationsWorkspaceRoutePage
+                  key={`${session.generation}:${navigationItem.moduleName}:${navigationItem.id}:${navigationItem.route}`}
+                  enterpriseCreationCheckpoint={{
+                    checkpoint: enterpriseCreationCheckpoint,
+                    scope: JSON.stringify([
+                      runtime.projectCode,
+                      runtime.backofficeBaseUrl,
+                      runtime.enterpriseCode,
+                      authenticatedBootstrap.tenantCode,
+                      session.loginId,
+                      navigationItem.moduleName,
+                      navigationItem.id,
+                      navigationItem.route,
+                    ]),
+                  }}
                   accessToken={session.accessToken}
+                  sessionGeneration={session.generation}
                   enterpriseCode={runtime.enterpriseCode}
                   runtime={runtime}
+                  connection={selectModuleConnection(
+                    authenticatedBootstrap,
+                    navigationItem.moduleName,
+                    navigationItem.backendWorkspace.ownerSelector,
+                  )}
                   workspace={navigationItem.backendWorkspace}
+                  authorizedRoutes={authenticatedBootstrap.navigation
+                    .filter(
+                      (item) =>
+                        Boolean(item.backendWorkspace) &&
+                        item.moduleName === navigationItem.moduleName &&
+                        ['UP', 'DEGRADED'].includes(item.availability),
+                    )
+                    .map((item) => item.route)}
                 />,
               )
             : authenticatedShell(<ModuleWorkspacePlaceholder item={navigationItem} />)
@@ -1282,8 +1851,7 @@ export function App() {
   const processNavigation = currentNavigation?.route.startsWith('/process')
     ? currentNavigation
     : authenticatedBootstrap?.navigation.find(
-        (item) =>
-          item.id === 'process-workflows' && item.moduleName === 'nodics.process',
+        (item) => item.id === 'process-workflows' && item.moduleName === 'workflow',
       );
   const processWorkflowElement =
     session && !locked && authenticatedBootstrap && processNavigation
@@ -1402,9 +1970,7 @@ export function App() {
     currentNavigation?.backendWorkspace &&
     currentNavigation.route.startsWith('/profile')
       ? currentNavigation
-      : authenticatedBootstrap?.navigation.find(
-          (item) => item.route.startsWith('/profile') && Boolean(item.backendWorkspace),
-        );
+      : undefined;
   const profileBackendWorkspaceElement =
     profileBackendWorkspaceNavigation?.backendWorkspace
       ? navigationRouteElement(profileBackendWorkspaceNavigation)
@@ -1419,6 +1985,9 @@ export function App() {
   const initializationLoading = Boolean(
     session && authenticatedBootstrap && !initializationStatus && !initializationError,
   );
+  const setupWorkflowNavigation = authenticatedBootstrap?.navigation.find(
+    (item) => item.id === 'process-tasks' && item.moduleName === 'workflow',
+  );
   const initializationElement =
     !initializationStatus && !initializationError ? (
       <LoadingScreen />
@@ -1431,6 +2000,18 @@ export function App() {
         onLogout={logout}
         onRefresh={() => void refreshInitialization()}
         status={initializationStatus}
+        statusUnavailable={initializationStatusUnavailable}
+        reconnecting={initializationRecoveryAttempt > 0}
+        onReviewWorkflow={
+          session &&
+          !locked &&
+          setupWorkflowNavigation &&
+          ['UP', 'DEGRADED'].includes(setupWorkflowNavigation.availability) &&
+          (!setupWorkflowNavigation.featureState ||
+            ['ACTIVE', 'PREVIEW'].includes(setupWorkflowNavigation.featureState))
+            ? () => void navigate(`${axisInitializationRoute}/approval`)
+            : undefined
+        }
       />
     );
 
@@ -1441,7 +2022,52 @@ export function App() {
       <AxisLocalizationBoundary value={localization}>
         <Routes>
           <Route path={axisInitializationRoute} element={initializationElement} />
-          <Route path="*" element={<Navigate replace to={axisInitializationRoute} />} />
+          {session &&
+          !locked &&
+          authenticatedBootstrap &&
+          initializationStatus?.publication?.workflowRef &&
+          setupWorkflowNavigation &&
+          ['UP', 'DEGRADED'].includes(setupWorkflowNavigation.availability) &&
+          (!setupWorkflowNavigation.featureState ||
+            ['ACTIVE', 'PREVIEW'].includes(setupWorkflowNavigation.featureState)) ? (
+            <Route
+              path={`${axisInitializationRoute}/approval`}
+              element={
+                <Stack spacing={2} sx={{ p: { xs: 2, md: 3 } }}>
+                  <Button
+                    onClick={() => void navigate(axisInitializationRoute)}
+                    sx={{ alignSelf: 'flex-start' }}
+                  >
+                    Back to Axis setup
+                  </Button>
+                  <ProcessWorkflowRoutePage
+                    accessToken={session.accessToken}
+                    bootstrap={authenticatedBootstrap}
+                    navigation={setupWorkflowNavigation}
+                    runtime={runtime}
+                  />
+                </Stack>
+              }
+            />
+          ) : null}
+          <Route
+            path="*"
+            element={
+              <Navigate
+                replace
+                to={axisInitializationRoute}
+                state={
+                  initializationStatusUnavailable
+                    ? {
+                        axisInitializationReturnPath: initializationReturnPath({
+                          axisInitializationReturnPath: location.pathname,
+                        }),
+                      }
+                    : undefined
+                }
+              />
+            }
+          />
         </Routes>
       </AxisLocalizationBoundary>
     );
@@ -1471,7 +2097,13 @@ export function App() {
             session ? (
               <Navigate
                 replace
-                to={locked ? '/lock-screen' : composition.defaultAuthenticatedPage}
+                to={
+                  locked
+                    ? '/lock-screen'
+                    : (safeReturnPath(
+                        new URLSearchParams(location.search).get('returnTo'),
+                      ) ?? composition.defaultAuthenticatedPage)
+                }
               />
             ) : (
               page(
@@ -1487,12 +2119,28 @@ export function App() {
             )
           }
         />
-        <Route path="/forgot-password" element={page('/forgot-password')} />
+        <Route
+          path="/forgot-password"
+          element={
+            <EmployeeRegistrationRoutePage
+              runtime={runtime}
+              profileBaseUrl={bootstrap.endpoints.profile}
+              journey="recovery"
+              onSignIn={logout}
+            />
+          }
+        />
         <Route
           path={axisInitializationRoute}
           element={
             session && !locked ? (
-              <Navigate replace to={composition.defaultAuthenticatedPage} />
+              <Navigate
+                replace
+                to={
+                  initializationReturnPath(location.state) ??
+                  composition.defaultAuthenticatedPage
+                }
+              />
             ) : (
               <Navigate replace to={composition.defaultPublicPage} />
             )
@@ -1500,7 +2148,13 @@ export function App() {
         />
         <Route
           path="/enterprise-access/register"
-          element={<PublicBackendOperationsWorkspaceRoutePage runtime={runtime} />}
+          element={
+            <PublicBackendOperationsWorkspaceRoutePage
+              runtime={runtime}
+              profileBaseUrl={bootstrap.endpoints.profile}
+              onSignIn={logout}
+            />
+          }
         />
         <Route
           path={axisDashboardRoute}
@@ -1778,7 +2432,9 @@ export function App() {
               authenticatedShell(
                 ['UP', 'DEGRADED'].includes(importExportNavigation.availability) ? (
                   <ImportExportRoutePage
+                    key={session.generation}
                     accessToken={session.accessToken}
+                    sessionGeneration={session.generation}
                     bootstrap={authenticatedBootstrap}
                     routeNavigation={importExportNavigation}
                     runtime={runtime}
@@ -1850,10 +2506,12 @@ export function App() {
         <Route
           path="/media/*"
           element={
-            session &&
-            !locked &&
-            authenticatedBootstrap &&
-            mediaManagementNavigation ? (
+            currentNavigation?.backendWorkspace ? (
+              navigationRouteElement(currentNavigation)
+            ) : session &&
+              !locked &&
+              authenticatedBootstrap &&
+              mediaManagementNavigation ? (
               authenticatedShell(
                 ['UP', 'DEGRADED'].includes(mediaManagementNavigation.availability) ? (
                   <MediaManagementRoutePage
@@ -1986,11 +2644,7 @@ export function App() {
             ) : (
               <Navigate
                 replace
-                to={
-                  session
-                    ? composition.defaultAuthenticatedPage
-                    : composition.defaultPublicPage
-                }
+                to={session ? lockedReturnPath : composition.defaultPublicPage}
               />
             )
           }

@@ -4,6 +4,54 @@ import { describe, expect, it } from 'vitest';
 import { CapabilityReadinessPanel } from '../../../src/operations/readiness/CapabilityReadinessPanel';
 
 describe('CapabilityReadinessPanel', () => {
+  it('groups Media blockers without hiding any pinned asset or inventing publishing links', () => {
+    render(
+      <CapabilityReadinessPanel
+        readiness={{
+          capabilityCode: 'nexus',
+          displayName: 'Nexus',
+          owningModule: 'nexus',
+          capabilityType: 'APPLICATION',
+          group: 'PROJECT',
+          businessStatus: 'NEEDS_ATTENTION',
+          technicalStatus: 'MEDIA_DEPENDENCIES_PENDING',
+          nextAction: 'Inspect Media',
+          blockers: Array.from({ length: 37 }, (_, index) => ({
+            code: 'MEDIA_DEPENDENCY_NOT_ACTIVATED',
+            severity: 'REPAIR_REQUIRED',
+            owner: `asset-${index}`,
+            ownerType: 'MEDIA',
+            source: 'MEDIA_PUBLICATION',
+            message: 'Referenced Media is not qualified for Online delivery.',
+            action: 'Inspect Media',
+            mediaDependency: {
+              mediaCode: `asset-${index}`,
+              versionId: index,
+              status: 'NOT_ACTIVATED',
+              qualified: false,
+            },
+            repair: {
+              available: false,
+              label: 'Inspect Media',
+              operation: 'media.createRetainedPublication',
+              action: 'REVIEW_MEDIA_PUBLICATION',
+              idempotent: false,
+              requiresConfirmation: true,
+            },
+          })),
+        }}
+      />,
+    );
+    expect(
+      screen.getByText('Media publication · 37 assets require attention'),
+    ).toBeVisible();
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.getAllByRole('row')).toHaveLength(38);
+    for (let index = 0; index < 37; index++)
+      expect(screen.getByText(`asset-${index}`)).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Open Publishing' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Approve/ })).toBeNull();
+  });
   it('renders dependency runtime evidence for blocked capabilities', () => {
     render(
       <CapabilityReadinessPanel

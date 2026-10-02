@@ -86,8 +86,43 @@ export interface ProcessIncident {
   readonly compensationAvailable: boolean;
 }
 
+/** Inert Process-owned approval presentation; never a browser reviewer grant. */
+export interface ProcessTaskDecisionContract {
+  readonly contractVersion: 1;
+  readonly kind: 'APPROVAL';
+  readonly approveLabel: string;
+  readonly rejectLabel: string;
+  readonly reasonLabel: string;
+  readonly rejectionReasonRequired: true;
+  readonly maximumReasonLength: number;
+}
+
 export interface ProcessHumanTask {
+  readonly reviewerEligibility?:
+    | Readonly<{
+        eligible: boolean;
+        reasonCode:
+          | 'ELIGIBLE'
+          | 'DIFFERENT_REVIEWER_REQUIRED'
+          | 'REVIEWER_NOT_AUTHORISED'
+          | 'INSTANCE_NOT_ACTIONABLE'
+          | 'TASK_NOT_ACTIONABLE';
+        message: string;
+      }>
+    | undefined;
+  readonly reviewContext?:
+    | Readonly<{
+        contractVersion: 1;
+        owner: string;
+        publicationCode: string;
+        rootType: string;
+        rootCode: string;
+        sourceVersion: string;
+      }>
+    | undefined;
+  readonly decisionContract?: ProcessTaskDecisionContract | undefined;
   readonly code: string;
+  readonly name?: string | undefined;
   readonly instanceCode: string | undefined;
   readonly nodeCode: string | undefined;
   readonly assignee: string | undefined;
@@ -352,8 +387,117 @@ function parseIncident(value: unknown): ProcessIncident {
 
 function parseHumanTask(value: unknown): ProcessHumanTask {
   const data = record(value, 'Process human task');
+  let reviewerEligibility: ProcessHumanTask['reviewerEligibility'];
+  if (data.reviewerEligibility !== undefined) {
+    const eligibility = record(
+      data.reviewerEligibility,
+      'Process reviewer eligibility',
+    );
+    if (
+      Object.keys(eligibility).sort().join() !== 'eligible,message,reasonCode' ||
+      typeof eligibility.eligible !== 'boolean' ||
+      typeof eligibility.reasonCode !== 'string' ||
+      ![
+        'ELIGIBLE',
+        'DIFFERENT_REVIEWER_REQUIRED',
+        'REVIEWER_NOT_AUTHORISED',
+        'INSTANCE_NOT_ACTIONABLE',
+        'TASK_NOT_ACTIONABLE',
+      ].includes(eligibility.reasonCode) ||
+      eligibility.eligible !== (eligibility.reasonCode === 'ELIGIBLE') ||
+      typeof eligibility.message !== 'string' ||
+      !eligibility.message.trim() ||
+      eligibility.message.length > 512 ||
+      Array.from(eligibility.message).some(
+        (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+      )
+    )
+      throw new Error('Process reviewer eligibility is invalid');
+    reviewerEligibility = Object.freeze({
+      eligible: eligibility.eligible,
+      reasonCode: eligibility.reasonCode as NonNullable<
+        ProcessHumanTask['reviewerEligibility']
+      >['reasonCode'],
+      message: eligibility.message,
+    });
+  }
+  let reviewContext: ProcessHumanTask['reviewContext'];
+  if (data.reviewContext !== undefined) {
+    const context = record(data.reviewContext, 'Process publication review context');
+    if (
+      context.contractVersion !== 1 ||
+      Object.keys(context).sort().join() !==
+        'contractVersion,owner,publicationCode,rootCode,rootType,sourceVersion' ||
+      ['owner', 'publicationCode', 'rootType', 'rootCode', 'sourceVersion'].some(
+        (key) =>
+          typeof context[key] !== 'string' ||
+          !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(context[key]),
+      )
+    )
+      throw new Error('Process publication review context is invalid');
+    reviewContext = Object.freeze({
+      contractVersion: 1,
+      owner: context.owner as string,
+      publicationCode: context.publicationCode as string,
+      rootType: context.rootType as string,
+      rootCode: context.rootCode as string,
+      sourceVersion: context.sourceVersion as string,
+    });
+  }
+  let decisionContract: ProcessTaskDecisionContract | undefined;
+  if (data.decisionContract !== undefined) {
+    const contract = record(data.decisionContract, 'Process task decision contract');
+    if (
+      contract.contractVersion !== 1 ||
+      contract.kind !== 'APPROVAL' ||
+      contract.rejectionReasonRequired !== true ||
+      typeof contract.maximumReasonLength !== 'number' ||
+      !Number.isSafeInteger(contract.maximumReasonLength) ||
+      contract.maximumReasonLength < 1 ||
+      contract.maximumReasonLength > 1000 ||
+      Object.keys(contract).some(
+        (key) =>
+          ![
+            'contractVersion',
+            'kind',
+            'approveLabel',
+            'rejectLabel',
+            'reasonLabel',
+            'rejectionReasonRequired',
+            'maximumReasonLength',
+          ].includes(key),
+      )
+    )
+      throw new Error('Process task decision contract is invalid');
+    const label = (key: string) => {
+      const value = contract[key];
+      if (typeof value !== 'string' || !value.trim() || value.length > 200)
+        throw new Error('Process task decision label is invalid');
+      return value;
+    };
+    decisionContract = Object.freeze({
+      contractVersion: 1,
+      kind: 'APPROVAL',
+      approveLabel: label('approveLabel'),
+      rejectLabel: label('rejectLabel'),
+      reasonLabel: label('reasonLabel'),
+      rejectionReasonRequired: true,
+      maximumReasonLength: contract.maximumReasonLength,
+    });
+  }
   return Object.freeze({
+    reviewerEligibility,
+    reviewContext,
+    decisionContract,
     code: text(data.code, 'unknown-task'),
+    name:
+      typeof data.name === 'string' &&
+      data.name.trim().length <= 256 &&
+      !Array.from(data.name).some(
+        (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+      )
+        ? optionalText(data.name)
+        : undefined,
     instanceCode: optionalText(data.instanceCode),
     nodeCode: optionalText(data.nodeCode),
     assignee: optionalText(data.assignee),
@@ -746,13 +890,16 @@ export async function loadProcessInstanceDetail(
   configuration: ProcessDefinitionClientConfiguration,
   instanceCode: string,
 ): Promise<ProcessInstanceDetail> {
-  return parseInstanceDetail(
+  const detail = parseInstanceDetail(
     await request(
       connection,
       `/instances/${encodeURIComponent(instanceCode)}/detail`,
       configuration,
     ),
   );
+  if (detail.instance.code !== instanceCode)
+    throw new Error('Process instance detail identity is invalid');
+  return detail;
 }
 
 export async function createProcessTrigger(

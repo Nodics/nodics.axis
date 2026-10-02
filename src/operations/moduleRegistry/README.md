@@ -33,6 +33,21 @@ and technical identifiers are available in the module detail drawer. Runtime
 health is an optional disclosure above the list, with an issue count visible
 when attention is needed. Errors preserve selection and refresh catalogue
 revisions without automatically retrying a write.
+Network failures use actionable connection messages rather than raw browser
+exception text. A lost command response remains uncertain and asks the user to
+check the module status before another submission; neither reads nor writes are
+replayed by the transport client.
+
+Browser offline state, unavailable current route/BackOffice owner, and failed or
+refreshing registry reads disable command controls and command dispatch. Existing
+rows remain visible as cached observations, not current connectivity: runtime
+issue totals are unknown with their last reported count retained, ready-to-enable
+counts and row badges are cached/last-reported, and expanded health is explicitly
+cached. Existing query reconnect/owner recovery reads must
+succeed before controls return; recovery never resubmits a command. Connectivity
+uses TanStack's online manager plus browser online/offline events, while owner
+availability remains the authenticated bootstrap's authority. No new health API,
+polling loop, retry policy or backend readiness authority is introduced.
 
 Presentation extensions can customize row copy and styling in the owning Axis
 component while retaining the typed catalogue client and backend permissions.

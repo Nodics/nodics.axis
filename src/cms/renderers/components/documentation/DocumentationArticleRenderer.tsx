@@ -2,10 +2,16 @@ import {
   Box,
   Breadcrumbs,
   Button,
+  ButtonBase,
   Chip,
   Divider,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  IconButton,
   Link,
   Stack,
+  Slider,
   Table,
   TableBody,
   TableCell,
@@ -13,6 +19,7 @@ import {
   TableHead,
   TableRow,
   Typography,
+  Tooltip,
 } from '@mui/material';
 import mermaid from 'mermaid';
 import type { ReactNode } from 'react';
@@ -21,6 +28,7 @@ import { Link as RouterLink, useLocation } from 'react-router';
 
 import { axisTokens } from '../../../../app/axisTheme';
 import { workspaceContentGap } from '../../../../app/shell/workspaceLayout';
+import { ShellIcon } from '../../../../app/shell/ShellIcon';
 import { arrayProperty, stringProperty } from '../../shared/rendererProperties';
 import type { CmsComponentRendererProps } from '../../shared/rendererTypes';
 
@@ -165,6 +173,220 @@ function headingVariant(level: number): 'h1' | 'h2' | 'h3' | 'h4' {
   if (level === 2) return 'h2';
   if (level === 3) return 'h3';
   return 'h4';
+}
+
+/** Enlarges only an already validated article image; no URL editing, fetching or publication authority. */
+function DocumentationImageRenderer({
+  source,
+  alt,
+  title,
+}: {
+  readonly source: string;
+  readonly alt: string;
+  readonly title: string;
+}) {
+  const titleId = useId();
+  const [open, setOpen] = useState(false);
+  const [zoom, setZoom] = useState<number | null>(null);
+  const [naturalWidth, setNaturalWidth] = useState<number>();
+  const imageWidth =
+    naturalWidth && zoom !== null ? (naturalWidth * zoom) / 100 : undefined;
+  return (
+    <Box component="figure" sx={{ m: 0 }}>
+      <Tooltip title="Enlarge image">
+        <ButtonBase
+          aria-label={`Enlarge ${alt}`}
+          onClick={() => {
+            setZoom(null);
+            setOpen(true);
+          }}
+          sx={{
+            display: 'flex',
+            width: '100%',
+            minWidth: 0,
+            position: 'relative',
+            cursor: 'zoom-in',
+            borderRadius: 1.5,
+            '&.Mui-focusVisible': {
+              outline: '2px solid',
+              outlineColor: 'primary.main',
+              outlineOffset: 3,
+            },
+          }}
+        >
+          <Box
+            component="img"
+            alt={alt}
+            loading="lazy"
+            src={source}
+            sx={{
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 1.5,
+              display: 'block',
+              height: 'auto',
+              maxHeight: { xs: 420, md: 680 },
+              maxWidth: '100%',
+              mx: 'auto',
+              objectFit: 'contain',
+            }}
+          />
+          <Box
+            aria-hidden="true"
+            sx={{
+              position: 'absolute',
+              right: 8,
+              bottom: 8,
+              display: 'flex',
+              p: 0.5,
+              bgcolor: 'background.paper',
+              borderRadius: 1,
+              boxShadow: 1,
+            }}
+          >
+            <ShellIcon name="search" />
+          </Box>
+        </ButtonBase>
+      </Tooltip>
+      {title ? (
+        <Typography
+          component="figcaption"
+          color="text.secondary"
+          sx={{ mt: 1, textAlign: 'center' }}
+          variant="body2"
+        >
+          {title}
+        </Typography>
+      ) : null}
+      <Dialog
+        aria-labelledby={titleId}
+        fullScreen
+        open={open}
+        onClose={() => setOpen(false)}
+      >
+        <DialogTitle
+          id={`${titleId}-toolbar`}
+          component="div"
+          sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 1,
+            p: 1.5,
+          }}
+        >
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) 40px',
+              alignItems: 'start',
+              gap: 1,
+              width: '100%',
+            }}
+          >
+            <Typography
+              id={titleId}
+              component="h2"
+              variant="subtitle1"
+              sx={{ minWidth: 0, overflowWrap: 'anywhere', py: 0.75 }}
+            >
+              {title || alt}
+            </Typography>
+            <Tooltip title="Close image">
+              <IconButton
+                autoFocus
+                aria-label="Close image"
+                onClick={() => setOpen(false)}
+                sx={{ width: 40, height: 40 }}
+              >
+                <ShellIcon name="close" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: '40px minmax(0, 1fr) 48px',
+              alignItems: 'center',
+              gap: 2,
+              width: '100%',
+              maxWidth: 360,
+            }}
+          >
+            <Tooltip title="Fit image">
+              <IconButton aria-label="Fit image" onClick={() => setZoom(null)}>
+                <ShellIcon name="refresh" />
+              </IconButton>
+            </Tooltip>
+            <Slider
+              aria-label="Image zoom"
+              valueLabelFormat={(value) => `${String(value)}%`}
+              valueLabelDisplay="auto"
+              min={25}
+              max={200}
+              step={25}
+              value={zoom ?? 100}
+              onChange={(_event, value) => setZoom(value)}
+              sx={{ width: '100%', minWidth: 0 }}
+            />
+            <Typography
+              role="status"
+              variant="body2"
+              sx={{ width: 48, flexShrink: 0, textAlign: 'center' }}
+            >
+              {zoom === null ? 'Fit' : `${String(zoom)}%`}
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent
+          sx={{ p: 0, minHeight: 0, overflow: 'hidden', position: 'relative' }}
+        >
+          <Box
+            data-testid="documentation-image-viewport"
+            tabIndex={0}
+            role="region"
+            aria-label="Enlarged image"
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              height: '100%',
+              width: '100%',
+              overflow: 'auto',
+              overscrollBehavior: 'contain',
+            }}
+          >
+            <Box
+              sx={{
+                height: zoom === null ? '100%' : 'auto',
+                minHeight: '100%',
+                width: zoom === null ? '100%' : 'max-content',
+                minWidth: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Box
+                component="img"
+                alt={alt}
+                src={source}
+                onLoad={(event) =>
+                  setNaturalWidth(Math.min(event.currentTarget.naturalWidth, 32768))
+                }
+                sx={{
+                  display: 'block',
+                  width: zoom === null ? 'auto' : imageWidth,
+                  height: 'auto',
+                  objectFit: 'contain',
+                  maxWidth: zoom === null ? '100%' : 'none',
+                  maxHeight: zoom === null ? '100%' : 'none',
+                }}
+              />
+            </Box>
+          </Box>
+        </DialogContent>
+      </Dialog>
+    </Box>
+  );
 }
 
 function DocumentationDiagramRenderer({
@@ -413,35 +635,12 @@ function DocumentationBlockRenderer({
     const alt = text(block.alt, text(block.title, 'Documentation illustration'));
     const title = text(block.title);
     return (
-      <Box component="figure" key={key} sx={{ m: 0 }}>
-        <Box
-          alt={alt}
-          component="img"
-          loading="lazy"
-          src={source}
-          sx={{
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 1.5,
-            display: 'block',
-            height: 'auto',
-            maxHeight: { xs: 420, md: 680 },
-            maxWidth: '100%',
-            mx: 'auto',
-            objectFit: 'contain',
-          }}
-        />
-        {title ? (
-          <Typography
-            component="figcaption"
-            color="text.secondary"
-            sx={{ mt: 1, textAlign: 'center' }}
-            variant="body2"
-          >
-            {title}
-          </Typography>
-        ) : null}
-      </Box>
+      <DocumentationImageRenderer
+        source={source}
+        alt={alt}
+        title={title}
+        key={source}
+      />
     );
   }
   return null;
@@ -601,7 +800,7 @@ export function DocumentationArticleRenderer({ component }: CmsComponentRenderer
         <DocumentationBlockRenderer
           block={block}
           index={index}
-          key={`${text(block.kind)}:${String(index)}`}
+          key={`${location.pathname}:${component.code}:${text(block.kind)}:${String(index)}`}
         />
       ))}
       {previous || next ? (

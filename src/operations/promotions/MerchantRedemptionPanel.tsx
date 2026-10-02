@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+/** Digital Core merchant-workspace consumer; outlet scope and fulfillment remain owner-enforced. */
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
@@ -10,6 +11,7 @@ import {
   Stack,
   Typography,
   TextField,
+  MenuItem,
 } from '@mui/material';
 import {
   selectModuleConnection,
@@ -24,7 +26,7 @@ type Redemption = {
   revision: number;
   merchantLabel: string;
   mode: string;
-  redemptionCode: string;
+  redemptionCode?: string;
   receiptCode?: string;
   merchantReceiptReference?: string;
   eligible?: boolean;
@@ -34,7 +36,112 @@ type Redemption = {
   confirmationKey?: string;
   expiresAt?: string;
   branchCode?: string;
+  storeCode?: string;
+  storeRevision?: number;
+  conditions?: { benefit?: unknown };
+  pricedBenefit?: {
+    sourceReference: string;
+    currency: string;
+    subtotalAmount: string;
+    discountAmount: string;
+    sourceStage: 'PRICED_CART';
+    sourceHash: string;
+    sourceRevision: number;
+    storeCode: string;
+    storeRevision: number;
+  };
 };
+/** Projects bounded inert owner fields before offering a reviewed fulfillment action. */
+function redemption(value: Redemption): Redemption {
+  if (
+    !value ||
+    !Number.isSafeInteger(value.revision) ||
+    value.revision < 1 ||
+    !['MERCHANT_SCREEN', 'LOCAL_SAMPLE'].includes(value.mode)
+  )
+    throw new Error('Merchant request could not be confirmed.');
+  const result = { revision: value.revision } as Redemption;
+  for (const field of [
+    'entitlementCode',
+    'productCode',
+    'claimStatus',
+    'merchantLabel',
+    'mode',
+  ] as const) {
+    if (typeof value[field] !== 'string' || !value[field] || value[field].length > 256)
+      throw new Error('Merchant request could not be confirmed.');
+    result[field] = value[field];
+  }
+  for (const field of [
+    'receiptCode',
+    'redemptionCode',
+    'merchantReceiptReference',
+    'validationCode',
+    'validationExpiresAt',
+    'confirmationKey',
+    'expiresAt',
+    'branchCode',
+    'storeCode',
+  ] as const) {
+    if (value[field] !== undefined) {
+      if (
+        typeof value[field] !== 'string' ||
+        !value[field] ||
+        value[field].length > 512
+      )
+        throw new Error('Merchant request could not be confirmed.');
+      result[field] = value[field];
+    }
+  }
+  for (const field of ['eligible', 'recoveryRequired'] as const) {
+    if (value[field] !== undefined && typeof value[field] !== 'boolean')
+      throw new Error('Merchant request could not be confirmed.');
+    if (value[field] !== undefined) result[field] = value[field];
+  }
+  if (value.storeRevision !== undefined) {
+    if (!Number.isSafeInteger(value.storeRevision) || value.storeRevision < 1)
+      throw new Error('Merchant request could not be confirmed.');
+    result.storeRevision = value.storeRevision;
+  }
+  const benefit = value.conditions?.benefit as Redemption['pricedBenefit'];
+  if (benefit?.sourceStage === 'PRICED_CART') {
+    if (
+      [
+        benefit.sourceReference,
+        benefit.currency,
+        benefit.sourceHash,
+        benefit.storeCode,
+      ].some((value) => typeof value !== 'string') ||
+      !/^CART:[A-Za-z0-9_.@-]{1,114}$/.test(benefit.sourceReference) ||
+      !/^[A-Z]{3}$/.test(benefit.currency) ||
+      !/^[a-f0-9]{64}$/.test(benefit.sourceHash) ||
+      !Number.isSafeInteger(benefit.sourceRevision) ||
+      benefit.sourceRevision < 0 ||
+      !/^[A-Za-z0-9_.:-]{1,128}$/.test(benefit.storeCode) ||
+      !Number.isSafeInteger(benefit.storeRevision) ||
+      benefit.storeRevision < 1 ||
+      [benefit.subtotalAmount, benefit.discountAmount].some(
+        (amount) =>
+          typeof amount !== 'string' ||
+          amount.length > 128 ||
+          !/^(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(amount),
+      )
+    )
+      throw new Error('The priced source could not be confirmed.');
+    result.pricedBenefit = {
+      sourceStage: 'PRICED_CART',
+      sourceReference: benefit.sourceReference,
+      currency: benefit.currency,
+      subtotalAmount: benefit.subtotalAmount,
+      discountAmount: benefit.discountAmount,
+      sourceHash: benefit.sourceHash,
+      sourceRevision: benefit.sourceRevision,
+      storeCode: benefit.storeCode,
+      storeRevision: benefit.storeRevision,
+    };
+  }
+  return result;
+}
 /** Digital Core owns scoped merchant fulfillment; this panel submits explicitly reviewed commands only. */
 export function MerchantRedemptionPanel({
   bootstrap,
@@ -60,25 +167,153 @@ export function MerchantRedemptionPanel({
     [error, setError] = useState(''),
     [presentation, setPresentation] = useState(''),
     [receipt, setReceipt] = useState('');
-  const load = async () => {
+  const [outletSnapshot, setOutlets] = useState<{
+    configuration: typeof configuration;
+    storeRequired: boolean;
+    storeLabel: string;
+    pricedSourceRequired: boolean;
+    pricedSourceLabel?: string;
+    stores: { code: string; name: string; revision: number }[];
+  }>();
+  const outlets =
+    outletSnapshot?.configuration === configuration ? outletSnapshot : undefined;
+  const [storeCode, setStoreCode] = useState('');
+  const [pricedSource, setPricedSource] = useState('');
+  const version = useRef(0);
+  const inFlight = useRef(false);
+  useEffect(() => {
+    const attempt = ++version.current;
+    setOutlets(undefined);
+    setRows(null);
+    setChosen(null);
+    setStoreCode('');
+    setPricedSource('');
+    setError('');
+    setBusy(false);
+    setReceipt('');
+    setPresentation('');
+    inFlight.current = false;
+    void invokeOperationalOwner<unknown>(
+      configuration,
+      'digitalCore',
+      '/merchant/redemptions/workspace',
+    )
+      .then((value) => {
+        const source = value as {
+          storeRequired?: unknown;
+          storeLabel?: unknown;
+          stores?: unknown;
+          pricedSourceRequired?: unknown;
+          pricedSourceLabel?: unknown;
+        };
+        if (
+          !source ||
+          typeof source.storeRequired !== 'boolean' ||
+          typeof source.storeLabel !== 'string' ||
+          !source.storeLabel ||
+          source.storeLabel.length > 192 ||
+          typeof source.pricedSourceRequired !== 'boolean' ||
+          (source.pricedSourceRequired &&
+            (typeof source.pricedSourceLabel !== 'string' ||
+              !source.pricedSourceLabel.trim() ||
+              source.pricedSourceLabel.length > 192)) ||
+          !Array.isArray(source.stores) ||
+          source.stores.length > 100
+        )
+          throw new Error('Merchant outlet selection is unavailable.');
+        const stores = source.stores.map(
+          (item: { code?: unknown; name?: unknown; revision?: unknown }) => {
+            if (
+              !item ||
+              typeof item.code !== 'string' ||
+              !/^[A-Za-z0-9_.:-]{1,128}$/.test(item.code) ||
+              typeof item.name !== 'string' ||
+              !item.name ||
+              item.name.length > 256 ||
+              !Number.isSafeInteger(item.revision) ||
+              Number(item.revision) < 1
+            )
+              throw new Error('Merchant outlet selection is unavailable.');
+            return {
+              code: item.code,
+              name: item.name,
+              revision: Number(item.revision),
+            };
+          },
+        );
+        if (new Set(stores.map((item) => item.code)).size !== stores.length)
+          throw new Error('Merchant outlet selection is unavailable.');
+        if (attempt === version.current)
+          setOutlets({
+            configuration,
+            storeRequired: source.storeRequired,
+            storeLabel: source.storeLabel,
+            pricedSourceRequired: source.pricedSourceRequired,
+            ...(source.pricedSourceRequired
+              ? { pricedSourceLabel: source.pricedSourceLabel as string }
+              : {}),
+            stores,
+          });
+      })
+      .catch((reason) => {
+        if (attempt === version.current)
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : 'Merchant workspace is unavailable.',
+          );
+      });
+    const epoch = version;
+    return () => {
+      epoch.current++;
+    };
+  }, [configuration]);
+  const outletReady = !!outlets && (!outlets.storeRequired || !!storeCode);
+  const sourceReady =
+    !!outlets &&
+    (!outlets.pricedSourceRequired ||
+      (/^CART:[A-Za-z0-9_.@-]{1,114}$/.test(pricedSource.trim()) &&
+        /^[A-Za-z0-9][A-Za-z0-9 ._:/-]{2,119}$/.test(pricedSource.trim())));
+  /** Replaces selectable queue state with a fresh bounded owner read; continuation follows a confirmed command. */
+  const load = async (continuation = false) => {
+    if (!outletReady || (inFlight.current && !continuation)) return;
+    inFlight.current = true;
+    const attempt = version.current;
     setBusy(true);
     setError('');
+    setRows(null);
+    setChosen(null);
     try {
       const r = await invokeOperationalOwner<{ redemptions: Redemption[] }>(
         configuration,
         'digitalCore',
-        '/merchant/redemptions',
+        '/merchant/redemptions' +
+          (storeCode ? '?storeCode=' + encodeURIComponent(storeCode) : ''),
+        undefined,
+        'GET',
       );
-      setRows(r.redemptions);
+      if (!r || !Array.isArray(r.redemptions) || r.redemptions.length > 100)
+        throw new Error('Merchant requests could not be confirmed.');
+      const rows = r.redemptions.map(redemption);
+      if (new Set(rows.map((row) => row.entitlementCode)).size !== rows.length)
+        throw new Error('Merchant requests could not be confirmed.');
+      if (attempt === version.current) setRows(rows);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Cannot load merchant requests');
+      if (attempt === version.current)
+        setError(e instanceof Error ? e.message : 'Cannot load merchant requests');
     } finally {
-      setBusy(false);
+      if (attempt === version.current) {
+        setBusy(false);
+        inFlight.current = false;
+      }
     }
   };
   if (!selectModuleConnection(bootstrap, 'digitalCore')) return null;
   return (
-    <Paper sx={{ p: 2 }} data-functional-module="digitalCore">
+    <Paper
+      sx={{ p: 2, minWidth: 0, overflowWrap: 'anywhere' }}
+      data-functional-module="digitalCore"
+    >
       <Stack spacing={2}>
         <Typography variant="h6">Merchant coupon fulfillment</Typography>
         <Typography>
@@ -88,79 +323,157 @@ export function MerchantRedemptionPanel({
         <TextField
           label="Customer coupon code"
           value={presentation}
-          onChange={(e) => setPresentation(e.target.value.trim().toUpperCase())}
+          disabled={busy}
+          slotProps={{ htmlInput: { maxLength: 256 } }}
+          onChange={(e) => {
+            setPresentation(e.target.value.trim().toUpperCase());
+            setChosen(null);
+          }}
         />
+        {outlets?.storeRequired && (
+          <TextField
+            select
+            label={outlets.storeLabel}
+            value={storeCode}
+            disabled={busy}
+            onChange={(event) => {
+              version.current++;
+              setStoreCode(event.target.value);
+              setChosen(null);
+              setRows(null);
+              setReceipt('');
+              setPricedSource('');
+              setError('');
+            }}
+          >
+            {outlets.stores.map((store) => (
+              <MenuItem key={store.code} value={store.code}>
+                {store.name}
+              </MenuItem>
+            ))}
+          </TextField>
+        )}
+        {outlets?.pricedSourceRequired && (
+          <TextField
+            label={outlets.pricedSourceLabel}
+            value={pricedSource}
+            disabled={busy}
+            slotProps={{ htmlInput: { maxLength: 119 } }}
+            onChange={(event) => {
+              setPricedSource(event.target.value);
+              setChosen(null);
+              setReceipt('');
+            }}
+          />
+        )}
         <Button
-          disabled={busy || !presentation}
+          disabled={busy || !presentation || !outletReady || !sourceReady}
           onClick={() => {
             void (async () => {
+              if (inFlight.current || !sourceReady) return;
+              inFlight.current = true;
               setBusy(true);
               setError('');
+              setChosen(null);
+              const attempt = version.current;
               try {
-                const result = await invokeOperationalOwner<Redemption>(
-                  configuration,
-                  'digitalCore',
-                  '/merchant/redemptions/validate',
-                  { couponToken: presentation },
+                const result = redemption(
+                  await invokeOperationalOwner<Redemption>(
+                    configuration,
+                    'digitalCore',
+                    '/merchant/redemptions/validate',
+                    {
+                      couponToken: presentation,
+                      ...(storeCode ? { storeCode } : {}),
+                      ...(outlets?.pricedSourceRequired
+                        ? { merchantReceiptReference: pricedSource.trim() }
+                        : {}),
+                    },
+                  ),
                 );
-                if (!result.eligible)
+                if (result.eligible !== true)
                   throw new Error(
-                    'This coupon has already been redeemed. Receipt: ' +
-                      (result.receiptCode || ''),
+                    result.claimStatus === 'REDEEMED'
+                      ? 'This coupon has already been redeemed. Receipt: ' +
+                          (result.receiptCode || '')
+                      : 'The owner did not confirm this coupon as eligible.',
                   );
-                setReceipt('');
-                setChosen(result);
+                if (
+                  outlets?.pricedSourceRequired &&
+                  (!result.pricedBenefit ||
+                    result.pricedBenefit.sourceReference !== pricedSource.trim() ||
+                    result.pricedBenefit.storeCode !== storeCode ||
+                    result.pricedBenefit.storeRevision !== result.storeRevision)
+                )
+                  throw new Error('The priced source could not be confirmed.');
+                if (attempt === version.current) {
+                  if (
+                    outlets?.storeRequired &&
+                    (result.storeCode !== storeCode ||
+                      !Number.isSafeInteger(result.storeRevision) ||
+                      Number(result.storeRevision) < 1)
+                  )
+                    throw new Error('The validated outlet could not be confirmed.');
+                  setReceipt(outlets?.pricedSourceRequired ? pricedSource.trim() : '');
+                  setChosen(result);
+                }
               } catch (e) {
-                setError(e instanceof Error ? e.message : 'Cannot validate coupon');
+                if (attempt === version.current)
+                  setError(e instanceof Error ? e.message : 'Cannot validate coupon');
               } finally {
-                setBusy(false);
+                if (attempt === version.current) {
+                  setBusy(false);
+                  inFlight.current = false;
+                }
               }
             })();
           }}
         >
           Validate presented coupon
         </Button>
-        <Button disabled={busy} onClick={() => void load()}>
+        <Button disabled={busy || !outletReady} onClick={() => void load()}>
           Load merchant requests
         </Button>
         {error && <Alert severity="error">{error}</Alert>}
-        {rows?.map((row) => (
-          <Paper variant="outlined" sx={{ p: 2 }} key={row.entitlementCode}>
-            <Typography>
-              {row.merchantLabel} · {row.productCode}
-            </Typography>
-            <Typography>
-              {row.redemptionCode} · {row.claimStatus}
-            </Typography>
-            {row.receiptCode ? (
+        {busy && <Typography role="status">Working…</Typography>}
+        {outletReady &&
+          rows?.map((row) => (
+            <Paper variant="outlined" sx={{ p: 2 }} key={row.entitlementCode}>
               <Typography>
-                Merchant receipt: {row.merchantReceiptReference || row.receiptCode}
+                {row.merchantLabel} · {row.productCode}
               </Typography>
-            ) : (
-              <Button
-                disabled={
-                  busy ||
-                  row.claimStatus !== 'CLAIMED' ||
-                  (row.mode === 'MERCHANT_SCREEN' && !row.recoveryRequired)
-                }
-                onClick={() => {
-                  setReceipt(row.merchantReceiptReference || '');
-                  setChosen(row);
-                }}
-              >
-                {row.recoveryRequired
-                  ? 'Resume fulfillment confirmation'
-                  : 'Review fulfillment'}
-              </Button>
-            )}
-          </Paper>
-        ))}
+              <Typography>
+                {row.redemptionCode} · {row.claimStatus}
+              </Typography>
+              {row.receiptCode ? (
+                <Typography>
+                  Merchant receipt: {row.merchantReceiptReference || row.receiptCode}
+                </Typography>
+              ) : (
+                <Button
+                  disabled={
+                    busy ||
+                    !['UNCLAIMED', 'CLAIMED'].includes(row.claimStatus) ||
+                    !row.recoveryRequired
+                  }
+                  onClick={() => {
+                    setReceipt(row.merchantReceiptReference || '');
+                    setChosen(row);
+                  }}
+                >
+                  {row.recoveryRequired
+                    ? 'Resume fulfillment confirmation'
+                    : 'Review fulfillment'}
+                </Button>
+              )}
+            </Paper>
+          ))}
         {rows?.length === 0 && (
           <Typography>No merchant requests in your assigned scope.</Typography>
         )}
       </Stack>
       <Dialog
-        open={!!chosen}
+        open={!!chosen && outletReady}
         onClose={() => {
           if (!busy) setChosen(null);
         }}
@@ -169,23 +482,36 @@ export function MerchantRedemptionPanel({
         <DialogContent>
           {error && <Alert severity="error">{error}</Alert>}
           <Typography>{chosen?.merchantLabel}</Typography>
+          {chosen?.pricedBenefit && (
+            <Stack spacing={1}>
+              <Typography>{chosen.pricedBenefit.sourceStage}</Typography>
+              <Typography>{chosen.pricedBenefit.sourceReference}</Typography>
+              <Typography>
+                {chosen.pricedBenefit.currency} / {chosen.pricedBenefit.subtotalAmount}{' '}
+                / {chosen.pricedBenefit.discountAmount}
+              </Typography>
+              <Typography>
+                {chosen.pricedBenefit.sourceRevision} / {chosen.pricedBenefit.storeCode}{' '}
+                / {chosen.pricedBenefit.storeRevision}
+              </Typography>
+            </Stack>
+          )}
+          {chosen?.storeCode && (
+            <Typography>
+              {outlets?.stores.find((store) => store.code === chosen.storeCode)?.name ||
+                chosen.storeCode}
+            </Typography>
+          )}
           <Typography>
             Confirm that this coupon benefit has been fulfilled. This completes
             redemption and creates a receipt.
           </Typography>
-          {chosen?.mode === 'MERCHANT_SCREEN' && (
+          {chosen?.mode === 'MERCHANT_SCREEN' && !outlets?.pricedSourceRequired && (
             <>
               <Typography>
                 Enterprise: {chosen.merchantLabel}. Enter your transaction or receipt
                 reference after fulfilling this benefit.
               </Typography>
-              <TextField
-                fullWidth
-                label="Merchant transaction or receipt reference"
-                value={receipt}
-                onChange={(e) => setReceipt(e.target.value)}
-                slotProps={{ htmlInput: { maxLength: 120 } }}
-              />
             </>
           )}
           {chosen?.mode === 'LOCAL_SAMPLE' && (
@@ -193,6 +519,22 @@ export function MerchantRedemptionPanel({
               Local sample fulfillment. No external POS is contacted.
             </Alert>
           )}
+          <TextField
+            fullWidth
+            label={
+              outlets?.pricedSourceRequired
+                ? outlets.pricedSourceLabel
+                : 'Merchant transaction or receipt reference'
+            }
+            value={receipt}
+            disabled={
+              busy ||
+              chosen?.recoveryRequired === true ||
+              outlets?.pricedSourceRequired === true
+            }
+            onChange={(e) => setReceipt(e.target.value)}
+            slotProps={{ htmlInput: { maxLength: 120 } }}
+          />
         </DialogContent>
         <DialogActions>
           <Button disabled={busy} onClick={() => setChosen(null)}>
@@ -200,38 +542,73 @@ export function MerchantRedemptionPanel({
           </Button>
           <Button
             disabled={
-              busy || (chosen?.mode === 'MERCHANT_SCREEN' && receipt.trim().length < 3)
+              busy ||
+              !/^[A-Za-z0-9][A-Za-z0-9 ._:/-]{2,119}$/.test(receipt.trim()) ||
+              (!chosen?.recoveryRequired &&
+                (!chosen?.validationCode ||
+                  !chosen.validationExpiresAt ||
+                  !Number.isFinite(Date.parse(chosen.validationExpiresAt)) ||
+                  Date.parse(chosen.validationExpiresAt) <= Date.now()))
             }
             onClick={() => {
               void (async () => {
-                if (!chosen) return;
+                if (!chosen || inFlight.current) return;
+                inFlight.current = true;
                 setBusy(true);
                 setError('');
+                const attempt = version.current;
                 try {
-                  await invokeOperationalOwner(
-                    configuration,
-                    'digitalCore',
-                    '/merchant/redemptions/' +
-                      encodeURIComponent(chosen.entitlementCode) +
-                      '/confirm',
-                    {
-                      confirmed: true,
-                      validationCode: chosen.validationCode,
-                      validationExpiresAt: chosen.validationExpiresAt,
-                      merchantReceiptReference: receipt.trim(),
-                      expectedRevision: chosen.revision,
-                      idempotencyKey:
-                        chosen.confirmationKey || 'confirm:' + chosen.entitlementCode,
-                    },
+                  const result = redemption(
+                    await invokeOperationalOwner<Redemption>(
+                      configuration,
+                      'digitalCore',
+                      '/merchant/redemptions/' +
+                        encodeURIComponent(chosen.entitlementCode) +
+                        '/confirm',
+                      {
+                        confirmed: true,
+                        validationCode: chosen.validationCode,
+                        validationExpiresAt: chosen.validationExpiresAt,
+                        merchantReceiptReference: receipt.trim(),
+                        expectedRevision: chosen.revision,
+                        ...(chosen.storeCode ? { storeCode: chosen.storeCode } : {}),
+                      },
+                      'POST',
+                      {
+                        idempotencyKey:
+                          chosen.confirmationKey || 'confirm:' + chosen.entitlementCode,
+                      },
+                    ),
                   );
-                  setChosen(null);
-                  await load();
-                } catch (e) {
-                  setError(
-                    e instanceof Error ? e.message : 'Cannot confirm fulfillment',
-                  );
+                  if (
+                    result.entitlementCode !== chosen.entitlementCode ||
+                    result.claimStatus !== 'REDEEMED' ||
+                    !result.receiptCode ||
+                    (outlets?.pricedSourceRequired &&
+                      (result.merchantReceiptReference !== receipt.trim() ||
+                        result.storeCode !== chosen.storeCode ||
+                        result.storeRevision !== chosen.storeRevision))
+                  )
+                    throw new Error(
+                      'Fulfillment outcome is unconfirmed. Inspect merchant requests before another confirmation.',
+                    );
+                  if (attempt === version.current) {
+                    setChosen(null);
+                    await load(true);
+                  }
+                } catch {
+                  if (attempt === version.current) {
+                    setChosen(null);
+                    setRows(null);
+                    setError(
+                      'Fulfillment outcome is unconfirmed. Inspect merchant requests before another confirmation.',
+                    );
+                  }
                 } finally {
-                  setBusy(false);
+                  if (attempt === version.current) {
+                    setBusy(false);
+                    inFlight.current = false;
+                  }
                 }
               })();
             }}

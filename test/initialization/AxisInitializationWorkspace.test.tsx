@@ -6,6 +6,172 @@ import { AxisInitializationWorkspace } from '../../src/initialization/AxisInitia
 import { BundledLoginPage } from '../../src/initialization/BundledLoginPage';
 
 describe('bundled Axis initialization experience', () => {
+  it('renders neutral read-only connecting copy until the baseline status is actually known', async () => {
+    const actions = {
+      onApprove: vi.fn(),
+      onInitiate: vi.fn(),
+      onRefresh: vi.fn(),
+      onLogout: vi.fn(),
+    };
+    const view = render(
+      <AxisInitializationWorkspace
+        {...actions}
+        busy={false}
+        reconnecting
+        statusUnavailable
+        error="Setup services are still connecting. Status will refresh automatically."
+      />,
+    );
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Connecting to your workspace' }),
+    ).toBeVisible();
+    expect(
+      screen.getByText('Checking the availability of your managed workspace.'),
+    ).toBeVisible();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Status will refresh automatically.',
+    );
+    expect(screen.queryByText('First-run setup')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/baseline is approved and Online/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Initialize and submit' }),
+    ).not.toBeInTheDocument();
+    expect(actions.onInitiate).not.toHaveBeenCalled();
+    expect(actions.onApprove).not.toHaveBeenCalled();
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'Refresh status' }));
+    expect(actions.onRefresh).toHaveBeenCalledOnce();
+    view.rerender(<AxisInitializationWorkspace {...actions} busy statusUnavailable />);
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Checking your workspace' }),
+    ).toBeVisible();
+    expect(screen.queryByText('First-run setup')).not.toBeInTheDocument();
+    view.rerender(
+      <AxisInitializationWorkspace
+        {...actions}
+        busy={false}
+        status={{
+          baselineCode: 'axis',
+          releaseCode: 'axis:axisBaseline',
+          releaseVersion: '0.0.0',
+          releaseStatus: 'NOT_INSTALLED',
+          readiness: 'NOT_IMPORTED',
+        }}
+      />,
+    );
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Initialize Axis' }),
+    ).toBeVisible();
+    expect(screen.getByText('First-run setup')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Initialize and submit' })).toBeEnabled();
+    expect(actions.onInitiate).not.toHaveBeenCalled();
+  });
+
+  it('opens existing workflow recovery only while owner status is available', async () => {
+    const onReviewWorkflow = vi.fn();
+    const props = {
+      busy: false,
+      onApprove: vi.fn(),
+      onInitiate: vi.fn(),
+      onRefresh: vi.fn(),
+      onLogout: vi.fn(),
+      onReviewWorkflow,
+      status: {
+        baselineCode: 'axis',
+        releaseCode: 'axis:axisBaseline',
+        releaseVersion: '0.0.0',
+        releaseStatus: 'CURRENT',
+        readiness: 'PUBLICATION_PENDING',
+        publication: {
+          code: 'publication',
+          state: 'PENDING_APPROVAL',
+          revision: 2,
+          workflowRef: 'existing-workflow',
+        },
+      },
+    } as const;
+    const view = render(<AxisInitializationWorkspace {...props} />);
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'Review setup workflow' }));
+    expect(onReviewWorkflow).toHaveBeenCalledOnce();
+    view.rerender(<AxisInitializationWorkspace {...props} statusUnavailable />);
+    expect(
+      screen.getByRole('button', { name: 'Review setup workflow' }),
+    ).toBeDisabled();
+    view.rerender(
+      <AxisInitializationWorkspace {...props} onReviewWorkflow={undefined} />,
+    );
+    expect(screen.queryByRole('button', { name: 'Review setup workflow' })).toBeNull();
+  });
+  it('requires a fresh valid owner status before resuming a failed setup', () => {
+    const actions = {
+      onApprove: vi.fn(),
+      onInitiate: vi.fn(),
+      onRefresh: vi.fn(),
+      onLogout: vi.fn(),
+    };
+    const status = {
+      baselineCode: 'axis',
+      releaseCode: 'axis:axisBaseline',
+      releaseVersion: '0.0.0',
+      releaseStatus: 'CURRENT',
+      readiness: 'FAILED',
+    } as const;
+    const view = render(
+      <AxisInitializationWorkspace
+        {...actions}
+        busy={false}
+        status={status}
+        statusUnavailable
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Resume setup' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Refresh status' })).toBeEnabled();
+    view.rerender(
+      <AxisInitializationWorkspace
+        {...actions}
+        busy={false}
+        status={{ ...status, releaseStatus: 'INVALID_RELEASE' }}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Resume setup' })).toBeNull();
+    view.rerender(
+      <AxisInitializationWorkspace {...actions} busy={false} status={status} />,
+    );
+    expect(screen.getByRole('button', { name: 'Resume setup' })).toBeEnabled();
+    expect(actions.onInitiate).not.toHaveBeenCalled();
+  });
+
+  it('does not resubmit an existing pending publication even when readiness reports failure', () => {
+    render(
+      <AxisInitializationWorkspace
+        busy={false}
+        onApprove={vi.fn()}
+        onInitiate={vi.fn()}
+        onRefresh={vi.fn()}
+        onLogout={vi.fn()}
+        status={{
+          baselineCode: 'axis',
+          releaseCode: 'axis:axisBaseline',
+          releaseVersion: '0.0.0',
+          releaseStatus: 'CURRENT',
+          readiness: 'FAILED',
+          publication: {
+            code: 'existing',
+            state: 'PENDING_APPROVAL',
+            revision: 2,
+            workflowRef: 'original-task',
+          },
+        }}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Resume setup' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Refresh status' })).toBeEnabled();
+  });
   it('does not expose module selection during initialization, including while busy', () => {
     const props = {
       onApprove: vi.fn(),
@@ -55,7 +221,7 @@ describe('bundled Axis initialization experience', () => {
         status={{ ...base, readiness: 'IMPORTED' }}
       />,
     );
-    await user.click(screen.getByRole('button', { name: 'Initialize and submit' }));
+    await user.click(screen.getByRole('button', { name: 'Submit for review' }));
     expect(onInitiate).toHaveBeenCalledOnce();
     view.rerender(
       <AxisInitializationWorkspace

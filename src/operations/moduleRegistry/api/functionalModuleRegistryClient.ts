@@ -122,8 +122,20 @@ async function request(
     if (!response.ok) throw new Error(await errorMessage(response));
     return envelopeData(await response.json());
   } catch (error: unknown) {
+    const command = options.method !== undefined && options.method !== 'GET';
     if (controller.signal.aborted) {
-      throw new Error('Functional-module registry request timed out');
+      throw new Error(
+        command
+          ? 'The service did not respond in time. Check the module status before trying again; the change may have completed.'
+          : 'The module registry is taking longer than expected. Try refreshing shortly.',
+      );
+    }
+    if (error instanceof TypeError) {
+      throw new Error(
+        command
+          ? 'Connection lost. Check the module status before trying again; the change may have completed.'
+          : 'The module registry is temporarily unavailable. Check your connection and try refreshing shortly.',
+      );
     }
     throw error instanceof Error
       ? error

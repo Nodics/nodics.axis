@@ -25,7 +25,10 @@ describe('loadRuntimeConfig', () => {
       }),
     );
 
-    await expect(loadRuntimeConfig(fetchImplementation)).resolves.toEqual(validConfig);
+    await expect(loadRuntimeConfig(fetchImplementation)).resolves.toEqual({
+      ...validConfig,
+      publicDiscoveryRetryWindowMs: 300_000,
+    });
     expect(fetchImplementation).toHaveBeenCalledWith(
       '/axis-config.json',
       expect.objectContaining({
@@ -34,6 +37,37 @@ describe('loadRuntimeConfig', () => {
       }),
     );
   });
+
+  it.each([1_000, 120_000, 600_000])(
+    'preserves the explicit bounded public discovery retry window %i',
+    async (publicDiscoveryRetryWindowMs) => {
+      const configured = { ...validConfig, publicDiscoveryRetryWindowMs };
+      const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(JSON.stringify(configured), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+
+      await expect(loadRuntimeConfig(fetchImplementation)).resolves.toEqual(configured);
+    },
+  );
+
+  it.each([0, 999, 600_001, 1_000.5])(
+    'rejects an invalid public discovery retry window %s',
+    async (publicDiscoveryRetryWindowMs) => {
+      const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(JSON.stringify({ ...validConfig, publicDiscoveryRetryWindowMs }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+
+      await expect(loadRuntimeConfig(fetchImplementation)).rejects.toThrow(
+        'publicDiscoveryRetryWindowMs',
+      );
+    },
+  );
 
   it('reports an unavailable configuration without exposing transport details', async () => {
     const fetchImplementation = vi

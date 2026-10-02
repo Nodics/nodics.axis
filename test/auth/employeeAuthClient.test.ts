@@ -8,6 +8,41 @@ import {
 import { AxisApiError } from '../../src/localization/axisApiError';
 
 describe('employee authentication client', () => {
+  it('distinguishes admissions with a reused token in the same millisecond', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1000);
+    try {
+      const request = vi.fn<typeof fetch>().mockImplementation(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              result: { authToken: 'same-token', loginId: 'operator' },
+            }),
+            { status: 200 },
+          ),
+        ),
+      );
+      const first = await authenticateEmployee(
+        'https://profile.example.com',
+        'enterprise-a',
+        'operator',
+        'secret',
+        10000,
+        request,
+      );
+      const second = await authenticateEmployee(
+        'https://profile.example.com',
+        'enterprise-a',
+        'operator',
+        'secret',
+        10000,
+        request,
+      );
+      expect(second.accessToken).toBe(first.accessToken);
+      expect(second.generation).toBeGreaterThan(first.generation);
+    } finally {
+      clock.mockRestore();
+    }
+  });
   it('sends employee credentials only to Profile in the JSON body', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(

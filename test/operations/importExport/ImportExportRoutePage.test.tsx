@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { BrowserRouter } from 'react-router';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -135,11 +136,13 @@ function renderPage(overrides: Partial<AxisAuthenticatedBootstrap> = {}) {
   return render(
     <AxisThemeProvider>
       <QueryClientProvider client={queryClient}>
-        <ImportExportRoutePage
-          accessToken="employee-token"
-          bootstrap={effectiveBootstrap}
-          runtime={runtime}
-        />
+        <BrowserRouter>
+          <ImportExportRoutePage
+            accessToken="employee-token"
+            bootstrap={effectiveBootstrap}
+            runtime={runtime}
+          />
+        </BrowserRouter>
       </QueryClientProvider>
     </AxisThemeProvider>,
   );
@@ -188,6 +191,240 @@ const addressSchema = {
 };
 
 describe('ImportExportRoutePage', () => {
+  it('keeps an acknowledged install distinct from an unauthorized refresh and hides stale release state', async () => {
+    let installed = false;
+    const pendingRelease = {
+      ...currentRelease,
+      status: 'NOT_INSTALLED',
+      installedVersion: undefined,
+      destinationRole: 'WCMS_STAGED',
+    };
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.endsWith('/core/install')) {
+        installed = true;
+        return Promise.resolve(
+          jsonResponse({
+            dataType: 'core',
+            tenant: 'default',
+            releases: [
+              { ...pendingRelease, status: 'CURRENT', installedVersion: '1.0.0' },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith('/core'))
+        return Promise.resolve(
+          installed
+            ? new Response(JSON.stringify({ message: 'Expired stamp' }), {
+                status: 401,
+              })
+            : jsonResponse([pendingRelease]),
+        );
+      return Promise.resolve(jsonResponse([]));
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('tab', { name: 'Core data' }));
+    const checkbox = await screen.findByRole('checkbox', { name: /Scheduled Jobs/ });
+    await user.click(checkbox);
+    await user.click(
+      screen.getByRole('button', { name: 'Install or update selected' }),
+    );
+    expect(
+      await screen.findByText(
+        /1 release\(s\) acknowledged by the Import owner\. Refreshed installation state is unverified/,
+      ),
+    ).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Needs action' })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: /Scheduled Jobs/ })).toBeNull();
+    expect(
+      fetcher.mock.calls.filter(([input]) =>
+        fetchInputUrl(input).endsWith('/core/install'),
+      ),
+    ).toHaveLength(1);
+  });
+  it('does not substitute another run when an explicit target run is absent', async () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/operations/imports-exports?area=history&importInstance=kickoffLocal%3AprocessServer%3Aimport%3A0&importRun=import_unavailable',
+    );
+    const fetcher = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(() => Promise.resolve(jsonResponse([])));
+    renderPage();
+    expect(
+      await screen.findByText(
+        'The referenced run is not present in this runtime history window. Inspect the owner report; no import was retried.',
+      ),
+    ).toBeVisible();
+    expect(
+      fetcher.mock.calls
+        .filter(([input]) => fetchInputUrl(input).includes('/run/history'))
+        .map(([input]) => fetchInputUrl(input)),
+    ).toEqual(['http://localhost:4330/nodics/import/v0/run/history?limit=50&skip=0']);
+    expect(fetcher.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(
+      false,
+    );
+  });
+  it('explicitly selects one authorized history runtime and clears an old run reference without writes', async () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/operations/imports-exports?area=history&importInstance=kickoffLocal%3AprocessServer%3Aimport%3A0&importRun=import_unavailable',
+    );
+    const fetcher = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(() => Promise.resolve(jsonResponse([])));
+    renderPage();
+    await screen.findByText(
+      'The referenced run is not present in this runtime history window. Inspect the owner report; no import was retried.',
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('combobox', { name: 'Import runtime' }));
+    await user.click(
+      await screen.findByRole('option', { name: 'wcmsStagedServer · WCMS_STAGED' }),
+    );
+    await waitFor(() =>
+      expect(
+        fetcher.mock.calls
+          .filter(([input]) => fetchInputUrl(input).includes('/run/history'))
+          .map(([input]) => fetchInputUrl(input)),
+      ).toEqual([
+        'http://localhost:4330/nodics/import/v0/run/history?limit=50&skip=0',
+        'http://localhost:4312/nodics/import/v0/run/history?limit=50&skip=0',
+      ]),
+    );
+    expect(new URLSearchParams(window.location.search).get('importInstance')).toBe(
+      'kickoffLocal:wcmsStagedServer:import:0',
+    );
+    expect(new URLSearchParams(window.location.search).has('importRun')).toBe(false);
+    expect(screen.getByText(/Showing selected runtime history\./)).toBeVisible();
+    expect(screen.queryByText(/failed-attempt run evidence/)).toBeNull();
+    expect(screen.queryByText(/Run reference:/)).toBeNull();
+    expect(fetcher.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(
+      false,
+    );
+  });
+
+  it('tracks same-session query navigation and back/forward without retaining another runtime or run', async () => {
+    const processPath =
+      '/operations/imports-exports?area=history&importInstance=kickoffLocal%3AprocessServer%3Aimport%3A0&importRun=import_process';
+    const stagedPath =
+      '/operations/imports-exports?area=history&importInstance=kickoffLocal%3AwcmsStagedServer%3Aimport%3A0&importRun=import_staged';
+    window.history.replaceState({}, '', processPath);
+    const fetcher = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(() => Promise.resolve(jsonResponse([])));
+    renderPage();
+    expect(await screen.findByText(/Run reference: import_process/)).toBeVisible();
+    act(() => {
+      window.history.pushState({}, '', stagedPath);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(await screen.findByText(/Run reference: import_staged/)).toBeVisible();
+    await waitFor(() =>
+      expect(
+        fetcher.mock.calls.some(([input]) =>
+          fetchInputUrl(input).startsWith(
+            'http://localhost:4312/nodics/import/v0/run/history',
+          ),
+        ),
+      ).toBe(true),
+    );
+    act(() => {
+      window.history.back();
+    });
+    expect(await screen.findByText(/Run reference: import_process/)).toBeVisible();
+    expect(screen.queryByText(/Run reference: import_staged/)).toBeNull();
+    act(() => {
+      window.history.forward();
+    });
+    expect(await screen.findByText(/Run reference: import_staged/)).toBeVisible();
+    const reads = fetcher.mock.calls.length;
+    act(() => {
+      window.history.pushState({}, '', `${stagedPath}&importInstance=duplicate`);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(
+      await screen.findByText(
+        'The requested Import runtime is unavailable in the authorized catalogue.',
+      ),
+    ).toBeVisible();
+    expect(fetcher.mock.calls).toHaveLength(reads);
+    expect(fetcher.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(
+      false,
+    );
+  });
+
+  it('rejects duplicate history target selectors without reading a fallback runtime', async () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/operations/imports-exports?area=history&importInstance=missing&importInstance=kickoffLocal%3AprocessServer%3Aimport%3A0',
+    );
+    const fetcher = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(() => Promise.resolve(jsonResponse([])));
+    renderPage();
+    expect(
+      await screen.findByText(
+        'The requested Import runtime is unavailable in the authorized catalogue.',
+      ),
+    ).toBeVisible();
+    expect(
+      fetcher.mock.calls.some(([input]) =>
+        fetchInputUrl(input).includes('/run/history'),
+      ),
+    ).toBe(false);
+    expect(fetcher.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(
+      false,
+    );
+  });
+  it.each(['kickoffLocal:processServer:import:0', 'missing-target'])(
+    'opens only exact authorized history target without fallback (%s)',
+    async (instanceId) => {
+      window.history.replaceState(
+        {},
+        '',
+        `/operations/imports-exports?area=history&importInstance=${encodeURIComponent(instanceId)}`,
+      );
+      const fetcher = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(() => Promise.resolve(jsonResponse([])));
+      renderPage();
+      if (instanceId === 'missing-target') {
+        expect(
+          await screen.findByText(
+            'The requested Import runtime is unavailable in the authorized catalogue.',
+          ),
+        ).toBeVisible();
+        expect(
+          fetcher.mock.calls.some(([input]) =>
+            fetchInputUrl(input).includes('/run/history'),
+          ),
+        ).toBe(false);
+      } else {
+        expect(
+          await screen.findByText(/Showing selected runtime history\./),
+        ).toBeVisible();
+        expect(screen.queryByText(/failed-attempt run evidence/)).toBeNull();
+        await waitFor(() =>
+          expect(
+            fetcher.mock.calls
+              .filter(([input]) => fetchInputUrl(input).includes('/run/history'))
+              .map(([input]) => fetchInputUrl(input)),
+          ).toEqual([
+            'http://localhost:4330/nodics/import/v0/run/history?limit=50&skip=0',
+          ]),
+        );
+      }
+      expect(fetcher.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(
+        false,
+      );
+    },
+  );
   afterEach(() => {
     vi.restoreAllMocks();
     window.history.replaceState({}, '', '/');

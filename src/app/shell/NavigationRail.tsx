@@ -560,24 +560,6 @@ export function NavigationRail({
           </Typography>
         ) : null}
       </Box>
-      <Divider sx={{ borderColor: alpha('#ffffff', 0.1) }} />
-      <Box sx={{ p: compact ? 1.5 : 2 }}>
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-          <Box
-            aria-hidden="true"
-            sx={{
-              bgcolor: 'success.main',
-              borderRadius: '50%',
-              boxShadow: `0 0 0 3px ${alpha(axisTokens.color.success, 0.16)}`,
-              height: 7,
-              width: 7,
-            }}
-          />
-          <Typography sx={{ color: alpha('#ffffff', 0.64) }} variant="caption">
-            {compact ? null : 'Registry connected'}
-          </Typography>
-        </Stack>
-      </Box>
     </Stack>
   );
 }

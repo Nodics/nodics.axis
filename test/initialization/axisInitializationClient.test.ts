@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   initiateAxisInitialization,
   loadAxisInitializationStatus,
+  AxisInitializationUnavailableError,
 } from '../../src/initialization/axisInitializationClient';
 
 const status = {
@@ -52,6 +53,29 @@ const status = {
 };
 
 describe('Axis initialization client', () => {
+  it('classifies only transient status reads for automatic recovery', async () => {
+    for (const statusCode of [408, 429, 502, 503, 504]) {
+      const transport = vi
+        .fn<typeof fetch>()
+        .mockImplementation(() =>
+          Promise.resolve(new Response(null, { status: statusCode })),
+        );
+      await expect(
+        loadAxisInitializationStatus('http://platform.local', 'token', 1000, transport),
+      ).rejects.toBeInstanceOf(AxisInitializationUnavailableError);
+      await expect(
+        initiateAxisInitialization('http://platform.local', 'token', 1000, transport),
+      ).rejects.not.toBeInstanceOf(AxisInitializationUnavailableError);
+    }
+    for (const statusCode of [400, 401, 403, 409]) {
+      const transport = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(null, { status: statusCode }));
+      await expect(
+        loadAxisInitializationStatus('http://platform.local', 'token', 1000, transport),
+      ).rejects.not.toBeInstanceOf(AxisInitializationUnavailableError);
+    }
+  });
   it('reads readiness only from the secured Platform endpoint', async () => {
     const fetchImplementation = vi
       .fn<typeof fetch>()

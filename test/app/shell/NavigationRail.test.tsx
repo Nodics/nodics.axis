@@ -10,6 +10,24 @@ afterEach(() => {
 });
 
 describe('Axis navigation rail', () => {
+  it('does not infer live registry health from a retained navigation snapshot', () => {
+    render(
+      <AxisThemeProvider>
+        <NavigationRail
+          activePath="/registry"
+          compact={false}
+          favourites={new Set()}
+          groups={[]}
+          query=""
+          onNavigate={vi.fn()}
+          onQueryChange={vi.fn()}
+          onToggleFavourite={vi.fn()}
+        />
+      </AxisThemeProvider>,
+    );
+    expect(screen.queryByText('Registry connected')).not.toBeInTheDocument();
+  });
+
   it('keeps disabled expandable items compatible with MUI tooltips', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});

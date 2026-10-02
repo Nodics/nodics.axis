@@ -52,6 +52,13 @@ function repairOwnerRoute(
   runtimeDiagnostic: ReadinessRuntimeDiagnostic | undefined,
   approvalDiagnostic: ReadinessApprovalDiagnostic | undefined,
 ): RepairOwnerRoute | undefined {
+  // These owner-declared actions require a bound consumer, not routes guessed from prose.
+  if (
+    ['REFRESH_READINESS', 'REVIEW_IMPORT_HISTORY', 'REVIEW_MEDIA_PUBLICATION'].includes(
+      repair?.action ?? '',
+    )
+  )
+    return undefined;
   const haystack = [
     repair?.operation,
     repair?.action,

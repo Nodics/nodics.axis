@@ -53,6 +53,9 @@ test. The Axis component and favicon tests are the current executable reference.
   typed renderers.
 - Responsive application shell, governed navigation, context presentation,
   accessibility behavior, and WebView-compatible layouts.
+- Bounded authenticated catalogue observation discovers late runtime navigation
+  without a browser-owned module registry. See the
+  [bootstrap observation contract](src/bootstrap/README.md).
 - Runtime localization foundation with backend-published ICU bundles, persisted
   employee locale preference, English/Arabic direction switching, structured
   error localization, ETag revalidation, and last-known-good public recovery.
@@ -74,6 +77,57 @@ test. The Axis component and favicon tests are the current executable reference.
   the discovered Rules API connection.
 
 ## Local setup
+
+The application query client rejects new offline commands before feature callbacks.
+Commands never wait for reconnect or retry automatically; a lost response may
+still represent a completed backend write, so inspect its current state before
+submitting again. Custom workspaces must retain `createAxisQueryClient` policy:
+no mutation retry/network-mode override, serialized mutation scope or persisted
+command queue. Incompatible new-mutation options are rejected before feature
+callbacks; do not hydrate or restore paused mutations into this client. Backend
+authorization and idempotency remain authoritative. Regression coverage lives in
+`test/app/axisQueryClient.test.ts`.
+
+Axis can open before its backend is ready. Transient public discovery failures
+show a connecting screen and retry GET requests automatically with backoff
+capped at ten seconds. In `axis-config.json`, optionally set
+`publicDiscoveryRetryWindowMs` (1,000-600,000 ms; default 300,000).
+After the window expires, manual discovery recovery remains available.
+
+Once the baseline is ready, authorized navigation with owner health
+`UNAVAILABLE` receives sequential read-only authenticated bootstrap refreshes
+using the same bounded retry window and 1/2/4/8/10-second backoff. Transient
+transport responses honor `Retry-After`; authentication denial and malformed
+contracts stop automatic recovery. **Refresh availability** remains an explicit
+read-only fallback. Healthy-but-disabled, hidden and absent navigation does not
+trigger recovery; explicit disabled lifecycle metadata is also excluded.
+Refreshed owner metadata still controls admission, even when it remains disabled.
+Observation covers the full authorized navigation snapshot, so recovery of the
+current route does not strand unavailable sidebar entries from a partial startup.
+A healthy current workspace keeps rendering with an explicit global refresh
+fallback. Missing navigation alone is not treated as an outage or permission:
+Axis never reconstructs menus from accelerator activation records.
+Session/context changes, screen lock and unmount retire stale responses. Recovery
+never navigates, clears drafts, grants permissions or retries a business command.
+Customize the window through `axis-config.json`'s `publicDiscoveryRetryWindowMs`, not a second
+navigation authority. Focused fixtures are
+`test/bootstrap/navigationAvailabilityRecovery.test.tsx` and
+`test/app/initializationApprovalAdmission.test.tsx`; they are not live acceptance.
+Permanent HTTP errors and invalid contracts are shown immediately. No login,
+import, publication, approval or other write is automatically retried.
+Authenticated initialization status GETs also recover from transient transport
+or HTTP 408/429/502/503/504 failures, every five seconds within the same configured
+window. Authorization failures, business conflicts and malformed contracts stop
+automatic recovery. The unavailable status keeps initialization writes disabled.
+If a saved setup approval has a failed workflow action, use **Review setup
+workflow** and the existing Process incident recovery controls, then **Back to
+Axis setup**. This bounded setup route requires an unlocked employee, an existing
+baseline workflow and authorized available Process navigation. Normal application
+routes remain unavailable until the baseline is Online; recovery does not bypass
+Process permissions or automatically repeat a decision.
+Customize this timing through public runtime configuration, not a backend
+launcher or a second discovery registry. The bootstrap and runtime-config tests
+cover transient recovery, exhaustion and configuration validation.
 
 Use Node.js 24 with npm 10 or 11. Start the Nodics Kickoff backend servers
 separately:

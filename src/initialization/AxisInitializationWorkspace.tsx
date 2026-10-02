@@ -24,6 +24,9 @@ interface AxisInitializationWorkspaceProps {
   readonly busy: boolean;
   readonly error?: string | undefined;
   readonly status?: AxisInitializationStatus | undefined;
+  readonly statusUnavailable?: boolean;
+  readonly reconnecting?: boolean;
+  readonly onReviewWorkflow?: (() => void) | undefined;
   readonly onInitiate: () => void;
   readonly onApprove: () => void;
   readonly onRefresh: () => void;
@@ -91,9 +94,14 @@ export function AxisInitializationWorkspace(props: AxisInitializationWorkspacePr
     review.workflowRef === publication.workflowRef,
   );
   const canInitiate =
-    props.status?.readiness === 'NOT_IMPORTED' ||
-    props.status?.readiness === 'IMPORTED' ||
-    props.status?.readiness === 'FAILED';
+    !props.statusUnavailable &&
+    props.status?.releaseStatus !== 'INVALID_RELEASE' &&
+    !['PENDING_APPROVAL', 'APPROVED', 'ACTIVATING', 'ONLINE'].includes(
+      publication?.state ?? '',
+    ) &&
+    (props.status?.readiness === 'NOT_IMPORTED' ||
+      props.status?.readiness === 'IMPORTED' ||
+      props.status?.readiness === 'FAILED');
   const readinessLabel =
     props.status?.readiness === 'NOT_IMPORTED'
       ? 'Not imported'
@@ -135,11 +143,16 @@ export function AxisInitializationWorkspace(props: AxisInitializationWorkspacePr
         <Stack spacing={3}>
           <Box>
             <Typography component="h1" variant="h4">
-              Initialize Axis
+              {props.status
+                ? 'Initialize Axis'
+                : props.reconnecting
+                  ? 'Connecting to your workspace'
+                  : 'Checking your workspace'}
             </Typography>
             <Typography color="text.secondary" sx={{ mt: 1 }}>
-              Axis is using its bundled recovery workspace until the managed CMS
-              baseline is approved and Online.
+              {props.status
+                ? 'Axis is using its bundled recovery workspace until the managed CMS baseline is approved and Online.'
+                : 'Checking the availability of your managed workspace.'}
             </Typography>
           </Box>
           {props.status ? (
@@ -161,193 +174,197 @@ export function AxisInitializationWorkspace(props: AxisInitializationWorkspacePr
               ) : null}
             </Stack>
           ) : null}
-          <Paper sx={{ bgcolor: 'background.default' }} variant="outlined">
-            <Button
-              aria-controls="axis-first-run-setup-details"
-              aria-expanded={expandedSections.has('first-run-setup')}
-              aria-label={`${expandedSections.has('first-run-setup') ? 'Collapse' : 'Expand'} First-run setup`}
-              color="inherit"
-              fullWidth
-              onClick={() => toggleSection('first-run-setup')}
-              sx={{
-                borderRadius: 0,
-                justifyContent: 'stretch',
-                p: 2.5,
-                textAlign: 'left',
-                textTransform: 'none',
-              }}
-            >
-              <Stack
-                direction="row"
-                spacing={2}
-                sx={{ alignItems: 'center', minWidth: 0, width: '100%' }}
+          {props.status ? (
+            <Paper sx={{ bgcolor: 'background.default' }} variant="outlined">
+              <Button
+                aria-controls="axis-first-run-setup-details"
+                aria-expanded={expandedSections.has('first-run-setup')}
+                aria-label={`${expandedSections.has('first-run-setup') ? 'Collapse' : 'Expand'} First-run setup`}
+                color="inherit"
+                fullWidth
+                onClick={() => toggleSection('first-run-setup')}
+                sx={{
+                  borderRadius: 0,
+                  justifyContent: 'stretch',
+                  p: 2.5,
+                  textAlign: 'left',
+                  textTransform: 'none',
+                }}
               >
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography component="h2" variant="h6">
-                    First-run setup
-                  </Typography>
-                  <Typography color="text.secondary" variant="body2">
-                    Bring the CMS-managed Axis workspace Online through a governed
-                    baseline release.
-                  </Typography>
-                </Box>
-                <Box sx={{ flexGrow: 1 }} />
-                <Chip
-                  label={`${String(setupWizardSteps.length)} steps`}
-                  size="small"
-                  sx={{ flexShrink: 0, fontWeight: 800 }}
-                />
-                <IconButton
-                  aria-hidden
-                  component="span"
-                  size="small"
-                  sx={{ border: '1px solid', borderColor: 'divider', flexShrink: 0 }}
-                  tabIndex={-1}
+                <Stack
+                  direction="row"
+                  spacing={2}
+                  sx={{ alignItems: 'center', minWidth: 0, width: '100%' }}
                 >
-                  <ShellIcon
-                    fontSize="small"
-                    name={
-                      expandedSections.has('first-run-setup')
-                        ? 'chevron-up'
-                        : 'chevron-down'
-                    }
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography component="h2" variant="h6">
+                      First-run setup
+                    </Typography>
+                    <Typography color="text.secondary" variant="body2">
+                      Bring the CMS-managed Axis workspace Online through a governed
+                      baseline release.
+                    </Typography>
+                  </Box>
+                  <Box sx={{ flexGrow: 1 }} />
+                  <Chip
+                    label={`${String(setupWizardSteps.length)} steps`}
+                    size="small"
+                    sx={{ flexShrink: 0, fontWeight: 800 }}
                   />
-                </IconButton>
-              </Stack>
-            </Button>
-            <Collapse
-              id="axis-first-run-setup-details"
-              in={expandedSections.has('first-run-setup')}
-              timeout="auto"
-              unmountOnExit
-            >
-              <Box sx={{ borderTop: 1, borderColor: 'divider', p: 2.5 }}>
-                <Stack spacing={1.5}>
-                  <Typography color="text.secondary" variant="body2">
-                    The recovery shell retires after approval.
-                  </Typography>
-                  <Stack spacing={1}>
-                    {setupWizardSteps.map((step) => {
-                      const expanded = expandedSetupSteps.has(step.id);
-                      return (
-                        <Paper
-                          key={step.id}
-                          elevation={0}
-                          sx={{
-                            border: 1,
-                            borderColor: expanded ? 'primary.light' : 'divider',
-                            borderRadius: 1,
-                            overflow: 'hidden',
-                          }}
-                          variant="outlined"
-                        >
-                          <Button
-                            aria-controls={`axis-setup-step-${step.id}`}
-                            aria-expanded={expanded}
-                            aria-label={`${expanded ? 'Collapse' : 'Expand'} setup step ${String(step.number)} ${step.title}`}
-                            color="inherit"
-                            fullWidth
-                            onClick={() => toggleSetupStep(step.id)}
+                  <IconButton
+                    aria-hidden
+                    component="span"
+                    size="small"
+                    sx={{ border: '1px solid', borderColor: 'divider', flexShrink: 0 }}
+                    tabIndex={-1}
+                  >
+                    <ShellIcon
+                      fontSize="small"
+                      name={
+                        expandedSections.has('first-run-setup')
+                          ? 'chevron-up'
+                          : 'chevron-down'
+                      }
+                    />
+                  </IconButton>
+                </Stack>
+              </Button>
+              <Collapse
+                id="axis-first-run-setup-details"
+                in={expandedSections.has('first-run-setup')}
+                timeout="auto"
+                unmountOnExit
+              >
+                <Box sx={{ borderTop: 1, borderColor: 'divider', p: 2.5 }}>
+                  <Stack spacing={1.5}>
+                    <Typography color="text.secondary" variant="body2">
+                      The recovery shell retires after approval.
+                    </Typography>
+                    <Stack spacing={1}>
+                      {setupWizardSteps.map((step) => {
+                        const expanded = expandedSetupSteps.has(step.id);
+                        return (
+                          <Paper
+                            key={step.id}
+                            elevation={0}
                             sx={{
-                              borderRadius: 0,
-                              justifyContent: 'stretch',
-                              minHeight: 64,
-                              px: 1.5,
-                              py: 1.25,
-                              textAlign: 'left',
-                              textTransform: 'none',
+                              border: 1,
+                              borderColor: expanded ? 'primary.light' : 'divider',
+                              borderRadius: 1,
+                              overflow: 'hidden',
                             }}
+                            variant="outlined"
                           >
-                            <Stack
-                              direction="row"
-                              spacing={1.25}
+                            <Button
+                              aria-controls={`axis-setup-step-${step.id}`}
+                              aria-expanded={expanded}
+                              aria-label={`${expanded ? 'Collapse' : 'Expand'} setup step ${String(step.number)} ${step.title}`}
+                              color="inherit"
+                              fullWidth
+                              onClick={() => toggleSetupStep(step.id)}
                               sx={{
-                                alignItems: 'center',
-                                minWidth: 0,
-                                width: '100%',
+                                borderRadius: 0,
+                                justifyContent: 'stretch',
+                                minHeight: 64,
+                                px: 1.5,
+                                py: 1.25,
+                                textAlign: 'left',
+                                textTransform: 'none',
                               }}
+                            >
+                              <Stack
+                                direction="row"
+                                spacing={1.25}
+                                sx={{
+                                  alignItems: 'center',
+                                  minWidth: 0,
+                                  width: '100%',
+                                }}
+                              >
+                                <Box
+                                  sx={{
+                                    alignItems: 'center',
+                                    bgcolor: 'primary.main',
+                                    borderRadius: 1,
+                                    color: 'primary.contrastText',
+                                    display: 'flex',
+                                    flexShrink: 0,
+                                    fontWeight: 800,
+                                    height: 34,
+                                    justifyContent: 'center',
+                                    width: 34,
+                                  }}
+                                >
+                                  {step.number}
+                                </Box>
+                                <Box sx={{ minWidth: 0 }}>
+                                  <Typography sx={{ fontWeight: 800 }} variant="body1">
+                                    {step.title}
+                                  </Typography>
+                                  <Typography color="text.secondary" variant="body2">
+                                    {step.summary}
+                                  </Typography>
+                                </Box>
+                                <Box sx={{ flexGrow: 1 }} />
+                                <Tooltip
+                                  title={
+                                    expanded
+                                      ? 'Collapse setup step'
+                                      : 'Expand setup step'
+                                  }
+                                >
+                                  <IconButton
+                                    aria-hidden
+                                    component="span"
+                                    edge="end"
+                                    size="small"
+                                    sx={{
+                                      border: '1px solid',
+                                      borderColor: 'divider',
+                                      flexShrink: 0,
+                                    }}
+                                    tabIndex={-1}
+                                  >
+                                    <ShellIcon
+                                      fontSize="small"
+                                      name={expanded ? 'chevron-up' : 'chevron-down'}
+                                    />
+                                  </IconButton>
+                                </Tooltip>
+                              </Stack>
+                            </Button>
+                            <Collapse
+                              id={`axis-setup-step-${step.id}`}
+                              in={expanded}
+                              timeout="auto"
+                              unmountOnExit
                             >
                               <Box
                                 sx={{
-                                  alignItems: 'center',
-                                  bgcolor: 'primary.main',
-                                  borderRadius: 1,
-                                  color: 'primary.contrastText',
-                                  display: 'flex',
-                                  flexShrink: 0,
-                                  fontWeight: 800,
-                                  height: 34,
-                                  justifyContent: 'center',
-                                  width: 34,
+                                  borderTop: 1,
+                                  borderColor: 'divider',
+                                  px: 1.5,
+                                  py: 1.25,
                                 }}
                               >
-                                {step.number}
-                              </Box>
-                              <Box sx={{ minWidth: 0 }}>
-                                <Typography sx={{ fontWeight: 800 }} variant="body1">
-                                  {step.title}
-                                </Typography>
                                 <Typography color="text.secondary" variant="body2">
-                                  {step.summary}
+                                  {step.body}
                                 </Typography>
                               </Box>
-                              <Box sx={{ flexGrow: 1 }} />
-                              <Tooltip
-                                title={
-                                  expanded ? 'Collapse setup step' : 'Expand setup step'
-                                }
-                              >
-                                <IconButton
-                                  aria-hidden
-                                  component="span"
-                                  edge="end"
-                                  size="small"
-                                  sx={{
-                                    border: '1px solid',
-                                    borderColor: 'divider',
-                                    flexShrink: 0,
-                                  }}
-                                  tabIndex={-1}
-                                >
-                                  <ShellIcon
-                                    fontSize="small"
-                                    name={expanded ? 'chevron-up' : 'chevron-down'}
-                                  />
-                                </IconButton>
-                              </Tooltip>
-                            </Stack>
-                          </Button>
-                          <Collapse
-                            id={`axis-setup-step-${step.id}`}
-                            in={expanded}
-                            timeout="auto"
-                            unmountOnExit
-                          >
-                            <Box
-                              sx={{
-                                borderTop: 1,
-                                borderColor: 'divider',
-                                px: 1.5,
-                                py: 1.25,
-                              }}
-                            >
-                              <Typography color="text.secondary" variant="body2">
-                                {step.body}
-                              </Typography>
-                            </Box>
-                          </Collapse>
-                        </Paper>
-                      );
-                    })}
+                            </Collapse>
+                          </Paper>
+                        );
+                      })}
+                    </Stack>
+                    <Alert severity="info">
+                      Temporary bootstrap access should be retired after the first
+                      governed admin and enterprise-scoped user model is active.
+                    </Alert>
                   </Stack>
-                  <Alert severity="info">
-                    Temporary bootstrap access should be retired after the first
-                    governed admin and enterprise-scoped user model is active.
-                  </Alert>
-                </Stack>
-              </Box>
-            </Collapse>
-          </Paper>
+                </Box>
+              </Collapse>
+            </Paper>
+          ) : null}
           {props.status?.readiness === 'IMPORTING' ? (
             <Alert severity="info">
               Axis is importing the baseline into Staged. Leave this screen open or
@@ -355,7 +372,14 @@ export function AxisInitializationWorkspace(props: AxisInitializationWorkspacePr
               finishes.
             </Alert>
           ) : null}
-          {props.error ? <Alert severity="error">{props.error}</Alert> : null}
+          {props.error ? (
+            <Alert
+              severity={props.reconnecting ? 'info' : 'error'}
+              role={props.reconnecting ? 'status' : 'alert'}
+            >
+              {props.error}
+            </Alert>
+          ) : null}
           {props.status?.readiness === 'PUBLICATION_PENDING' ? (
             <Alert severity="info">
               The baseline is waiting for its governed Process approval and Online
@@ -470,25 +494,37 @@ export function AxisInitializationWorkspace(props: AxisInitializationWorkspacePr
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             {canInitiate ? (
               <Button
-                disabled={props.busy}
+                disabled={props.busy || props.statusUnavailable}
                 onClick={props.onInitiate}
                 variant="contained"
               >
                 {props.status?.readiness === 'FAILED'
-                  ? 'Retry validation'
-                  : 'Initialize and submit'}
+                  ? 'Resume setup'
+                  : props.status?.readiness === 'IMPORTED'
+                    ? 'Submit for review'
+                    : 'Initialize and submit'}
               </Button>
             ) : null}
             {props.status?.readiness === 'PUBLICATION_PENDING' &&
             props.status.publication?.state === 'PENDING_APPROVAL' &&
             props.status.publication.workflowRef &&
-            reviewMatchesPublication ? (
+            reviewMatchesPublication &&
+            !props.statusUnavailable ? (
               <Button
                 disabled={props.busy}
                 onClick={() => setApprovalOpen(true)}
                 variant="contained"
               >
                 Review publication details
+              </Button>
+            ) : null}
+            {props.onReviewWorkflow && props.status?.publication?.workflowRef ? (
+              <Button
+                disabled={props.busy || props.statusUnavailable}
+                onClick={props.onReviewWorkflow}
+                variant="outlined"
+              >
+                Review setup workflow
               </Button>
             ) : null}
             <Button disabled={props.busy} onClick={props.onRefresh} variant="outlined">
@@ -830,7 +866,13 @@ export function AxisInitializationWorkspace(props: AxisInitializationWorkspacePr
           <Button onClick={() => setApprovalOpen(false)}>Cancel</Button>
           <Button
             autoFocus
-            disabled={!reviewMatchesPublication}
+            disabled={
+              props.busy ||
+              props.statusUnavailable ||
+              !reviewMatchesPublication ||
+              props.status?.readiness !== 'PUBLICATION_PENDING' ||
+              publication?.state !== 'PENDING_APPROVAL'
+            }
             onClick={() => {
               setApprovalOpen(false);
               props.onApprove();

@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createApplicationInitializationClient } from '../../../../src/operations/setupAccelerators/api/applicationInitializationClient';
+import {
+  ApplicationReadinessThrottleError,
+  createApplicationInitializationClient,
+} from '../../../../src/operations/setupAccelerators/api/applicationInitializationClient';
 
 const connection = {
   moduleName: 'backoffice',
@@ -22,8 +25,390 @@ function hangingFetch(): typeof fetch {
 }
 
 describe('application initialization client', () => {
+  it.each(['circa', 'agoraapparel', 'agoraelectronics', 'agorahome'])(
+    'composes the owner unavailable prerequisite diagnostic for %s without fabricating a command',
+    async (profileCode) => {
+      // Mirrors capabilityRepairProjection(READINESS_VALIDATION_BLOCKED) and its
+      // blocker/repairActions composition; JSON transport omits undefined fields.
+      const repair = {
+        available: false,
+        label: 'Review setup prerequisites',
+        action: 'REVIEW_SETUP_PREREQUISITES',
+        idempotent: true,
+        requiresConfirmation: false,
+        owner: 'circa.ewaste:profile',
+        targetServer: 'platformServer',
+        targetRuntimeRole: 'PLATFORM',
+        eligibility: 'NOT_AVAILABLE',
+        unavailableReason:
+          'The owning module, source release, runtime, or workflow authority must perform this repair.',
+      };
+      // Captured Circa response uses these three blocked owner releases. Other
+      // envelope identities exercise the shared parser, not claimed live data.
+      const repairs = ['profile', 'addresses', 'operations'].map((release) => ({
+        ...repair,
+        owner: `circa.ewaste:${release}`,
+      }));
+      const payload = {
+        profileCode,
+        type: 'CMS_SITE',
+        owner: 'cms',
+        applicationCode: profileCode,
+        siteCode: `${profileCode}Site`,
+        readiness: 'BLOCKED',
+        releaseCode: `${profileCode}:content`,
+        releaseVersion: '1.0.0',
+        allowedActions: [],
+        capability: {
+          capabilityCode: profileCode,
+          displayName: profileCode,
+          owningModule: 'cms',
+          capabilityType: 'APPLICATION',
+          group: 'PROJECT',
+          businessStatus: 'NEEDS_ATTENTION',
+          technicalStatus: 'BLOCKED',
+          nextAction: 'Review setup prerequisites',
+          repairActions: repairs,
+          blockers: repairs.map((repair) => ({
+            blockerCode: 'READINESS_VALIDATION_BLOCKED',
+            code: 'READINESS_VALIDATION_BLOCKED',
+            severity: 'REPAIR_REQUIRED',
+            owner: repair.owner,
+            ownerType: 'DATA_RELEASE',
+            source: 'DATA_RELEASE',
+            message: 'The import owner refused the selected setup group.',
+            action: 'Review setup prerequisites',
+            technicalStatus: 'VALIDATION_BLOCKED',
+            repair,
+          })),
+        },
+      };
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ data: payload }), { status: 200 }),
+        );
+      const client = createApplicationInitializationClient(
+        {
+          connection,
+          enterpriseCode: 'default',
+          accessToken: 'fixture-access',
+          timeoutMs: 1000,
+          profileCode,
+        },
+        fetcher,
+      );
+      const status = await client.getStatus();
+      expect(status.capability?.blockers.map((blocker) => blocker.repair)).toEqual(
+        repairs.map((repair) => ({ ...repair, operation: '' })),
+      );
+      expect(status.capability?.repairActions).toEqual(
+        repairs.map((repair) => ({ ...repair, operation: '' })),
+      );
+      expect(status.allowedActions).toEqual([]);
+      expect(fetcher).toHaveBeenCalledOnce();
+      expect(fetcher.mock.calls[0]?.[1]?.method).toBe('GET');
+    },
+  );
+
+  it.each([
+    { available: true },
+    { available: undefined },
+    { available: 'false' },
+    { available: false, operation: '' },
+    { available: false, operation: null },
+    { available: false, action: '' },
+  ])('rejects malformed or enabled operation-less repairs %j', async (override) => {
+    const repair = Object.assign(
+      {},
+      {
+        available: false,
+        label: 'Review setup prerequisites',
+        action: 'REVIEW_SETUP_PREREQUISITES',
+      },
+      override,
+    );
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            profileCode: 'circa',
+            type: 'CMS_SITE',
+            owner: 'cms',
+            applicationCode: 'circa',
+            siteCode: 'circaSite',
+            readiness: 'BLOCKED',
+            releaseCode: 'circa:content',
+            releaseVersion: '1.0.0',
+            allowedActions: [],
+            capability: {
+              capabilityCode: 'circa',
+              displayName: 'Circa',
+              owningModule: 'cms',
+              capabilityType: 'APPLICATION',
+              group: 'PROJECT',
+              businessStatus: 'NEEDS_ATTENTION',
+              technicalStatus: 'BLOCKED',
+              nextAction: 'Review setup prerequisites',
+              blockers: [
+                {
+                  code: 'READINESS_VALIDATION_BLOCKED',
+                  severity: 'REPAIR_REQUIRED',
+                  owner: 'selected-group',
+                  message: 'Prerequisites held',
+                  action: 'Review setup prerequisites',
+                  repair,
+                },
+              ],
+            },
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    const client = createApplicationInitializationClient(
+      {
+        connection,
+        enterpriseCode: 'default',
+        accessToken: 'fixture-access',
+        timeoutMs: 1000,
+        profileCode: 'circa',
+      },
+      fetcher,
+    );
+    await expect(client.getStatus()).rejects.toThrow('Capability blocker repair');
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it.each([4, -1])(
+    'projects only safe owner Media identity and validates pinned version %s',
+    async (versionId) => {
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            data: {
+              profileCode: 'nexus',
+              type: 'CMS_SITE',
+              owner: 'cms',
+              applicationCode: 'nexus',
+              siteCode: 'nexusSite',
+              readiness: 'MEDIA_DEPENDENCIES_PENDING',
+              releaseCode: 'nexus:content',
+              releaseVersion: '1.0.0',
+              allowedActions: [],
+              capability: {
+                capabilityCode: 'nexus',
+                displayName: 'Nexus',
+                owningModule: 'nexus',
+                capabilityType: 'APPLICATION',
+                group: 'PROJECT',
+                businessStatus: 'NEEDS_ATTENTION',
+                technicalStatus: 'BLOCKED',
+                nextAction: 'Inspect Media',
+                blockers: [
+                  {
+                    code: 'MEDIA_DEPENDENCY_NOT_ACTIVATED',
+                    severity: 'REPAIR_REQUIRED',
+                    owner: 'hero',
+                    ownerType: 'MEDIA',
+                    source: 'MEDIA_PUBLICATION',
+                    message: 'Inspect Media',
+                    action: 'Inspect Media',
+                    mediaDependency: {
+                      owner: 'media',
+                      mediaCode: 'hero',
+                      versionId,
+                      status: 'NOT_ACTIVATED',
+                      qualified: false,
+                      checksum: 'not-for-rendering',
+                      publicationRequest: { method: 'POST', input: {} },
+                    },
+                  },
+                ],
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+      const client = createApplicationInitializationClient(
+        {
+          connection,
+          enterpriseCode: 'default',
+          accessToken: 'fixture-access',
+          timeoutMs: 1000,
+          profileCode: 'nexus',
+        },
+        fetcher,
+      );
+      if (versionId < 0)
+        await expect(client.getStatus()).rejects.toThrow('Media dependency');
+      else {
+        const status = await client.getStatus();
+        expect(status.capability?.blockers[0]?.mediaDependency).toEqual({
+          mediaCode: 'hero',
+          versionId: 4,
+          status: 'NOT_ACTIVATED',
+          qualified: false,
+        });
+        expect(JSON.stringify(status)).not.toContain('publicationRequest');
+        expect(JSON.stringify(status)).not.toContain('not-for-rendering');
+        expect(status.allowedActions).toEqual([]);
+      }
+      expect(fetcher).toHaveBeenCalledOnce();
+      expect(fetcher.mock.calls[0]?.[1]?.method).toBe('GET');
+    },
+  );
+  it('types only a throttled status GET and never retries or types a mutation as read recovery', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ message: 'Wait before refreshing' }), {
+          status: 429,
+          headers: { 'Retry-After': '60' },
+        }),
+      ),
+    );
+    const client = createApplicationInitializationClient(
+      {
+        connection,
+        enterpriseCode: 'default',
+        accessToken: 'fixture-access',
+        timeoutMs: 1_000,
+        profileCode: 'nexus',
+      },
+      fetcher,
+    );
+    await expect(client.getStatus()).rejects.toBeInstanceOf(
+      ApplicationReadinessThrottleError,
+    );
+    await expect(client.prepare()).rejects.not.toBeInstanceOf(
+      ApplicationReadinessThrottleError,
+    );
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls.map(([, options]) => options?.method)).toEqual([
+      'GET',
+      'POST',
+    ]);
+  });
+  it.each([false, true])(
+    'consumes bounded failed receipts, rejects automatic retry authority ($automaticRetry)',
+    async (automaticRetry) => {
+      const receipt = {
+        releaseCode: 'commerce:sample',
+        status: 'FAILED',
+        version: '1.0.0',
+        lastRunId: 'historical-run',
+        rawError: { secret: 'discard' },
+      };
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            data: {
+              profileCode: 'circa',
+              type: 'CMS_SITE',
+              owner: 'cms',
+              applicationCode: 'circa',
+              siteCode: 'circaSite',
+              readiness: 'BLOCKED',
+              releaseCode: 'cms:circa',
+              releaseVersion: '1.0.0',
+              allowedActions: [],
+              preparation: {
+                status: 'BLOCKED',
+                steps: [],
+                groupReceipts: [
+                  {
+                    targetServer: 'stagedServer',
+                    targetRuntimeRole: 'WCMS_STAGED',
+                    dataType: 'sample',
+                    releaseCodes: ['commerce:sample'],
+                    status: 'FAILED',
+                    releases: [receipt],
+                  },
+                ],
+                operationFailure: {
+                  owner: 'import',
+                  targetServer: 'stagedServer',
+                  targetRuntimeRole: 'WCMS_STAGED',
+                  dataType: 'sample',
+                  releaseCodes: ['commerce:sample'],
+                  failureCode: 'ERR_IMP_00004',
+                  message: 'Review the owner receipt.',
+                  automaticRetry,
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+      const client = createApplicationInitializationClient(
+        {
+          connection,
+          enterpriseCode: 'default',
+          accessToken: 'employee-token',
+          timeoutMs: 1000,
+          profileCode: 'circa',
+        },
+        fetcher,
+      );
+      if (automaticRetry)
+        await expect(client.getStatus()).rejects.toThrow(
+          'Application import failure is incompatible',
+        );
+      else {
+        const status = await client.getStatus();
+        expect(status.preparation?.operationFailure?.automaticRetry).toBe(false);
+        expect(status.preparation?.groupReceipts?.[0]?.releases[0]).toEqual({
+          releaseCode: 'commerce:sample',
+          status: 'FAILED',
+          version: '1.0.0',
+          lastRunId: 'historical-run',
+        });
+        expect(JSON.stringify(status)).not.toContain('secret');
+      }
+      expect(fetcher).toHaveBeenCalledOnce();
+    },
+  );
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('accepts owner Media dependency readiness without adding initialization authority', async () => {
+    const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            profileCode: 'nexus',
+            type: 'CMS_SITE',
+            owner: 'cms',
+            applicationCode: 'nexus',
+            siteCode: 'nexusSite',
+            readiness: 'MEDIA_DEPENDENCIES_PENDING',
+            releaseCode: 'cms:nexus',
+            releaseVersion: '1.0.0',
+            allowedActions: [],
+            publication: { code: 'nexus-publication', state: 'ONLINE', revision: 1 },
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    const client = createApplicationInitializationClient(
+      {
+        connection,
+        enterpriseCode: 'default',
+        accessToken: 'employee-token',
+        timeoutMs: 1000,
+        profileCode: 'nexus',
+      },
+      fetchImplementation,
+    );
+    const status = await client.getStatus();
+    expect(status.readiness).toBe('MEDIA_DEPENDENCIES_PENDING');
+    expect(status.allowedActions).toEqual([]);
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+    expect(fetchImplementation.mock.calls[0]?.[1]?.method).toBe('GET');
   });
 
   it('gives setup status checks enough time for backend aggregation', async () => {

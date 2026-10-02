@@ -1,5 +1,6 @@
 import { Alert, Box, Button, Paper, Stack, TextField, Typography } from '@mui/material';
 import { useState, type FormEvent } from 'react';
+import { getSignInErrorMessage } from '../app/recoveryState';
 
 interface BundledLoginPageProps {
   readonly error?: string | undefined;
@@ -45,7 +46,9 @@ export function BundledLoginPage({ error, onLogin }: BundledLoginPageProps) {
               Sign in to initialize or recover the managed Axis experience.
             </Typography>
           </Box>
-          {error ? <Alert severity="error">{error}</Alert> : null}
+          {error ? (
+            <Alert severity="error">{getSignInErrorMessage(error)}</Alert>
+          ) : null}
           <TextField
             autoComplete="username"
             autoFocus

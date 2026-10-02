@@ -1,11 +1,89 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  AuthenticatedBootstrapUnavailableError,
   parseBackendWorkspace,
   loadAuthenticatedBootstrap,
   loadPublicBootstrap,
   selectModuleConnection,
 } from '../../src/bootstrap/publicBootstrap';
+
+describe('authenticated bootstrap read-only recovery classification', () => {
+  it.each([408, 429, 502, 503, 504])(
+    'classifies HTTP %i as a transient owner read',
+    async (status) => {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          new Response(null, { status, headers: { 'Retry-After': '30' } }),
+        );
+      await expect(
+        loadAuthenticatedBootstrap(
+          'https://owner.example.test',
+          1,
+          'fixture-access',
+          1000,
+          fetcher,
+        ),
+      ).rejects.toMatchObject({ retryAfterMs: 30_000 });
+      expect(fetcher).toHaveBeenCalledOnce();
+      expect(fetcher.mock.calls[0]?.[1]?.method).toBe('GET');
+    },
+  );
+  it.each([401, 403, 404, 500])(
+    'does not automatically classify HTTP %i as recoverable',
+    async (status) => {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(null, { status }));
+      const failure = await loadAuthenticatedBootstrap(
+        'https://owner.example.test',
+        1,
+        'fixture-access',
+        1000,
+        fetcher,
+      ).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(Error);
+      expect(failure).not.toBeInstanceOf(AuthenticatedBootstrapUnavailableError);
+      expect(fetcher).toHaveBeenCalledOnce();
+    },
+  );
+  it('classifies network failure but not a malformed successful owner response', async () => {
+    await expect(
+      loadAuthenticatedBootstrap(
+        'https://owner.example.test',
+        1,
+        'fixture-access',
+        1000,
+        vi.fn<typeof fetch>().mockRejectedValue(new TypeError('Failed to fetch')),
+      ),
+    ).rejects.toBeInstanceOf(AuthenticatedBootstrapUnavailableError);
+    const failure = await loadAuthenticatedBootstrap(
+      'https://owner.example.test',
+      1,
+      'fixture-access',
+      1000,
+      vi.fn<typeof fetch>().mockResolvedValue(new Response('{}', { status: 200 })),
+    ).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).not.toBeInstanceOf(AuthenticatedBootstrapUnavailableError);
+  });
+  it('bounds numeric and date cooldowns without retaining provider diagnostics', () => {
+    expect(
+      new AuthenticatedBootstrapUnavailableError('Unavailable', '900').retryAfterMs,
+    ).toBe(300_000);
+    expect(
+      new AuthenticatedBootstrapUnavailableError('Unavailable', 'bad').retryAfterMs,
+    ).toBe(30_000);
+    expect(
+      new AuthenticatedBootstrapUnavailableError(
+        'Unavailable',
+        new Date(60_000).toUTCString(),
+        30_000,
+      ).retryAfterMs,
+    ).toBe(30_000);
+  });
+});
 
 const document = {
   code: 'SUC_BOF_00014',
@@ -960,6 +1038,49 @@ describe('Axis bootstrap clients', () => {
 });
 
 describe('native workspace contribution', () => {
+  it.each([
+    'publicationReadiness.message',
+    'constructor.message',
+    'publicationReadiness.__proto__',
+  ])('bounds optional owner diagnostic path (%s)', (path) => {
+    const workspace = {
+      contractVersion: 1,
+      renderer: 'axis.workspace.backend-operations',
+      title: 'Owner',
+      defaultTab: 'request',
+      tabs: [
+        {
+          id: 'request',
+          label: 'Request',
+          sections: [
+            {
+              id: 'command',
+              type: 'form',
+              title: 'Owner',
+              endpoint: { method: 'POST', path: '/nodics/media/v0/publications' },
+              readSource: {
+                endpoint: {
+                  method: 'GET',
+                  path: '/nodics/media/v0/library/{mediaCode}',
+                },
+                parameter: 'mediaCode',
+                fields: { mediaCode: 'code' },
+                commandId: 'request',
+                unavailableMessage: 'Unavailable',
+                unavailableMessagePath: path,
+              },
+              fields: [
+                { name: 'mediaCode', label: 'Code', type: 'TEXT', required: true },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    if (path === 'publicationReadiness.message')
+      expect(parseBackendWorkspace(workspace)).toMatchObject(workspace);
+    else expect(() => parseBackendWorkspace(workspace)).toThrow();
+  });
   const native = {
     contractVersion: 1,
     renderer: 'axis.workspace.native',
@@ -969,6 +1090,50 @@ describe('native workspace contribution', () => {
   };
   it('preserves bounded owner-supplied keys without executable components', () => {
     expect(parseBackendWorkspace(native)).toMatchObject(native);
+  });
+  it('preserves custom owner roles and selects only their authorized connection', () => {
+    const workspace = parseBackendWorkspace({
+      ...native,
+      ownerSelector: { runtimeRoleCode: 'CUSTOM_STAGED', publicationRole: 'STAGED' },
+    });
+    const connection = {
+      moduleName: 'media',
+      instanceId: 'custom',
+      endpoint: 'https://staged.example/media',
+      environment: 'LOCAL',
+      state: 'UP',
+      runtimeRole: { code: 'CUSTOM_STAGED', publication: 'STAGED' },
+    };
+    const bootstrap = {
+      moduleConnections: {
+        media: [
+          {
+            ...connection,
+            instanceId: 'online',
+            runtimeRole: { code: 'WCMS_ONLINE', publication: 'ONLINE' },
+          },
+          connection,
+        ],
+      },
+    } as never;
+    expect(selectModuleConnection(bootstrap, 'media', workspace.ownerSelector)).toEqual(
+      connection,
+    );
+    expect(
+      selectModuleConnection(bootstrap, 'media', { runtimeRoleCode: 'WCMS_STAGED' }),
+    ).toBeUndefined();
+    expect(
+      selectModuleConnection(bootstrap, 'media', { instanceId: 'custom' }),
+    ).toEqual(connection);
+  });
+  it.each([
+    {},
+    { server: 'staged' },
+    { endpoint: 'https://evil.test' },
+    { runtimeRoleCode: 'https://evil.test' },
+    { publicationRole: 42 },
+  ])('rejects unsupported workspace selectors %j', (ownerSelector) => {
+    expect(() => parseBackendWorkspace({ ...native, ownerSelector })).toThrow();
   });
   it.each([
     { component: '../../code.js' },

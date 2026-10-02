@@ -1,5 +1,23 @@
 # Documentation Routing
 
+## Article Images
+
+Validated article images open in a full-screen, keyboard-accessible viewer at
+Fit size for an overview. Large architecture images scroll inside the viewer rather than
+widening the article. Fit and bounded 25–200% zoom controls support narrow
+screens; Escape or Close dismisses the viewer and restores trigger focus.
+The full title wraps beside a top-right Close button; Fit, zoom and percentage
+occupy a separate bounded row. Each opening resets to Fit; selecting zoom uses
+the image's native width. Changing the article route, identity or image source
+discards the open viewer.
+The existing image-source allowlist remains authoritative: enlargement adds no
+URL input, publication operation or independent content fetch client.
+
+`test/cms/renderers/components/documentation/DocumentationArticleRenderer.test.tsx`
+covers native sizing, contained scrolling, fit/zoom, keyboard/focus behavior,
+unsafe-source rejection and stale-viewer disposal. These component tests do not
+replace live desktop/mobile visual acceptance.
+
 Axis renders the authenticated BackOffice `documentationSources` contract.
 For a product URL, select the longest declared route boundary and use that
 source's Site and initialization profile. Unknown, absent or denied products

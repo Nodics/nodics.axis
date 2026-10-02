@@ -26,6 +26,7 @@ describe('Axis environment configuration', () => {
       projectCode: 'nodics.kickoff',
       clientContractVersion: 1,
       requestTimeoutMs: 10000,
+      publicDiscoveryRetryWindowMs: 300_000,
       browserSessionCsrfCookieName: 'nodics_axis_csrf',
       assistantMaximumEventBytes: 65536,
       assistantReconnectWindowMs: 120000,

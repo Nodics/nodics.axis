@@ -1,11 +1,21 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AxisThemeProvider } from '../../../src/app/AxisThemeProvider';
-import type { AxisAuthenticatedBootstrap } from '../../../src/bootstrap/publicBootstrap';
+import type {
+  AxisAuthenticatedBootstrap,
+  AxisNavigationItem,
+} from '../../../src/bootstrap/publicBootstrap';
 import { FunctionalModuleRegistryRoutePage } from '../../../src/operations/moduleRegistry/FunctionalModuleRegistryRoutePage';
 import type { AxisRuntimeConfig } from '../../../src/runtime/runtimeConfig';
 
@@ -152,26 +162,211 @@ function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(
+  const page = (currentBootstrap = bootstrap, routeNavigation?: AxisNavigationItem) => (
     <AxisThemeProvider>
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
           <FunctionalModuleRegistryRoutePage
             accessToken="employee-token"
-            bootstrap={bootstrap}
+            bootstrap={currentBootstrap}
+            routeNavigation={routeNavigation}
             runtime={runtime}
           />
         </MemoryRouter>
       </QueryClientProvider>
-    </AxisThemeProvider>,
+    </AxisThemeProvider>
   );
+  const view = render(page());
+  return {
+    ...view,
+    queryClient,
+    refreshBootstrap: (
+      current: AxisAuthenticatedBootstrap,
+      navigation?: AxisNavigationItem,
+    ) => view.rerender(page(current, navigation)),
+  };
 }
 
 afterEach(() => {
   vi.restoreAllMocks();
+  onlineManager.setOnline(true);
 });
 
 describe('FunctionalModuleRegistryRoutePage', () => {
+  it.each(['navigator', 'manager'])(
+    'keeps %s-offline rows diagnostic and restores commands only after the existing reads recover',
+    async (source) => {
+      const fetch = vi.fn<typeof globalThis.fetch>((input) =>
+        Promise.resolve(
+          response({
+            items: urlOf(input).includes('/runtime/modules/registrations')
+              ? []
+              : [moduleItem('nodics.commerce', 'Commerce')],
+          }),
+        ),
+      );
+      vi.stubGlobal('fetch', fetch);
+      renderPage();
+      await screen.findByText('Commerce');
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Select ready' })).toBeEnabled(),
+      );
+      const calls = fetch.mock.calls.length;
+      const online = vi
+        .spyOn(navigator, 'onLine', 'get')
+        .mockReturnValue(source !== 'navigator');
+      act(() => {
+        onlineManager.setOnline(source !== 'manager');
+        window.dispatchEvent(new Event('offline'));
+      });
+      expect(screen.getByText(/Axis is offline/)).toBeInTheDocument();
+      expect(screen.getByText('Commerce')).toBeInTheDocument();
+      expect(screen.getByText('Cached: Runtime connected')).toBeInTheDocument();
+      expect(screen.getByText('Cached ready to enable')).toBeInTheDocument();
+      expect(screen.getByText('Last reported readiness')).toBeInTheDocument();
+      expect(
+        screen.getByText('Last reported: 1 module ready to enable'),
+      ).toBeInTheDocument();
+      expect(screen.getByText('Cached: Ready to enable')).toBeInTheDocument();
+      expect(
+        screen.queryByText('Runtime and prerequisites ready'),
+      ).not.toBeInTheDocument();
+      expect(
+        within(screen.getByLabelText('Registry overview')).getByText('Unknown'),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Select ready' })).toBeDisabled();
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Details for Commerce' }),
+      );
+      expect(screen.getByRole('button', { name: 'Activate' })).toBeDisabled();
+      fireEvent.click(screen.getByRole('button', { name: 'Activate' }));
+      expect(fetch).toHaveBeenCalledTimes(calls);
+      online.mockReturnValue(true);
+      act(() => {
+        onlineManager.setOnline(true);
+        window.dispatchEvent(new Event('online'));
+      });
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Activate' })).toBeEnabled(),
+      );
+      expect(fetch.mock.calls.length).toBeGreaterThan(calls);
+      expect(
+        fetch.mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
+      ).toBe(true);
+      expect(screen.queryByText('Cached: Runtime connected')).not.toBeInTheDocument();
+      expect(screen.queryByText('Cached ready to enable')).not.toBeInTheDocument();
+      expect(screen.queryByText('Cached: Ready to enable')).not.toBeInTheDocument();
+    },
+  );
+
+  it('disables an already open destructive confirmation when connectivity is lost, without replay on recovery', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>((input) =>
+      Promise.resolve(
+        response({
+          items: urlOf(input).includes('/runtime/modules/registrations')
+            ? [moduleItem('nodics.commerce', 'Commerce', { enabled: true })]
+            : [],
+        }),
+      ),
+    );
+    vi.stubGlobal('fetch', fetch);
+    renderPage();
+    await screen.findByText('Commerce');
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Select ready' })).toBeDisabled(),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Details for Commerce' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Deactivate' }));
+    const confirm = screen.getByRole('button', { name: 'Confirm deactivate' });
+    expect(confirm).toBeEnabled();
+    act(() => onlineManager.setOnline(false));
+    expect(confirm).toBeDisabled();
+    fireEvent.click(confirm);
+    act(() => onlineManager.setOnline(true));
+    await waitFor(() => expect(confirm).toBeEnabled());
+    expect(
+      fetch.mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
+    ).toBe(true);
+  });
+
+  it('honors current route owner availability even when retained connections say UP, without dropping rows', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>((input) =>
+      Promise.resolve(
+        response({
+          items: urlOf(input).includes('/runtime/modules/registrations')
+            ? []
+            : [moduleItem('nodics.commerce', 'Commerce')],
+        }),
+      ),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const view = renderPage();
+    await screen.findByText('Commerce');
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Select ready' })).toBeEnabled(),
+    );
+    const calls = fetch.mock.calls.length;
+    const navigation: AxisNavigationItem = {
+      ...bootstrap.navigation[0]!,
+      id: 'registry',
+      moduleName: 'backoffice',
+      route: '/registry',
+      availability: 'UNAVAILABLE',
+    };
+    view.refreshBootstrap(bootstrap, navigation);
+    expect(screen.getByText(/Cached registry observations/)).toBeInTheDocument();
+    expect(screen.getByText('Commerce')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select ready' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: /Runtime health/ }));
+    expect(screen.getByText(/^Cached (READY|WARNING|BLOCKED)$/)).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(calls);
+    view.refreshBootstrap(
+      { ...bootstrap, moduleConnections: { backoffice: [] } },
+      navigation,
+    );
+    expect(screen.getByText('Commerce')).toBeInTheDocument();
+    view.refreshBootstrap(bootstrap, { ...navigation, availability: 'UP' });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Select ready' })).toBeEnabled(),
+    );
+    expect(
+      fetch.mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
+    ).toBe(true);
+  });
+
+  it('retains cached rows after a failed registry refresh and clears the stale warning on a successful read', async () => {
+    let failed = false;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>((input) =>
+        failed
+          ? Promise.reject(new TypeError('Failed to fetch'))
+          : Promise.resolve(
+              response({
+                items: urlOf(input).includes('/runtime/modules/registrations')
+                  ? []
+                  : [moduleItem('nodics.commerce', 'Commerce')],
+              }),
+            ),
+      ),
+    );
+    const view = renderPage();
+    await screen.findByText('Commerce');
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Select ready' })).toBeEnabled(),
+    );
+    failed = true;
+    await act(() => view.queryClient.refetchQueries());
+    expect(screen.getByText('Commerce')).toBeInTheDocument();
+    await screen.findByText('Cached: Runtime connected');
+    expect(screen.getByRole('button', { name: 'Select ready' })).toBeDisabled();
+    failed = false;
+    await act(() => view.queryClient.refetchQueries());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Select ready' })).toBeEnabled(),
+    );
+    expect(screen.queryByText(/Cached registry observations/)).not.toBeInTheDocument();
+  });
   it('separates activated modules from pending and orders pending prerequisites first', async () => {
     vi.stubGlobal(
       'fetch',

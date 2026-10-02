@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  onlineManager,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import {
   Alert,
   Box,
@@ -24,7 +29,7 @@ import {
   Typography,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from 'react-router';
 
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
@@ -62,6 +67,26 @@ interface FunctionalModuleRegistryRoutePageProps {
   readonly onBootstrapRefresh?: (() => Promise<void>) | undefined;
   readonly routeNavigation?: AxisNavigationItem | undefined;
   readonly runtime: AxisRuntimeConfig;
+}
+
+/** Uses existing browser/query connectivity evidence, not runtime health authority. */
+function registryBrowserOnline() {
+  return (
+    onlineManager.isOnline() &&
+    (typeof navigator === 'undefined' || navigator.onLine !== false)
+  );
+}
+
+/** Keeps cached registry presentation synchronized with connectivity changes. */
+function subscribeRegistryConnectivity(listener: () => void) {
+  const unsubscribe = onlineManager.subscribe(listener);
+  window.addEventListener('online', listener);
+  window.addEventListener('offline', listener);
+  return () => {
+    unsubscribe();
+    window.removeEventListener('online', listener);
+    window.removeEventListener('offline', listener);
+  };
 }
 
 function stateColor(
@@ -907,11 +932,14 @@ function RegistryMetric({
 
 function RuntimeSmokeReadinessCard({
   readiness,
+  cached = false,
 }: {
   readonly readiness: RuntimeSmokeReadiness;
+  readonly cached?: boolean;
 }) {
-  const tone =
-    readiness.status === 'READY'
+  const tone = cached
+    ? 'warning'
+    : readiness.status === 'READY'
       ? 'success'
       : readiness.status === 'BLOCKED'
         ? 'error'
@@ -953,7 +981,11 @@ function RuntimeSmokeReadinessCard({
                 dependencies for local validation.
               </Typography>
             </Box>
-            <Chip color={tone} label={readiness.status} variant="filled" />
+            <Chip
+              color={tone}
+              label={cached ? `Cached ${readiness.status}` : readiness.status}
+              variant="filled"
+            />
           </Stack>
           <Grid container spacing={1}>
             <Grid size={{ xs: 6, md: 3 }}>
@@ -974,13 +1006,13 @@ function RuntimeSmokeReadinessCard({
               <RegistryMetric
                 label="Process"
                 tone={readiness.processRuntimeAvailable ? 'success' : 'warning'}
-                value={readiness.processRuntimeAvailable ? 'Ready' : 'Missing'}
+                value={`${cached ? 'Cached: ' : ''}${readiness.processRuntimeAvailable ? 'Ready' : 'Missing'}`}
               />
             </Grid>
             <Grid size={{ xs: 6, md: 3 }}>
               <RegistryMetric
-                label="Issues"
-                tone={readiness.issueCount === 0 ? 'success' : tone}
+                label={cached ? 'Cached issues' : 'Issues'}
+                tone={!cached && readiness.issueCount === 0 ? 'success' : tone}
                 value={String(readiness.issueCount)}
               />
             </Grid>
@@ -1653,6 +1685,16 @@ export function FunctionalModuleRegistryRoutePage(
       }
   >();
   const connection = selectModuleConnection(props.bootstrap, 'backoffice');
+  const browserOnline = useSyncExternalStore(
+    subscribeRegistryConnectivity,
+    registryBrowserOnline,
+    () => true,
+  );
+  const ownerAvailable =
+    Boolean(connection) &&
+    browserOnline &&
+    (!props.routeNavigation ||
+      ['UP', 'DEGRADED'].includes(props.routeNavigation.availability));
   const configuration = useMemo(
     () => ({
       accessToken: props.accessToken,
@@ -1668,7 +1710,8 @@ export function FunctionalModuleRegistryRoutePage(
     ],
   );
   const registeredModules = useQuery({
-    enabled: Boolean(connection),
+    enabled: ownerAvailable,
+    staleTime: 0,
     queryKey: [...registryQueryRoot, 'registered', configuration.projectCode],
     queryFn: () => {
       if (!connection) throw new Error('BackOffice is unavailable');
@@ -1687,7 +1730,8 @@ export function FunctionalModuleRegistryRoutePage(
         : false,
   });
   const availableModules = useQuery({
-    enabled: Boolean(connection),
+    enabled: ownerAvailable,
+    staleTime: 0,
     queryKey: [...registryQueryRoot, 'available', configuration.projectCode],
     queryFn: () => {
       if (!connection) throw new Error('BackOffice is unavailable');
@@ -1695,9 +1739,20 @@ export function FunctionalModuleRegistryRoutePage(
     },
     refetchOnWindowFocus: true,
   });
+  const currentRegistry =
+    ownerAvailable &&
+    registeredModules.isSuccess &&
+    availableModules.isSuccess &&
+    !registeredModules.isFetching &&
+    !availableModules.isFetching;
+  const assertCurrentRegistry = () => {
+    if (!currentRegistry || !registryBrowserOnline())
+      throw new Error('Registry status is unavailable. This action was not sent.');
+  };
   const selection = useMutation({
     onMutate: () => setNavigationRefreshState(undefined),
     mutationFn: async (modules: readonly FunctionalModuleRegistration[]) => {
+      assertCurrentRegistry();
       if (!connection) throw new Error('BackOffice is unavailable');
       return applyFunctionalModuleSelection(
         connection,
@@ -1750,6 +1805,7 @@ export function FunctionalModuleRegistryRoutePage(
       readonly module: FunctionalModuleRegistration;
       readonly action: ModuleAction;
     }) => {
+      assertCurrentRegistry();
       if (!connection) throw new Error('BackOffice is unavailable');
       return applyFunctionalModuleLifecycleAction(
         connection,
@@ -1846,6 +1902,7 @@ export function FunctionalModuleRegistryRoutePage(
   });
   const sampleData = useMutation({
     mutationFn: async (module: FunctionalModuleRegistration) => {
+      assertCurrentRegistry();
       const importConnection = selectSampleDataConnection(props.bootstrap, module);
       if (!importConnection) throw new Error('Import service is unavailable');
       return installFunctionalModuleSampleData(importConnection, module, configuration);
@@ -1941,7 +1998,11 @@ export function FunctionalModuleRegistryRoutePage(
       (visible) => visible.functionalModule === module.functionalModule,
     ),
   );
-  const busy = selection.isPending || lifecycle.isPending || sampleData.isPending;
+  const busy =
+    !currentRegistry ||
+    selection.isPending ||
+    lifecycle.isPending ||
+    sampleData.isPending;
   const smokeReadiness = useMemo(
     () => runtimeSmokeReadiness(props.bootstrap, registered),
     [props.bootstrap, registered],
@@ -1950,6 +2011,7 @@ export function FunctionalModuleRegistryRoutePage(
     module: FunctionalModuleRegistration,
     action: ModuleAction,
   ) => {
+    if (!currentRegistry || !registryBrowserOnline()) return;
     sampleData.reset();
     if (action === 'rollback' || action === 'deactivate' || action === 'deregister') {
       setSafetyConfirmation({ action, module });
@@ -1960,12 +2022,17 @@ export function FunctionalModuleRegistryRoutePage(
   const requestCapabilitySelection = (
     modules: readonly FunctionalModuleRegistration[],
   ) => {
+    if (!currentRegistry || !registryBrowserOnline()) return;
     lifecycle.reset();
     sampleData.reset();
     selection.mutate(modules);
   };
 
-  if (!connection) {
+  if (
+    !connection &&
+    registeredModules.data === undefined &&
+    availableModules.data === undefined
+  ) {
     return (
       <WorkspaceContainer>
         <Alert severity="error">BackOffice connection is unavailable.</Alert>
@@ -1994,6 +2061,19 @@ export function FunctionalModuleRegistryRoutePage(
       />
 
       <Stack spacing={3}>
+        {!currentRegistry ? (
+          <Alert severity="warning">
+            {!browserOnline
+              ? 'Axis is offline.'
+              : ownerAvailable &&
+                  (registeredModules.isFetching || availableModules.isFetching)
+                ? 'Checking registry status.'
+                : 'Registry status is unavailable.'}{' '}
+            Cached registry observations are not current runtime health. Actions are
+            unavailable until status refreshes.
+          </Alert>
+        ) : null}
+        {loadError ? <Alert severity="error">{loadError.message}</Alert> : null}
         {lifecycle.isError ? (
           <Alert severity="error">
             {lifecycle.variables
@@ -2028,12 +2108,10 @@ export function FunctionalModuleRegistryRoutePage(
             {navigationRefreshState.message}
           </Alert>
         ) : null}
-        {loading ? (
+        {loading && ownerAvailable ? (
           <Stack sx={{ alignItems: 'center', py: 4 }}>
             <CircularProgress aria-label="Loading functional-module registry" />
           </Stack>
-        ) : loadError ? (
-          <Alert severity="error">{loadError.message}</Alert>
         ) : (
           <Stack spacing={2}>
             <Box
@@ -2065,16 +2143,23 @@ export function FunctionalModuleRegistryRoutePage(
                   color: 'text.primary',
                 },
                 {
-                  label: 'Ready to enable',
+                  label: currentRegistry ? 'Ready to enable' : 'Cached ready to enable',
                   value: readyAvailable.length,
-                  detail: 'Runtime and prerequisites ready',
+                  detail: currentRegistry
+                    ? 'Runtime and prerequisites ready'
+                    : 'Last reported readiness',
                   color: 'info.main',
                 },
                 {
                   label: 'Runtime issues',
-                  value: smokeReadiness.issueCount,
-                  detail: 'Reported by runtime health',
-                  color: smokeReadiness.issueCount ? 'warning.dark' : 'success.main',
+                  value: currentRegistry ? smokeReadiness.issueCount : 'Unknown',
+                  detail: currentRegistry
+                    ? 'Reported by runtime health'
+                    : `Last reported: ${smokeReadiness.issueCount}`,
+                  color:
+                    !currentRegistry || smokeReadiness.issueCount
+                      ? 'warning.dark'
+                      : 'success.main',
                 },
               ].map((metric) => (
                 <Box
@@ -2157,7 +2242,10 @@ export function FunctionalModuleRegistryRoutePage(
               </Stack>
             </Stack>
             <Collapse in={diagnosticsOpen} unmountOnExit id="registry-diagnostics">
-              <RuntimeSmokeReadinessCard readiness={smokeReadiness} />
+              <RuntimeSmokeReadinessCard
+                readiness={smokeReadiness}
+                cached={!currentRegistry}
+              />
             </Collapse>
             <Box>
               <Stack
@@ -2177,7 +2265,7 @@ export function FunctionalModuleRegistryRoutePage(
                 <Typography variant="body2" sx={{ fontWeight: 600 }} aria-live="polite">
                   {selectedAvailable.length
                     ? `${selectedAvailable.length} module${selectedAvailable.length === 1 ? '' : 's'} selected`
-                    : `${visibleReadyModules.length} module${visibleReadyModules.length === 1 ? '' : 's'} ready to enable`}
+                    : `${currentRegistry ? '' : 'Last reported: '}${visibleReadyModules.length} module${visibleReadyModules.length === 1 ? '' : 's'} ready to enable`}
                 </Typography>
                 <Stack
                   direction="row"
@@ -2392,12 +2480,13 @@ export function FunctionalModuleRegistryRoutePage(
                                   borderRadius: '50%',
                                   flexShrink: 0,
                                   bgcolor:
-                                    module.runtimeState === 'ACTIVE'
+                                    currentRegistry && module.runtimeState === 'ACTIVE'
                                       ? 'success.main'
                                       : 'warning.main',
                                 }}
                               />
                               <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                {!currentRegistry ? 'Cached: ' : ''}
                                 {module.runtimeState === 'ACTIVE'
                                   ? 'Runtime connected'
                                   : `Runtime: ${module.runtimeState.toLowerCase()}`}
@@ -2460,7 +2549,9 @@ export function FunctionalModuleRegistryRoutePage(
                                 enabled
                                   ? 'Enabled'
                                   : selectable
-                                    ? 'Ready to enable'
+                                    ? currentRegistry
+                                      ? 'Ready to enable'
+                                      : 'Cached: Ready to enable'
                                     : 'Not enabled'
                               }
                             />
@@ -2533,36 +2624,43 @@ export function FunctionalModuleRegistryRoutePage(
           </IconButton>
         </Stack>
         {detailModule ? (
-          <ModuleCard
-            key={detailModule.functionalModule}
-            module={detailModule}
-            disabled={busy}
-            pendingAction={
-              pendingModule === detailModule.functionalModule
-                ? pendingAction
-                : undefined
-            }
-            pendingSampleData={
-              sampleData.isPending &&
-              sampleData.variables.functionalModule === detailModule.functionalModule
-            }
-            sampleDataDisabled={
-              !selectSampleDataConnection(props.bootstrap, detailModule)
-            }
-            visibility={
-              moduleVisibility.get(detailModule.functionalModule) ?? {
-                activeRoutes: 0,
-                hiddenRoutes: 0,
-                unavailableRoutes: 0,
+          <>
+            {!currentRegistry ? (
+              <Alert severity="warning">
+                Cached module observations. Current runtime status is unavailable.
+              </Alert>
+            ) : null}
+            <ModuleCard
+              key={detailModule.functionalModule}
+              module={detailModule}
+              disabled={busy}
+              pendingAction={
+                pendingModule === detailModule.functionalModule
+                  ? pendingAction
+                  : undefined
               }
-            }
-            onAction={requestModuleAction}
-            onEnableCapability={(module) => requestCapabilitySelection([module])}
-            onSampleData={(module) => {
-              lifecycle.reset();
-              sampleData.mutate(module);
-            }}
-          />
+              pendingSampleData={
+                sampleData.isPending &&
+                sampleData.variables.functionalModule === detailModule.functionalModule
+              }
+              sampleDataDisabled={
+                !selectSampleDataConnection(props.bootstrap, detailModule)
+              }
+              visibility={
+                moduleVisibility.get(detailModule.functionalModule) ?? {
+                  activeRoutes: 0,
+                  hiddenRoutes: 0,
+                  unavailableRoutes: 0,
+                }
+              }
+              onAction={requestModuleAction}
+              onEnableCapability={(module) => requestCapabilitySelection([module])}
+              onSampleData={(module) => {
+                lifecycle.reset();
+                sampleData.mutate(module);
+              }}
+            />
+          </>
         ) : null}
       </Drawer>
       <Dialog
@@ -2597,10 +2695,11 @@ export function FunctionalModuleRegistryRoutePage(
           <Button onClick={() => setSafetyConfirmation(undefined)}>Cancel</Button>
           <Button
             color={safetyConfirmation?.action === 'deregister' ? 'error' : 'warning'}
-            disabled={lifecycle.isPending || !safetyConfirmation}
+            disabled={busy || !safetyConfirmation}
             variant="contained"
             onClick={() => {
-              if (!safetyConfirmation) return;
+              if (!safetyConfirmation || !currentRegistry || !registryBrowserOnline())
+                return;
               lifecycle.mutate({
                 action: safetyConfirmation.action,
                 module: safetyConfirmation.module,

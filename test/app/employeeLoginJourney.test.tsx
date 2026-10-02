@@ -1,9 +1,11 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../../src/app/App';
 import { AppProviders } from '../../src/app/AppProviders';
+import { observeEmployeeSessionResponse } from '../../src/auth/employeeSessionEvents';
+import { rememberEnterpriseContext } from '../../src/auth/enterpriseSessionContext';
 import { validResolvedPage } from '../cms/fixtures/resolvedPage';
 
 const runtimeConfig = {
@@ -517,6 +519,319 @@ describe('employee login journey', () => {
     window.sessionStorage.clear();
     document.cookie = 'nodics_axis_csrf=; Max-Age=0; Path=/';
   });
+  it('retains only the last enterprise routing hint after expired restoration for a fresh password login', async () => {
+    window.history.pushState({}, '', '/login');
+    rememberEnterpriseContext(runtimeConfig.backofficeBaseUrl, 'registered-enterprise');
+    document.cookie = 'nodics_axis_csrf=expired-session-csrf; Path=/';
+    const request = vi.fn<typeof fetch>().mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.includes('/bootstrap/public'))
+        return Promise.resolve(
+          new Response(JSON.stringify(publicBootstrap), { status: 200 }),
+        );
+      if (
+        url.includes('/employee/browser/restore') ||
+        url.includes('/employee/browser/authenticate')
+      )
+        return Promise.resolve(
+          new Response(JSON.stringify({ message: 'Authentication required' }), {
+            status: 401,
+          }),
+        );
+      if (url.includes('/delivery/'))
+        return Promise.resolve(
+          new Response(JSON.stringify({ result: loginPage }), { status: 200 }),
+        );
+      return Promise.resolve(new Response('{}', { status: 404 }));
+    });
+    vi.stubGlobal('fetch', request);
+    const user = userEvent.setup();
+    render(
+      <AppProviders runtimeConfig={runtimeConfig}>
+        <App />
+      </AppProviders>,
+    );
+    await user.type(await screen.findByLabelText('Employee ID'), 'registered-admin');
+    await user.type(screen.getByLabelText('Password'), 'existing-test-password');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() =>
+      expect(
+        request.mock.calls.some(([input]) =>
+          fetchInputUrl(input).includes('/employee/browser/authenticate'),
+        ),
+      ).toBe(true),
+    );
+    const authentication = request.mock.calls.filter(([input]) =>
+      fetchInputUrl(input).includes('/employee/browser/authenticate'),
+    );
+    expect(authentication).toHaveLength(1);
+    expect(new Headers(authentication[0]?.[1]?.headers).get('x-enterprise-code')).toBe(
+      'registered-enterprise',
+    );
+    expect(
+      request.mock.calls.some(([input]) => fetchInputUrl(input).endsWith('/bootstrap')),
+    ).toBe(false);
+    expect(
+      window.sessionStorage.getItem(
+        'axis:employee-enterprise:https://backoffice.example.com',
+      ),
+    ).toBe('registered-enterprise');
+  });
+  it.each([
+    { route: '/media/items', status: 200, write: false },
+    { route: '/media/publication', status: 200, write: false },
+    { route: '/media/items', status: 401, write: false },
+    { route: '/media/items', status: 403, write: false },
+    { route: '/media/items', status: 401, write: true },
+    { route: '/media/items', status: 401, write: true, late: true },
+  ])(
+    'renders owner workspace or canonical authentication recovery at $route HTTP$status write=$write',
+    async ({ route, status, write, late }) => {
+      window.history.pushState({}, '', `${route}?privateDraft=do-not-retain`);
+      document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
+      let resolveOld: ((response: Response) => void) | undefined;
+      let libraryReads = 0;
+      const request = vi.fn<typeof fetch>().mockImplementation((input) => {
+        const url = fetchInputUrl(input);
+        if (url.includes('/bootstrap/public'))
+          return Promise.resolve(
+            new Response(JSON.stringify(publicBootstrap), { status: 200 }),
+          );
+        if (url.includes('/employee/browser/restore'))
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                result: { authToken: 'restored-access', loginId: 'operator' },
+              }),
+              { status: 200 },
+            ),
+          );
+        if (url.includes('/employee/browser/authenticate'))
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                result: { authToken: 'restored-access', loginId: 'operator' },
+              }),
+              { status: 200 },
+            ),
+          );
+        if (url.includes('/axis/initialization'))
+          return Promise.resolve(
+            new Response(JSON.stringify(axisInitializationReady), { status: 200 }),
+          );
+        if (url.includes('/bootstrap'))
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                data: {
+                  modules: {
+                    media: ['ONLINE', 'STAGED'].map((role) => ({
+                      moduleName: 'media',
+                      instanceId: role,
+                      clientCallable: true,
+                      environment: 'kickoffLocal',
+                      endpoint: `https://${role.toLowerCase()}.example.com/nodics/media`,
+                      state: 'UP',
+                      runtimeRole: { code: `WCMS_${role}`, publication: role },
+                    })),
+                  },
+                  catalogue: {
+                    media: {
+                      enabled: true,
+                      category: 'content',
+                      icon: 'media',
+                      requiredPermissions: [],
+                      compatibility: { status: 'COMPATIBLE' },
+                      navigation: [
+                        {
+                          id: 'media-owner',
+                          label: 'Media owner',
+                          route,
+                          icon: 'media',
+                          order: 10,
+                          featureState: 'ACTIVE',
+                          backendWorkspace: {
+                            contractVersion: 1,
+                            renderer: 'axis.workspace.backend-operations',
+                            title: 'Declared Media workspace',
+                            ownerSelector: {
+                              runtimeRoleCode: 'WCMS_STAGED',
+                              publicationRole: 'STAGED',
+                            },
+                            defaultTab: 'owner',
+                            tabs: [
+                              {
+                                id: 'owner',
+                                label: 'Owner',
+                                sections: [
+                                  {
+                                    id: 'records',
+                                    type: 'listing',
+                                    title: 'Fresh owner records',
+                                    endpoint: {
+                                      method: 'GET',
+                                      path: '/nodics/media/v0/library',
+                                      resultPath: 'items',
+                                    },
+                                    columns: [{ field: 'code', label: 'Code' }],
+                                  },
+                                  {
+                                    id: 'edit',
+                                    type: 'form',
+                                    title: 'Owner edit',
+                                    submitLabel: 'Save owner draft',
+                                    endpoint: {
+                                      method: 'POST',
+                                      path: '/nodics/media/v0/owner-command',
+                                    },
+                                    fields: [
+                                      {
+                                        name: 'note',
+                                        label: 'Private draft',
+                                        type: 'TEXT',
+                                        required: true,
+                                      },
+                                    ],
+                                  },
+                                ],
+                              },
+                            ],
+                          },
+                        },
+                      ],
+                    },
+                  },
+                  availability: { media: { state: 'UP' } },
+                  axisPolicy: {
+                    contractVersion: 0,
+                    screenLockEnabled: true,
+                    idleTimeoutSeconds: 900,
+                    recentNavigationLimit: 12,
+                    revision: 0,
+                    source: 'DEFAULT',
+                  },
+                  documentationSources: [],
+                  tenantCode: 'default',
+                  startupValidation: readyStartupValidation,
+                },
+              }),
+              { status: 200 },
+            ),
+          );
+        if (url === 'https://staged.example.com/nodics/media/v0/library') {
+          libraryReads++;
+          if (late && libraryReads === 1)
+            return new Promise<Response>((resolve) => {
+              resolveOld = resolve;
+            });
+          return Promise.resolve(
+            new Response(
+              JSON.stringify(
+                status !== 200 && !write
+                  ? { message: 'Owner permission denial' }
+                  : { data: { items: [{ code: 'fresh-media' }] } },
+              ),
+              { status: write ? 200 : status },
+            ),
+          );
+        }
+        if (url === 'https://staged.example.com/nodics/media/v0/owner-command')
+          return Promise.resolve(
+            new Response(JSON.stringify({ message: 'Expired owner session' }), {
+              status: 401,
+            }),
+          );
+        if (url.includes('/pages/resolve'))
+          return Promise.resolve(
+            new Response(JSON.stringify({ result: loginPage }), { status: 200 }),
+          );
+        return Promise.resolve(new Response(null, { status: 404 }));
+      });
+      vi.stubGlobal('fetch', request);
+      render(
+        <AppProviders runtimeConfig={runtimeConfig}>
+          <App />
+        </AppProviders>,
+      );
+      if (write) {
+        const input = await screen.findByRole('textbox', { name: /Private draft/ });
+        await userEvent.setup().type(input, 'transient-private-draft');
+        await userEvent
+          .setup()
+          .click(screen.getByRole('button', { name: 'Save owner draft' }));
+      }
+      if (status === 401) {
+        await waitFor(() => expect(window.location.pathname).toBe('/login'));
+        expect(new URLSearchParams(window.location.search).get('returnTo')).toBe(route);
+        expect(window.location.href).not.toContain('privateDraft');
+        expect(screen.queryByRole('textbox', { name: /Private draft/ })).toBeNull();
+        expect(
+          window.sessionStorage.length === 0 ||
+            !JSON.stringify(window.sessionStorage).includes('transient-private-draft'),
+        ).toBe(true);
+        expect(
+          request.mock.calls.some(([input]) =>
+            /authenticate|logout/.test(fetchInputUrl(input)),
+          ),
+        ).toBe(false);
+        expect(
+          request.mock.calls.filter(
+            ([input, options]) =>
+              options?.method === 'POST' &&
+              !fetchInputUrl(input).includes('/employee/browser/restore'),
+          ),
+        ).toHaveLength(write ? 1 : 0);
+        if (late) {
+          const user = userEvent.setup();
+          await user.type(await screen.findByLabelText('Employee ID'), 'operator');
+          await user.type(screen.getByLabelText('Password'), 'valid-password');
+          await user.click(screen.getByRole('button', { name: 'Sign in' }));
+          await waitFor(() => expect(window.location.pathname).toBe(route));
+          await waitFor(() => expect(libraryReads).toBe(2));
+          expect(await screen.findByText('fresh-media')).toBeVisible();
+          expect(resolveOld).toBeDefined();
+          await act(async () => {
+            resolveOld?.(
+              new Response(JSON.stringify({ message: 'Old session expired' }), {
+                status: 401,
+              }),
+            );
+            await Promise.resolve();
+          });
+          expect(window.location.pathname).toBe(route);
+          expect(
+            screen.getByRole('heading', { name: 'Declared Media workspace' }),
+          ).toBeVisible();
+          expect(
+            request.mock.calls.filter(([input]) =>
+              fetchInputUrl(input).includes('/employee/browser/authenticate'),
+            ),
+          ).toHaveLength(1);
+          expect(
+            request.mock.calls.some(([input]) =>
+              fetchInputUrl(input).includes('/logout'),
+            ),
+          ).toBe(false);
+        }
+      } else {
+        expect(
+          await screen.findByRole('heading', { name: 'Declared Media workspace' }),
+        ).toBeVisible();
+        if (status === 403)
+          expect(await screen.findByText('Owner permission denial')).toBeVisible();
+        else {
+          expect(await screen.findByText('fresh-media')).toBeVisible();
+          observeEmployeeSessionResponse({ status: 401 }, 'earlier-session-token', 1);
+        }
+        expect(window.location.pathname).toBe(route);
+      }
+      expect(
+        request.mock.calls.some(([input]) =>
+          /schemaApi|online\.example/.test(fetchInputUrl(input)),
+        ),
+      ).toBe(false);
+    },
+  );
 
   it('keeps first-run initialization on its own route instead of rendering it at dashboard', async () => {
     window.history.pushState({}, '', '/dashboard');
@@ -623,121 +938,173 @@ describe('employee login journey', () => {
     await waitFor(() => expect(window.location.pathname).toBe('/initialize-axis'));
   });
 
-  it('does not invent Waste or Location navigation before backend activation publishes them', async () => {
-    window.history.pushState({}, '', '/waste/assets');
-    document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
-    const request = vi.fn<typeof fetch>().mockImplementation((input, options) => {
-      const url = fetchInputUrl(input);
-      if (url.includes('/bootstrap/public')) {
-        return Promise.resolve(
-          new Response(JSON.stringify(publicBootstrap), { status: 200 }),
-        );
-      }
-      if (url.includes('/employee/browser/restore')) {
-        expect(new Headers(options?.headers).get('X-CSRF-Token')).toBe('refresh-csrf');
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              result: {
-                authToken: 'restored-dashboard-access',
-                loginId: 'operator',
-              },
-            }),
-            { status: 200 },
-          ),
-        );
-      }
-      if (url.includes('/axis/initialization')) {
-        return Promise.resolve(
-          new Response(JSON.stringify(axisInitializationReady), { status: 200 }),
-        );
-      }
-      if (url.includes('/bootstrap')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              data: {
-                modules: {
-                  backoffice: [
-                    {
-                      moduleName: 'backoffice',
-                      instanceId: 'platform-1',
-                      environment: 'kickoffLocal',
-                      clientCallable: true,
-                      endpoint: 'https://platform.example.com/nodics/backoffice',
-                      state: 'UP',
-                    },
-                  ],
+  it.each([false, true])(
+    'preserves backend navigation and shows only actual availability attention (initially unavailable=%s)',
+    async (initiallyUnavailable) => {
+      let catalogueUnavailable = initiallyUnavailable;
+      window.history.pushState({}, '', '/waste/assets');
+      document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
+      const request = vi.fn<typeof fetch>().mockImplementation((input, options) => {
+        const url = fetchInputUrl(input);
+        if (url.includes('/bootstrap/public')) {
+          return Promise.resolve(
+            new Response(JSON.stringify(publicBootstrap), { status: 200 }),
+          );
+        }
+        if (url.includes('/employee/browser/restore')) {
+          expect(new Headers(options?.headers).get('X-CSRF-Token')).toBe(
+            'refresh-csrf',
+          );
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                result: {
+                  authToken: 'restored-dashboard-access',
+                  loginId: 'operator',
                 },
-                catalogue: {
-                  backoffice: {
-                    enabled: true,
-                    category: 'platform',
-                    icon: 'dashboard',
-                    requiredPermissions: ['axis.dashboard.view'],
-                    compatibility: { status: 'COMPATIBLE' },
-                    navigation: [
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        if (url.includes('/axis/initialization')) {
+          return Promise.resolve(
+            new Response(JSON.stringify(axisInitializationReady), { status: 200 }),
+          );
+        }
+        if (url.includes('/bootstrap')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                data: {
+                  modules: {
+                    backoffice: [
                       {
-                        id: 'dashboard',
-                        label: 'Dashboard',
-                        route: '/dashboard',
-                        order: 10,
                         moduleName: 'backoffice',
-                        category: 'platform',
-                        availability: 'UP',
-                        featureState: 'ACTIVE',
+                        instanceId: 'platform-1',
+                        environment: 'kickoffLocal',
+                        clientCallable: true,
+                        endpoint: 'https://platform.example.com/nodics/backoffice',
+                        state: 'UP',
                       },
                     ],
                   },
+                  catalogue: {
+                    ...(catalogueUnavailable
+                      ? {
+                          commerce: {
+                            enabled: true,
+                            category: 'commerce',
+                            icon: 'shopping-cart',
+                            requiredPermissions: ['commerce.view'],
+                            compatibility: { status: 'COMPATIBLE' },
+                            navigation: [
+                              {
+                                id: 'commerce',
+                                label: 'Commerce',
+                                route: '/commerce',
+                                order: 20,
+                                moduleName: 'commerce',
+                                category: 'commerce',
+                                featureState: 'ACTIVE',
+                              },
+                            ],
+                          },
+                        }
+                      : {}),
+                    backoffice: {
+                      enabled: true,
+                      category: 'platform',
+                      icon: 'dashboard',
+                      requiredPermissions: ['axis.dashboard.view'],
+                      compatibility: { status: 'COMPATIBLE' },
+                      navigation: [
+                        {
+                          id: 'dashboard',
+                          label: 'Dashboard',
+                          route: '/dashboard',
+                          order: 10,
+                          moduleName: 'backoffice',
+                          category: 'platform',
+                          availability: 'UP',
+                          featureState: 'ACTIVE',
+                        },
+                      ],
+                    },
+                  },
+                  availability: {
+                    backoffice: { state: 'UP' },
+                    ...(catalogueUnavailable
+                      ? { commerce: { state: 'UNAVAILABLE' } }
+                      : {}),
+                  },
+                  axisPolicy: {
+                    contractVersion: 0,
+                    screenLockEnabled: true,
+                    idleTimeoutSeconds: 900,
+                    recentNavigationLimit: 12,
+                    revision: 0,
+                    source: 'DEFAULT',
+                  },
+                  documentationSources: [],
+                  tenantCode: 'default',
+                  startupValidation: readyStartupValidation,
                 },
-                availability: {
-                  backoffice: { state: 'UP' },
-                },
-                axisPolicy: {
-                  contractVersion: 0,
-                  screenLockEnabled: true,
-                  idleTimeoutSeconds: 900,
-                  recentNavigationLimit: 12,
-                  revision: 0,
-                  source: 'DEFAULT',
-                },
-                documentationSources: [],
-                tenantCode: 'default',
-                startupValidation: readyStartupValidation,
-              },
-            }),
-            { status: 200 },
-          ),
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        if (url.includes('/delivery/pages/resolve')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ result: dashboardPage }), { status: 200 }),
+          );
+        }
+        return Promise.resolve(new Response(null, { status: 404 }));
+      });
+      vi.stubGlobal('fetch', request);
+      const user = userEvent.setup();
+
+      render(
+        <AppProviders runtimeConfig={runtimeConfig}>
+          <App />
+        </AppProviders>,
+      );
+
+      await waitFor(() => expect(window.location.pathname).toBe('/dashboard'));
+      expect(
+        await screen.findByRole('button', { name: 'Open navigation' }),
+      ).toBeVisible();
+      expect(screen.queryByText('Create waste submission')).not.toBeInTheDocument();
+      if (initiallyUnavailable) {
+        const refresh = await screen.findByRole('button', {
+          name: 'Refresh availability',
+        });
+        expect(
+          screen.getByText('Some workspaces are temporarily unavailable.'),
+        ).toBeInTheDocument();
+        catalogueUnavailable = false;
+        await user.click(refresh);
+        await waitFor(() =>
+          expect(
+            screen.queryByRole('button', { name: 'Refresh availability' }),
+          ).not.toBeInTheDocument(),
         );
       }
-      if (url.includes('/delivery/pages/resolve')) {
-        return Promise.resolve(
-          new Response(JSON.stringify({ result: dashboardPage }), { status: 200 }),
-        );
-      }
-      return Promise.resolve(new Response(null, { status: 404 }));
-    });
-    vi.stubGlobal('fetch', request);
-    const user = userEvent.setup();
-
-    render(
-      <AppProviders runtimeConfig={runtimeConfig}>
-        <App />
-      </AppProviders>,
-    );
-
-    await waitFor(() => expect(window.location.pathname).toBe('/dashboard'));
-    expect(
-      await screen.findByRole('button', { name: 'Open navigation' }),
-    ).toBeVisible();
-    expect(screen.queryByText('Create waste submission')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Open navigation' }));
-    expect(
-      screen.getByRole('navigation', { name: 'Primary navigation' }),
-    ).toBeInTheDocument();
-    expect(screen.queryByText('Circa Waste Operations')).not.toBeInTheDocument();
-    expect(screen.queryByText('Map Configuration')).not.toBeInTheDocument();
-  });
+      expect(
+        screen.queryByText('Some workspaces are temporarily unavailable.'),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByText('The workspace is temporarily unavailable.'),
+      ).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Open navigation' }));
+      expect(
+        screen.getByRole('navigation', { name: 'Primary navigation' }),
+      ).toBeInTheDocument();
+      expect(screen.queryByText('Circa Waste Operations')).not.toBeInTheDocument();
+      expect(screen.queryByText('Map Configuration')).not.toBeInTheDocument();
+    },
+  );
 
   it('restores an authenticated documentation deep link in a fresh browser tab', async () => {
     window.history.pushState(

@@ -10,6 +10,7 @@ export type RecoveryKind =
   | 'unexpected';
 
 export interface RecoveryState {
+  readonly reconnecting?: boolean;
   readonly kind: RecoveryKind;
   readonly detail?: string;
   readonly correlationId?: string;
@@ -106,6 +107,14 @@ function isNetworkFetchFailure(detail: string): boolean {
     normalized.includes('load failed') ||
     normalized.includes('network request failed')
   );
+}
+
+/** Both login renderers use the existing transport classification without changing auth decisions or retrying credentials. */
+export function getSignInErrorMessage(detail?: string): string | undefined {
+  if (!detail) return undefined;
+  return isNetworkFetchFailure(detail)
+    ? 'Sign-in is temporarily unavailable. Check your connection and try again when the service is available.'
+    : detail;
 }
 
 function networkRecoveryMessage(kind: RecoveryKind): string {

@@ -179,7 +179,7 @@ export function AppShell({
 
   useEffect(() => {
     const offline = () => {
-      setNotification('Axis is offline. Administrative operations are paused.');
+      setNotification('Axis is offline. New administrative actions cannot be sent.');
     };
     const online = () => {
       setNotification('Connection restored.');

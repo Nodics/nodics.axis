@@ -1,3 +1,6 @@
+/** Typed transient read failure. Mutating initialization calls never receive automatic retries. */
+export class AxisInitializationUnavailableError extends Error {}
+
 export type AxisInitializationReadiness =
   | 'NOT_IMPORTED'
   | 'IMPORTING'
@@ -240,7 +243,13 @@ async function requestInitialization(
         redirect: 'error',
         signal: controller.signal,
       },
-    );
+    ).catch((error: unknown) => {
+      if (operation === 'status')
+        throw new AxisInitializationUnavailableError(
+          'Setup services are temporarily unavailable.',
+        );
+      throw error;
+    });
     if (!response.ok) {
       let message = `Axis initialization returned HTTP ${String(response.status)}`;
       try {
@@ -257,6 +266,8 @@ async function requestInitialization(
       } catch {
         // Keep the bounded HTTP status when the backend cannot provide JSON.
       }
+      if (operation === 'status' && [408, 429, 502, 503, 504].includes(response.status))
+        throw new AxisInitializationUnavailableError(message);
       throw new Error(message);
     }
     return parseStatus(await response.json());

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Box, Paper, Stack, Tab, Tabs } from '@mui/material';
+import { Box, MenuItem, Paper, Stack, Tab, Tabs, TextField } from '@mui/material';
 import { useMemo, useState } from 'react';
+import { useLocation, useSearchParams } from 'react-router';
 
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
 import type { AxisNavigationItem } from '../../bootstrap/publicBootstrap';
@@ -11,6 +12,8 @@ import {
   type AxisAuthenticatedBootstrap,
 } from '../../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
+import { Alert } from '@mui/material';
+import { importHistoryConnection } from './importHistoryHandoff';
 import {
   installDataReleases,
   loadExportHistory,
@@ -49,6 +52,7 @@ import {
 } from './importExportPresentation';
 
 interface ImportExportRoutePageProps {
+  readonly sessionGeneration?: number | undefined;
   readonly accessToken: string;
   readonly bootstrap: AxisAuthenticatedBootstrap;
   readonly routeNavigation?: AxisNavigationItem | undefined;
@@ -59,24 +63,12 @@ function isDataReleaseArea(area: ImportExportArea): area is DataReleaseType {
   return releaseTypes.includes(area as DataReleaseType);
 }
 
-function initialAreaFromLocation(): ImportExportArea {
-  if (typeof window === 'undefined') return 'init';
-  const candidate = new URLSearchParams(window.location.search).get('area');
+/** Resolves only known inert area identifiers from the current router query. */
+function selectedArea(search: string): ImportExportArea {
+  const candidate = new URLSearchParams(search).get('area');
   return importExportAreas.includes(candidate as ImportExportArea)
     ? (candidate as ImportExportArea)
     : 'guided';
-}
-
-function replaceAreaInLocation(area: ImportExportArea): void {
-  if (typeof window === 'undefined') return;
-  const next = new URL(window.location.href);
-  if (area === 'guided') next.searchParams.delete('area');
-  else next.searchParams.set('area', area);
-  window.history.replaceState(
-    window.history.state,
-    '',
-    `${next.pathname}${next.search}${next.hash}`,
-  );
 }
 
 function createPlan(
@@ -415,8 +407,18 @@ async function executeDataReleaseOperationByDestination(
 }
 
 export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
-  const [area, setArea] = useState<ImportExportArea>(() => initialAreaFromLocation());
+  const [historyParameters, setHistoryParameters] = useSearchParams();
+  const location = useLocation();
+  const area = useMemo(() => selectedArea(location.search), [location.search]);
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('all');
+  const historyInstance =
+    historyParameters.getAll('importInstance').length > 1
+      ? ''
+      : historyParameters.get('importInstance');
+  const selectedRun =
+    historyParameters.getAll('importRun').length > 1
+      ? ''
+      : historyParameters.get('importRun');
   const [historySearch, setHistorySearch] = useState('');
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [lastOperationMode, setLastOperationMode] = useState<
@@ -424,6 +426,14 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
   >(undefined);
   const queryClient = useQueryClient();
   const connection = selectDataAdministrationConnection(props.bootstrap, 'import');
+  const historyConnection =
+    historyInstance !== null
+      ? importHistoryConnection(props.bootstrap, historyInstance)
+      : connection;
+  const historyConnections = (props.bootstrap.moduleConnections.import ?? []).filter(
+    (candidate) =>
+      importHistoryConnection(props.bootstrap, candidate.instanceId) === candidate,
+  );
   const catalogueConnections = useMemo(
     () => selectReleaseCatalogueConnections(props.bootstrap, props.runtime),
     [props.bootstrap, props.runtime],
@@ -459,13 +469,24 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
   const configuration = useMemo<DataReleaseClientConfiguration>(
     () => ({
       accessToken: props.accessToken,
+      sessionGeneration: props.sessionGeneration,
       enterpriseCode: props.runtime.enterpriseCode,
       timeoutMs: props.runtime.requestTimeoutMs,
     }),
-    [props.accessToken, props.runtime.enterpriseCode, props.runtime.requestTimeoutMs],
+    [
+      props.accessToken,
+      props.sessionGeneration,
+      props.runtime.enterpriseCode,
+      props.runtime.requestTimeoutMs,
+    ],
   );
   const catalogue = useQuery({
-    queryKey: ['import-catalogue', props.runtime.enterpriseCode],
+    queryKey: [
+      'import-catalogue',
+      props.runtime.enterpriseCode,
+      props.sessionGeneration,
+    ],
+    retry: false,
     queryFn: () => {
       if (catalogueConnections.length === 0)
         throw new Error('Import service is unavailable');
@@ -474,7 +495,12 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
     enabled: catalogueConnections.length > 0,
   });
   const profiles = useQuery({
-    queryKey: ['initialization-profiles', props.runtime.enterpriseCode],
+    queryKey: [
+      'initialization-profiles',
+      props.runtime.enterpriseCode,
+      props.sessionGeneration,
+    ],
+    retry: false,
     queryFn: () => {
       if (catalogueConnections.length === 0)
         throw new Error('Import service is unavailable');
@@ -486,15 +512,46 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
     enabled: catalogueConnections.length > 0,
   });
   const history = useQuery({
-    queryKey: ['import-export-history', props.runtime.enterpriseCode, historyFilter],
+    queryKey: [
+      'import-export-history',
+      props.runtime.enterpriseCode,
+      props.sessionGeneration,
+      historyConnection?.instanceId,
+      historyConnection?.endpoint,
+      selectedRun,
+      historyFilter,
+    ],
     queryFn: async () => {
-      if (!connection) throw new Error('Import service is unavailable');
-      const importRuns = await loadImportHistory(connection, configuration);
+      if (!historyConnection)
+        throw new Error(
+          'The requested Import runtime is unavailable in the authorized catalogue.',
+        );
+      if (selectedRun !== null && !/^[A-Za-z0-9_.:-]{1,192}$/.test(selectedRun))
+        throw new Error('The requested import run reference is invalid.');
+      const importRuns = await loadImportHistory(historyConnection, configuration);
+      if (selectedRun !== null) {
+        const matching = importRuns.filter((run) => run.runId === selectedRun);
+        if (matching.length !== 1)
+          throw new Error(
+            'The referenced run is not present in this runtime history window. Inspect the owner report; no import was retried.',
+          );
+        return Object.freeze(matching);
+      }
       if (historyFilter !== 'exports') return Object.freeze([...importRuns]);
       const exportRunResults = await Promise.allSettled(
-        exportConnections.map((exportConnection) =>
-          loadExportHistory(exportConnection, configuration),
-        ),
+        exportConnections
+          .filter(
+            (exportConnection) =>
+              Boolean(
+                historyConnection.server && historyConnection.runtimeRole?.code,
+              ) &&
+              exportConnection.server === historyConnection.server &&
+              exportConnection.runtimeRole?.code ===
+                historyConnection.runtimeRole?.code,
+          )
+          .map((exportConnection) =>
+            loadExportHistory(exportConnection, configuration),
+          ),
       );
       const exportRuns = exportRunResults.flatMap((result) =>
         result.status === 'fulfilled' ? [...result.value] : [],
@@ -502,17 +559,16 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
       return Object.freeze([...exportRuns]);
     },
     enabled:
-      Boolean(connection) &&
       area === 'history' &&
       (historyFilter !== 'exports' || exportConnections.length > 0),
   });
   const releaseType = isDataReleaseArea(area) ? area : 'init';
   const visible = useMemo(
     () =>
-      isDataReleaseArea(area)
+      isDataReleaseArea(area) && !catalogue.isError
         ? (catalogue.data ?? []).filter((release) => release.dataType === area)
         : [],
-    [area, catalogue.data],
+    [area, catalogue.data, catalogue.isError],
   );
   const effectiveSelected = useMemo(() => {
     const executableKeys = new Set(
@@ -547,6 +603,7 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
     return runs.filter((run) => historySearchText(run).includes(normalizedSearch));
   }, [history.data, historyFilter, historySearch]);
   const operation = useMutation({
+    retry: false,
     mutationFn: async (mode: 'validate' | 'install') => {
       if (!isDataReleaseArea(area) || executableChosen.length === 0) {
         throw new Error('Select at least one available data release');
@@ -570,6 +627,7 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
     },
   });
   const profileOperation = useMutation({
+    retry: false,
     mutationFn: async (request: InitializationProfileOperationRequest) => {
       const profile = (profiles.data ?? []).find(
         (item) => initializationProfileKey(item) === request.profileKey,
@@ -617,10 +675,16 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
     : lastOperationMode === 'validate'
       ? `${operation.data?.releases.length ?? 0} ${operationTypeLabel} release(s) validated by the backend.`
       : `${operation.data?.releases.length ?? 0} ${operationTypeLabel} release(s) installed or updated.`;
+  const verifiedSuccessMessage =
+    catalogue.isError && operation.data && lastOperationMode === 'install'
+      ? `${operation.data.releases.length} release(s) acknowledged by the Import owner. Refreshed installation state is unverified; sign in again if required, then inspect the owner catalogue or receipt. Do not repeat the import.`
+      : successMessage;
 
   const changeArea = (next: ImportExportArea) => {
-    setArea(next);
-    replaceAreaInLocation(next);
+    const parameters = new URLSearchParams(historyParameters);
+    if (next === 'guided') parameters.delete('area');
+    else parameters.set('area', next);
+    setHistoryParameters(parameters, { replace: true });
     setSelected(new Set());
     operation.reset();
     profileOperation.reset();
@@ -754,18 +818,55 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
               tenantCode={props.bootstrap.tenantCode}
             />
           ) : area === 'history' ? (
-            <ImportExportHistoryPanel
-              errorMessage={history.error?.message}
-              filter={historyFilter}
-              filteredRuns={filteredHistory}
-              isError={history.isError}
-              isLoading={history.isLoading}
-              isSuccess={history.isSuccess}
-              onFilterChange={setHistoryFilter}
-              onSearchChange={setHistorySearch}
-              runs={history.data ?? []}
-              search={historySearch}
-            />
+            <Stack spacing={2}>
+              <TextField
+                select
+                label="Import runtime"
+                value={historyConnection?.instanceId ?? ''}
+                disabled={historyConnections.length === 0}
+                onChange={(event) => {
+                  const instanceId = event.target.value;
+                  if (!importHistoryConnection(props.bootstrap, instanceId)) return;
+                  setHistorySearch('');
+                  const next = new URLSearchParams(historyParameters);
+                  next.set('area', 'history');
+                  next.set('importInstance', instanceId);
+                  next.delete('importRun');
+                  setHistoryParameters(next, { replace: true });
+                }}
+              >
+                <MenuItem value="" disabled>
+                  Unavailable
+                </MenuItem>
+                {historyConnections.map((candidate) => (
+                  <MenuItem key={candidate.instanceId} value={candidate.instanceId}>
+                    {candidate.server ?? candidate.moduleName} ·{' '}
+                    {candidate.runtimeRole?.code ?? candidate.environment}
+                  </MenuItem>
+                ))}
+              </TextField>
+              {historyInstance !== null ? (
+                <Alert severity="info">
+                  Import runtime: {historyConnection?.server ?? 'Unavailable'} ·{' '}
+                  {historyConnection?.runtimeRole?.code ?? 'Unavailable'}
+                  {selectedRun
+                    ? ` · Run reference: ${selectedRun}`
+                    : ' · Showing selected runtime history.'}
+                </Alert>
+              ) : null}
+              <ImportExportHistoryPanel
+                errorMessage={history.error?.message}
+                filter={historyFilter}
+                filteredRuns={filteredHistory}
+                isError={history.isError}
+                isLoading={history.isLoading}
+                isSuccess={history.isSuccess}
+                onFilterChange={setHistoryFilter}
+                onSearchChange={setHistorySearch}
+                runs={history.data ?? []}
+                search={historySearch}
+              />
+            </Stack>
           ) : isDataReleaseArea(area) ? (
             <DataReleaseWorkbench
               catalogueErrorMessage={catalogue.error?.message}
@@ -782,7 +883,7 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
               releaseType={releaseType}
               selectedReleaseCount={executableChosen.length}
               selectedReleaseKeys={effectiveSelected}
-              successMessage={successMessage}
+              successMessage={verifiedSuccessMessage}
               summary={releaseSummary}
               visibleReleases={visible}
               onDeselectVisible={() => {

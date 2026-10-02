@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AxisModuleConnection } from '../../../../src/bootstrap/publicBootstrap';
+import { subscribeEmployeeSessionExpired } from '../../../../src/auth/employeeSessionEvents';
 import {
   installDataReleases,
   installMediaImport,
@@ -95,6 +96,63 @@ function response(data: unknown, status = 200): Response {
 }
 
 describe('data release client', () => {
+  it('correlates a delayed 401 to the exact issued identity, not a later configuration', async () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeEmployeeSessionExpired(listener);
+    let finish: ((response: Response) => void) | undefined;
+    const request = vi.fn<typeof fetch>().mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const scoped = {
+      ...configuration,
+      accessToken: 'old-issued-token',
+      sessionGeneration: 1,
+    };
+    try {
+      const pending = loadImportHistory(connection, scoped, request);
+      scoped.accessToken = 'new-token';
+      scoped.sessionGeneration = 2;
+      finish?.(
+        new Response(JSON.stringify({ message: 'Private raw provider error' }), {
+          status: 401,
+        }),
+      );
+      await expect(pending).rejects.toThrow(
+        'Your session has expired. Sign in again; refreshed import state has not been verified.',
+      );
+      expect(listener).toHaveBeenCalledExactlyOnceWith({
+        accessToken: 'old-issued-token',
+        generation: 1,
+      });
+      expect(request).toHaveBeenCalledOnce();
+    } finally {
+      unsubscribe();
+    }
+  });
+  it('keeps 403 permission failures local without a session invalidation', async () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeEmployeeSessionExpired(listener);
+    try {
+      const request = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(JSON.stringify({ message: 'Owner permission denied' }), {
+          status: 403,
+        }),
+      );
+      await expect(
+        loadImportHistory(
+          connection,
+          { ...configuration, sessionGeneration: 2 },
+          request,
+        ),
+      ).rejects.toThrow();
+      expect(listener).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+    }
+  });
   it('loads and parses the backend-owned catalogue', async () => {
     const fetchImplementation = vi.fn<typeof fetch>().mockImplementation((input) => {
       const pathname = (input as URL).pathname;

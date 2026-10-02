@@ -146,6 +146,26 @@ boundary, and links to canonical detailed documentation.
 
 Native business workspaces use explicit, validated `backendWorkspace` keys from the authorized navigation item. Never infer their owner or renderer from a route prefix. Preserve each accelerator's publishing module when displaying cross-module navigation trees; do not create placeholder business links in Axis.
 
+Backend workspace `ownerSelector` may constrain `runtimeRoleCode` and/or
+`publicationRole` using inert role identifiers. Resolve only authorized catalogue
+connections matching all supplied constraints; missing roles must not fall back
+to another runtime. Owner paths carry their canonical API prefix; Axis must not
+invent domain-specific prefixes. Public discovery retries only transient network,
+timeout and HTTP 408/429/502/503/504 failures with sequential GET requests.
+The runtime-configurable retry window defaults to five minutes, caps at ten
+minutes, and uses backoff capped at ten seconds. Show a connecting state during
+recovery, then manual recovery on exhaustion; reject invalid contracts and
+permanent HTTP failures immediately. No startup mutation,
+login, publication request or approval is automatically retried.
+Use the shared `createAxisQueryClient` command policy. Offline commands must fail
+before feature callbacks, never queue for reconnect. Do not override mutation
+network/retry policy, add serialized mutation scopes, or restore persisted paused
+mutations. Backend authorization and idempotency remain owner responsibilities.
+
+Generic owner workspace row-navigation and fresh inspection contracts are
+documented in [backendOperationsWorkspace.md](src/app/backendOperationsWorkspace.md).
+Never execute a row's returned command path or infer a version from CMS.
+
 - Consume inert backend `apiOperations` for capabilities/search/create/update/delete/delete-impact/bulk.
   Validate static relative paths, method/version and activation before credentials
   are attached. Use advertised operations once, with no 404/405 fallback; disabled
@@ -162,3 +182,11 @@ Native business workspaces use explicit, validated `backendWorkspace` keys from 
 Frontend startup is independent of backend health. Keep unavailable/retry UI and
 frontend tests in this application. Backend API acceptance must never start or
 test this frontend. Container deployment is owned by [docker/README.md](docker/README.md).
+
+First-run publication recovery may render the existing authorized Process
+workspace at `/initialize-axis/approval` only while a baseline workflow reference
+exists, the employee is unlocked, and Process navigation is ACTIVE or PREVIEW
+and available. DISABLED and HIDDEN entries never admit this route.
+Keep normal business/registry routes gated by baseline readiness. This route
+does not grant Process permissions, replay an approval automatically or introduce
+another workflow owner; Process retains task, incident and retry authorization.

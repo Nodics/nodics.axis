@@ -1,5 +1,17 @@
-import { Alert, Box, Chip, Stack, Typography } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Chip,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Typography,
+} from '@mui/material';
 import type { ReactElement, ReactNode } from 'react';
+import type { MediaPublicationDependency } from './mediaPublicationHandoff';
 
 import {
   ReadinessRepairMetadata,
@@ -8,6 +20,7 @@ import {
 } from './ReadinessRepairMetadata';
 
 export interface CapabilityReadinessBlocker {
+  readonly mediaDependency?: MediaPublicationDependency | undefined;
   readonly blockerCode?: string | undefined;
   readonly code: string;
   readonly severity: string;
@@ -275,6 +288,15 @@ export function CapabilityReadinessPanel({
 }: CapabilityReadinessPanelProps): ReactElement | null {
   if (!readiness.blockers.length) return null;
   const evaluated = evaluatedLabel(readiness.lastEvaluatedAt);
+  const mediaBlockers = readiness.blockers.filter(
+    (blocker) =>
+      blocker.ownerType === 'MEDIA' &&
+      blocker.source === 'MEDIA_PUBLICATION' &&
+      blocker.mediaDependency !== undefined,
+  );
+  const otherBlockers = readiness.blockers.filter(
+    (blocker) => !mediaBlockers.includes(blocker),
+  );
   return (
     <Box>
       <Stack
@@ -460,7 +482,70 @@ export function CapabilityReadinessPanel({
         </Stack>
       ) : null}
       <Stack spacing={0.75}>
-        {readiness.blockers.map((blocker) => (
+        {mediaBlockers.length ? (
+          <Box>
+            <Alert severity="warning">
+              <Typography sx={{ fontWeight: 700 }} variant="body2">
+                Media publication · {mediaBlockers.length} asset
+                {mediaBlockers.length === 1 ? '' : 's'} require attention
+              </Typography>
+              {mediaBlockers[0]?.message}
+            </Alert>
+            <Box sx={{ overflowX: 'auto' }}>
+              <Table size="small" aria-label="Media publication dependencies">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Media reference</TableCell>
+                    <TableCell>Pinned version</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell>Inspection</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {mediaBlockers.map((blocker) => (
+                    <TableRow
+                      key={`${blocker.mediaDependency!.mediaCode}:${blocker.mediaDependency!.versionId ?? 'unpinned'}:${blocker.code}`}
+                    >
+                      <TableCell sx={{ overflowWrap: 'anywhere', minWidth: 160 }}>
+                        {blocker.mediaDependency!.mediaCode}
+                      </TableCell>
+                      <TableCell>
+                        {blocker.mediaDependency!.versionId ?? 'Not pinned'}
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={blocker.mediaDependency!.status}
+                          size="small"
+                          variant="outlined"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {actionSlot?.(blocker)}
+                        <Box component="details">
+                          <Box component="summary" sx={{ cursor: 'pointer' }}>
+                            Details
+                          </Box>
+                          <Typography variant="caption">{blocker.message}</Typography>
+                          {blocker.disabledReason ? (
+                            <Typography variant="caption">
+                              {blocker.disabledReason}
+                            </Typography>
+                          ) : null}
+                          <ReadinessRepairMetadata
+                            repair={blocker.repair}
+                            runtimeDiagnostic={blocker.runtimeDiagnostic}
+                            approvalDiagnostic={blocker.approvalDiagnostic}
+                          />
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Box>
+          </Box>
+        ) : null}
+        {otherBlockers.map((blocker) => (
           <Alert
             key={`${blocker.blockerCode ?? blocker.code}:${blocker.owner}`}
             severity={severityTone(blocker.severity)}

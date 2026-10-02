@@ -96,6 +96,11 @@ function isCmsPublicationApprovalTask(task: ProcessHumanTask): boolean {
   );
 }
 
+/** Typed review classification comes from the validated Process DTO, not owner names. */
+function isDeclaredApprovalTask(task: ProcessHumanTask): boolean {
+  return task.decisionContract?.kind === 'APPROVAL';
+}
+
 function isActionableTask(task: ProcessHumanTask): boolean {
   return ['OPEN', 'CLAIMED', 'ESCALATED'].includes(task.status);
 }
@@ -682,6 +687,8 @@ function TaskInbox({
   onCancel,
   onClaim,
   onComplete,
+  onRefresh,
+  refreshDisabled,
   publicationContexts,
   tasks,
   title = 'Task inbox',
@@ -693,18 +700,27 @@ function TaskInbox({
   readonly onCancel: (taskCode: string) => void;
   readonly onClaim: (taskCode: string) => void;
   readonly onComplete: (taskCode: string, decision?: ProcessTaskDecision) => void;
+  readonly onRefresh: () => void;
+  readonly refreshDisabled: boolean;
   readonly publicationContexts: ReadonlyMap<string, CmsPublicationTaskContext>;
   readonly tasks: readonly ProcessHumanTask[];
   readonly title?: string;
 }) {
   const publicationTasks = tasks
-    .filter(isCmsPublicationApprovalTask)
+    .filter(
+      (task) => isCmsPublicationApprovalTask(task) && !isDeclaredApprovalTask(task),
+    )
     .filter(isActionableTask);
   const workflowTasks = tasks
-    .filter((task) => !isCmsPublicationApprovalTask(task))
+    .filter(
+      (task) => !isCmsPublicationApprovalTask(task) || isDeclaredApprovalTask(task),
+    )
     .filter(isActionableTask);
+  const approvalTasks = workflowTasks.filter(isDeclaredApprovalTask);
+  const ordinaryTasks = workflowTasks.filter((task) => !isDeclaredApprovalTask(task));
   const [reviewingPublicationTaskCode, setReviewingPublicationTaskCode] =
     useState<string>();
+  const [decisionReasons, setDecisionReasons] = useState<Record<string, string>>({});
 
   return (
     <Paper
@@ -726,13 +742,20 @@ function TaskInbox({
             <Typography variant="h5">{title}</Typography>
           </Stack>
           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+            <Button disabled={refreshDisabled} onClick={onRefresh}>
+              Refresh task evidence
+            </Button>
             <Chip
-              color={publicationTasks.length ? 'warning' : 'default'}
-              label={`${String(publicationTasks.length)} publication approvals`}
-              variant={publicationTasks.length ? 'filled' : 'outlined'}
+              color={
+                publicationTasks.length + approvalTasks.length ? 'warning' : 'default'
+              }
+              label={`${String(publicationTasks.length + approvalTasks.length)} approval decisions`}
+              variant={
+                publicationTasks.length + approvalTasks.length ? 'filled' : 'outlined'
+              }
             />
             <Chip
-              label={`${String(workflowTasks.length)} other tasks`}
+              label={`${String(ordinaryTasks.length)} other tasks`}
               variant="outlined"
             />
           </Stack>
@@ -752,7 +775,8 @@ function TaskInbox({
                 {publicationTasks.map((task) => {
                   const actionable = isActionableTask(task);
                   const context = publicationContexts.get(task.instanceCode ?? '');
-                  const canDecide = actionable;
+                  const canDecide =
+                    actionable && task.reviewerEligibility?.eligible !== false;
                   return (
                     <Paper
                       component="article"
@@ -855,6 +879,15 @@ function TaskInbox({
                             </Button>
                           </Stack>
                         </Box>
+                        {task.reviewerEligibility ? (
+                          <Alert
+                            severity={
+                              task.reviewerEligibility.eligible ? 'info' : 'warning'
+                            }
+                          >
+                            {task.reviewerEligibility.message}
+                          </Alert>
+                        ) : null}
                         {reviewingPublicationTaskCode === task.code ? (
                           <Box
                             sx={{
@@ -949,91 +982,208 @@ function TaskInbox({
               </Stack>
             ) : null}
 
-            {workflowTasks.length ? (
-              <Stack spacing={1.5}>
-                <Stack
-                  direction={{ xs: 'column', md: 'row' }}
-                  spacing={1.5}
-                  sx={{ alignItems: { xs: 'stretch', md: 'center' } }}
-                >
-                  <Typography sx={{ flex: '1 1 auto' }} variant="subtitle1">
-                    Other workflow tasks
-                  </Typography>
-                  <TextField
-                    disabled={disabled}
-                    label="Assign selected task to"
-                    onChange={(event) => onAssigneeChange(event.target.value)}
-                    placeholder="user, group, or queue code"
-                    size="small"
-                    sx={{ minWidth: { xs: '100%', md: 280 } }}
-                    value={assignee}
-                  />
+            {[
+              { title: 'Approval decisions', tasks: approvalTasks },
+              { title: 'Other workflow tasks', tasks: ordinaryTasks },
+            ]
+              .filter((group) => group.tasks.length)
+              .map((group) => (
+                <Stack spacing={1.5} key={group.title}>
+                  <Stack
+                    direction={{ xs: 'column', md: 'row' }}
+                    spacing={1.5}
+                    sx={{ alignItems: { xs: 'stretch', md: 'center' } }}
+                  >
+                    <Typography sx={{ flex: '1 1 auto' }} variant="subtitle1">
+                      {group.title}
+                    </Typography>
+                    <TextField
+                      disabled={disabled}
+                      label="Assign selected task to"
+                      onChange={(event) => onAssigneeChange(event.target.value)}
+                      placeholder="user, group, or queue code"
+                      size="small"
+                      sx={{ minWidth: { xs: '100%', md: 280 } }}
+                      value={assignee}
+                    />
+                  </Stack>
+                  {group.tasks.map((task) => {
+                    const actionable = isActionableTask(task);
+                    const contract = task.decisionContract;
+                    const reason = decisionReasons[task.code] ?? '';
+                    return (
+                      <Paper
+                        component="article"
+                        elevation={0}
+                        key={task.code}
+                        sx={{ border: 1, borderColor: 'divider', p: 2 }}
+                      >
+                        <Stack spacing={1.5}>
+                          <Stack
+                            direction={{ xs: 'column', md: 'row' }}
+                            spacing={1}
+                            sx={{ justifyContent: 'space-between' }}
+                          >
+                            <Box>
+                              <Typography
+                                variant="h6"
+                                sx={{ overflowWrap: 'anywhere' }}
+                              >
+                                {task.name ?? task.reviewContext?.rootCode ?? task.code}
+                              </Typography>
+                              {(task.name || task.reviewContext) && (
+                                <Typography variant="caption" color="text.secondary">
+                                  {task.code}
+                                </Typography>
+                              )}
+                              <Typography color="text.secondary">
+                                {task.instanceCode ?? 'unknown instance'} · node{' '}
+                                {task.nodeCode ?? 'unknown'} · assignee{' '}
+                                {task.assignee ?? 'unassigned'}
+                              </Typography>
+                              {task.reviewContext ? (
+                                <Stack spacing={0.5} sx={{ mt: 1 }}>
+                                  <Typography
+                                    variant="body2"
+                                    sx={{ overflowWrap: 'anywhere' }}
+                                  >
+                                    {task.reviewContext.owner} ·{' '}
+                                    {task.reviewContext.rootType}:{' '}
+                                    {task.reviewContext.rootCode}
+                                  </Typography>
+                                  <Typography
+                                    variant="caption"
+                                    sx={{ overflowWrap: 'anywhere' }}
+                                  >
+                                    Publication: {task.reviewContext.publicationCode}
+                                  </Typography>
+                                  <Typography
+                                    variant="caption"
+                                    sx={{ overflowWrap: 'anywhere' }}
+                                  >
+                                    Retained source version:{' '}
+                                    {task.reviewContext.sourceVersion}
+                                  </Typography>
+                                </Stack>
+                              ) : null}
+                            </Box>
+                            <Chip
+                              color={
+                                task.status === 'COMPLETED' ? 'success' : 'warning'
+                              }
+                              label={task.status}
+                            />
+                          </Stack>
+                          {task.reviewerEligibility ? (
+                            <Alert
+                              severity={
+                                task.reviewerEligibility.eligible ? 'info' : 'warning'
+                              }
+                            >
+                              {task.reviewerEligibility.message}
+                            </Alert>
+                          ) : null}
+                          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                            <Button
+                              disabled={disabled || !actionable || !assignee.trim()}
+                              onClick={() => onAssign(task.code)}
+                              variant="outlined"
+                            >
+                              Assign
+                            </Button>
+                            <Button
+                              disabled={disabled || task.status !== 'OPEN'}
+                              onClick={() => onClaim(task.code)}
+                              variant="outlined"
+                            >
+                              Claim
+                            </Button>
+                            {contract ? (
+                              <>
+                                <TextField
+                                  label={contract.reasonLabel}
+                                  value={reason}
+                                  disabled={disabled || !actionable}
+                                  size="small"
+                                  slotProps={{
+                                    htmlInput: {
+                                      maxLength: contract.maximumReasonLength,
+                                    },
+                                  }}
+                                  onChange={(event) =>
+                                    setDecisionReasons((current) => ({
+                                      ...current,
+                                      [task.code]: event.target.value,
+                                    }))
+                                  }
+                                />
+                                <Button
+                                  disabled={
+                                    disabled ||
+                                    !actionable ||
+                                    task.reviewerEligibility?.eligible === false ||
+                                    reason.length > contract.maximumReasonLength
+                                  }
+                                  onClick={() =>
+                                    onComplete(
+                                      task.code,
+                                      reason.trim()
+                                        ? { approved: true, reason: reason.trim() }
+                                        : { approved: true },
+                                    )
+                                  }
+                                  variant="contained"
+                                >
+                                  {contract.approveLabel}
+                                </Button>
+                                <Button
+                                  color="error"
+                                  disabled={
+                                    disabled ||
+                                    !actionable ||
+                                    task.reviewerEligibility?.eligible === false ||
+                                    !reason.trim() ||
+                                    reason.length > contract.maximumReasonLength
+                                  }
+                                  onClick={() =>
+                                    onComplete(task.code, {
+                                      approved: false,
+                                      reason: reason.trim(),
+                                    })
+                                  }
+                                  variant="outlined"
+                                >
+                                  {contract.rejectLabel}
+                                </Button>
+                              </>
+                            ) : (
+                              <Button
+                                disabled={
+                                  disabled ||
+                                  !actionable ||
+                                  task.reviewerEligibility?.eligible === false
+                                }
+                                onClick={() => onComplete(task.code)}
+                                variant="contained"
+                              >
+                                Complete
+                              </Button>
+                            )}
+                            <Button
+                              color="error"
+                              disabled={disabled || !actionable}
+                              onClick={() => onCancel(task.code)}
+                              variant="outlined"
+                            >
+                              Cancel task
+                            </Button>
+                          </Stack>
+                        </Stack>
+                      </Paper>
+                    );
+                  })}
                 </Stack>
-                {workflowTasks.map((task) => {
-                  const actionable = isActionableTask(task);
-                  return (
-                    <Paper
-                      component="article"
-                      elevation={0}
-                      key={task.code}
-                      sx={{ border: 1, borderColor: 'divider', p: 2 }}
-                    >
-                      <Stack spacing={1.5}>
-                        <Stack
-                          direction={{ xs: 'column', md: 'row' }}
-                          spacing={1}
-                          sx={{ justifyContent: 'space-between' }}
-                        >
-                          <Box>
-                            <Typography variant="h6">{task.code}</Typography>
-                            <Typography color="text.secondary">
-                              {task.instanceCode ?? 'unknown instance'} · node{' '}
-                              {task.nodeCode ?? 'unknown'} · assignee{' '}
-                              {task.assignee ?? 'unassigned'}
-                            </Typography>
-                          </Box>
-                          <Chip
-                            color={task.status === 'COMPLETED' ? 'success' : 'warning'}
-                            label={task.status}
-                          />
-                        </Stack>
-                        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                          <Button
-                            disabled={disabled || !actionable || !assignee.trim()}
-                            onClick={() => onAssign(task.code)}
-                            variant="outlined"
-                          >
-                            Assign
-                          </Button>
-                          <Button
-                            disabled={disabled || task.status !== 'OPEN'}
-                            onClick={() => onClaim(task.code)}
-                            variant="outlined"
-                          >
-                            Claim
-                          </Button>
-                          <Button
-                            disabled={disabled || !actionable}
-                            onClick={() => onComplete(task.code)}
-                            variant="contained"
-                          >
-                            Complete
-                          </Button>
-                          <Button
-                            color="error"
-                            disabled={disabled || !actionable}
-                            onClick={() => onCancel(task.code)}
-                            variant="outlined"
-                          >
-                            Cancel task
-                          </Button>
-                        </Stack>
-                      </Stack>
-                    </Paper>
-                  );
-                })}
-              </Stack>
-            ) : null}
+              ))}
           </Stack>
         )}
       </Stack>
@@ -1800,6 +1950,7 @@ export function ProcessWorkflowRoutePage({
   });
 
   const instanceDetail = useQuery({
+    retry: false,
     enabled: Boolean(processConnection && selectedInstanceCode),
     queryKey: [
       instanceDetailQueryKey,
@@ -1875,6 +2026,7 @@ export function ProcessWorkflowRoutePage({
   });
 
   const completeTask = useMutation({
+    retry: false,
     mutationFn: async ({
       decision,
       taskCode,
@@ -1883,6 +2035,28 @@ export function ProcessWorkflowRoutePage({
       readonly taskCode: string;
     }) => {
       if (!processConnection) throw new Error('Process API is unavailable');
+      if (operations.isError || operations.isFetching || !operations.data)
+        throw new Error('Refresh Process task evidence before deciding');
+      const task = operations.data.tasks.find((item) => item.code === taskCode);
+      if (!task || !isActionableTask(task))
+        throw new Error('Process task is no longer actionable');
+      if (task.reviewerEligibility?.eligible === false)
+        throw new Error(task.reviewerEligibility.message);
+      if (task.decisionContract) {
+        if (
+          !task.instanceCode ||
+          !task.nodeCode ||
+          !decision ||
+          typeof decision.approved !== 'boolean' ||
+          Object.keys(decision).some((key) => !['approved', 'reason'].includes(key)) ||
+          (decision.reason !== undefined &&
+            (typeof decision.reason !== 'string' ||
+              decision.reason.length > task.decisionContract.maximumReasonLength)) ||
+          (decision.approved === false &&
+            (typeof decision.reason !== 'string' || !decision.reason.trim()))
+        )
+          throw new Error('Process approval decision is invalid');
+      }
       return completeProcessTask(processConnection, configuration, taskCode, decision);
     },
     onSuccess: invalidate,
@@ -1895,6 +2069,10 @@ export function ProcessWorkflowRoutePage({
     },
     onSuccess: invalidate,
   });
+  const refreshTaskEvidence = async () => {
+    const result = await operations.refetch();
+    if (!result.isError && result.data) completeTask.reset();
+  };
 
   const cancelInstance = useMutation({
     mutationFn: async (instanceCode: string) => {
@@ -2022,7 +2200,9 @@ export function ProcessWorkflowRoutePage({
     });
   });
   const publicationApprovalTasks =
-    operations.data?.tasks.filter(isCmsPublicationApprovalTask) ?? [];
+    operations.data?.tasks.filter(
+      (task) => isDeclaredApprovalTask(task) || isCmsPublicationApprovalTask(task),
+    ) ?? [];
   const actionablePublicationApprovalTasks =
     publicationApprovalTasks.filter(isActionableTask);
   const publicationTasksReadyForDecision = actionablePublicationApprovalTasks.length;
@@ -2064,6 +2244,84 @@ export function ProcessWorkflowRoutePage({
     activateTrigger.error ??
     archiveTrigger.error;
 
+  const instanceTimeline = (
+    <Paper
+      component="section"
+      aria-label="Instance timeline"
+      elevation={0}
+      sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
+    >
+      <Stack spacing={2}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+          <ShellIcon name="activity" />
+          <Typography variant="h5">Instance timeline</Typography>
+          <Chip
+            label={
+              selectedInstanceCode
+                ? instanceDetail.isFetching
+                  ? 'Loading'
+                  : 'Selected'
+                : 'Select instance'
+            }
+            variant="outlined"
+          />
+        </Stack>
+        {!selectedInstanceCode ? (
+          <Alert severity="info">
+            Select a process instance to inspect its current state, human tasks, and
+            audit events in one operator-friendly view.
+          </Alert>
+        ) : instanceDetail.isError && instanceDetail.error instanceof Error ? (
+          <Alert severity="warning">{instanceDetail.error.message}</Alert>
+        ) : instanceDetail.data ? (
+          <Stack spacing={2}>
+            <Paper
+              component="article"
+              elevation={0}
+              sx={{
+                bgcolor: alpha(axisTokens.color.success, 0.06),
+                border: 1,
+                borderColor: 'divider',
+                p: 2,
+              }}
+            >
+              <Typography variant="h6">{instanceDetail.data.instance.code}</Typography>
+              <Typography color="text.secondary">
+                {instanceDetail.data.instance.definitionCode} · status{' '}
+                {instanceDetail.data.instance.status} · node{' '}
+                {instanceDetail.data.instance.currentNode ?? 'unknown'}
+              </Typography>
+            </Paper>
+            <Typography variant="h6">Tasks</Typography>
+            {instanceDetail.data.tasks.length === 0 ? (
+              <Typography color="text.secondary">No tasks recorded.</Typography>
+            ) : (
+              instanceDetail.data.tasks.map((task) => (
+                <Typography color="text.secondary" key={task.code}>
+                  {task.code}: {task.status} at {task.nodeCode ?? 'unknown node'}
+                </Typography>
+              ))
+            )}
+            <Typography variant="h6">Audit timeline</Typography>
+            {instanceDetail.data.auditEvents.length === 0 ? (
+              <Typography color="text.secondary">No audit events recorded.</Typography>
+            ) : (
+              instanceDetail.data.auditEvents.map((event, index) => (
+                <Typography color="text.secondary" key={`${event.eventType}-${index}`}>
+                  {event.eventType} · {event.outcome}
+                </Typography>
+              ))
+            )}
+          </Stack>
+        ) : (
+          <Typography color="text.secondary" role="status">
+            Loading timeline...
+          </Typography>
+        )}
+      </Stack>
+    </Paper>
+  );
+
   if (activeWorkspace.route === '/process/tasks') {
     return (
       <WorkspaceContainer>
@@ -2092,7 +2350,7 @@ export function ProcessWorkflowRoutePage({
                 <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
                   <Chip
                     color={publicationTasksReadyForDecision > 0 ? 'warning' : 'default'}
-                    label={`${String(publicationTasksReadyForDecision)} ready for decision`}
+                    label={`${String(publicationTasksReadyForDecision)} awaiting review`}
                     variant={
                       publicationTasksReadyForDecision > 0 ? 'filled' : 'outlined'
                     }
@@ -2109,23 +2367,32 @@ export function ProcessWorkflowRoutePage({
 
               {latestError instanceof Error ? (
                 <Alert severity="error">{latestError.message}</Alert>
+              ) : operations.isError && operations.error instanceof Error ? (
+                <Alert severity="error">{operations.error.message}</Alert>
               ) : operations.isPending ? (
                 <Alert severity="info">Loading approval tasks from Process.</Alert>
               ) : publicationApprovalTasks.length ? (
                 <Alert severity="warning">
-                  {`${String(publicationTasksReadyForDecision)} publication approval task${publicationTasksReadyForDecision === 1 ? '' : 's'} can be reviewed and decided from this page when the signed-in user has approval permission.`}
+                  {`${String(publicationTasksReadyForDecision)} approval task${publicationTasksReadyForDecision === 1 ? '' : 's'} awaiting review.`}
                 </Alert>
               ) : (
-                <Alert severity="success">
-                  No documentation publication approval tasks are waiting.
-                </Alert>
+                <Alert severity="success">No approval decisions are waiting.</Alert>
               )}
             </Stack>
           </Paper>
 
           <TaskInbox
             assignee={taskAssignee}
-            disabled={busy}
+            disabled={
+              busy ||
+              operations.isFetching ||
+              operations.isError ||
+              completeTask.isError
+            }
+            onRefresh={() => {
+              void refreshTaskEvidence();
+            }}
+            refreshDisabled={busy || operations.isFetching}
             onAssigneeChange={setTaskAssignee}
             onAssign={(taskCode) => assignTask.mutate(taskCode)}
             onCancel={(taskCode) => cancelTask.mutate(taskCode)}
@@ -2155,6 +2422,7 @@ export function ProcessWorkflowRoutePage({
               onSelect={(instanceCode) => setSelectedInstanceCode(instanceCode)}
               selectedCode={selectedInstanceCode}
             />
+            {selectedInstanceCode ? instanceTimeline : null}
             <RecoveryIncidentQueue
               disabled={busy}
               incidents={operations.data?.incidents ?? []}
@@ -2413,7 +2681,16 @@ export function ProcessWorkflowRoutePage({
           />
           <TaskInbox
             assignee={taskAssignee}
-            disabled={busy}
+            disabled={
+              busy ||
+              operations.isFetching ||
+              operations.isError ||
+              completeTask.isError
+            }
+            onRefresh={() => {
+              void refreshTaskEvidence();
+            }}
+            refreshDisabled={busy || operations.isFetching}
             onAssigneeChange={setTaskAssignee}
             onAssign={(taskCode) => assignTask.mutate(taskCode)}
             onCancel={(taskCode) => cancelTask.mutate(taskCode)}
@@ -2443,85 +2720,7 @@ export function ProcessWorkflowRoutePage({
             },
           }}
         >
-          <Paper
-            component="section"
-            elevation={0}
-            sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
-          >
-            <Stack spacing={2}>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                <ShellIcon name="activity" />
-                <Typography variant="h5">Instance timeline</Typography>
-                <Chip
-                  label={
-                    selectedInstanceCode
-                      ? instanceDetail.isPending
-                        ? 'Loading'
-                        : 'Selected'
-                      : 'Select instance'
-                  }
-                  variant="outlined"
-                />
-              </Stack>
-              {!selectedInstanceCode ? (
-                <Alert severity="info">
-                  Select a process instance to inspect its current state, human tasks,
-                  and audit events in one operator-friendly view.
-                </Alert>
-              ) : instanceDetail.isError && instanceDetail.error instanceof Error ? (
-                <Alert severity="warning">{instanceDetail.error.message}</Alert>
-              ) : instanceDetail.data ? (
-                <Stack spacing={2}>
-                  <Paper
-                    component="article"
-                    elevation={0}
-                    sx={{
-                      bgcolor: alpha(axisTokens.color.success, 0.06),
-                      border: 1,
-                      borderColor: 'divider',
-                      p: 2,
-                    }}
-                  >
-                    <Typography variant="h6">
-                      {instanceDetail.data.instance.code}
-                    </Typography>
-                    <Typography color="text.secondary">
-                      {instanceDetail.data.instance.definitionCode} · status{' '}
-                      {instanceDetail.data.instance.status} · node{' '}
-                      {instanceDetail.data.instance.currentNode ?? 'unknown'}
-                    </Typography>
-                  </Paper>
-                  <Typography variant="h6">Tasks</Typography>
-                  {instanceDetail.data.tasks.length === 0 ? (
-                    <Typography color="text.secondary">No tasks recorded.</Typography>
-                  ) : (
-                    instanceDetail.data.tasks.map((task) => (
-                      <Typography color="text.secondary" key={task.code}>
-                        {task.code}: {task.status} at {task.nodeCode ?? 'unknown node'}
-                      </Typography>
-                    ))
-                  )}
-                  <Typography variant="h6">Audit timeline</Typography>
-                  {instanceDetail.data.auditEvents.length === 0 ? (
-                    <Typography color="text.secondary">
-                      No audit events recorded.
-                    </Typography>
-                  ) : (
-                    instanceDetail.data.auditEvents.map((event, index) => (
-                      <Typography
-                        color="text.secondary"
-                        key={`${event.eventType}-${index}`}
-                      >
-                        {event.eventType} · {event.outcome}
-                      </Typography>
-                    ))
-                  )}
-                </Stack>
-              ) : (
-                <Typography color="text.secondary">Loading timeline…</Typography>
-              )}
-            </Stack>
-          </Paper>
+          {instanceTimeline}
           <TriggerRelationshipView
             disabled={busy}
             onArchive={(triggerCode) => archiveTrigger.mutate(triggerCode)}

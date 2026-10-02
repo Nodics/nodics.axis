@@ -4,6 +4,7 @@ import {
   Button,
   Chip,
   Container,
+  LinearProgress,
   Paper,
   Stack,
   Typography,
@@ -21,6 +22,7 @@ interface RecoveryScreenProps {
   readonly onRetry: () => void;
 }
 
+/** Generic unavailable-backend presentation; domain copy remains CMS-owned. */
 export function RecoveryScreen({ state, onRetry }: RecoveryScreenProps) {
   const content = getRecoveryContent(state.kind);
   const detail = getRecoveryDetailContent(state.kind, state.detail);
@@ -40,23 +42,46 @@ export function RecoveryScreen({ state, onRetry }: RecoveryScreenProps) {
           <Stack spacing={3}>
             <AxisMark />
             <Stack direction="row" spacing={1}>
-              <Chip color="warning" label="Recovery mode" size="small" />
+              <Chip
+                color={state.reconnecting ? 'info' : 'warning'}
+                label={state.reconnecting ? 'Connecting' : 'Recovery mode'}
+                size="small"
+              />
               <Chip label={content.eyebrow} size="small" variant="outlined" />
             </Stack>
             <Stack spacing={1.5}>
               <Typography component="h1" variant="h3">
-                {content.title}
+                {state.reconnecting ? 'Connecting to your workspace' : content.title}
               </Typography>
-              <Typography color="text.secondary">{content.description}</Typography>
+              <Typography
+                color="text.secondary"
+                role={state.reconnecting ? 'status' : undefined}
+              >
+                {state.reconnecting
+                  ? 'The server may still be starting. Axis will continue automatically when it is available.'
+                  : content.description}
+              </Typography>
+              {state.reconnecting ? (
+                <LinearProgress aria-label="Connecting to Axis" />
+              ) : null}
             </Stack>
-            {detail ? (
+            {detail && !state.reconnecting ? (
               <Alert severity={state.kind === 'unauthorized' ? 'warning' : 'error'}>
                 <Stack spacing={0.75}>
                   <Typography component="span">{detail.message}</Typography>
                   {detail.technicalDetail ? (
-                    <Typography color="text.secondary" component="span" variant="body2">
-                      Technical detail: {detail.technicalDetail}
-                    </Typography>
+                    <Box component="details">
+                      <Typography component="summary" variant="body2">
+                        Technical details
+                      </Typography>
+                      <Typography
+                        color="text.secondary"
+                        component="span"
+                        variant="body2"
+                      >
+                        {detail.technicalDetail}
+                      </Typography>
+                    </Box>
                   ) : null}
                 </Stack>
               </Alert>

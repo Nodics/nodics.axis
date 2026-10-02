@@ -90,6 +90,7 @@ export const axisTokens = {
   },
 } as const;
 
+/** Builds the Axis theme; composed text tokens govern light primary action/state labels without changing brand fills, indicators or outlines. */
 export function createAxisTheme(mode: PaletteMode) {
   const surface = axisTokens.color.surface[mode];
   const primaryText = mode === 'light' ? charcoal[900] : '#f7f8f8';
@@ -249,21 +250,64 @@ export function createAxisTheme(mode: PaletteMode) {
           size: 'medium',
         },
         styleOverrides: {
-          root: {
+          // Resolve from the composed theme so project text-color overrides remain effective.
+          root: ({ theme }) => ({
             borderRadius: axisTokens.radius.small,
             minHeight: 42,
             '&.MuiButton-containedPrimary:hover': {
               backgroundColor: gold[600],
             },
-          },
+            ...(theme.palette.mode === 'light'
+              ? {
+                  '&.MuiButton-text.MuiButton-colorPrimary:not(.Mui-disabled), &.MuiButton-outlined.MuiButton-colorPrimary:not(.Mui-disabled)':
+                    {
+                      color: theme.palette.text.primary,
+                      '@media (hover: hover)': {
+                        '&:hover': {
+                          backgroundColor: alpha(
+                            theme.palette.text.primary,
+                            theme.palette.action.hoverOpacity,
+                          ),
+                        },
+                      },
+                    },
+                  '&.MuiButton-outlined.MuiButton-colorPrimary:not(.Mui-disabled)': {
+                    borderColor: alpha(theme.palette.text.primary, 0.6),
+                    '@media (hover: hover)': {
+                      '&:hover': { borderColor: theme.palette.text.primary },
+                    },
+                  },
+                }
+              : {}),
+          }),
         },
       },
       MuiInputLabel: {
         styleOverrides: {
-          root: {
+          root: ({ theme }) => ({
             fontSize: '0.8125rem',
             fontWeight: axisTokens.typography.weight.medium,
-          },
+            ...(theme.palette.mode === 'light'
+              ? {
+                  '&.MuiFormLabel-colorPrimary.Mui-focused:not(.Mui-disabled):not(.Mui-error)':
+                    {
+                      color: theme.palette.text.primary,
+                    },
+                }
+              : {}),
+          }),
+        },
+      },
+      MuiTab: {
+        styleOverrides: {
+          root: ({ theme }) =>
+            theme.palette.mode === 'light'
+              ? {
+                  '&.MuiTab-textColorPrimary.Mui-selected:not(.Mui-disabled)': {
+                    color: theme.palette.text.primary,
+                  },
+                }
+              : {},
         },
       },
       MuiFormHelperText: {

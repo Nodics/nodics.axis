@@ -1,5 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -130,7 +137,7 @@ function renderPage(
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
-  return render(
+  const rendered = render(
     <AxisThemeProvider>
       <QueryClientProvider client={queryClient}>
         <ProcessWorkflowRoutePage
@@ -142,9 +149,470 @@ function renderPage(
       </QueryClientProvider>
     </AxisThemeProvider>,
   );
+  return { ...rendered, queryClient };
 }
 
 describe('ProcessWorkflowRoutePage', () => {
+  it.each([
+    [
+      'DIFFERENT_REVIEWER_REQUIRED',
+      false,
+      'A different authorised reviewer is required; the requester cannot review this publication.',
+    ],
+    [
+      'REVIEWER_NOT_AUTHORISED',
+      false,
+      'Your current reviewer identity or permission is not authorised for this task.',
+    ],
+    ['TASK_NOT_ACTIONABLE', false, 'This task is no longer awaiting a decision.'],
+    [
+      'INSTANCE_NOT_ACTIONABLE',
+      false,
+      'This workflow instance is no longer awaiting a decision.',
+    ],
+    [
+      'ELIGIBLE',
+      true,
+      'Reviewer identity checks passed; completion is rechecked on submission.',
+    ],
+  ])(
+    'renders owner eligibility %s and pinned Media context without inventing authority',
+    async (reasonCode, eligible, message) => {
+      const task = {
+        code: 'opaque-task-code',
+        instanceCode: 'media-review',
+        nodeCode: 'review',
+        status: 'CLAIMED',
+        reviewerEligibility: { eligible, reasonCode, message },
+        reviewContext: {
+          contractVersion: 1,
+          owner: 'media',
+          publicationCode: 'media-publication-1',
+          rootType: 'media',
+          rootCode: 'nexusHero',
+          sourceVersion: 'a'.repeat(64),
+        },
+        decisionContract: {
+          contractVersion: 1,
+          kind: 'APPROVAL',
+          approveLabel: 'Approve Media',
+          rejectLabel: 'Reject Media',
+          reasonLabel: 'Review reason',
+          rejectionReasonRequired: true,
+          maximumReasonLength: 1000,
+        },
+      };
+      const fetcher = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((input) =>
+          Promise.resolve(
+            jsonResponse(requestUrl(input).includes('/tasks?') ? [task] : []),
+          ),
+        );
+      renderPage('/process/tasks');
+      const approve = await screen.findByRole('button', { name: 'Approve Media' });
+      const reject = screen.getByRole('button', { name: 'Reject Media' });
+      expect(screen.getByText('1 awaiting review')).toBeVisible();
+      expect(screen.getByText('1 approval task awaiting review.')).toBeVisible();
+      expect(screen.queryByText(/ready for decision/)).toBeNull();
+      expect(screen.getByText(message)).toBeVisible();
+      expect(screen.getByRole('heading', { name: 'nexusHero' })).toBeVisible();
+      expect(screen.getByText('opaque-task-code')).toBeVisible();
+      expect(
+        screen.getByText(`Retained source version: ${'a'.repeat(64)}`),
+      ).toBeVisible();
+      expect(screen.getByText('Publication: media-publication-1')).toBeVisible();
+      await userEvent
+        .setup()
+        .type(screen.getByLabelText('Review reason'), 'Reviewed retained source');
+      if (eligible) {
+        expect(approve).toBeEnabled();
+        expect(reject).toBeEnabled();
+      } else {
+        expect(approve).toBeDisabled();
+        expect(reject).toBeDisabled();
+        fireEvent.click(approve);
+        fireEvent.click(reject);
+      }
+      expect(fetcher.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(
+        false,
+      );
+    },
+  );
+  it.each([
+    {
+      reviewerEligibility: {
+        eligible: true,
+        reasonCode: 'DIFFERENT_REVIEWER_REQUIRED',
+        message: 'Not eligible',
+      },
+    },
+    {
+      reviewerEligibility: {
+        eligible: false,
+        reasonCode: 'UNKNOWN',
+        message: 'Not eligible',
+      },
+    },
+    {
+      reviewerEligibility: {
+        eligible: false,
+        reasonCode: 'REVIEWER_NOT_AUTHORISED',
+        message: '',
+        permission: 'forged',
+      },
+    },
+    {
+      reviewContext: {
+        contractVersion: 2,
+        owner: 'media',
+        publicationCode: 'p',
+        rootType: 'media',
+        rootCode: 'hero',
+        sourceVersion: 'retained',
+      },
+    },
+    {
+      reviewContext: {
+        contractVersion: 1,
+        owner: 'media',
+        publicationCode: 'p',
+        rootType: 'media',
+        rootCode: 'hero',
+        sourceVersion: 4,
+      },
+    },
+  ])(
+    'rejects malformed owner eligibility/context instead of offering completion %j',
+    async (patch) => {
+      const task = {
+        code: 'held-task',
+        instanceCode: 'held-instance',
+        nodeCode: 'review',
+        status: 'CLAIMED',
+        ...patch,
+      };
+      const fetcher = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((input) =>
+          Promise.resolve(
+            jsonResponse(requestUrl(input).includes('/tasks?') ? [task] : []),
+          ),
+        );
+      renderPage('/process/tasks');
+      expect(
+        await screen.findByText(
+          /Process (reviewer eligibility|publication review context) is invalid/,
+        ),
+      ).toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Complete' })).toBeNull();
+      expect(fetcher.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(
+        false,
+      );
+    },
+  );
+  it.each([
+    { nodeCode: 'mediaReview', instanceCode: 'mediaPublicationApproval-successor' },
+    { nodeCode: 'projectReview', instanceCode: 'custom-owner-review' },
+    { nodeCode: 'publicationReview', instanceCode: 'cmsPublicationApproval-typed' },
+  ])(
+    'groups approvals only from typed owner contract ($instanceCode)',
+    async ({ nodeCode, instanceCode }) => {
+      const task = {
+        code: 'declared-review',
+        name: 'Review enterprise employee application',
+        nodeCode,
+        instanceCode,
+        status: 'CLAIMED',
+        decisionContract: {
+          contractVersion: 1,
+          kind: 'APPROVAL',
+          approveLabel: 'Approve owner request',
+          rejectLabel: 'Reject owner request',
+          reasonLabel: 'Owner reason',
+          rejectionReasonRequired: true,
+          maximumReasonLength: 1000,
+        },
+      };
+      const fetcher = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((input) =>
+          Promise.resolve(
+            jsonResponse(requestUrl(input).includes('/tasks?') ? [task] : []),
+          ),
+        );
+      renderPage('/process/tasks');
+      expect(
+        await screen.findByRole('button', { name: 'Approve owner request' }),
+      ).toBeVisible();
+      expect(screen.getByText('1 approval decisions')).toBeVisible();
+      expect(screen.getByText('Approval decisions')).toBeVisible();
+      expect(
+        screen.getByRole('heading', { name: 'Review enterprise employee application' }),
+      ).toBeVisible();
+      expect(screen.getByText('declared-review')).toBeVisible();
+      expect(screen.queryByRole('heading', { name: 'declared-review' })).toBeNull();
+      expect(screen.queryByText('Other workflow tasks')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Complete' })).toBeNull();
+      expect(screen.queryByText('Documentation publication approvals')).toBeNull();
+      expect(fetcher.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(
+        false,
+      );
+    },
+  );
+  it.each(['success', 'failed', 'wrong-identity'])(
+    'renders selected owner timeline on tasks view with %s state',
+    async (outcome) => {
+      const instance = {
+        code: 'completed-instance',
+        definitionCode: 'approved-workflow',
+        status: 'COMPLETED',
+        currentNode: 'end',
+        version: 1,
+      };
+      let resolveDetail: (response: Response) => void = () => {
+        throw new Error('Detail resolver unavailable');
+      };
+      const detail = new Promise<Response>((resolve) => {
+        resolveDetail = resolve;
+      });
+      const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+        const url = requestUrl(input);
+        if (url.endsWith('/instances/completed-instance/detail')) return detail;
+        return Promise.resolve(
+          jsonResponse(url.includes('/instances?') ? [instance] : []),
+        );
+      });
+      renderPage('/process/tasks');
+      await userEvent
+        .setup()
+        .click(await screen.findByRole('button', { name: 'View timeline' }));
+      const timeline = screen.getByRole('region', { name: 'Instance timeline' });
+      expect(within(timeline).getByRole('status')).toHaveTextContent(
+        'Loading timeline',
+      );
+      expect(screen.getByRole('button', { name: 'Cancel instance' })).toBeDisabled();
+      await act(async () => {
+        await Promise.resolve();
+        resolveDetail(
+          outcome !== 'failed'
+            ? jsonResponse({
+                instance:
+                  outcome === 'wrong-identity'
+                    ? { ...instance, code: 'another-instance' }
+                    : instance,
+                tasks: [],
+                auditEvents: [
+                  {
+                    eventType: 'process.completed',
+                    outcome: 'approved',
+                    instanceCode: instance.code,
+                  },
+                ],
+              })
+            : new Response(JSON.stringify({ message: 'Timeline unavailable' }), {
+                status: 503,
+              }),
+        );
+      });
+      if (outcome === 'success')
+        expect(
+          await within(timeline).findByText('process.completed · approved'),
+        ).toBeVisible();
+      else
+        expect(
+          await within(timeline).findByText(
+            outcome === 'failed'
+              ? 'Timeline unavailable'
+              : 'Process instance detail identity is invalid',
+          ),
+        ).toBeVisible();
+      expect(
+        fetcher.mock.calls.filter(([input]) =>
+          requestUrl(input).endsWith('/instances/completed-instance/detail'),
+        ),
+      ).toHaveLength(1);
+      expect(fetcher.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(
+        false,
+      );
+    },
+  );
+  it('blocks blank and oversized reasons, stale task decisions and never replays uncertain completion', async () => {
+    const task = {
+      code: 'employee-review',
+      instanceCode: 'application-review-1',
+      nodeCode: 'review',
+      status: 'CLAIMED',
+      decisionContract: {
+        contractVersion: 1,
+        kind: 'APPROVAL',
+        approveLabel: 'Approve application',
+        rejectLabel: 'Reject application',
+        reasonLabel: 'Review reason',
+        rejectionReasonRequired: true,
+        maximumReasonLength: 1000,
+      },
+    };
+    let failedRead = false;
+    const fetcher = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation((input, options) => {
+        if (options?.method === 'POST')
+          return Promise.reject(new Error('Decision acknowledgement unavailable'));
+        if (failedRead && requestUrl(input).includes('/tasks?'))
+          return Promise.reject(new Error('Task inspection unavailable'));
+        return Promise.resolve(
+          jsonResponse(requestUrl(input).includes('/tasks?') ? [task] : []),
+        );
+      });
+    const rendered = renderPage('/process/tasks');
+    const approve = await screen.findByRole('button', { name: 'Approve application' });
+    const reject = screen.getByRole('button', { name: 'Reject application' });
+    fireEvent.change(screen.getByLabelText('Review reason'), {
+      target: { value: '   ' },
+    });
+    expect(reject).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Review reason'), {
+      target: { value: 'x'.repeat(1001) },
+    });
+    await waitFor(() => expect(approve).toBeDisabled());
+    expect(reject).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Review reason'), {
+      target: { value: 'Reviewed evidence' },
+    });
+    await userEvent.setup().click(approve);
+    await screen.findByText('Decision acknowledgement unavailable');
+    expect(approve).toBeDisabled();
+    expect(
+      fetcher.mock.calls.filter(([, options]) => options?.method === 'POST'),
+    ).toHaveLength(1);
+    failedRead = true;
+    await act(async () => {
+      await rendered.queryClient.invalidateQueries({
+        queryKey: ['process-operations-summary'],
+      });
+    });
+    await waitFor(() => expect(approve).toBeDisabled());
+    expect(reject).toBeDisabled();
+    expect(
+      fetcher.mock.calls.filter(([, options]) => options?.method === 'POST'),
+    ).toHaveLength(1);
+    failedRead = false;
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'Refresh task evidence' }));
+    await waitFor(() => expect(approve).toBeEnabled());
+    expect(
+      fetcher.mock.calls.filter(([, options]) => options?.method === 'POST'),
+    ).toHaveLength(1);
+  });
+  it.each([{ contractVersion: 2 }, { method: 'POST' }])(
+    'rejects unsupported decision metadata instead of offering generic completion %j',
+    async (change) => {
+      const task = {
+        code: 'employee-review',
+        status: 'CLAIMED',
+        decisionContract: {
+          contractVersion: 1,
+          kind: 'APPROVAL',
+          approveLabel: 'Approve application',
+          rejectLabel: 'Reject application',
+          reasonLabel: 'Review reason',
+          rejectionReasonRequired: true,
+          maximumReasonLength: 1000,
+          ...change,
+        },
+      };
+      const fetcher = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((input) =>
+          Promise.resolve(
+            jsonResponse(requestUrl(input).includes('/tasks?') ? [task] : []),
+          ),
+        );
+      renderPage('/process/tasks');
+      await screen.findByText('Process task decision contract is invalid');
+      expect(screen.queryByRole('button', { name: 'Complete' })).toBeNull();
+      expect(fetcher.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(
+        false,
+      );
+    },
+  );
+  it.each([true, false])(
+    'submits typed owner-declared approval %s without generic outcome',
+    async (approved) => {
+      const task = {
+        code: 'employee-review',
+        instanceCode: 'application-review-1',
+        nodeCode: 'review',
+        status: 'CLAIMED',
+        decisionContract: {
+          contractVersion: 1,
+          kind: 'APPROVAL',
+          approveLabel: 'Approve application',
+          rejectLabel: 'Reject application',
+          reasonLabel: 'Review reason',
+          rejectionReasonRequired: true,
+          maximumReasonLength: 1000,
+        },
+      };
+      const fetcher = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((input, options) => {
+          const url = requestUrl(input);
+          if (options?.method === 'POST')
+            return Promise.resolve(
+              jsonResponse({
+                task: { code: task.code, status: 'COMPLETED' },
+                instance: { code: task.instanceCode, status: 'COMPLETED' },
+              }),
+            );
+          return Promise.resolve(jsonResponse(url.includes('/tasks?') ? [task] : []));
+        });
+      renderPage('/process/tasks');
+      const approve = await screen.findByRole('button', {
+        name: 'Approve application',
+      });
+      const reject = screen.getByRole('button', { name: 'Reject application' });
+      expect(screen.queryByRole('button', { name: 'Complete' })).toBeNull();
+      expect(reject).toBeDisabled();
+      expect(fetcher.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(
+        false,
+      );
+      const user = userEvent.setup();
+      if (!approved)
+        await user.type(
+          screen.getByLabelText('Review reason'),
+          'Evidence does not meet the published criteria',
+        );
+      await user.click(approved ? approve : reject);
+      await waitFor(() =>
+        expect(
+          fetcher.mock.calls.some(
+            ([input, options]) =>
+              requestUrl(input).endsWith('/tasks/employee-review/complete') &&
+              options?.method === 'POST',
+          ),
+        ).toBe(true),
+      );
+      const command = fetcher.mock.calls.find(
+        ([input, options]) =>
+          requestUrl(input).endsWith('/tasks/employee-review/complete') &&
+          options?.method === 'POST',
+      );
+      if (typeof command?.[1]?.body !== 'string')
+        throw new Error('Expected decision body');
+      const body: unknown = JSON.parse(command[1].body);
+      expect(body).toEqual({
+        decision: approved
+          ? { approved: true }
+          : {
+              approved: false,
+              reason: 'Evidence does not meet the published criteria',
+            },
+      });
+    },
+  );
   afterEach(() => {
     window.history.pushState({}, '', '/');
     vi.restoreAllMocks();
@@ -633,6 +1101,42 @@ describe('ProcessWorkflowRoutePage', () => {
       ).toBe(true),
     );
   }, 30_000);
+
+  it('respects explicit owner reviewer denial on legacy CMS tasks without a decision contract', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      Promise.resolve(
+        jsonResponse(
+          requestUrl(input).includes('/tasks')
+            ? [
+                {
+                  code: 'legacy-cms-held',
+                  instanceCode: 'cmsPublicationApproval-held',
+                  nodeCode: 'publicationReview',
+                  status: 'OPEN',
+                  assignee: 'admin',
+                  reviewerEligibility: {
+                    eligible: false,
+                    reasonCode: 'DIFFERENT_REVIEWER_REQUIRED',
+                    message: 'A different reviewer must decide this publication.',
+                  },
+                },
+              ]
+            : [],
+        ),
+      ),
+    );
+    renderPage('/process/tasks', bootstrapWithDocumentationSource);
+    expect(
+      await screen.findByText('A different reviewer must decide this publication.'),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Reject' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reject' }));
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(
+      false,
+    );
+  });
 
   it('shows documentation approvals as a focused work queue on the tasks route', async () => {
     const user = userEvent.setup();

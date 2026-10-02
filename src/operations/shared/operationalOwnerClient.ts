@@ -1,3 +1,4 @@
+/** Single-attempt transport to discovered owning modules; explicit error envelopes are never successful DTOs. */
 import {
   selectModuleConnection,
   type AxisAuthenticatedBootstrap,
@@ -9,6 +10,7 @@ export interface OperationalOwnerConfiguration {
   timeoutMs: number;
   ownerSelector?: Parameters<typeof selectModuleConnection>[2];
 }
+/** Rejects explicit Nodics failure envelopes before projecting their nested data/result. */
 function unwrap(value: unknown): unknown {
   for (
     let i = 0;
@@ -16,6 +18,11 @@ function unwrap(value: unknown): unknown {
     i++
   ) {
     const record = value as Record<string, unknown>;
+    if (
+      record.success === false ||
+      (typeof record.code === 'string' && record.code.startsWith('ERR_'))
+    )
+      throw new Error('The owner request could not be confirmed.');
     if (record.data !== undefined) value = record.data;
     else if (record.result !== undefined) value = record.result;
     else break;
@@ -29,7 +36,13 @@ export async function invokeOperationalOwner<T>(
   path: string,
   body?: unknown,
   method?: 'GET' | 'POST' | 'PATCH',
+  options: { readonly idempotencyKey?: string } = {},
 ): Promise<T> {
+  if (
+    options.idempotencyKey !== undefined &&
+    !/^[A-Za-z0-9._:-]{8,180}$/.test(options.idempotencyKey)
+  )
+    throw new Error('The owner command reference is invalid.');
   const connection = selectModuleConnection(
     configuration.bootstrap,
     moduleName,
@@ -51,6 +64,9 @@ export async function invokeOperationalOwner<T>(
         Authorization: `Bearer ${configuration.accessToken}`,
         'Content-Type': 'application/json',
         'x-enterprise-code': configuration.enterpriseCode,
+        ...(options.idempotencyKey
+          ? { 'Idempotency-Key': options.idempotencyKey }
+          : {}),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       cache: 'no-store',

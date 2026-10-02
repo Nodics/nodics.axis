@@ -1,4 +1,5 @@
 import type { AxisModuleConnection } from '../../../bootstrap/publicBootstrap';
+import { observeEmployeeSessionResponse } from '../../../auth/employeeSessionEvents';
 import type {
   DataRelease,
   DataReleaseDryRunOperation,
@@ -28,6 +29,7 @@ import type {
 } from './dataReleaseContracts';
 
 export interface DataReleaseClientConfiguration {
+  readonly sessionGeneration?: number | undefined;
   readonly accessToken: string;
   readonly enterpriseCode: string;
   readonly timeoutMs: number;
@@ -653,6 +655,10 @@ async function request(
   fetchImplementation: typeof fetch = fetch,
   context: ServiceErrorContext = importServiceErrorContext,
 ): Promise<unknown> {
+  const issuedIdentity = {
+    accessToken: configuration.accessToken,
+    generation: configuration.sessionGeneration,
+  };
   const endpoint = new URL(connection.endpoint);
   if (!['http:', 'https:'].includes(endpoint.protocol))
     throw new Error(`${context.serviceName} endpoint is invalid`);
@@ -670,13 +676,23 @@ async function request(
         signal: controller.signal,
         headers: {
           Accept: 'application/json',
-          Authorization: `Bearer ${configuration.accessToken}`,
+          Authorization: `Bearer ${issuedIdentity.accessToken}`,
           'Content-Type': 'application/json',
           'x-enterprise-code': configuration.enterpriseCode,
           ...options.headers,
         },
       },
     );
+    if (
+      observeEmployeeSessionResponse(
+        response,
+        issuedIdentity.accessToken,
+        issuedIdentity.generation,
+      )
+    )
+      throw new Error(
+        'Your session has expired. Sign in again; refreshed import state has not been verified.',
+      );
     if (!response.ok) throw new Error(await safeError(response, context));
     return envelopeData(await response.json());
   } catch (error: unknown) {

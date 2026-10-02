@@ -1,5 +1,6 @@
 import { Alert, Button, Stack } from '@mui/material';
 import type { FormEvent } from 'react';
+import { getSignInErrorMessage } from '../../../../app/recoveryState';
 
 import { stringProperty } from '../../shared/rendererProperties';
 import type { CmsComponentRendererProps } from '../../shared/rendererTypes';
@@ -22,7 +23,9 @@ export function EmployeeLoginFormRenderer({
   return (
     <Stack component="form" onSubmit={submit} spacing={2}>
       {actions?.authenticationError ? (
-        <Alert severity="error">{actions.authenticationError}</Alert>
+        <Alert severity="error">
+          {getSignInErrorMessage(actions.authenticationError)}
+        </Alert>
       ) : null}
       <AuthenticationField
         autoComplete="username"
