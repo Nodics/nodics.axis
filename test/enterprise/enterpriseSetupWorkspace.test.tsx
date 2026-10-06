@@ -118,9 +118,10 @@ describe('Profile-owned default-administrator setup workspace', () => {
     );
     const user = await fill();
     expect(screen.queryByRole('textbox', { name: /Tenant/ })).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('textbox', { name: /Request key/ }),
-    ).not.toBeInTheDocument();
+    const requestKey = screen.getByRole('textbox', { name: /Request key/ });
+    expect(requestKey).toHaveAttribute('readonly');
+    const displayedKey = (requestKey as HTMLInputElement).value;
+    expect(displayedKey).toMatch(/^create-enterprise-/);
     await user.click(screen.getByRole('button', { name: 'Prepare enterprise' }));
     await screen.findByText(
       'Administrator enrolment prepared. The invitee still needs to register.',
@@ -137,9 +138,7 @@ describe('Profile-owned default-administrator setup workspace', () => {
     expect(JSON.parse(init?.body as string)).toEqual({
       model: { code: 'example', name: 'Example', adminEmail: 'admin@example.test' },
     });
-    expect(new Headers(init?.headers).get('Idempotency-Key')).toMatch(
-      /^create-enterprise-/,
-    );
+    expect(new Headers(init?.headers).get('Idempotency-Key')).toBe(displayedKey);
     expect(new Headers(init?.headers).get('Authorization')).toBe(
       'Bearer test-employee-token',
     );
