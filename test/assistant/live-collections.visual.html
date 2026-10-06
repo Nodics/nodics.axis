@@ -1,0 +1,94 @@
+<!doctype html>
+<!-- Synthetic local renderer evidence. No backend credentials or record mutation. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Live collections renderer</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 1200px; margin: 0 auto; padding: 24px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { KnowledgeStudioView } from '/src/assistant/KnowledgeStudioView.tsx';
+      import { parseKnowledgeInventory } from '/src/assistant/api/knowledgeStudioClient.ts';
+      import { knowledgeStudioFixture } from './knowledgeStudioFixture.ts';
+      const fixture = knowledgeStudioFixture();
+      Object.assign(fixture.presentation, {
+        includedCollections: 'Included collections',
+        excludedCollections: 'Excluded collections',
+      });
+      Object.assign(fixture.presentation, {
+        subtitle: 'Authorized sources for this enterprise',
+        refresh: 'Refresh inventory',
+        source: 'Source',
+        liveData: 'Live data',
+        collections: 'Collections',
+        loadCollections: 'Load collections',
+        collectionSearch: 'Search records',
+        queryRecords: 'Search',
+        noRecords: 'No matching records',
+        previousPage: 'Previous page',
+        nextPage: 'Next page',
+        notSelected: 'Excluded',
+        included: 'Included collections',
+        excluded: 'Excluded collections',
+        extensions: 'File types',
+        none: 'None configured',
+        secretScan: 'Secret inspection required',
+        enabled: 'Enabled',
+        repository: 'Repository',
+        project: 'Project',
+        module: 'Module',
+        owner: 'Owner',
+        classification: 'Classification',
+        version: 'Configured revision',
+      });
+      Object.assign(fixture.sources[0], {
+        code: 'commerce-live',
+        sourceType: 'DATABASE',
+        module: 'product',
+        owner: 'product',
+        classification: 'RESTRICTED',
+        canPreview: false,
+        canQuery: true,
+        sourcePolicyDigest: 'a'.repeat(64),
+        paths: ['*'],
+        excludedPaths: ['user', 'policy'],
+        allowedExtensions: [],
+      });
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(KnowledgeStudioView, {
+            inventory: parseKnowledgeInventory(fixture),
+            refreshing: false,
+            onRefresh() {},
+            onPreview: async () => ({}),
+            collections: () => ({
+              load: async () => [
+                { schemaName: 'product', label: 'Products', selected: true },
+                { schemaName: 'user', label: 'Users', selected: false },
+              ],
+              query: async () => ({
+                records: [
+                  {
+                    code: 'DEMO-001',
+                    name: 'Synthetic test product',
+                    status: 'ACTIVE',
+                  },
+                ],
+                page: 1,
+                mayHaveMore: false,
+                observedAt: '2026-10-03T12:00:00Z',
+              }),
+            }),
+          }),
+        ),
+      );
+    </script>
+  </body>
+</html>

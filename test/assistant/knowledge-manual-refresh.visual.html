@@ -1,0 +1,43 @@
+<!doctype html>
+<!-- Synthetic recorded refresh renderer. No real backend calls or source indexing. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Recorded source refresh</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 900px; margin: 0 auto; padding: 24px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { KnowledgeManualRefreshPanel } from '/src/assistant/KnowledgeManualRefreshPanel.tsx';
+      import {
+        copy,
+        historyCopy,
+        review,
+        history,
+      } from './knowledgeManualRefreshFixture.ts';
+      const actions = {
+        preview: async (requestId) => ({ ...review, requestId }),
+        start: async () => {
+          if (location.search.includes('uncertain'))
+            throw new Error('Synthetic lost response');
+        },
+        inspect: async () => history(),
+      };
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(KnowledgeManualRefreshPanel, {
+            copy,
+            historyCopy,
+            actions,
+          }),
+        ),
+      );
+    </script>
+  </body>
+</html>

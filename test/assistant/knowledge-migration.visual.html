@@ -1,0 +1,94 @@
+<!doctype html>
+<!-- Synthetic retirement renderer, no API calls or provider mutations. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Legacy knowledge retirement</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 880px; margin: 0 auto; padding: 24px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { KnowledgeMigrationPanel } from '/src/assistant/KnowledgeMigrationPanel.tsx';
+      const plan = {
+        code: 'framework-v2',
+        label: 'Framework and project knowledge',
+        canExecute: true,
+        canErase: true,
+      };
+      const copy = {
+        eraseReview: 'Review permanent removal',
+        eraseConfirm: 'Permanently remove legacy index',
+        eraseInspect: 'Inspect original removal',
+        eraseImpact:
+          'Permanently removes the dedicated retired index. Replacement sources and historical writer revocation must be verified. This cannot be undone by Copilot.',
+        eraseDone:
+          'The original legacy index removal is acknowledged and its absence is verified.',
+        eraseUnknown:
+          'Removal is unconfirmed. Do not repeat it. Inspect the original result or contact the index operator.',
+        title: 'Legacy knowledge indexes',
+        review: 'Review replacement',
+        confirm: 'Retire legacy writes',
+        inspect: 'Inspect original retirement',
+        cancel: 'Cancel',
+        sources: 'Verified replacement sources',
+        impact:
+          'This blocks writes to the entire dedicated legacy index. Existing legacy data is retained; physical cleanup is not complete.',
+        done: 'Legacy writes were retired after replacement verification. Retirement did not remove data; check the separate removal result for erasure status.',
+        unknown:
+          'The original retirement is unconfirmed. Do not repeat it. Inspect its original result or contact the index operator.',
+        unavailable: 'Retirement evidence is unavailable.',
+        notStarted:
+          'No original retirement is recorded. This does not authorize retrying a previously sent request.',
+      };
+      let retired = false;
+      let erased = false;
+      const client = {
+        previewErasure: async () => ({
+          planCode: plan.code,
+          state: 'REVIEWED',
+          reviewDigest: 'b'.repeat(64),
+          sourceCount: 4,
+        }),
+        erase: async () => {
+          erased = true;
+          return { planCode: plan.code, state: 'ERASED' };
+        },
+        inspectErasure: async () => ({
+          planCode: plan.code,
+          state: erased ? 'ERASED' : 'NOT_STARTED',
+        }),
+        preview: async () => ({
+          planCode: plan.code,
+          state: 'REVIEWED',
+          reviewDigest: 'a'.repeat(64),
+          sourceCount: 4,
+        }),
+        execute: async () => {
+          retired = true;
+          return { planCode: plan.code, state: 'RETIRED' };
+        },
+        inspect: async () => ({
+          planCode: plan.code,
+          state: retired ? 'RETIRED' : 'NOT_STARTED',
+        }),
+      };
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(KnowledgeMigrationPanel, { plan, copy, client }),
+          React.createElement(KnowledgeMigrationPanel, {
+            plan,
+            copy,
+            client,
+            erasure: true,
+          }),
+        ),
+      );
+    </script>
+  </body>
+</html>

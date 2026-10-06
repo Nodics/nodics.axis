@@ -1,0 +1,89 @@
+<!doctype html>
+<!-- Isolated actual-renderer fixture; no real timer is activated. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reviewed schedule control</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 960px; margin: 0 auto; padding: 16px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { CronScheduleLifecyclePanel } from '/src/operations/cron/CronScheduleLifecyclePanel.tsx';
+      import { connection, configuration, envelope } from './scheduleDraftFixture.ts';
+      const presentation = {
+        title: 'Schedule control',
+        code: 'Existing job code',
+        inspect: 'Inspect schedule',
+        activate: 'Review activation',
+        deactivate: 'Review deactivation',
+        confirm: 'I confirm the reviewed schedule change',
+        execute: 'Apply change',
+        reconcile: 'Reconcile original command',
+        reference: 'Review reference',
+        ACTIVE: 'Schedule is active on this execution node.',
+        INACTIVE:
+          'Schedule is inactive. A callback already in progress may still finish.',
+        SAVED_INACTIVE: 'Draft is saved and has no lifecycle command.',
+        OUTCOME_UNKNOWN:
+          'The command outcome is unconfirmed. Inspect or reconcile its original evidence.',
+        failed: 'Current schedule evidence is unavailable. No command was retried.',
+      };
+      let revision = 0,
+        intent = null,
+        state = 'SAVED_INACTIVE';
+      window.fetch = async (url, options) => {
+        const address = new URL(url);
+        if (address.hostname !== 'schedule-fixture.invalid')
+          throw new Error('Unexpected destination');
+        const operation = address.pathname.split('/').at(-1),
+          body = JSON.parse(options.body);
+        if (operation === 'preview')
+          return new Response(
+            JSON.stringify(
+              envelope({
+                code: body.code,
+                revision,
+                intent: body.intent,
+                reviewDigest: 'a'.repeat(64),
+              }),
+            ),
+          );
+        if (operation === 'execute') {
+          revision++;
+          intent = body.intent;
+          state = 'OUTCOME_UNKNOWN';
+          throw new Error('Synthetic response loss');
+        }
+        if (operation === 'reconcile')
+          state = intent === 'ACTIVATE' ? 'ACTIVE' : 'INACTIVE';
+        return new Response(
+          JSON.stringify(
+            envelope({
+              code: body.code,
+              revision,
+              intent,
+              reviewDigest: revision ? 'a'.repeat(64) : null,
+              state,
+            }),
+          ),
+        );
+      };
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(CronScheduleLifecyclePanel, {
+            connection,
+            configuration,
+            capability: { activationEnabled: true, presentation },
+            initialCode: 'documentation-refresh',
+          }),
+        ),
+      );
+    </script>
+  </body>
+</html>

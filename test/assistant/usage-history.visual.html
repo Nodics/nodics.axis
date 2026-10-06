@@ -1,0 +1,73 @@
+<!doctype html>
+<!-- Synthetic history and recovery queue renderer; no API or customer data. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Historical usage and recovery queue</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 1200px; margin: 0 auto; padding: 24px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { CopilotUsageView } from '/src/assistant/CopilotUsageView.tsx';
+      import { parseCopilotUsage } from '/src/assistant/api/copilotUsageClient.ts';
+      import { usageHistoryFixture } from './copilotReconciliationFixture.ts';
+      function Fixture() {
+        const [query, setQuery] = React.useState({
+          scope: 'PERSONAL',
+          principalCode: '',
+          model: '',
+          purpose: '',
+          calls: 'ALL',
+          periodOffset: 0,
+        });
+        const base = usageHistoryFixture();
+        base.scope = query.scope;
+        base.history.offset = query.periodOffset;
+        base.period = base.history.periods[query.periodOffset];
+        if (query.periodOffset) {
+          base.history.previous.period = {
+            key: 'MONTH:Asia/Dubai:2026-08-01',
+            timezone: 'Asia/Dubai',
+            startsAt: '2026-07-31T20:00:00Z',
+            resetsAt: base.period.startsAt,
+          };
+          base.items = base.items.map((item) => ({
+            ...item,
+            createdAt: item.createdAt.replace('2026-10-', '2026-09-'),
+          }));
+          base.insights.daily = base.insights.daily.map((row) => ({
+            ...row,
+            day: row.day.replace('2026-10-', '2026-09-'),
+          }));
+        }
+        if (query.calls === 'UNRESOLVED') {
+          base.items = base.items.filter((item) => item.state !== 'MEASURED');
+          base.totals = { consumed: 0, reserved: 600, pending: 600, calls: 1 };
+          base.insights.daily = base.insights.daily.filter((row) => row.reserved);
+          for (const group of Object.values(base.insights.breakdowns))
+            group.items = group.items.map((row) => ({
+              value: row.value,
+              ...base.totals,
+            }));
+          base.pagination = { page: 0, pageSize: 25, calls: 'UNRESOLVED' };
+          base.queue = [{ callId: 'call-2', evidence: 'AVAILABLE' }];
+          base.history.previous.totals = null;
+        }
+        return React.createElement(CopilotUsageView, {
+          key: JSON.stringify(query),
+          usage: parseCopilotUsage(base),
+          query,
+          onQuery: setQuery,
+          onRefresh: () => {},
+        });
+      }
+      createRoot(document.getElementById('root')).render(
+        React.createElement(AxisThemeProvider, null, React.createElement(Fixture)),
+      );
+    </script>
+  </body>
+</html>

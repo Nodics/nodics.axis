@@ -1,0 +1,65 @@
+<!doctype html>
+<!-- Synthetic renderer fixture, never a deployed or authenticated Knowledge Studio. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Knowledge Studio renderer test</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 1280px; margin: 0 auto; padding: 24px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { KnowledgeStudioView } from '/src/assistant/KnowledgeStudioView.tsx';
+      import { parseKnowledgeInventory } from '/src/assistant/api/knowledgeStudioClient.ts';
+      import { knowledgeStudioFixture } from './knowledgeStudioFixture.ts';
+      const fixture = knowledgeStudioFixture();
+      if (window.knowledgePresentation)
+        fixture.presentation = window.knowledgePresentation;
+      fixture.presentation = {
+        ...fixture.presentation,
+        groups: 'Knowledge groups',
+        allGroups: 'All active groups',
+        activeGroup: 'Active',
+        inactiveGroup: 'Inactive',
+      };
+      fixture.groups = {
+        enabled: true,
+        items: [
+          {
+            code: 'framework-guides',
+            name: 'Framework guides',
+            active: true,
+            sourceCodes: ['framework-readmes'],
+          },
+          {
+            code: 'engineering',
+            name: 'Engineering',
+            active: false,
+            sourceCodes: ['framework-readmes'],
+          },
+        ],
+      };
+      const inventory = parseKnowledgeInventory(fixture);
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(KnowledgeStudioView, {
+            inventory,
+            refreshing: false,
+            onRefresh: () => {},
+            onPreview: async () => ({
+              filesRead: 8,
+              filesAccepted: 7,
+              filesRejected: 1,
+              chunksPrepared: 19,
+            }),
+          }),
+        ),
+      );
+    </script>
+  </body>
+</html>

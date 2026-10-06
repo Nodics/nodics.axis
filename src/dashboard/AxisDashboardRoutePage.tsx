@@ -1,4 +1,5 @@
 import type { CmsComponentContract } from '../cms/cmsContract';
+import { CopilotWorkspaceRoutePage } from '../assistant/CopilotWorkspaceRoutePage';
 import { dashboardComposition, dashboardText } from './dashboardComposition';
 import { AxisOverviewDashboard } from './AxisOverviewDashboard';
 import { isDocumentation } from './overviewStatus';
@@ -201,6 +202,12 @@ export function AxisDashboardRoutePage(props: Props) {
           </Tooltip>
         ) : null}
       </Stack>
+      <CopilotWorkspaceRoutePage
+        accessToken={props.accessToken}
+        bootstrap={props.bootstrap}
+        runtime={props.runtime}
+        compact
+      />
       <Tabs
         variant="scrollable"
         scrollButtons="auto"

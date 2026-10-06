@@ -1,0 +1,67 @@
+<!doctype html>
+<!-- Synthetic execution-history renderer; no authenticated API or index operations. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Knowledge execution history</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 900px; margin: 0 auto; padding: 24px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { KnowledgeHistoryPanel } from '/src/assistant/KnowledgeHistoryPanel.tsx';
+      const copy = {
+        title: 'Refresh executions',
+        load: 'Load execution history',
+        refresh: 'Reload history',
+        empty: 'No executions',
+        unavailable: 'Execution history unavailable',
+        definition: 'Process definition',
+        version: 'Published version',
+        instance: 'Execution',
+        started: 'Started',
+        completed: 'Completed',
+        currentPolicy: 'Current source policy',
+        previousPolicy: 'Previous source policy',
+        previous: 'Previous page',
+        next: 'Next page',
+        ready: 'Awaiting claim',
+        claimed: 'In progress',
+        done: 'Completed',
+        failed: 'Failed',
+        inspection: 'Outcome requires inspection',
+        recovery: 'Process operator review required',
+        evidence:
+          'Recorded Process attempts across published versions; earlier runs are not included',
+      };
+      const load = async (page) => ({
+        sourceCode: 'framework-docs',
+        page,
+        hasMore: page === 1,
+        definitionCode: 'framework-documentation-refresh',
+        definitionVersion: 2,
+        observedAt: '2026-10-03T08:00:00Z',
+        items: ['INSPECTION_REQUIRED', 'COMPLETED', 'FAILED'].map((status, i) => ({
+          instanceCode: 'documentation-refresh-' + (page * 3 + i),
+          executionCode: '12345678-1234-1234-1234-12345678901' + i,
+          definitionVersion: i === 2 ? 1 : 2,
+          status,
+          currentPolicy: i !== 2,
+          recovery: status !== 'COMPLETED',
+          startedAt: '2026-10-03T07:00:00Z',
+          completedAt: status === 'INSPECTION_REQUIRED' ? null : '2026-10-03T07:03:00Z',
+        })),
+      });
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(KnowledgeHistoryPanel, { copy, load }),
+        ),
+      );
+    </script>
+  </body>
+</html>

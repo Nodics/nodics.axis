@@ -220,7 +220,7 @@ export function ApplicationRecoveryRoutePage({
       const value = await invokeOperationalOwner(
         configuration,
         'profile',
-        '/enterprise-access/applications/' + target + '/recovery',
+        '/enterprise-access/applications/' + encodeURIComponent(target) + '/recovery',
       );
       const result = parse(value, target);
       if (attempt === version.current) setSnapshot({ configuration, recovery: result });
@@ -244,7 +244,9 @@ export function ApplicationRecoveryRoutePage({
       const result = await invokeOperationalOwner<unknown>(
         configuration,
         'profile',
-        '/enterprise-access/applications/' + recovery.application.code + '/actions',
+        '/enterprise-access/applications/' +
+          encodeURIComponent(recovery.application.code) +
+          '/actions',
         {
           operation: action,
           revision: recovery.application.revision,

@@ -1,0 +1,93 @@
+<!doctype html>
+<!-- Synthetic renderer and command fixture; no live enterprise data or API calls. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Usage insights and recovery fixture</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 1200px; margin: 0 auto; padding: 24px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { QueryClientProvider } from '@tanstack/react-query';
+      import { createAxisQueryClient } from '/src/app/axisQueryClient.ts';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { CopilotUsageView } from '/src/assistant/CopilotUsageView.tsx';
+      import { CopilotUsageCallView } from '/src/assistant/CopilotUsageCallPanel.tsx';
+      import { parseCopilotUsage } from '/src/assistant/api/copilotUsageClient.ts';
+      import { parseUsageCall } from '/src/assistant/api/copilotReconciliationClient.ts';
+      import {
+        usageCallFixture,
+        usageInsightsFixture,
+      } from './copilotReconciliationFixture.ts';
+      const client = createAxisQueryClient();
+      function Fixture() {
+        const [query, setQuery] = React.useState({
+          scope: 'ENTERPRISE',
+          principalCode: '',
+          model: '',
+          purpose: '',
+        });
+        const [call, setCall] = React.useState(null);
+        const [detail, setDetail] = React.useState(() =>
+          parseUsageCall(usageCallFixture()),
+        );
+        const usage = parseCopilotUsage({
+          ...usageInsightsFixture(),
+          scope: query.scope,
+        });
+        return React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(CopilotUsageView, {
+            key: JSON.stringify(query),
+            usage,
+            query,
+            onQuery: setQuery,
+            onRefresh: () => {},
+            onCall: setCall,
+          }),
+          call
+            ? React.createElement(CopilotUsageCallView, {
+                detail,
+                onClose: () => setCall(null),
+                onRefresh: () => {},
+                onPreview: async (command) => ({
+                  command,
+                  reserved: 600,
+                  measured: 420,
+                }),
+                onReconcile: async (command) =>
+                  setDetail((value) => ({
+                    ...value,
+                    item: {
+                      ...value.item,
+                      state: 'MEASURED',
+                      consumed: 420,
+                      reserved: 0,
+                      completedAt: new Date().toISOString(),
+                    },
+                    canReconcile: false,
+                    reconciliation: {
+                      ...command,
+                      actor: 'employee',
+                      measured: 420,
+                      createdAt: new Date().toISOString(),
+                    },
+                  })),
+              })
+            : null,
+        );
+      }
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          QueryClientProvider,
+          { client },
+          React.createElement(AxisThemeProvider, null, React.createElement(Fixture)),
+        ),
+      );
+    </script>
+  </body>
+</html>

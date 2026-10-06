@@ -1,4 +1,11 @@
-# Backend Operations Workspace
+# Axis App Implementation
+
+This source README documents the frontend workspace renderer and its tests.
+See [the root README](../../README.md#documentation) for backend-owned product
+guides. Owner descriptors below are consumed contracts, not frontend business
+authority.
+
+## Backend Operations Workspace
 
 The generic placeholder distinguishes backend `featureState: DISABLED` from an
 active capability with an unsupported renderer. Runtime `UP` is not capability
@@ -113,6 +120,10 @@ inspection. Refresh preserves the original idempotency reference for the same
 source after uncertainty; it never creates a new operation key to replay an
 unconfirmed write. A confirmed successful command or a different source gets a
 fresh reference on the next inspection.
+IDEMPOTENCY fields display their generated reference as a read-only text field
+using the owner-provided label. Operators can record the exact request identity
+for recovery without editing it. HIDDEN fields remain hidden; displaying a
+reference does not authorize retries or alter the inspection gates.
 
 Backend validators must preserve these descriptors before a module publishes
 them. This extension is inert presentation support, not an authorization grant.

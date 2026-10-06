@@ -1,0 +1,109 @@
+<!doctype html>
+<!-- Actual renderer with synthetic state only; no authentication or native writes. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Process task review acceptance</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 850px; margin: 0 auto; padding: 20px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { AssistantConfirmationCard } from '/src/cms/renderers/components/assistant/AssistantConfirmationCard.tsx';
+      import { parseAssistantConfirmation } from '/src/assistant/api/assistantContractParsers.ts';
+      const trigger = new URLSearchParams(location.search).get('mode') === 'trigger';
+      function Review() {
+        const [state, setState] = React.useState('PENDING');
+        const revision = {
+          PENDING: 1,
+          APPROVED: 2,
+          OUTCOME_UNKNOWN: 3,
+          CONSUMED: 4,
+          REJECTED: 2,
+        }[state];
+        const confirmation = parseAssistantConfirmation({
+          confirmationCode: 'synthetic-task-plan',
+          conversationCode: 'synthetic-conversation',
+          operationId: trigger ? 'process.trigger.execute' : 'process.task.complete',
+          state,
+          revision,
+          argumentsDigest: 'synthetic',
+          expiresAt: '2030-01-01T00:00:00Z',
+          recovery: { label: 'Inspect original business results' },
+          impact: {
+            summary: trigger
+              ? 'Review the exact trigger command. Workflow checks current lifecycle and permissions at execution. Trigger metadata does not create a Cron schedule. Execute starts a workflow and can perform downstream domain actions.'
+              : 'Review this task command. Workflow verifies the task, actor and current policy at execution. Completing a task can advance its workflow; it does not guarantee that downstream actions succeed.',
+            review: [
+              {
+                title: trigger ? 'Process trigger execute' : 'Process task complete',
+                fields: trigger
+                  ? [
+                      { label: 'Operation', value: 'process.trigger.execute' },
+                      {
+                        label: 'Trigger',
+                        value: 'trigger-' + 'long-reference-'.repeat(8),
+                      },
+                      {
+                        label: 'Executing employee',
+                        value: 'reviewer@example.invalid',
+                      },
+                      { label: 'Command.instanceCode', value: 'explicit-new-instance' },
+                      { label: 'Command.context', value: '{}' },
+                    ]
+                  : [
+                      { label: 'Operation', value: 'process.task.complete' },
+                      { label: 'Task', value: 'review-' + 'long-reference-'.repeat(8) },
+                      {
+                        label: 'Executing employee',
+                        value: 'reviewer@example.invalid',
+                      },
+                      { label: 'Decision: approved', value: 'false' },
+                      {
+                        label: 'Decision: reason',
+                        value:
+                          'Required evidence is missing. Return this synthetic request for a complete supporting record before the review can proceed.',
+                      },
+                    ],
+              },
+            ],
+          },
+          ...(['OUTCOME_UNKNOWN', 'CONSUMED'].includes(state)
+            ? {
+                outcomes: [
+                  {
+                    index: 0,
+                    schema: trigger ? 'processTrigger' : 'processTask',
+                    code: 'review-example',
+                    state: state === 'CONSUMED' ? 'COMPLETED' : 'OUTCOME_UNKNOWN',
+                  },
+                ],
+              }
+            : {}),
+        });
+        return React.createElement(AssistantConfirmationCard, {
+          key: revision,
+          title: trigger ? 'Workflow trigger review' : 'Task decision review',
+          approveLabel: 'Approve reviewed decision',
+          executeLabel: trigger ? 'Execute reviewed trigger' : 'Submit task decision',
+          rejectLabel: 'Reject',
+          expiredLabel: 'Expired',
+          completedLabel: trigger
+            ? 'Trigger command confirmed'
+            : 'Task command confirmed',
+          confirmation,
+          onApprove: async () => setState('APPROVED'),
+          onExecute: async () => setState('OUTCOME_UNKNOWN'),
+          onReject: async () => setState('REJECTED'),
+          onReconcile: async () => setState('CONSUMED'),
+        });
+      }
+      createRoot(document.getElementById('root')).render(
+        React.createElement(AxisThemeProvider, null, React.createElement(Review)),
+      );
+    </script>
+  </body>
+</html>

@@ -185,9 +185,9 @@ describe('Assistant presentation reducer', () => {
       phase: 'ANSWER',
       inputTokens: 12,
       outputTokens: 4,
-      cachedInputTokens: 0,
-      reasoningTokens: 0,
-      embeddingTokens: 0,
+      cachedInputTokens: null,
+      reasoningTokens: null,
+      embeddingTokens: null,
       reconciliationState: 'RECONCILED',
     });
     expect(JSON.stringify(active?.usage)).not.toContain('private-id');

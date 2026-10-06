@@ -1,8 +1,10 @@
+/** @file Typed Copilot owner transport, including bounded request-only delivery and durable replay. */
 import {
   assistantRecord,
   parseAssistantConfirmation,
   parseAssistantConversation,
   parseAssistantTurn,
+  parseAssistantEvent,
   parseConversationPage,
   parseConversationHistory,
   parseEventPage,
@@ -16,8 +18,8 @@ import {
   type AssistantConversationHistory,
   type AssistantEventPage,
   type AssistantTurn,
+  type AssistantTurnEvent,
   type AssistantKnowledgeStatus,
-  type CreateConfirmationInput,
   type CreateConversationInput,
   type ListConversationsInput,
   type RejectConfirmationInput,
@@ -57,6 +59,7 @@ export interface AssistantClient {
   ): Promise<{
     readonly conversation: AssistantConversation;
     readonly turn: AssistantTurn;
+    readonly delivery?: readonly AssistantTurnEvent[] | undefined;
   }>;
   getTurn(
     conversationCode: string,
@@ -76,10 +79,6 @@ export interface AssistantClient {
     reason?: string,
     signal?: AbortSignal,
   ): Promise<AssistantTurn>;
-  createConfirmation(
-    input: CreateConfirmationInput,
-    signal?: AbortSignal,
-  ): Promise<AssistantConfirmation>;
   approveConfirmation(
     confirmationCode: string,
     input: ApproveConfirmationInput,
@@ -96,9 +95,15 @@ export interface AssistantClient {
   ): Promise<AssistantConfirmation>;
   executeConfirmation(
     confirmationCode: string,
+    input: ApproveConfirmationInput,
     signal?: AbortSignal,
   ): Promise<Readonly<Record<string, unknown>>>;
   getKnowledgeStatus?(signal?: AbortSignal): Promise<AssistantKnowledgeStatus>;
+  reconcileConfirmation?(
+    confirmationCode: string,
+    input: ApproveConfirmationInput,
+    signal?: AbortSignal,
+  ): Promise<AssistantConfirmation>;
   refreshKnowledgeSource?(
     sourceCode: string,
     signal?: AbortSignal,
@@ -184,10 +189,37 @@ export function createAssistantClient(
         ),
         'Submit turn data',
       );
-      return Object.freeze({
-        conversation: parseAssistantConversation(data.conversation),
-        turn: parseAssistantTurn(data.turn),
-      });
+      const conversation = parseAssistantConversation(data.conversation);
+      const turn = parseAssistantTurn(data.turn);
+      if (
+        turn.conversationCode !== conversationCode ||
+        conversation.conversationCode !== conversationCode
+      )
+        throw new Error('Turn context mismatch');
+      let delivery: readonly AssistantTurnEvent[] | undefined;
+      if (data.delivery !== undefined) {
+        const channel = assistantRecord(data.delivery, 'Temporary delivery');
+        if (
+          channel.mode !== 'REQUEST_ONLY' ||
+          turn.recording?.enabled !== false ||
+          !Array.isArray(channel.events) ||
+          channel.events.length > 500 ||
+          JSON.stringify(channel.events).length > 1048576
+        )
+          throw new Error('Invalid temporary delivery');
+        delivery = channel.events.map(parseAssistantEvent);
+        if (
+          delivery.some(
+            (event, index) =>
+              event.conversationCode !== conversationCode ||
+              event.turnCode !== turn.turnCode ||
+              event.sequence !== index + 1,
+          )
+        )
+          throw new Error('Foreign or unordered temporary delivery');
+      } else if (turn.recording?.enabled === false)
+        throw new Error('Missing temporary delivery');
+      return Object.freeze({ conversation, turn, delivery });
     },
     getTurn: async (conversationCode, turnCode, signal) => {
       const data = assistantRecord(
@@ -239,18 +271,6 @@ export function createAssistantClient(
       );
       return parseAssistantTurn(data.turn);
     },
-    createConfirmation: async (input, signal) => {
-      const data = assistantRecord(
-        await transport.request('/confirmations', {
-          method: 'POST',
-          body: { ...input },
-          idempotencyKey: input.idempotencyKey,
-          signal,
-        }),
-        'Create confirmation data',
-      );
-      return parseAssistantConfirmation(data.confirmation);
-    },
     approveConfirmation: async (confirmationCode, input, signal) => {
       const data = assistantRecord(
         await transport.request(
@@ -281,12 +301,30 @@ export function createAssistantClient(
       );
       return parseAssistantConfirmation(data.confirmation);
     },
-    executeConfirmation: async (confirmationCode, signal) =>
+    reconcileConfirmation: async (confirmationCode, input, signal) => {
+      const data = assistantRecord(
+        await transport.request(
+          `/confirmations/${assistantPathSegment(confirmationCode, 'confirmationCode')}/original-results`,
+          { method: 'POST', body: { ...input }, signal },
+        ),
+        'Original result data',
+      );
+      const confirmation = parseAssistantConfirmation(data.confirmation);
+      if (
+        confirmation.confirmationCode !== confirmationCode ||
+        confirmation.argumentsDigest !== input.argumentsDigest ||
+        confirmation.revision <= input.expectedRevision ||
+        !['PENDING', 'CONSUMED', 'OUTCOME_UNKNOWN'].includes(confirmation.state)
+      )
+        throw new Error('Original result evidence does not match the reviewed action');
+      return confirmation;
+    },
+    executeConfirmation: async (confirmationCode, input, signal) =>
       Object.freeze({
         ...assistantRecord(
           await transport.request(
             `/confirmations/${assistantPathSegment(confirmationCode, 'confirmationCode')}/execute`,
-            { method: 'POST', body: {}, signal },
+            { method: 'POST', body: { ...input }, signal },
           ),
           'Execute confirmation data',
         ),

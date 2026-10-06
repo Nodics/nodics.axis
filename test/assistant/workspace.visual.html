@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- Isolated renderer fixture. Not an authenticated Axis page or deployed navigation. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Copilot Workspace renderer test</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 1280px; margin: 0 auto; padding: 24px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { CopilotWorkspaceView } from '/src/assistant/CopilotWorkspaceView.tsx';
+      import { parseCopilotWorkspace } from '/src/assistant/api/copilotWorkspaceClient.ts';
+      import { workspaceFixture } from './workspaceFixture.ts';
+      const fixture = workspaceFixture();
+      if (window.workspacePresentation)
+        fixture.presentation = window.workspacePresentation;
+      const snapshot = parseCopilotWorkspace(fixture);
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(CopilotWorkspaceView, {
+            snapshot,
+            refreshing: false,
+            onRefresh: () => {},
+            onDetails: () => {},
+            onConversation: (code) => {
+              window.lastConversation = code || 'new';
+            },
+          }),
+        ),
+      );
+    </script>
+  </body>
+</html>

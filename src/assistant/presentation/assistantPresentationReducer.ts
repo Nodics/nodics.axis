@@ -144,7 +144,11 @@ export function assistantPresentationReducer(
         ? updateConversation(
             state,
             action.conversationCode,
-            Object.freeze({ ...current, confirmation: action.confirmation }),
+            Object.freeze({
+              ...current,
+              confirmation: action.confirmation,
+              confirmationResult: undefined,
+            }),
           )
         : state;
     }

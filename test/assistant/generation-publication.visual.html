@@ -1,0 +1,84 @@
+<!doctype html>
+<!-- Synthetic publication-status renderer; no index, storage or authenticated requests. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Knowledge generation status</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 1100px; margin: 0 auto; padding: 16px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { KnowledgeStudioView } from '/src/assistant/KnowledgeStudioView.tsx';
+      import { parseKnowledgeInventory } from '/src/assistant/api/knowledgeStudioClient.ts';
+      import { knowledgeStudioFixture } from '/test/assistant/knowledgeStudioFixture.ts';
+      const fixture = knowledgeStudioFixture();
+      fixture.presentation = {
+        ...Object.fromEntries(
+          Object.entries(fixture.presentation).map(([key, value]) => [
+            key,
+            value
+              .replace(/([a-z])([A-Z])/g, '$1 $2')
+              .replace(/^./, (c) => c.toUpperCase()),
+          ]),
+        ),
+        title: 'Knowledge Studio',
+        subtitle: 'Authorized sources for this enterprise',
+        ready: 'Indexed',
+        refresh: 'Refresh inventory',
+        preview: 'Preview ingestion',
+        included: 'Included paths',
+        excluded: 'Excluded paths',
+        secretScan: 'Secret inspection required',
+        hierarchy: 'Runtime partition',
+        extensions: 'File types',
+        durableEvidence: 'Published generation and index count verified',
+        inspectionRequired:
+          'A refresh outcome needs operator inspection before another refresh.',
+        cleanupPending: 'Obsolete generation cleanup is pending.',
+        indexSource: 'Refresh source index',
+        previewOnly: 'Preview only; active index unchanged',
+        progress: 'Acknowledged chunk writes',
+        progressIdle: 'Waiting for the next write',
+        progressWriting: 'Write awaiting acknowledgement',
+        progressSealed: 'Writes complete; publication verification pending',
+      };
+      fixture.sources[0] = {
+        ...fixture.sources[0],
+        sourcePolicyDigest: 'a'.repeat(64),
+        status: {
+          state: 'PROJECTED',
+          evidence: 'DURABLE_GENERATION',
+          indexedVersion: 'revision-2',
+          refreshedAt: '2026-10-03T10:00:00Z',
+          inspectionRequired: true,
+          cleanupPending: true,
+          progress: { phase: 'WRITING', acknowledgedChunks: 24, expectedChunks: 76 },
+        },
+      };
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(KnowledgeStudioView, {
+            inventory: parseKnowledgeInventory(fixture),
+            refreshing: false,
+            onRefresh: () => {},
+            onPreview: async () => ({
+              filesRead: 25,
+              filesAccepted: 24,
+              filesRejected: 1,
+              chunksPrepared: 76,
+            }),
+            onIndex: async () => {
+              throw new Error('No fixture writes');
+            },
+          }),
+        ),
+      );
+    </script>
+  </body>
+</html>

@@ -205,6 +205,7 @@ export function AssistantWorkspaceRenderer({
               workingLabel={workingLabel}
               onApprove={controller?.approveConfirmation ?? (() => Promise.resolve())}
               onExecute={controller?.executeConfirmation ?? (() => Promise.resolve())}
+              onReconcile={controller?.reconcileConfirmation}
               onReject={controller?.rejectConfirmation ?? (() => Promise.resolve())}
               onLoadMore={controller?.loadMoreHistory ?? (() => Promise.resolve())}
               onSubmit={controller?.submit ?? (() => Promise.resolve())}

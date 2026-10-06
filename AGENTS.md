@@ -163,7 +163,7 @@ network/retry policy, add serialized mutation scopes, or restore persisted pause
 mutations. Backend authorization and idempotency remain owner responsibilities.
 
 Generic owner workspace row-navigation and fresh inspection contracts are
-documented in [backendOperationsWorkspace.md](src/app/backendOperationsWorkspace.md).
+documented in [the app README](src/app/README.md).
 Never execute a row's returned command path or infer a version from CMS.
 
 - Consume inert backend `apiOperations` for capabilities/search/create/update/delete/delete-impact/bulk.
@@ -190,3 +190,17 @@ and available. DISABLED and HIDDEN entries never admit this route.
 Keep normal business/registry routes gated by baseline readiness. This route
 does not grant Process permissions, replay an approval automatically or introduce
 another workflow owner; Process retains task, incident and retry authorization.
+
+## Documentation placement
+
+Keep frontend setup, implementation, renderer, customization and verification
+guidance in the root README or the nearest existing source, package, test or
+Docker README. Do not create a separate frontend `docs/` tree or standalone
+product/workflow guides. Keep AGENTS files focused on agent instructions and
+preserve code-level JSDoc and focused tests.
+
+Detailed business journeys, administrator guides, backend configuration and
+CMS-importable documentation belong to their backend documentation owners.
+Link to that canonical content rather than copying it here. Before retiring or
+moving guidance, preserve its technical detail and update all references;
+historical test statements are not current acceptance evidence.

@@ -1,3 +1,4 @@
+/** @file Native Copilot client contracts; confirmations originate from owner preparation, never arbitrary client arguments. */
 import { describe, expect, it, vi } from 'vitest';
 
 import { createAssistantClient } from '../../../src/assistant/api/assistantClient';
@@ -32,6 +33,83 @@ const turn = {
 };
 
 describe('Assistant API client', () => {
+  it('does not expose the unsupported generic confirmation creation transport', () => {
+    const request = vi.fn<typeof fetch>();
+    expect(createAssistantClient(configuration, request)).not.toHaveProperty(
+      'createConfirmation',
+    );
+    expect(request).not.toHaveBeenCalled();
+  });
+  it('binds original-result inspection to the exact action and advancing revision', async () => {
+    const confirmation = {
+      confirmationCode: 'action-1',
+      conversationCode: 'conversation-1',
+      operationId: 'commerce.product.create',
+      state: 'PENDING',
+      argumentsDigest: 'a'.repeat(64),
+      revision: 4,
+      expiresAt: '2030-01-01T00:00:00Z',
+      impact: {},
+      recovery: {
+        label: 'Inspect original results',
+        continuation: 'Review remaining rows.',
+      },
+    };
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(json({ data: { confirmation } }));
+    const client = createAssistantClient(configuration, request);
+    const input = {
+      expectedRevision: 3,
+      argumentsDigest: confirmation.argumentsDigest,
+    };
+    await expect(
+      client.reconcileConfirmation?.('action-1', input),
+    ).resolves.toMatchObject(confirmation);
+    expect((request.mock.calls[0]?.[0] as URL).pathname).toContain(
+      '/confirmations/action-1/original-results',
+    );
+    expect(request.mock.calls[0]?.[1]?.method).toBe('POST');
+    for (const patch of [
+      { confirmationCode: 'foreign' },
+      { argumentsDigest: 'other' },
+      { revision: 3 },
+      { state: 'APPROVED' },
+      { recovery: { label: 'x'.repeat(161) } },
+    ]) {
+      request.mockResolvedValueOnce(
+        json({ data: { confirmation: { ...confirmation, ...patch } } }),
+      );
+      await expect(client.reconcileConfirmation?.('action-1', input)).rejects.toThrow();
+    }
+    expect(request).toHaveBeenCalledTimes(6);
+  });
+  it('accepts inspection-only recovery for an uncertain order notification retry', async () => {
+    const confirmation = {
+      confirmationCode: 'notification-action-1',
+      conversationCode: 'conversation-1',
+      operationId: 'commerce.orderNotification.retry',
+      state: 'OUTCOME_UNKNOWN',
+      argumentsDigest: 'b'.repeat(64),
+      revision: 2,
+      expiresAt: '2030-01-01T00:00:00Z',
+      impact: {},
+      recovery: { label: 'Inspect original delivery evidence' },
+    };
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(json({ data: { confirmation } }));
+    const client = createAssistantClient(configuration, request);
+    await expect(
+      client.reconcileConfirmation?.('notification-action-1', {
+        expectedRevision: 1,
+        argumentsDigest: confirmation.argumentsDigest,
+      }),
+    ).resolves.toMatchObject(confirmation);
+    expect((request.mock.calls[0]?.[0] as URL).pathname).toContain(
+      '/confirmations/notification-action-1/original-results',
+    );
+  });
   it('creates a conversation through the direct module endpoint', async () => {
     const request = vi
       .fn<typeof fetch>()
@@ -239,5 +317,49 @@ describe('Assistant API client', () => {
       '/knowledge/sources/nodics-framework-docs/refresh',
     );
     expect(request.mock.calls[1]?.[1]?.method).toBe('POST');
+  });
+
+  it('accepts an explicitly unrefreshed source without inventing freshness or accepting malformed timestamps', async () => {
+    const source = {
+      code: 'unrefreshed',
+      repository: 'nodics.ai',
+      sourceType: 'FRAMEWORK_DOCUMENTATION',
+      classification: 'INTERNAL',
+      version: 'local',
+      refreshPolicy: 'MANUAL',
+      state: 'UNKNOWN',
+      refreshedAt: null,
+    };
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      json({
+        data: {
+          enabled: true,
+          ingestionEnabled: true,
+          lastRefreshAt: null,
+          sources: [source],
+        },
+      }),
+    );
+    const client = createAssistantClient(configuration, request);
+    const status = await client.getKnowledgeStatus?.();
+    expect(status?.lastRefreshAt).toBeUndefined();
+    expect(status?.sources[0]?.refreshedAt).toBeUndefined();
+    expect(status?.sources[0]?.state).toBe('UNKNOWN');
+    expect(status?.sources[0]?.chunksProjected).toBeUndefined();
+    for (const refreshedAt of [false, 0, {}, '']) {
+      request.mockResolvedValueOnce(
+        json({
+          data: {
+            enabled: true,
+            ingestionEnabled: true,
+            lastRefreshAt: null,
+            sources: [{ ...source, refreshedAt }],
+          },
+        }),
+      );
+      await expect(client.getKnowledgeStatus?.()).rejects.toThrow(
+        /knowledge refreshedAt/,
+      );
+    }
   });
 });

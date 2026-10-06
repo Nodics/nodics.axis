@@ -86,6 +86,9 @@ it('reviews one historical attempt and submits its identity with the current ass
     await screen.findByRole('button', { name: 'RETRY_REVIEW_RETIREMENT / #1' }),
   );
   expect(vi.mocked(invokeOperationalOwner)).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(invokeOperationalOwner).mock.calls[0]?.[2]).toBe(
+    '/enterprise-access/applications/' + encodeURIComponent(code) + '/recovery',
+  );
   await user.click(screen.getByRole('button', { name: 'confirmLabel' }));
   await waitFor(() =>
     expect(vi.mocked(invokeOperationalOwner)).toHaveBeenCalledTimes(2),
@@ -95,6 +98,9 @@ it('reviews one historical attempt and submits its identity with the current ass
     revision: 4,
     attempt: 1,
   });
+  expect(vi.mocked(invokeOperationalOwner).mock.calls[1]?.[2]).toBe(
+    '/enterprise-access/applications/' + encodeURIComponent(code) + '/actions',
+  );
 });
 it('requires fresh inspection after an unconfirmed retirement without repeating the command', async () => {
   vi.mocked(invokeOperationalOwner)

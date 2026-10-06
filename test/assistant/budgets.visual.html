@@ -1,0 +1,79 @@
+<!doctype html>
+<!-- Synthetic allocation renderer; never authenticated runtime evidence. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Allocation renderer test</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 1200px; margin: 0 auto; padding: 24px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { QueryClientProvider } from '@tanstack/react-query';
+      import { createAxisQueryClient } from '/src/app/axisQueryClient.ts';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { CopilotBudgetView } from '/src/assistant/CopilotBudgetPanel.tsx';
+      import { allocationViewFixture } from './copilotBudgetFixture.ts';
+      const client = createAxisQueryClient();
+      function Fixture() {
+        const [snapshot, setSnapshot] = React.useState(allocationViewFixture);
+        return React.createElement(CopilotBudgetView, {
+          key: snapshot.revision,
+          snapshot,
+          onBack: () => {},
+          onRefresh: () => {},
+          onPreview: async (command) => ({
+            command,
+            impact: {
+              before:
+                command.target === 'ENTERPRISE'
+                  ? snapshot.enterprise.limit
+                  : snapshot.users[0].limit,
+              after: command.limit,
+              committed: 4600,
+              belowCommitted: command.limit < 4600,
+            },
+          }),
+          onChange: async (command) =>
+            setSnapshot((current) => ({
+              ...current,
+              revision: command.changeId,
+              enterprise:
+                command.target === 'ENTERPRISE'
+                  ? { ...current.enterprise, limit: command.limit }
+                  : current.enterprise,
+              users:
+                command.target === 'USER'
+                  ? current.users.map((item) => ({ ...item, limit: command.limit }))
+                  : current.users,
+              changes: [
+                {
+                  changeId: command.changeId,
+                  target: command.target,
+                  principalCode: command.principalCode,
+                  actor: 'employee',
+                  before:
+                    command.target === 'ENTERPRISE'
+                      ? current.enterprise.limit
+                      : current.users[0].limit,
+                  after: command.limit,
+                  reason: command.reason,
+                  createdAt: new Date().toISOString(),
+                },
+                ...current.changes,
+              ],
+            })),
+        });
+      }
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          QueryClientProvider,
+          { client },
+          React.createElement(AxisThemeProvider, null, React.createElement(Fixture)),
+        ),
+      );
+    </script>
+  </body>
+</html>

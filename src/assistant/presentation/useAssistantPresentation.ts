@@ -1,3 +1,4 @@
+/** @file Coordinates authenticated conversation presentation without owning business execution or durable transcripts. */
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 
 import type { AssistantClient } from '../api/assistantClient';
@@ -22,6 +23,7 @@ export interface UseAssistantPresentationConfiguration {
   readonly client: AssistantClient;
   readonly streamConfiguration: AssistantEventStreamConfiguration;
   readonly definitionCode: string;
+  readonly knowledgeGroupCodes?: readonly string[] | undefined;
   readonly stream?: AssistantStreamStarter | undefined;
 }
 
@@ -145,6 +147,7 @@ export function useAssistantPresentation(
         });
         const result = await configuration.client.submitTurn(conversationCode, {
           message: normalizedMessage,
+          knowledgeGroupCodes: configuration.knowledgeGroupCodes,
           idempotencyKey: globalThis.crypto.randomUUID(),
         });
         dispatch({
@@ -153,6 +156,16 @@ export function useAssistantPresentation(
           turn: result.turn,
           message: normalizedMessage,
         });
+        if (result.delivery !== undefined) {
+          for (const event of result.delivery)
+            dispatch({ type: 'STREAM_EVENT', event });
+          if (!result.delivery.length) {
+            const history =
+              await configuration.client.getConversationHistory(conversationCode);
+            dispatch({ type: 'HISTORY_RECEIVED', history, append: false });
+          }
+          return;
+        }
         const controller = new AbortController();
         streamAbort.current?.abort();
         streamAbort.current = controller;
@@ -295,6 +308,10 @@ export function useAssistantPresentation(
     try {
       const result = await configuration.client.executeConfirmation(
         confirmation.confirmationCode,
+        {
+          expectedRevision: confirmation.revision,
+          argumentsDigest: confirmation.argumentsDigest,
+        },
       );
       dispatch({
         type: 'CONFIRMATION_EXECUTED',
@@ -306,6 +323,57 @@ export function useAssistantPresentation(
         type: 'FAILED',
         message: error instanceof Error ? error.message : 'Assistant execution failed',
       });
+      dispatch({
+        type: 'CONFIRMATION_EXECUTED',
+        conversationCode: code,
+        result: { state: 'OUTCOME_UNKNOWN' },
+      });
+    }
+  }, [configuration.client, state.activeConversationCode, state.conversations]);
+
+  const reconcileConfirmation = useCallback(async () => {
+    const code = state.activeConversationCode;
+    const original = code ? state.conversations[code]?.confirmation : undefined;
+    if (!code || !original?.recovery || !configuration.client.reconcileConfirmation)
+      return;
+    try {
+      const current = await configuration.client.getConfirmation(
+        original.confirmationCode,
+      );
+      if (
+        current.confirmationCode !== original.confirmationCode ||
+        current.conversationCode !== code ||
+        current.operationId !== original.operationId ||
+        current.argumentsDigest !== original.argumentsDigest
+      )
+        throw new Error('Original action identity changed');
+      // An APPROVED read can race a delayed execution request. It must not unlock retry.
+      if (
+        !['EXECUTING', 'OUTCOME_UNKNOWN', 'CONSUMED', 'PENDING'].includes(
+          current.state,
+        ) ||
+        (current.state === 'PENDING' && !current.recovery?.continuation)
+      )
+        throw new Error('Original execution has not been resolved');
+      const confirmation = ['EXECUTING', 'OUTCOME_UNKNOWN'].includes(current.state)
+        ? await configuration.client.reconcileConfirmation(current.confirmationCode, {
+            expectedRevision: current.revision,
+            argumentsDigest: current.argumentsDigest,
+          })
+        : current;
+      if (
+        confirmation.operationId !== original.operationId ||
+        confirmation.conversationCode !== code
+      )
+        throw new Error('Original result identity changed');
+      dispatch({ type: 'CONFIRMATION_UPDATED', conversationCode: code, confirmation });
+    } catch (error: unknown) {
+      dispatch({
+        type: 'FAILED',
+        message:
+          error instanceof Error ? error.message : 'Original result inspection failed',
+      });
+      throw error;
     }
   }, [configuration.client, state.activeConversationCode, state.conversations]);
 
@@ -351,6 +419,7 @@ export function useAssistantPresentation(
     approveConfirmation,
     rejectConfirmation,
     executeConfirmation,
+    reconcileConfirmation,
     knowledgeStatus,
     knowledgeLoading,
     knowledgeError,

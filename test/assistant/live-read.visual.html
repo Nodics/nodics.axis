@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- Synthetic form fixture: no authenticated API, model calls or business data. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Live evidence composer</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { CopilotLiveReadComposer } from '/src/assistant/CopilotLiveReadComposer.tsx';
+      import { copilotLiveReadFixture } from '/test/assistant/copilotLiveReadFixture.ts';
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(CopilotLiveReadComposer, {
+            contract: copilotLiveReadFixture(),
+            disabled: false,
+            loadCollections: () =>
+              Promise.resolve([
+                { schemaName: 'employee', label: 'Employees', selected: true },
+                {
+                  schemaName: 'collectionCentre',
+                  label: 'Collection centres',
+                  selected: true,
+                },
+              ]),
+            onSubmit: () => Promise.resolve(),
+          }),
+        ),
+      );
+    </script>
+  </body>
+</html>

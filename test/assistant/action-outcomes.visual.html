@@ -1,0 +1,74 @@
+<!doctype html>
+<!-- Synthetic renderer evidence only: no API requests or real business mutations. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Copilot action outcomes renderer test</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 900px; margin: 0 auto; padding: 24px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { AssistantConfirmationCard } from '/src/cms/renderers/components/assistant/AssistantConfirmationCard.tsx';
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(AssistantConfirmationCard, {
+            title: 'Product creation',
+            approveLabel: 'Approve',
+            executeLabel: 'Execute',
+            rejectLabel: 'Reject',
+            expiredLabel: 'Approval expired',
+            completedLabel: 'Completed',
+            confirmation: {
+              confirmationCode: 'action-test',
+              conversationCode: 'conversation-test',
+              operationId: 'nodics.workbench.execute',
+              state: 'APPROVED',
+              argumentsDigest: 'fixture',
+              revision: 2,
+              expiresAt: '2030-01-01T00:00:00Z',
+              impact: { summary: 'Create two products and their prices' },
+            },
+            result: {
+              state: 'OUTCOME_UNKNOWN',
+              rows: [
+                {
+                  index: 0,
+                  schema: 'product',
+                  code: 'PRODUCT-001',
+                  state: 'COMPLETED',
+                },
+                {
+                  index: 1,
+                  schema: 'product',
+                  code: 'PRODUCT-002',
+                  state: 'OUTCOME_UNKNOWN',
+                },
+                {
+                  index: 2,
+                  schema: 'priceRow',
+                  code: 'PRODUCT-001-AED',
+                  state: 'NOT_STARTED',
+                },
+                {
+                  index: 3,
+                  schema: 'priceRow',
+                  code: 'PRODUCT-002-AED',
+                  state: 'NOT_STARTED',
+                },
+              ],
+            },
+            onApprove: async () => {},
+            onExecute: async () => {},
+            onReject: async () => {},
+          }),
+        ),
+      );
+    </script>
+  </body>
+</html>

@@ -62,6 +62,7 @@ export function createAssistantTransport(
     path: string,
     options: AssistantRequestOptions = {},
   ): Promise<unknown> => {
+    options.signal?.throwIfAborted();
     const url = new URL(`${moduleBaseUrl}/v0${path}`);
     Object.entries(options.query ?? {}).forEach(([name, value]) => {
       if (value !== undefined) url.searchParams.set(name, String(value));

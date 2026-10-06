@@ -1,0 +1,98 @@
+<!doctype html>
+<!-- Synthetic actual-renderer verification, not an authenticated business write. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Standalone business review</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 850px; margin: 0 auto; padding: 20px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { AssistantConfirmationCard } from '/src/cms/renderers/components/assistant/AssistantConfirmationCard.tsx';
+      function Review({ kind }) {
+        const [state, setState] = React.useState('PENDING');
+        const invitation = kind === 'invitation';
+        const revision = state === 'PENDING' ? 1 : state === 'APPROVED' ? 2 : 3;
+        return React.createElement(AssistantConfirmationCard, {
+          key: revision,
+          title: invitation ? 'Employee invitation review' : 'Product price review',
+          approveLabel: 'Approve reviewed data',
+          executeLabel: invitation ? 'Send invitation' : 'Create price row',
+          rejectLabel: 'Reject',
+          expiredLabel: 'Expired',
+          completedLabel: invitation
+            ? 'Pending invitation created; registration required'
+            : 'Price row created; not published',
+          confirmation: {
+            confirmationCode: 'synthetic-' + kind,
+            conversationCode: 'synthetic-conversation',
+            operationId: invitation
+              ? 'profile.enterprise.invite'
+              : 'commerce.price.create',
+            state,
+            revision,
+            argumentsDigest: 'synthetic',
+            expiresAt: '2030-01-01T00:00:00Z',
+            impact: {
+              summary: invitation
+                ? 'Invite one employee to existing enterprise DEMO_AI. No enterprise or active account is created.'
+                : 'Create one price for an existing product. No product, price book or publication is created.',
+              review: [
+                {
+                  title: invitation ? 'Employee invitation' : 'Price',
+                  fields: invitation
+                    ? [
+                        { label: 'Code', value: 'invitation-1' },
+                        { label: 'Email', value: 'operator@example.invalid' },
+                        { label: 'Role', value: 'VIEWER' },
+                        { label: 'Enterprise code', value: 'DEMO_AI' },
+                      ]
+                    : [
+                        { label: 'Code', value: 'DEMO_PRICE' },
+                        { label: 'Price book', value: 'DEMO_BOOK' },
+                        { label: 'Product code', value: 'DEMO_PRODUCT' },
+                        { label: 'Unit amount', value: '12.3400' },
+                        { label: 'Currency', value: 'AED' },
+                        { label: 'Minimum quantity', value: '1' },
+                        { label: 'Revision', value: '1' },
+                      ],
+                },
+              ],
+            },
+            ...(state === 'CONSUMED'
+              ? {
+                  outcomes: [
+                    {
+                      index: 0,
+                      schema: invitation ? 'enterpriseAccessAssignment' : 'priceRow',
+                      code: invitation ? 'invitation-1' : 'DEMO_PRICE',
+                      state: 'COMPLETED',
+                    },
+                  ],
+                }
+              : {}),
+          },
+          onApprove: async () => setState('APPROVED'),
+          onExecute: async () => setState('CONSUMED'),
+          onReject: async () => setState('REJECTED'),
+        });
+      }
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(
+            'main',
+            { style: { display: 'grid', gap: '24px' } },
+            React.createElement(Review, { kind: 'invitation' }),
+            React.createElement(Review, { kind: 'price' }),
+          ),
+        ),
+      );
+    </script>
+  </body>
+</html>

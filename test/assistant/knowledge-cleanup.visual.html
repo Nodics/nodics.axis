@@ -1,0 +1,97 @@
+<!doctype html>
+<!-- Synthetic review/acknowledgement only: no API, storage or index mutation. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Knowledge cleanup review</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 1100px; margin: 0 auto; padding: 16px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { KnowledgeStudioView } from '/src/assistant/KnowledgeStudioView.tsx';
+      import { parseKnowledgeInventory } from '/src/assistant/api/knowledgeStudioClient.ts';
+      import { knowledgeStudioFixture } from '/test/assistant/knowledgeStudioFixture.ts';
+      const fixture = knowledgeStudioFixture();
+      fixture.presentation = {
+        ...Object.fromEntries(
+          Object.entries(fixture.presentation).map(([key, value]) => [
+            key,
+            value
+              .replace(/([a-z])([A-Z])/g, '$1 $2')
+              .replace(/^./, (c) => c.toUpperCase()),
+          ]),
+        ),
+        title: 'Knowledge Studio',
+        subtitle: 'Authorized sources for this enterprise',
+        ready: 'Indexed',
+        refresh: 'Refresh inventory',
+        preview: 'Preview ingestion',
+        included: 'Included paths',
+        excluded: 'Excluded paths',
+        secretScan: 'Secret inspection required',
+        extensions: 'File types',
+        durableEvidence: 'Published generation and index count verified',
+        inspectionRequired: 'Operator inspection required',
+        cleanupPending:
+          'Current generation published. Obsolete generation cleanup is pending.',
+      };
+      fixture.cleanupPresentation = {
+        title: 'Obsolete index cleanup',
+        review: 'Review cleanup',
+        confirm: 'Confirm cleanup',
+        cancel: 'Cancel',
+        eligible: 'Published generations to remove',
+        operatorOnly: 'Generations requiring operator inspection',
+        done: 'Reviewed cleanup acknowledged. Reload the inventory for current status.',
+        unknown:
+          'Cleanup outcome is unconfirmed. Reload the inventory and review again before another attempt.',
+        unavailable: 'Cleanup review unavailable.',
+      };
+      fixture.sources[0] = {
+        ...fixture.sources[0],
+        canCleanup: true,
+        sourcePolicyDigest: 'a'.repeat(64),
+        status: {
+          state: 'PROJECTED',
+          evidence: 'DURABLE_GENERATION',
+          indexedVersion: 'revision-2',
+          refreshedAt: '2026-10-03T10:00:00Z',
+          inspectionRequired: false,
+          cleanupPending: true,
+        },
+      };
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(KnowledgeStudioView, {
+            inventory: parseKnowledgeInventory(fixture),
+            refreshing: false,
+            onRefresh: () => {},
+            onPreview: async () => ({
+              filesRead: 12,
+              filesAccepted: 12,
+              filesRejected: 0,
+              chunksPrepared: 30,
+            }),
+            cleanup: (source) => ({
+              preview: async () => ({
+                sourceCode: source.code,
+                sourcePolicyDigest: source.sourcePolicyDigest,
+                revision: 7,
+                reviewDigest: 'b'.repeat(64),
+                eligibleGenerations: 2,
+                operatorOnlyGenerations: 1,
+              }),
+              execute: async () => {},
+            }),
+          }),
+        ),
+      );
+    </script>
+  </body>
+</html>

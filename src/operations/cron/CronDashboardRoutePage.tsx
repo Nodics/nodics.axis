@@ -13,6 +13,7 @@ import {
 import { useMemo, useState } from 'react';
 
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
+import { CronScheduleDraftPanel } from './CronScheduleDraftPanel';
 import { WorkspaceContainer } from '../../app/shell/ShellPrimitives';
 import {
   selectModuleConnection,
@@ -287,6 +288,16 @@ export function CronDashboardRoutePage({
           metrics={metricsById(metrics, cronMetrics)}
           title="Scheduler inventory"
         />
+
+        {cronConnection ? (
+          <CronScheduleDraftPanel
+            connection={cronConnection}
+            configuration={configuration}
+            onSaved={() => {
+              void queryClient.invalidateQueries({ queryKey: [cronJobsQueryKey] });
+            }}
+          />
+        ) : null}
 
         <Paper
           component="section"

@@ -1,0 +1,34 @@
+<!doctype html>
+<!-- Synthetic draft renderer. The fixture refuses all external requests. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Inactive schedule draft review</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 960px; margin: 0 auto; padding: 16px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { CronScheduleDraftPanel } from '/src/operations/cron/CronScheduleDraftPanel.tsx';
+      import {
+        configuration,
+        connection,
+        createDraftFixture,
+      } from './scheduleDraftFixture.ts';
+      const fixture = createDraftFixture(
+        new URLSearchParams(location.search).has('uncertain'),
+      );
+      window.fetch = fixture.fetcher;
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(CronScheduleDraftPanel, { configuration, connection }),
+        ),
+      );
+    </script>
+  </body>
+</html>

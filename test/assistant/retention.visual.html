@@ -1,0 +1,196 @@
+<!doctype html>
+<!-- Synthetic renderer only. No request to the fixture host leaves this page. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Copilot retention review</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 1040px; margin: 0 auto; padding: 16px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { CopilotLifecycleDialog } from '/src/assistant/CopilotLifecycleDialog.tsx';
+      import {
+        lifecycleTextKeys,
+        parseLifecycleCapability,
+      } from '/src/assistant/api/copilotLifecycleClient.ts';
+      import { retentionTextKeys } from '/src/assistant/api/copilotRetentionClient.ts';
+      const copy = Object.fromEntries(
+        lifecycleTextKeys.map((key) => [key, key.replaceAll('_', ' ').toLowerCase()]),
+      );
+      Object.assign(copy, {
+        title: 'Retention review',
+        inspect: 'Load review',
+        close: 'Close',
+        previous: 'Previous page',
+        next: 'Next page',
+        cutoff: 'Retention cutoff',
+        notice: 'Metadata review. No content is deleted by loading this list.',
+        EXPIRED_REVIEW_REQUIRED: 'Expired; review required',
+        HELD: 'On legal hold',
+      });
+      const executionCopy = Object.fromEntries(
+        retentionTextKeys.map((key) => [key, key]),
+      );
+      Object.assign(executionCopy, {
+        open: 'Retention operation',
+        title: 'Conversation retention',
+        reason: 'Business reason',
+        review: 'Review deletion',
+        reviewResume: 'Review remaining deletion',
+        resume: 'Confirm resumption',
+        RESUMING: 'Resumption reviewed; remaining content stays frozen',
+        reviewClosure: 'Review conversation closure',
+        closeConversation: 'Confirm closure',
+        inspectClosure: 'Inspect original closure',
+        closureNotice:
+          'Closing prevents further conversation writes and keeps its content. It does not cancel provider calls or business operations already in progress.',
+        closureRecorded: 'Conversation closure recorded',
+        inspect: 'Inspect original operation',
+        begin: 'Confirm retention operation',
+        advance: 'Delete next batch',
+        stop: 'Stop and preserve remaining content',
+        confirm: 'I confirm this irreversible operation',
+        notice:
+          'Conversation content only. Audit and accounting evidence are retained. Stopped conversations remain frozen.',
+        failure:
+          'Outcome unconfirmed. Inspect the original operation before another command.',
+        digest: 'Review reference',
+        batch: 'Maximum records per batch',
+        removed: 'Removed records',
+        PREPARED: 'Prepared; no content deleted',
+        PURGING: 'Deletion in progress',
+        PURGED: 'Conversation content removed',
+        STOPPED: 'Stopped; remaining content preserved',
+      });
+      const scope = {
+        contractVersion: 1,
+        context: { tenantCode: 'demo', enterpriseCode: 'northstar' },
+        conversationCode: 'conversation-onboarding-review',
+      };
+      let receipt;
+      let closure;
+      const originalFetch = window.fetch;
+      window.fetch = async (input, options) => {
+        const url = new URL(String(input));
+        if (url.hostname !== 'retention-fixture.invalid')
+          return originalFetch(input, options);
+        let data;
+        if (url.pathname.endsWith('/activity/retention'))
+          data = {
+            ...scope,
+            page: 1,
+            limit: 25,
+            mayHaveMore: false,
+            cutoff: '2026-07-05T00:00:00Z',
+            policy: { destructiveExecution: false },
+            items: [
+              {
+                code: scope.conversationCode,
+                state:
+                  new URLSearchParams(location.search).get('scenario') === 'closure'
+                    ? 'ACTIVE'
+                    : 'EXPIRED_REVIEW_REQUIRED',
+                canClose:
+                  new URLSearchParams(location.search).get('scenario') === 'closure',
+                updatedAt: '2026-01-01T00:00:00Z',
+              },
+              {
+                code: 'conversation-customer-dispute',
+                state: 'HELD',
+                updatedAt: '2026-01-02T00:00:00Z',
+              },
+            ],
+          };
+        else if (url.pathname.endsWith('/close-preview'))
+          data = {
+            ...scope,
+            state: 'REVIEWED',
+            intent: 'CLOSE',
+            reviewDigest: 'c'.repeat(64),
+          };
+        else if (url.pathname.endsWith('/close'))
+          data = closure = {
+            ...scope,
+            state: 'CLOSURE_RECORDED',
+            operationCode: 'closure-12345678-1234-1234-1234-123456789012',
+            closedAt: new Date().toISOString(),
+            conversationState: 'CLOSED',
+          };
+        else if (url.pathname.endsWith('/close-inspect') && closure) data = closure;
+        else if (
+          url.pathname.endsWith('/preview') ||
+          url.pathname.endsWith('/resume-preview')
+        )
+          data = {
+            ...scope,
+            state: 'REVIEWED',
+            reviewDigest: 'a'.repeat(64),
+            policyRevision: 'b'.repeat(64),
+            maximumBatch: 25,
+            retained: [
+              'CONVERSATION_TOMBSTONE',
+              'TRANSCRIPT_ACCESS_AUDIT',
+              'ACTION_AUDIT',
+              'PROVIDER_ACCOUNTING',
+            ],
+          };
+        else if (url.pathname.endsWith('/begin'))
+          data = receipt = {
+            ...scope,
+            operationCode: 'retention-12345678-1234-1234-1234-123456789012',
+            revision: 1,
+            state: 'PREPARED',
+            removed: { messages: 0, events: 0, turns: 0 },
+            completedAt: null,
+          };
+        else if (url.pathname.endsWith('/inspect') && receipt) data = receipt;
+        else if (url.pathname.endsWith('/resume') && receipt)
+          data = receipt = {
+            ...receipt,
+            revision: receipt.revision + 1,
+            state: 'RESUMING',
+            completedAt: null,
+          };
+        else if (url.pathname.endsWith('/advance') && receipt)
+          data = receipt = {
+            ...receipt,
+            revision: receipt.revision + 1,
+            state: 'PURGING',
+            removed: { ...receipt.removed, messages: receipt.removed.messages + 25 },
+          };
+        else if (url.pathname.endsWith('/stop') && receipt)
+          data = receipt = {
+            ...receipt,
+            revision: receipt.revision + 1,
+            state: 'STOPPED',
+            completedAt: new Date().toISOString(),
+          };
+        else throw new Error('Synthetic operation unavailable');
+        return new Response(JSON.stringify({ code: 'SUC_FIXTURE', data }));
+      };
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(CopilotLifecycleDialog, {
+            configuration: {
+              moduleBaseUrl: 'https://retention-fixture.invalid/copilotApi',
+              accessToken: 'synthetic-not-a-credential',
+              enterpriseCode: 'northstar',
+              timeoutMs: 1000,
+            },
+            copy: parseLifecycleCapability({
+              presentation: copy,
+              execution: { canDelete: true, presentation: executionCopy },
+            }),
+            onClose: () => {},
+          }),
+        ),
+      );
+    </script>
+  </body>
+</html>

@@ -1,0 +1,63 @@
+<!doctype html>
+<!-- Synthetic access explanation fixture; no authorization or domain operations. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Copilot operation access</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 900px; margin: 0 auto; padding: 24px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { CopilotAccessJourneys } from '/src/assistant/CopilotAccessJourneys.tsx';
+      const value = {
+        title: 'Operation access',
+        notice:
+          'Current enterprise prerequisites only. Domain record, field and operation checks still apply.',
+        items: [
+          {
+            code: 'enterprise',
+            label: 'Create an enterprise and employee invitations',
+            state: 'PERMISSION_REQUIRED',
+            stateLabel: 'Permission required',
+            reason: 'An independent Profile grant is missing for this enterprise.',
+            nextStep:
+              'A Profile administrator can review enterprise membership and role assignments. Pending invitations are not active employee accounts.',
+            missingPermissions: ['profile.enterpriseAccess.assign'],
+          },
+          {
+            code: 'database',
+            label: 'Read business data',
+            state: 'OWNER_CHECK_REQUIRED',
+            stateLabel: 'Owner validation required',
+            reason: 'Initial prerequisites are present, not final authorization.',
+            nextStep:
+              'The data owner checks collection selection, record access, fields and search permissions before returning data.',
+            missingPermissions: [],
+          },
+          {
+            code: 'coupon',
+            label: 'Redeem a coupon through Copilot',
+            state: 'ADAPTER_REQUIRED',
+            stateLabel: 'Not implemented',
+            reason:
+              'This Copilot adapter is not implemented. Additional permissions will not enable it.',
+            nextStep:
+              'Use the authorized merchant redemption journey. Never substitute a generic coupon status update.',
+            missingPermissions: [],
+          },
+        ],
+      };
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(CopilotAccessJourneys, { value }),
+        ),
+      );
+    </script>
+  </body>
+</html>

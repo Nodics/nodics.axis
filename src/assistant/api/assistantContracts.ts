@@ -1,3 +1,4 @@
+/** @file Typed Axis projections of copilotApi; authorization and accounting remain backend owned. */
 export type AssistantTurnState =
   | 'ACCEPTED'
   | 'PROCESSING'
@@ -37,6 +38,9 @@ export interface AssistantConversationPage {
 }
 
 export interface AssistantTurn {
+  readonly recording?:
+    | { readonly enabled: boolean; readonly version: string; readonly notice: string }
+    | undefined;
   readonly turnCode: string;
   readonly conversationCode: string;
   readonly state: AssistantTurnState;
@@ -80,7 +84,17 @@ export interface AssistantConversationHistory {
   readonly confirmations?: readonly AssistantConfirmation[] | undefined;
 }
 
+export interface AssistantActionOutcome {
+  readonly index: number;
+  readonly schema: string;
+  readonly code: string;
+  readonly state: 'NOT_STARTED' | 'RUNNING' | 'COMPLETED' | 'OUTCOME_UNKNOWN';
+}
+
 export interface AssistantConfirmation {
+  readonly recovery?:
+    | { readonly label: string; readonly continuation?: string | undefined }
+    | undefined;
   readonly confirmationCode: string;
   readonly conversationCode: string;
   readonly operationId: string;
@@ -89,6 +103,7 @@ export interface AssistantConfirmation {
   readonly revision: number;
   readonly expiresAt: string;
   readonly impact: Readonly<Record<string, unknown>>;
+  readonly outcomes?: readonly AssistantActionOutcome[] | undefined;
   readonly workflowCarrierCode?: string | undefined;
 }
 
@@ -104,11 +119,11 @@ export interface AssistantCitation {
 
 export interface AssistantUsage {
   readonly phase?: string | undefined;
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-  readonly cachedInputTokens: number;
-  readonly reasoningTokens: number;
-  readonly embeddingTokens: number;
+  readonly inputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly cachedInputTokens: number | null;
+  readonly reasoningTokens: number | null;
+  readonly embeddingTokens: number | null;
   readonly reconciliationState?: string | undefined;
 }
 
@@ -123,7 +138,7 @@ export interface AssistantKnowledgeSourceStatus {
   readonly filesRead: number;
   readonly filesAccepted: number;
   readonly filesRejected: number;
-  readonly chunksProjected: number;
+  readonly chunksProjected?: number | undefined;
   readonly refreshedAt?: string | undefined;
   readonly failureCode?: string | undefined;
 }
@@ -174,25 +189,11 @@ export interface AssistantKnowledgeInput {
 }
 
 export interface SubmitTurnInput {
+  readonly knowledgeGroupCodes?: readonly string[] | undefined;
   readonly message: string;
   readonly idempotencyKey: string;
   readonly maximumOutputTokens?: number | undefined;
   readonly knowledge?: AssistantKnowledgeInput | undefined;
-}
-
-export interface CreateConfirmationInput {
-  readonly conversationCode: string;
-  readonly turnCode?: string | undefined;
-  readonly operationId: 'profile_createenterprise';
-  readonly arguments: {
-    readonly code: string;
-    readonly name: string;
-    readonly tenantCode?: string | undefined;
-    readonly superEnterpriseCode?: string | undefined;
-    readonly active?: boolean | undefined;
-  };
-  readonly workflowCode?: string | undefined;
-  readonly idempotencyKey: string;
 }
 
 export interface ApproveConfirmationInput {

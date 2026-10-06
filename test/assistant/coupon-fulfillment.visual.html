@@ -1,0 +1,53 @@
+<!doctype html>
+<!-- Synthetic coupon review renderer. No real token, account, receipt or domain request. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Coupon fulfillment review</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { CopilotCouponComposer } from '/src/assistant/CopilotCouponComposer.tsx';
+      import {
+        couponContract,
+        couponWorkspace,
+        couponReview,
+      } from './copilotCouponFixture.ts';
+      let action = couponReview;
+      const client = {
+        workspace: async () => couponWorkspace,
+        prepare: async () => action,
+        inspect: async () => ({
+          confirmation: (action = { ...action, state: 'CONSUMED', revision: 5 }),
+          receiptState: 'COMPLETED',
+          receiptCode: 'RECEIPT-EXAMPLE',
+        }),
+      };
+      const actions = {
+        approveConfirmation: async () =>
+          (action = { ...action, state: 'APPROVED', revision: 2 }),
+        rejectConfirmation: async () =>
+          (action = { ...action, state: 'REJECTED', revision: 2 }),
+        getConfirmation: async () => action,
+        executeConfirmation: async () =>
+          (action = { ...action, state: 'OUTCOME_UNKNOWN', revision: 4 }),
+      };
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(CopilotCouponComposer, {
+            contract: couponContract,
+            client,
+            actions,
+          }),
+        ),
+      );
+    </script>
+  </body>
+</html>

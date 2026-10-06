@@ -103,7 +103,6 @@ export interface ProcessHumanTask {
         eligible: boolean;
         reasonCode:
           | 'ELIGIBLE'
-          | 'DIFFERENT_REVIEWER_REQUIRED'
           | 'REVIEWER_NOT_AUTHORISED'
           | 'INSTANCE_NOT_ACTIONABLE'
           | 'TASK_NOT_ACTIONABLE';
@@ -399,7 +398,6 @@ function parseHumanTask(value: unknown): ProcessHumanTask {
       typeof eligibility.reasonCode !== 'string' ||
       ![
         'ELIGIBLE',
-        'DIFFERENT_REVIEWER_REQUIRED',
         'REVIEWER_NOT_AUTHORISED',
         'INSTANCE_NOT_ACTIONABLE',
         'TASK_NOT_ACTIONABLE',

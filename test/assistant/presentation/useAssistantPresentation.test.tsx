@@ -47,7 +47,6 @@ function client() {
     getTurn: vi.fn(),
     replayEvents: vi.fn(),
     cancelTurn,
-    createConfirmation: vi.fn(),
     approveConfirmation,
     getConfirmation,
     rejectConfirmation,
@@ -65,6 +64,50 @@ function client() {
 }
 
 describe('Assistant presentation controller', () => {
+  it('consumes request-only delivery without opening a durable event stream', async () => {
+    const assistantClient = client(),
+      stream = vi.fn();
+    assistantClient.submitTurn.mockResolvedValue({
+      conversation,
+      turn: {
+        ...turn,
+        recording: { enabled: false, version: '2', notice: 'Content not recorded' },
+      },
+      delivery: [
+        {
+          eventCode: 'one',
+          conversationCode: conversation.conversationCode,
+          turnCode: turn.turnCode,
+          sequence: 1,
+          eventType: 'TEXT_DELTA',
+          data: { text: 'Transient answer' },
+        },
+        {
+          eventCode: 'two',
+          conversationCode: conversation.conversationCode,
+          turnCode: turn.turnCode,
+          sequence: 2,
+          eventType: 'COMPLETED',
+          data: {},
+        },
+      ],
+    });
+    const { result } = renderHook(() =>
+      useAssistantPresentation({
+        scope: { enterpriseCode: 'default', employeeId: 'employee' },
+        client: assistantClient.value,
+        streamConfiguration,
+        definitionCode: 'axisAssistant',
+        stream,
+      }),
+    );
+    await act(() => result.current.submit('Question'));
+    expect(stream).not.toHaveBeenCalled();
+    expect(result.current.state.status).toBe('COMPLETED');
+    expect(result.current.state.conversations['conversation-1']?.streamedText).toBe(
+      'Transient answer',
+    );
+  });
   it('creates a conversation, submits a turn, and reduces the streamed result', async () => {
     const assistantClient = client();
     const stream = vi.fn(
@@ -99,6 +142,7 @@ describe('Assistant presentation controller', () => {
         client: assistantClient.value,
         streamConfiguration,
         definitionCode: 'axisAssistant',
+        knowledgeGroupCodes: ['framework'],
         stream,
       }),
     );
@@ -110,7 +154,10 @@ describe('Assistant presentation controller', () => {
     });
     expect(assistantClient.submitTurn).toHaveBeenCalledWith(
       'conversation-1',
-      expect.objectContaining({ message: 'Create an enterprise' }),
+      expect.objectContaining({
+        message: 'Create an enterprise',
+        knowledgeGroupCodes: ['framework'],
+      }),
     );
     expect(stream).toHaveBeenCalledOnce();
     expect(result.current.state.status).toBe('COMPLETED');
@@ -252,7 +299,10 @@ describe('Assistant presentation controller', () => {
     });
 
     await act(() => result.current.executeConfirmation());
-    expect(assistantClient.executeConfirmation).toHaveBeenCalledWith('confirmation-1');
+    expect(assistantClient.executeConfirmation).toHaveBeenCalledWith('confirmation-1', {
+      expectedRevision: approved.revision,
+      argumentsDigest: approved.argumentsDigest,
+    });
     expect(
       result.current.state.conversations['conversation-1']?.confirmationResult,
     ).toEqual({ confirmationCode: 'confirmation-1', state: 'CONSUMED' });

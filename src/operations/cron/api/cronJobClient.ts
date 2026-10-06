@@ -226,7 +226,8 @@ function parseCronJob(value: unknown): CronJobDefinition {
   });
 }
 
-async function cronRequest(
+/** Sends a single Cron-owner request without retries or redirect credential forwarding. */
+export async function cronRequest(
   connection: AxisModuleConnection,
   path: string,
   configuration: CronJobClientConfiguration,
@@ -250,7 +251,9 @@ async function cronRequest(
       cache: 'no-store',
       credentials: 'omit',
       redirect: 'error',
-      signal: controller.signal,
+      signal: options.signal
+        ? AbortSignal.any([controller.signal, options.signal])
+        : controller.signal,
     });
     const text = await response.text();
     let body: unknown;

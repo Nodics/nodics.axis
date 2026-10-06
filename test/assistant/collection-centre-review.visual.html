@@ -1,0 +1,72 @@
+<!doctype html>
+<!-- Synthetic full-field review only; no Waste or other business API calls. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Collection-centre review</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 900px; margin: 0 auto; padding: 16px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { AssistantConfirmationCard } from '/src/cms/renderers/components/assistant/AssistantConfirmationCard.tsx';
+      const values = {
+        Code: 'CENTRE_ONE',
+        'Name (en)': 'Central collection centre',
+        'Collection type': 'COLLECTION_CENTRE',
+        'Location module': 'locationCore',
+        'Location schema': 'location',
+        'Location code': 'LOCATION_ONE',
+        'Operator module': 'profile',
+        'Operator schema': 'enterprise',
+        'Operator enterprise': 'ACME',
+        'Operating status': 'ACTIVE',
+        Visibility: 'BACKOFFICE',
+        'Lifecycle status': 'DRAFT',
+        Revision: '0',
+      };
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(AssistantConfirmationCard, {
+            title: 'Collection-centre review',
+            approveLabel: 'Approve',
+            executeLabel: 'Execute',
+            rejectLabel: 'Reject',
+            expiredLabel: 'Expired',
+            completedLabel: 'Completed',
+            confirmation: {
+              confirmationCode: 'synthetic',
+              conversationCode: 'synthetic',
+              operationId: 'waste.collectionCentre.create',
+              state: 'PENDING',
+              argumentsDigest: 'synthetic',
+              revision: 1,
+              expiresAt: '2030-01-01T00:00:00Z',
+              impact: {
+                summary:
+                  'Create one collection centre in the current enterprise. Waste validates each record at execution; no locations or enterprises are created.',
+                review: [
+                  {
+                    title: 'Collection centre',
+                    fields: Object.entries(values).map(([label, value]) => ({
+                      label,
+                      value,
+                    })),
+                  },
+                ],
+              },
+            },
+            onApprove: () => Promise.resolve(),
+            onExecute: () => Promise.resolve(),
+            onReject: () => Promise.resolve(),
+          }),
+        ),
+      );
+    </script>
+  </body>
+</html>

@@ -1,0 +1,90 @@
+<!doctype html>
+<!-- Synthetic Workspace probe fixture. Fetch is locally stubbed; no live provider or API call. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Copilot provider readiness renderer</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 1280px; margin: 0 auto; padding: 24px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { QueryClientProvider } from '@tanstack/react-query';
+      import { createAxisQueryClient } from '/src/app/axisQueryClient.ts';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { CopilotWorkspaceView } from '/src/assistant/CopilotWorkspaceView.tsx';
+      import { CopilotProviderCheck } from '/src/assistant/CopilotProviderCheck.tsx';
+      import { parseCopilotWorkspace } from '/src/assistant/api/copilotWorkspaceClient.ts';
+      import { workspaceFixture } from './workspaceFixture.ts';
+      const fixture = workspaceFixture();
+      Object.assign(fixture.presentation, {
+        subtitle: 'My enterprise activity',
+        refresh: 'Refresh',
+        personal: 'Personal',
+        tenant: 'Tenant',
+        enterprise: 'Enterprise',
+        tasks: 'Recent requests',
+        knowledge: 'Knowledge readiness',
+        provider: 'Model configuration',
+        budget: 'Token allowance',
+        limitedWindow: 'Showing a bounded recent activity window',
+        sourceReady: 'Indexed',
+        healthNotChecked: 'Live health not checked',
+        stateCompleted: 'Completed',
+        stateRunning: 'In progress',
+        stateFailed: 'Failed',
+        stateCancelled: 'Cancelled',
+        recording: 'Conversation recording',
+        recorded: 'Recording enabled',
+        retentionUnknown: 'Retention period not available',
+      });
+      const snapshot = parseCopilotWorkspace(fixture);
+      window.fetch = () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              code: 'SUC_TEST',
+              data: {
+                contractVersion: 1,
+                context: { enterpriseCode: snapshot.context.enterpriseCode },
+                state: 'UP',
+                model: 'local-model',
+                title: 'Provider connection',
+                message: 'The configured provider is responding.',
+                observedAt: '2026-10-03T08:00:00.000Z',
+              },
+            }),
+          ),
+        );
+      const providerCheck = React.createElement(CopilotProviderCheck, {
+        label: 'Check connection',
+        configuration: {
+          accessToken: 'synthetic',
+          enterpriseCode: snapshot.context.enterpriseCode,
+          moduleBaseUrl: 'http://localhost:4300/copilotApi',
+          timeoutMs: 1000,
+        },
+      });
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(
+            QueryClientProvider,
+            { client: createAxisQueryClient() },
+            React.createElement(CopilotWorkspaceView, {
+              snapshot,
+              providerCheck,
+              refreshing: false,
+              onRefresh: () => {},
+              onDetails: () => {},
+              onConversation: () => {},
+            }),
+          ),
+        ),
+      );
+    </script>
+  </body>
+</html>

@@ -1,0 +1,33 @@
+<!doctype html>
+<!-- Synthetic metadata fixture. No authenticated API or transcript requests. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Copilot activity renderer test</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 1200px; margin: 0 auto; padding: 24px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { CopilotActivityView } from '/src/assistant/CopilotActivityView.tsx';
+      import { parseCopilotActivity } from '/src/assistant/api/copilotActivityClient.ts';
+      import { copilotActivityFixture } from './copilotActivityFixture.ts';
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(CopilotActivityView, {
+            activity: parseCopilotActivity(copilotActivityFixture()),
+            principal: '',
+            onFilter: () => {},
+            onPage: () => {},
+            onRefresh: () => {},
+          }),
+        ),
+      );
+    </script>
+  </body>
+</html>

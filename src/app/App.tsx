@@ -43,6 +43,11 @@ import {
   useNavigationAvailabilityRecovery,
 } from '../bootstrap/useNavigationAvailabilityRecovery';
 import { AssistantRoutePage } from '../assistant/AssistantRoutePage';
+import { CopilotWorkspaceRoutePage } from '../assistant/CopilotWorkspaceRoutePage';
+import { KnowledgeStudioRoutePage } from '../assistant/KnowledgeStudioRoutePage';
+import { CopilotActivityRoutePage } from '../assistant/CopilotActivityRoutePage';
+import { CopilotUsageRoutePage } from '../assistant/CopilotUsageRoutePage';
+import { CopilotAdministrationRoutePage } from '../assistant/CopilotAdministrationRoutePage';
 import { WorkbenchRoutePage } from '../workbench/WorkbenchRoutePage';
 import {
   EnterpriseCreationCheckpoint,
@@ -1287,7 +1292,68 @@ export function App() {
     session && !locked && authenticatedBootstrap && navigationItem
       ? navigationItem.backendWorkspace?.renderer === 'axis.workspace.native'
         ? authenticatedShell(
-            navigationItem.backendWorkspace.workspaceCode === 'waste.review' &&
+            navigationItem.moduleName === 'copilotApi' &&
+              navigationItem.backendWorkspace.workspaceCode === 'copilot.workspace' &&
+              navigationItem.backendWorkspace.viewCode === 'overview' &&
+              !['DISABLED', 'HIDDEN'].includes(
+                navigationItem.featureState ?? 'ACTIVE',
+              ) &&
+              ['UP', 'DEGRADED'].includes(navigationItem.availability) ? (
+              <CopilotWorkspaceRoutePage
+                accessToken={session.accessToken}
+                bootstrap={authenticatedBootstrap}
+                runtime={runtime}
+              />
+            ) : navigationItem.moduleName === 'copilotApi' &&
+              navigationItem.backendWorkspace.workspaceCode === 'copilot.knowledge' &&
+              navigationItem.backendWorkspace.viewCode === 'sources' &&
+              !['DISABLED', 'HIDDEN'].includes(
+                navigationItem.featureState ?? 'ACTIVE',
+              ) &&
+              ['UP', 'DEGRADED'].includes(navigationItem.availability) ? (
+              <KnowledgeStudioRoutePage
+                accessToken={session.accessToken}
+                bootstrap={authenticatedBootstrap}
+                runtime={runtime}
+              />
+            ) : navigationItem.moduleName === 'copilotApi' &&
+              navigationItem.backendWorkspace.workspaceCode === 'copilot.activity' &&
+              navigationItem.backendWorkspace.viewCode === 'conversations' &&
+              !['DISABLED', 'HIDDEN'].includes(
+                navigationItem.featureState ?? 'ACTIVE',
+              ) &&
+              ['UP', 'DEGRADED'].includes(navigationItem.availability) ? (
+              <CopilotActivityRoutePage
+                accessToken={session.accessToken}
+                bootstrap={authenticatedBootstrap}
+                runtime={runtime}
+              />
+            ) : navigationItem.moduleName === 'copilotApi' &&
+              navigationItem.backendWorkspace.workspaceCode === 'copilot.usage' &&
+              navigationItem.backendWorkspace.viewCode === 'overview' &&
+              !['DISABLED', 'HIDDEN'].includes(
+                navigationItem.featureState ?? 'ACTIVE',
+              ) &&
+              ['UP', 'DEGRADED'].includes(navigationItem.availability) ? (
+              <CopilotUsageRoutePage
+                accessToken={session.accessToken}
+                bootstrap={authenticatedBootstrap}
+                runtime={runtime}
+              />
+            ) : navigationItem.moduleName === 'copilotApi' &&
+              navigationItem.backendWorkspace.workspaceCode ===
+                'copilot.administration' &&
+              navigationItem.backendWorkspace.viewCode === 'overview' &&
+              !['DISABLED', 'HIDDEN'].includes(
+                navigationItem.featureState ?? 'ACTIVE',
+              ) &&
+              ['UP', 'DEGRADED'].includes(navigationItem.availability) ? (
+              <CopilotAdministrationRoutePage
+                accessToken={session.accessToken}
+                bootstrap={authenticatedBootstrap}
+                runtime={runtime}
+              />
+            ) : navigationItem.backendWorkspace.workspaceCode === 'waste.review' &&
               ['UP', 'DEGRADED'].includes(navigationItem.availability) ? (
               <WasteManagementRoutePage
                 key={`${navigationItem.moduleName}:${navigationItem.id}`}

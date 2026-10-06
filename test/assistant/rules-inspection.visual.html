@@ -1,0 +1,133 @@
+<!doctype html>
+<!-- Synthetic shared composer verification only; no authenticated owner request. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rules inspection component verification</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { CopilotInspectionComposer } from '/src/assistant/CopilotInspectionComposer.tsx';
+      const contract = {
+        operations: [
+          {
+            code: 'rules.definition.inspect',
+            label: 'Rule summary',
+            codes: ['example-policy'],
+          },
+          {
+            code: 'rules.definition.versions',
+            label: 'Rule versions',
+            codes: ['example-policy'],
+          },
+          {
+            code: 'rules.definition.audit',
+            label: 'Rule activity',
+            codes: ['example-policy'],
+          },
+          {
+            code: 'rules.band.inspect',
+            label: 'Score-band summary',
+            codes: ['example-bands'],
+          },
+          {
+            code: 'rules.band.versions',
+            label: 'Score-band versions',
+            codes: ['example-bands'],
+          },
+        ],
+        presentation: {
+          title: 'Inspect Rules',
+          operation: 'Operation',
+          code: 'Definition',
+          submit: 'Inspect',
+          cancel: 'Cancel',
+          failure: 'Rules inspection could not be submitted.',
+        },
+      };
+      const isProcess =
+        new URL(window.location.href).searchParams.get('family') === 'process';
+      const selectedContract = isProcess
+        ? {
+            operations: [
+              {
+                code: 'process.definition.inspect',
+                label: 'Definition summary',
+                codes: ['example-onboarding'],
+              },
+              {
+                code: 'process.definition.versions',
+                label: 'Definition versions',
+                codes: ['example-onboarding'],
+              },
+              {
+                code: 'process.instance.inspect',
+                label: 'Instance summary',
+                codes: ['example-onboarding-001'],
+              },
+              {
+                code: 'process.instance.tasks',
+                label: 'Instance tasks',
+                codes: ['example-onboarding-001'],
+              },
+              {
+                code: 'process.instance.activity',
+                label: 'Instance activity',
+                codes: ['example-onboarding-001'],
+              },
+              {
+                code: 'process.instance.incidents',
+                label: 'Instance incidents',
+                codes: ['example-onboarding-001'],
+              },
+              {
+                code: 'process.task.inspect',
+                label: 'Task summary',
+                codes: ['example-review'],
+              },
+              {
+                code: 'process.incident.inspect',
+                label: 'Incident summary',
+                codes: ['example-incident'],
+              },
+            ],
+            presentation: {
+              ...contract.presentation,
+              title: 'Inspect Process',
+              code: 'Record',
+              failure: 'Process inspection could not be submitted.',
+            },
+          }
+        : contract;
+      function Fixture() {
+        const [message, setMessage] = React.useState('');
+        return React.createElement(
+          'main',
+          { style: { padding: '24px', maxWidth: '900px', margin: 'auto' } },
+          React.createElement(CopilotInspectionComposer, {
+            intent: isProcess ? 'copilot.process.inspect' : 'copilot.rules.inspect',
+            contract: selectedContract,
+            disabled: false,
+            onSubmit: async (value) => setMessage(value),
+          }),
+          React.createElement(
+            'pre',
+            {
+              'data-testid': 'submitted-command',
+              style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' },
+            },
+            message,
+          ),
+        );
+      }
+      createRoot(document.getElementById('root')).render(
+        React.createElement(AxisThemeProvider, null, React.createElement(Fixture)),
+      );
+    </script>
+  </body>
+</html>

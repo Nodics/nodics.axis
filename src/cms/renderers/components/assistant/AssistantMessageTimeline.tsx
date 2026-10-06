@@ -1,3 +1,4 @@
+/** @file Renders owned exchanges, unrecorded-history notices and governed interactions. */
 import { Alert, Box, Button, Stack, Typography } from '@mui/material';
 import { useEffect, useRef } from 'react';
 
@@ -47,6 +48,7 @@ interface AssistantMessageTimelineProps {
   readonly onApprove: () => Promise<void>;
   readonly onExecute: () => Promise<void>;
   readonly onReject: () => Promise<void>;
+  readonly onReconcile?: (() => Promise<void>) | undefined;
 }
 
 export function AssistantMessageTimeline(props: AssistantMessageTimelineProps) {
@@ -123,6 +125,21 @@ export function AssistantMessageTimeline(props: AssistantMessageTimelineProps) {
           {props.loadMoreLabel}
         </Button>
       ) : null}
+      {active.history
+        .filter(
+          (entry) =>
+            entry.turn.recording?.enabled === false && entry.messages.length === 0,
+        )
+        .map((entry) => (
+          <Alert key={entry.turn.turnCode} severity="info">
+            {entry.turn.recording!.notice}
+          </Alert>
+        ))}
+      {active.turn?.recording?.enabled === false && !activeAlreadyInHistory ? (
+        <Typography variant="caption" color="text.secondary">
+          {active.turn.recording.notice}
+        </Typography>
+      ) : null}
       {active.history.flatMap((entry) =>
         entry.messages.map((message) => (
           <AssistantMessageBubble
@@ -168,6 +185,8 @@ export function AssistantMessageTimeline(props: AssistantMessageTimelineProps) {
       ) : null}
       {active.confirmation ? (
         <AssistantConfirmationCard
+          key={`${active.confirmation.confirmationCode}:${active.confirmation.revision}`}
+          onReconcile={props.onReconcile}
           approveLabel={props.approveLabel}
           completedLabel={props.confirmationCompletedLabel}
           confirmation={active.confirmation}

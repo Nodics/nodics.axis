@@ -6,6 +6,29 @@ import { AssistantToolActivityCard } from '../../../../../src/cms/renderers/comp
 import { AssistantUsageCard } from '../../../../../src/cms/renderers/components/assistant/AssistantUsageCard';
 
 describe('Assistant evidence and operational cards', () => {
+  it('distinguishes unknown token measurements from measured zero', () => {
+    render(
+      <AssistantUsageCard
+        cachedLabel="Cached input"
+        embeddingLabel="Embedding"
+        inputLabel="Input"
+        outputLabel="Output"
+        reasoningLabel="Reasoning"
+        reconciliationLabel="Accounting status"
+        title="AI usage"
+        usage={{
+          inputTokens: null,
+          outputTokens: 0,
+          cachedInputTokens: null,
+          reasoningTokens: null,
+          embeddingTokens: null,
+        }}
+      />,
+    );
+    expect(screen.getByText('Input: -')).toBeVisible();
+    expect(screen.getByText('Output: 0')).toBeVisible();
+    expect(screen.queryByText('Input: 0')).not.toBeInTheDocument();
+  });
   it('renders citation metadata as text without inventing navigation links', () => {
     render(
       <AssistantCitationList

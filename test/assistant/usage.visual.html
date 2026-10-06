@@ -1,0 +1,38 @@
+<!doctype html>
+<!-- Synthetic renderer fixture; not authenticated live accounting evidence. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Copilot usage renderer test</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 1200px; margin: 0 auto; padding: 24px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { CopilotUsageView } from '/src/assistant/CopilotUsageView.tsx';
+      import { parseCopilotUsage } from '/src/assistant/api/copilotUsageClient.ts';
+      import { usageFixture } from './governanceFixture.ts';
+      function Fixture() {
+        const [query, setQuery] = React.useState({
+          scope: 'PERSONAL',
+          principalCode: '',
+          model: '',
+          purpose: '',
+        });
+        return React.createElement(CopilotUsageView, {
+          key: JSON.stringify(query),
+          usage: parseCopilotUsage({ ...usageFixture(), scope: query.scope }),
+          query,
+          onQuery: setQuery,
+          onRefresh: () => {},
+        });
+      }
+      createRoot(document.getElementById('root')).render(
+        React.createElement(AxisThemeProvider, null, React.createElement(Fixture)),
+      );
+    </script>
+  </body>
+</html>

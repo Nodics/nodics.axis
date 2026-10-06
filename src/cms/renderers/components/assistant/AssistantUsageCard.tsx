@@ -1,3 +1,4 @@
+/** @file Displays backend-measured Copilot usage; missing measurements never imply zero cost. */
 import { Chip, Paper, Stack, Typography } from '@mui/material';
 
 import type { AssistantUsage } from '../../../../assistant/api/assistantContracts';
@@ -13,6 +14,7 @@ interface AssistantUsageCardProps {
   readonly reconciliationLabel: string;
 }
 
+/** Renders known token counts and a neutral placeholder for unknown measurements. */
 export function AssistantUsageCard(props: AssistantUsageCardProps) {
   const values = [
     [props.inputLabel, props.usage.inputTokens],
@@ -29,7 +31,11 @@ export function AssistantUsageCard(props: AssistantUsageCardProps) {
         </Typography>
         <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>
           {values.map(([label, value]) => (
-            <Chip key={label} label={`${label}: ${String(value)}`} size="small" />
+            <Chip
+              key={label}
+              label={`${label}: ${value === null ? '-' : String(value)}`}
+              size="small"
+            />
           ))}
         </Stack>
         {props.usage.reconciliationState ? (

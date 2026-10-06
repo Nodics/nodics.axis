@@ -33,6 +33,7 @@ export interface AssistantRendererController {
   readonly approveConfirmation: () => Promise<void>;
   readonly rejectConfirmation: () => Promise<void>;
   readonly executeConfirmation: () => Promise<void>;
+  readonly reconcileConfirmation?: (() => Promise<void>) | undefined;
   readonly knowledgeStatus?: AssistantKnowledgeStatus | undefined;
   readonly knowledgeLoading?: boolean | undefined;
   readonly knowledgeError?: string | undefined;

@@ -11,7 +11,7 @@ Axis does not join application attempts or identities across
 owners. Business task titles remain customizable in the owning Process definition.
 
 Optional owner `reviewerEligibility` contains exactly eligible, reasonCode and a
-bounded plain message. Known reasons are ELIGIBLE, DIFFERENT_REVIEWER_REQUIRED,
+bounded plain message. Known reasons are ELIGIBLE,
 REVIEWER_NOT_AUTHORISED, INSTANCE_NOT_ACTIONABLE and TASK_NOT_ACTIONABLE; contradictory or unsupported
 metadata fails closed. Explicit ineligibility disables both approval decisions
 and is rechecked before sending completion. The owner message explains the next
@@ -26,7 +26,9 @@ Optional version-1 `reviewContext` carries only owner, publicationCode, rootType
 rootCode and sourceVersion. Axis shows this bound context and retains the opaque
 task code as a secondary reference. A Media retained manifest hash is displayed
 as sourceVersion, never converted to a numeric versionId or joined to another
-asset/instance. Media no-self-review and CMS reviewer policy stay owner-specific.
+asset/instance. Approval is access-rights based, including for the requesting
+user. Axis never compares requester/reviewer identities or special-cases admin;
+Process's current eligibility and completion checks remain authoritative.
 
 Human tasks can carry a strict, inert `decisionContract`:
 

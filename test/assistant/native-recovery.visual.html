@@ -1,0 +1,95 @@
+<!doctype html>
+<!-- Synthetic native-recovery renderer evidence; no API or business mutation. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Original business result recovery</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 900px; margin: 0 auto; padding: 20px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { AssistantConfirmationCard } from '/src/cms/renderers/components/assistant/AssistantConfirmationCard.tsx';
+      function Fixture() {
+        const [stage, setStage] = React.useState('OUTCOME_UNKNOWN');
+        const revision =
+          stage === 'OUTCOME_UNKNOWN'
+            ? 3
+            : stage === 'PENDING'
+              ? 4
+              : stage === 'APPROVED'
+                ? 5
+                : 6;
+        return React.createElement(AssistantConfirmationCard, {
+          key: revision,
+          title: 'Product and pricing approval',
+          approveLabel: 'Approve remaining rows',
+          executeLabel: 'Create remaining prices',
+          rejectLabel: 'Reject remaining rows',
+          expiredLabel: 'Approval expired',
+          completedLabel: 'All reviewed records completed',
+          confirmation: {
+            confirmationCode: 'plan-2026-10-04-749d26d5-original-business-result',
+            conversationCode: 'conversation-test',
+            operationId: 'commerce.product.create',
+            state: stage,
+            argumentsDigest: 'fixture',
+            revision,
+            expiresAt: '2030-01-01T00:00:00Z',
+            impact: {
+              summary: 'Create two products and their reviewed AED prices',
+              review: [
+                {
+                  title: 'Reviewed records',
+                  fields: [
+                    { label: 'Products', value: 'PRODUCT-001 and PRODUCT-002' },
+                    { label: 'Price book', value: 'Retail, Staged' },
+                    { label: 'Amount', value: 'AED 25.00 each' },
+                  ],
+                },
+              ],
+            },
+            recovery: {
+              label: 'Inspect original business results',
+              continuation:
+                stage === 'PENDING' || stage === 'APPROVED'
+                  ? 'Both products are confirmed complete. Review and approve only the two unstarted price rows.'
+                  : undefined,
+            },
+            outcomes: [
+              { index: 0, schema: 'product', code: 'PRODUCT-001', state: 'COMPLETED' },
+              {
+                index: 1,
+                schema: 'product',
+                code: 'PRODUCT-002',
+                state: stage === 'OUTCOME_UNKNOWN' ? 'OUTCOME_UNKNOWN' : 'COMPLETED',
+              },
+              {
+                index: 2,
+                schema: 'priceRow',
+                code: 'PRODUCT-001-AED',
+                state: stage === 'CONSUMED' ? 'COMPLETED' : 'NOT_STARTED',
+              },
+              {
+                index: 3,
+                schema: 'priceRow',
+                code: 'PRODUCT-002-AED',
+                state: stage === 'CONSUMED' ? 'COMPLETED' : 'NOT_STARTED',
+              },
+            ],
+          },
+          onReconcile: async () => setStage('PENDING'),
+          onApprove: async () => setStage('APPROVED'),
+          onExecute: async () => setStage('CONSUMED'),
+          onReject: async () => setStage('REJECTED'),
+        });
+      }
+      createRoot(document.getElementById('root')).render(
+        React.createElement(AxisThemeProvider, null, React.createElement(Fixture)),
+      );
+    </script>
+  </body>
+</html>

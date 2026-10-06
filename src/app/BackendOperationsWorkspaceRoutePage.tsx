@@ -250,7 +250,19 @@ function FieldControl({
 }) {
   const controlId = useId();
   const helperId = `${controlId}-helper`;
-  if (field.type === 'HIDDEN' || field.type === 'IDEMPOTENCY') return null;
+  if (field.type === 'HIDDEN') return null;
+  if (field.type === 'IDEMPOTENCY') {
+    return (
+      <TextField
+        id={controlId}
+        fullWidth
+        size="small"
+        label={field.label}
+        value={String(value ?? '')}
+        slotProps={{ input: { readOnly: true } }}
+      />
+    );
+  }
   if (field.type === 'CHECKBOX') {
     return (
       <FormControlLabel

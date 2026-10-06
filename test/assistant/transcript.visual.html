@@ -1,0 +1,62 @@
+<!doctype html>
+<!-- Synthetic transcript fixture. No real credentials, content, audit or backend requests. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Copilot transcript renderer test</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 1200px; margin: 0 auto; padding: 24px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { QueryClientProvider } from '@tanstack/react-query';
+      import { createAxisQueryClient } from '/src/app/axisQueryClient.ts';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { CopilotActivityView } from '/src/assistant/CopilotActivityView.tsx';
+      import { parseCopilotActivity } from '/src/assistant/api/copilotActivityClient.ts';
+      import { copilotActivityFixture } from './copilotActivityFixture.ts';
+      import {
+        copilotTranscriptFixture,
+        transcriptInspectionFixture,
+      } from './copilotTranscriptFixture.ts';
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = (url, options) => {
+        if (String(url).startsWith('http://synthetic.invalid/'))
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ code: 'SUC_TEST', data: copilotTranscriptFixture() }),
+            ),
+          );
+        return nativeFetch(url, options);
+      };
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(
+            QueryClientProvider,
+            { client: createAxisQueryClient() },
+            React.createElement(CopilotActivityView, {
+              activity: parseCopilotActivity({
+                ...copilotActivityFixture(),
+                inspection: transcriptInspectionFixture,
+              }),
+              configuration: {
+                accessToken: 'synthetic',
+                enterpriseCode: 'enterprise',
+                moduleBaseUrl: 'http://synthetic.invalid/copilotApi',
+                timeoutMs: 1000,
+              },
+              principal: '',
+              onFilter: () => {},
+              onPage: () => {},
+              onRefresh: () => {},
+            }),
+          ),
+        ),
+      );
+    </script>
+  </body>
+</html>

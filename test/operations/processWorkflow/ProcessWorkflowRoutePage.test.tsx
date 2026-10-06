@@ -155,11 +155,6 @@ function renderPage(
 describe('ProcessWorkflowRoutePage', () => {
   it.each([
     [
-      'DIFFERENT_REVIEWER_REQUIRED',
-      false,
-      'A different authorised reviewer is required; the requester cannot review this publication.',
-    ],
-    [
       'REVIEWER_NOT_AUTHORISED',
       false,
       'Your current reviewer identity or permission is not authorised for this task.',
@@ -243,7 +238,7 @@ describe('ProcessWorkflowRoutePage', () => {
     {
       reviewerEligibility: {
         eligible: true,
-        reasonCode: 'DIFFERENT_REVIEWER_REQUIRED',
+        reasonCode: 'REVIEWER_NOT_AUTHORISED',
         message: 'Not eligible',
       },
     },
@@ -1116,8 +1111,8 @@ describe('ProcessWorkflowRoutePage', () => {
                   assignee: 'admin',
                   reviewerEligibility: {
                     eligible: false,
-                    reasonCode: 'DIFFERENT_REVIEWER_REQUIRED',
-                    message: 'A different reviewer must decide this publication.',
+                    reasonCode: 'REVIEWER_NOT_AUTHORISED',
+                    message: 'Approval permission is required for this publication.',
                   },
                 },
               ]
@@ -1127,7 +1122,7 @@ describe('ProcessWorkflowRoutePage', () => {
     );
     renderPage('/process/tasks', bootstrapWithDocumentationSource);
     expect(
-      await screen.findByText('A different reviewer must decide this publication.'),
+      await screen.findByText('Approval permission is required for this publication.'),
     ).toBeVisible();
     expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Reject' })).toBeDisabled();

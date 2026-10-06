@@ -1,0 +1,45 @@
+<!doctype html>
+<!-- Synthetic context renderer with no authenticated requests or business writes. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Copilot context renderer test</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 1200px; margin: 0 auto; padding: 24px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { CopilotContextView } from '/src/assistant/CopilotContextView.tsx';
+      import { CopilotWorkspaceView } from '/src/assistant/CopilotWorkspaceView.tsx';
+      import { parseCopilotContext } from '/src/assistant/api/copilotContextClient.ts';
+      import { parseCopilotWorkspace } from '/src/assistant/api/copilotWorkspaceClient.ts';
+      import { contextFixture, budgetWorkspaceFixture } from './governanceFixture.ts';
+      function Fixture() {
+        const [selected, setSelected] = React.useState(undefined);
+        return React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(CopilotContextView, {
+            context: parseCopilotContext(contextFixture()),
+            selected,
+            disabled: false,
+            onChange: setSelected,
+          }),
+          React.createElement(CopilotWorkspaceView, {
+            snapshot: parseCopilotWorkspace(budgetWorkspaceFixture()),
+            compact: true,
+            refreshing: false,
+            onRefresh: () => {},
+            onDetails: () => {},
+          }),
+        );
+      }
+      createRoot(document.getElementById('root')).render(
+        React.createElement(AxisThemeProvider, null, React.createElement(Fixture)),
+      );
+    </script>
+  </body>
+</html>

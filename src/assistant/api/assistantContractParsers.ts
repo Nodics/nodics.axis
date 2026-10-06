@@ -1,6 +1,8 @@
+/** @file Validates copilotApi responses and exposes only bounded, typed presentation data. */
 import {
   ASSISTANT_API_CONTRACT_VERSION,
   type AssistantConfirmation,
+  type AssistantActionOutcome,
   type AssistantCitation,
   type AssistantConversation,
   type AssistantConversationPage,
@@ -95,11 +97,14 @@ export function parseAssistantKnowledgeStatus(
             source.filesRejected ?? 0,
             'knowledge filesRejected',
           ),
-          chunksProjected: nonNegativeInteger(
-            source.chunksProjected ?? 0,
-            'knowledge chunksProjected',
-          ),
-          refreshedAt: optionalText(source.refreshedAt, 'knowledge refreshedAt'),
+          chunksProjected:
+            source.chunksProjected === undefined || source.chunksProjected === null
+              ? undefined
+              : nonNegativeInteger(source.chunksProjected, 'knowledge chunksProjected'),
+          refreshedAt:
+            source.refreshedAt === null
+              ? undefined
+              : optionalText(source.refreshedAt, 'knowledge refreshedAt'),
           failureCode: optionalText(source.failureCode, 'knowledge failureCode'),
         });
       }),
@@ -134,8 +139,28 @@ function positiveInteger(value: unknown, name: string): number {
 
 export function assistantEnvelopeData(value: unknown): unknown {
   const envelope = assistantRecord(value, 'Assistant response');
-  if (envelope.data !== undefined) return envelope.data;
-  if (envelope.result !== undefined) return envelope.result;
+  if (
+    (envelope.code !== undefined &&
+      (typeof envelope.code !== 'string' || !/^SUC_/.test(envelope.code))) ||
+    envelope.error ||
+    envelope.success === false ||
+    envelope.acknowledged === false ||
+    (envelope.errors !== undefined &&
+      (!Array.isArray(envelope.errors) || envelope.errors.length))
+  )
+    throw new Error('Assistant response was not acknowledged');
+  const payload = envelope.data !== undefined ? envelope.data : envelope.result;
+  if (payload !== null && typeof payload === 'object' && !Array.isArray(payload)) {
+    const data = payload as Record<string, unknown>;
+    if (
+      data.error ||
+      data.success === false ||
+      data.acknowledged === false ||
+      (data.errors !== undefined && (!Array.isArray(data.errors) || data.errors.length))
+    )
+      throw new Error('Assistant result was not acknowledged');
+  }
+  if (payload !== undefined) return payload;
   throw new Error('Assistant response contains no data');
 }
 
@@ -167,7 +192,28 @@ export function parseAssistantTurn(value: unknown): AssistantTurn {
   if (!TURN_STATES.includes(item.state as AssistantTurnState)) {
     throw new Error('Assistant turn state is unsupported');
   }
+  const recording =
+    item.recording === undefined
+      ? undefined
+      : assistantRecord(item.recording, 'Recording policy');
+  if (
+    recording &&
+    (typeof recording.enabled !== 'boolean' ||
+      typeof recording.notice !== 'string' ||
+      !recording.notice.trim() ||
+      recording.notice.length > 500 ||
+      typeof recording.version !== 'string' ||
+      !/^[A-Za-z0-9._-]{1,64}$/.test(recording.version))
+  )
+    throw new Error('Invalid recording policy');
   return Object.freeze({
+    recording: recording
+      ? {
+          enabled: recording.enabled as boolean,
+          version: recording.version as string,
+          notice: recording.notice as string,
+        }
+      : undefined,
     turnCode: text(item.turnCode ?? item.code, 'turnCode'),
     conversationCode: text(item.conversationCode, 'turn conversationCode'),
     state: item.state as AssistantTurnState,
@@ -269,9 +315,77 @@ export function parseConversationHistory(value: unknown): AssistantConversationH
   });
 }
 
+/** Projects bounded row identities and states without leaking domain response bodies. */
+export function parseAssistantActionOutcomes(
+  value: unknown,
+): readonly AssistantActionOutcome[] {
+  if (value === undefined) return Object.freeze([]);
+  if (!Array.isArray(value) || value.length > 200)
+    throw new Error('Invalid action outcomes');
+  return Object.freeze(
+    value.map((raw) => {
+      const row = assistantRecord(raw, 'Action outcome');
+      const state = text(row.state, 'Action outcome state');
+      if (!['NOT_STARTED', 'RUNNING', 'COMPLETED', 'OUTCOME_UNKNOWN'].includes(state))
+        throw new Error('Unsupported action outcome state');
+      return Object.freeze({
+        index: nonNegativeInteger(row.index, 'Action outcome index'),
+        schema: text(row.schema, 'Action outcome schema'),
+        code: text(row.code, 'Action outcome code'),
+        state: state as AssistantActionOutcome['state'],
+      });
+    }),
+  );
+}
+
 export function parseAssistantConfirmation(value: unknown): AssistantConfirmation {
   const item = assistantRecord(value, 'Assistant confirmation');
+  let recovery: AssistantConfirmation['recovery'];
+  if (item.recovery !== undefined) {
+    const raw = assistantRecord(item.recovery, 'Original result recovery');
+    const label = text(raw.label, 'Recovery label');
+    const continuation =
+      raw.continuation == null
+        ? undefined
+        : text(raw.continuation, 'Continuation notice');
+    if (
+      label.length > 160 ||
+      (continuation?.length ?? 0) > 1000 ||
+      ![
+        'commerce.product.create',
+        'profile.enterprise.onboard',
+        'profile.enterprise.invite',
+        'commerce.price.create',
+        'waste.collectionCentre.create',
+        'process.task.claim',
+        'process.task.assign',
+        'process.task.complete',
+        'process.task.cancel',
+        'process.trigger.create',
+        'process.trigger.update',
+        'process.trigger.archive',
+        'process.trigger.execute',
+        'process.definition.create',
+        'process.definition.update',
+        'process.definition.prepare',
+        'process.definition.validate',
+        'process.definition.publish',
+        'process.definition.delete',
+        'process.instance.start',
+        'process.instance.cancel',
+        'process.instance.retry',
+        'process.instance.compensate',
+        'data.record.create',
+        'data.record.update',
+        'data.record.delete',
+        'commerce.orderNotification.retry',
+      ].includes(String(item.operationId))
+    )
+      throw new Error('Unsupported original result recovery');
+    recovery = Object.freeze({ label, continuation });
+  }
   return Object.freeze({
+    recovery,
     confirmationCode: text(item.confirmationCode ?? item.code, 'confirmationCode'),
     conversationCode: text(item.conversationCode, 'confirmation conversationCode'),
     operationId: text(item.operationId, 'confirmation operationId'),
@@ -282,6 +396,10 @@ export function parseAssistantConfirmation(value: unknown): AssistantConfirmatio
     impact: Object.freeze({
       ...assistantRecord(item.impact, 'confirmation impact'),
     }),
+    outcomes:
+      item.outcomes === undefined
+        ? undefined
+        : parseAssistantActionOutcomes(item.outcomes),
     workflowCarrierCode: optionalText(item.workflowCarrierCode, 'workflowCarrierCode'),
   });
 }
@@ -331,6 +449,14 @@ export function parseAssistantCitations(value: unknown): readonly AssistantCitat
   );
 }
 
+/** Preserves unknown measurements while rejecting malformed supplied token counts. */
+function measuredTokens(value: unknown, field: string): number | null {
+  return value === undefined || value === null
+    ? null
+    : nonNegativeInteger(value, field);
+}
+
+/** Parses backend usage without inventing measurements or a reconciliation result. */
 export function parseAssistantUsage(value: unknown): AssistantUsage {
   const data = assistantRecord(value, 'Assistant usage event');
   const usage = assistantRecord(data.usage, 'Assistant normalized usage');
@@ -340,14 +466,11 @@ export function parseAssistantUsage(value: unknown): AssistantUsage {
       : assistantRecord(data.reconciliation, 'Assistant usage reconciliation');
   return Object.freeze({
     phase: optionalText(data.phase, 'usage phase'),
-    inputTokens: nonNegativeInteger(usage.inputTokens ?? 0, 'inputTokens'),
-    outputTokens: nonNegativeInteger(usage.outputTokens ?? 0, 'outputTokens'),
-    cachedInputTokens: nonNegativeInteger(
-      usage.cachedInputTokens ?? 0,
-      'cachedInputTokens',
-    ),
-    reasoningTokens: nonNegativeInteger(usage.reasoningTokens ?? 0, 'reasoningTokens'),
-    embeddingTokens: nonNegativeInteger(usage.embeddingTokens ?? 0, 'embeddingTokens'),
+    inputTokens: measuredTokens(usage.inputTokens, 'inputTokens'),
+    outputTokens: measuredTokens(usage.outputTokens, 'outputTokens'),
+    cachedInputTokens: measuredTokens(usage.cachedInputTokens, 'cachedInputTokens'),
+    reasoningTokens: measuredTokens(usage.reasoningTokens, 'reasoningTokens'),
+    embeddingTokens: measuredTokens(usage.embeddingTokens, 'embeddingTokens'),
     reconciliationState: optionalText(
       reconciliation.state,
       'usage reconciliation state',

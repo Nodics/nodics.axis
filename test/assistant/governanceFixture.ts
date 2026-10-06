@@ -1,0 +1,185 @@
+/** @file Synthetic governance projections; these are not authenticated runtime records. */
+import { usageTextKeys } from '../../src/assistant/api/copilotUsageClient';
+import { workspaceFixture } from './workspaceFixture';
+
+/** Supplies a measured personal budget and backend-owned presentation copy. */
+export function budgetWorkspaceFixture() {
+  const base = workspaceFixture();
+  return {
+    ...base,
+    presentation: {
+      ...base.presentation,
+      budget: 'Token allowance',
+      budgetAssigned: 'Assigned limit',
+      budgetConsumed: 'Consumed',
+      budgetReserved: 'In progress',
+      budgetAvailable: 'Available',
+      budgetPending: 'Pending reconciliation',
+      budgetReset: 'Next reset',
+      budgetExhausted: 'Capacity exhausted',
+      budgetWarning: 'Allowance warning',
+      budgetUnassigned: 'Unassigned',
+    },
+    budget: {
+      state: 'AVAILABLE',
+      allowance: 100000,
+      consumed: 40000,
+      reserved: 10000,
+      available: 50000,
+      pending: 2000,
+      warningPercentage: 0,
+      period: {
+        timezone: 'Asia/Dubai',
+        startsAt: '2026-09-30T20:00:00Z',
+        resetsAt: '2026-10-31T20:00:00Z',
+      },
+    },
+  };
+}
+/** Supplies secret-free enterprise call attribution. */
+export function usageFixture() {
+  return {
+    contractVersion: 1,
+    observedAt: '2026-10-03T12:00:00Z',
+    context: {
+      tenantCode: 'tenant',
+      enterpriseCode: 'enterprise',
+      principalCode: 'employee',
+    },
+    scope: 'PERSONAL',
+    state: 'AVAILABLE',
+    canViewEnterprise: true,
+    hasMore: false,
+    presentation: {
+      ...Object.fromEntries(usageTextKeys.map((key) => [key, key])),
+      title: 'Usage and budgets',
+      history: 'Accounting period',
+      currentPeriod: 'Current period',
+      previousPeriod: 'Previous period',
+      comparison: 'Period comparison',
+      comparisonNotice:
+        'Selected period / previous full period; the current period may be incomplete.',
+      noRecordedUsage: 'No recorded calls match this period and these filters.',
+      noComparison: 'No matching usage is recorded for the preceding period.',
+      queue: 'Unresolved calls',
+      allCalls: 'All calls',
+      previousPage: 'Previous page',
+      nextPage: 'Next page',
+      evidenceAvailable: 'Measurement recorded',
+      evidenceMissing: 'No recorded measurement',
+      evidenceDisabled: 'Receipt inspection disabled',
+      allocations: 'Manage allocations',
+      daily: 'Daily usage',
+      breakdown: 'Usage breakdown',
+      details: 'Call details',
+      close: 'Close',
+      adapter: 'Provider adapter',
+      profile: 'Usage profile',
+      callId: 'Call reference',
+      period: 'Accounting period',
+      created: 'Started',
+      completed: 'Last settlement',
+      evidence: 'Recorded provider measurement',
+      noEvidence: 'No verified measurement. Reservation remains held.',
+      reconcile: 'Reconcile usage',
+      reason: 'Reason for reconciliation',
+      review: 'Review reconciliation',
+      confirm: 'Confirm reconciliation',
+      cancel: 'Cancel',
+      reviewNotice: 'Apply recorded provider counts without repeating the call.',
+      uncertain: 'Outcome uncertain. Refresh the call before another action.',
+      reviewFailed: 'Review unavailable. Refresh the call.',
+      refreshCall: 'Refresh call',
+      reconciled: 'Reconciled by',
+      noBreakdown: 'No usage for these filters',
+      measured: 'Measured',
+      inProgress: 'In progress',
+      reconciliation: 'Pending reconciliation',
+      conversationPurpose: 'Conversation',
+      indexingPurpose: 'Knowledge preparation',
+      evaluationPurpose: 'Evaluation',
+      retryPurpose: 'Retry',
+      planningPurpose: 'Planning',
+      all: 'All',
+      personal: 'Personal',
+      enterprise: 'Enterprise',
+      refresh: 'Refresh usage',
+      consumed: 'Consumed tokens',
+      reserved: 'Reserved tokens',
+      pending: 'Pending reconciliation',
+      calls: 'Model calls',
+      principal: 'Employee',
+      model: 'Model',
+      purpose: 'Purpose',
+      apply: 'Apply filters',
+      recent: 'Recent calls',
+      reset: 'Next reset',
+      state: 'Accounting state',
+    },
+    period: {
+      timezone: 'Asia/Dubai',
+      startsAt: '2026-09-30T20:00:00Z',
+      resetsAt: '2026-10-31T20:00:00Z',
+    },
+    totals: { consumed: 4000, reserved: 600, pending: 600, calls: 2 },
+    items: [
+      {
+        callId: 'call-1',
+        principalCode: 'employee',
+        model: 'qwen2.5-coder:7b',
+        purpose: 'CONVERSATION',
+        state: 'MEASURED',
+        consumed: 4000,
+        reserved: 0,
+        createdAt: '2026-10-03T11:00:00Z',
+      },
+      {
+        callId: 'call-2',
+        principalCode: 'employee',
+        model: 'qwen2.5-coder:7b',
+        purpose: 'CONVERSATION',
+        state: 'PENDING',
+        consumed: null,
+        reserved: 600,
+        createdAt: '2026-10-03T12:00:00Z',
+      },
+    ],
+  };
+}
+/** Supplies active authorized context choices, never source content. */
+export function contextFixture() {
+  return {
+    contractVersion: 1,
+    enterpriseCode: 'enterprise',
+    groups: {
+      enabled: true,
+      items: [
+        { code: 'framework', name: 'Framework guides' },
+        { code: 'project', name: 'Project guides' },
+      ],
+    },
+    recording: {
+      enabled: false,
+      notice:
+        'Content not recorded. Answers are available in this session only; lost responses and closed sessions cannot be restored.',
+    },
+    access: [
+      'copilot.knowledge.internal.read',
+      'copilot.mutation.prepare',
+      'copilot.mutation.execute',
+      'copilot.activity.read',
+    ].map((permission, index) => ({ permission, allowed: index < 2 })),
+    presentation: {
+      groups: 'Knowledge context',
+      allGroups: 'All permitted active groups',
+      noGroups: 'No knowledge groups selected',
+      access: 'My access',
+      allowed: 'Granted',
+      denied: 'Not granted',
+      knowledge: 'Internal knowledge',
+      prepare: 'Prepare changes',
+      execute: 'Execute approved changes',
+      activity: 'Enterprise activity',
+    },
+  };
+}

@@ -273,6 +273,9 @@ describe('owner-declared row inspection', () => {
       const submit = screen.getByRole('button', { name: 'Request Approval' });
       await waitFor(() => expect(submit).toBeEnabled());
       const user = userEvent.setup();
+      const reference = screen.getByRole('textbox', { name: 'Reference' });
+      expect(reference).toHaveAttribute('readonly');
+      const originalReference = (reference as HTMLInputElement).value;
       await user.click(submit);
       await screen.findByText('Acknowledgement unavailable');
       expect(submit).toBeDisabled();
@@ -283,6 +286,7 @@ describe('owner-declared row inspection', () => {
       await user.click(submit);
       await waitFor(() => expect(commands).toHaveLength(2));
       expect(commands[1]).toBe(commands[0]);
+      expect(reference).toHaveValue(originalReference);
     } finally {
       window.history.replaceState({}, '', original);
     }

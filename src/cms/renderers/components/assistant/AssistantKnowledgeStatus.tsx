@@ -1,3 +1,4 @@
+/** @file Displays scoped owner readiness without turning unavailable counts into zero. */
 import {
   Alert,
   Box,
@@ -41,10 +42,14 @@ export function AssistantKnowledgeStatus(props: AssistantKnowledgeStatusProps) {
       </Alert>
     );
   if (!props.status) return null;
-  const chunks = props.status.sources.reduce(
-    (total, source) => total + source.chunksProjected,
-    0,
-  );
+  const chunks = props.status.sources.every(
+    (source) => source.chunksProjected !== undefined,
+  )
+    ? props.status.sources.reduce(
+        (total, source) => total + (source.chunksProjected ?? 0),
+        0,
+      )
+    : undefined;
   return (
     <Box
       sx={{
@@ -64,7 +69,9 @@ export function AssistantKnowledgeStatus(props: AssistantKnowledgeStatusProps) {
           size="small"
           label={`${props.sourcesLabel}: ${props.status.sources.length}`}
         />
-        <Chip size="small" label={`${props.chunksLabel}: ${chunks}`} />
+        {chunks === undefined ? null : (
+          <Chip size="small" label={`${props.chunksLabel}: ${chunks}`} />
+        )}
         {props.status.lastRefreshAt ? (
           <Typography color="text.secondary" variant="caption">
             {props.lastRefreshLabel}:{' '}

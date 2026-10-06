@@ -169,6 +169,11 @@ functional module.
 
 ## Documentation
 
+Keep frontend guidance in this README and capability-near READMEs, including
+[the app workspace guide](src/app/README.md). Do not create a frontend `docs/`
+tree. Canonical product guides are maintained by
+[the backend Axis documentation owner](../../nodics.ai/nodics.platform/modules/axis/README.md).
+
 Axis owns this high-level frontend README, executable documentation renderers,
 and frontend contribution guidance. Backend-importable documentation content,
 CMS Site/catalog/page/component records, and immutable documentation content-pack

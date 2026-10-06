@@ -1,3 +1,4 @@
+/** @file Native BackOffice composition lifecycle transport; export reads the authorized snapshot, without a legacy-route fallback. */
 import type { AxisModuleConnection } from '../../../bootstrap/publicBootstrap';
 
 export interface NavigationCompositionClientConfiguration {
@@ -97,6 +98,7 @@ async function request(
   }
 }
 
+/** Invokes one fixed native action under the current employee; transport failure never retries lifecycle commands. */
 export async function executeNavigationCompositionAction(
   connection: AxisModuleConnection,
   configuration: NavigationCompositionClientConfiguration,
@@ -116,7 +118,7 @@ export async function executeNavigationCompositionAction(
     Readonly<{ method: 'GET' | 'POST'; path: string }>
   > = {
     preview: { method: 'POST', path: '/navigation/composition/preview' },
-    export: { method: 'GET', path: '/navigation/composition/export' },
+    export: { method: 'GET', path: '/navigation/composition/snapshot' },
     createDraft: { method: 'POST', path: '/navigation/composition/draft' },
     submit: { method: 'POST', path: '/navigation/composition/draft/submit' },
     approve: { method: 'POST', path: '/navigation/composition/draft/approve' },

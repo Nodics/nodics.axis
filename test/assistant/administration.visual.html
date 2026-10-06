@@ -1,0 +1,207 @@
+<!doctype html>
+<!-- Synthetic settings acceptance fixture; not signed-in runtime evidence. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Copilot settings visual fixture</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 1200px; margin: 0 auto; padding: 24px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { CopilotAdministrationSession } from '/src/assistant/CopilotAdministrationRoutePage.tsx';
+      import { settingsPresentationFixture } from '/test/assistant/settingsPresentationFixture.ts';
+      import { refreshAssignmentFixture } from '/test/assistant/refreshAssignmentFixture.ts';
+      import { businessActionControlsFixture } from '/test/assistant/businessActionControlsFixture.ts';
+      const settings = {
+        presentation: settingsPresentationFixture,
+        contractVersion: 1,
+        enterpriseCode: 'example',
+        revision: 'a'.repeat(64),
+        approvalRequired: true,
+        sections: [
+          businessActionControlsFixture,
+          refreshAssignmentFixture,
+          {
+            code: 'automation',
+            scope: 'TENANT_RUNTIME',
+            title: 'Knowledge automation',
+            editable: true,
+            fields: [
+              {
+                id: 'publication',
+                label: 'Atomic generation publication',
+                kind: 'boolean',
+                value: true,
+              },
+              {
+                id: 'incremental',
+                label: 'Reuse verified unchanged sources',
+                kind: 'boolean',
+                value: false,
+              },
+              {
+                id: 'workflow',
+                label: 'Process-backed refresh',
+                kind: 'boolean',
+                value: true,
+              },
+              {
+                id: 'events',
+                label: 'Assigned source-change publishers',
+                kind: 'boolean',
+                value: false,
+              },
+              {
+                id: 'recovery',
+                label: 'Reviewed pending-writer retirement',
+                kind: 'boolean',
+                value: false,
+              },
+              {
+                id: 'minimumPendingAgeMs',
+                label: 'Minimum pending-writer age (milliseconds)',
+                kind: 'number',
+                value: 300000,
+                minimum: 60000,
+                maximum: 86400000,
+              },
+            ],
+          },
+          {
+            code: 'allocations',
+            scope: 'ENTERPRISE',
+            title: 'Recurring allocations',
+            editable: true,
+            fields: [
+              {
+                id: 'enterprise',
+                label: 'Enterprise default',
+                kind: 'number',
+                value: 200000,
+                maximum: 500000,
+              },
+              {
+                id: 'user.0',
+                label: 'Operations manager',
+                kind: 'number',
+                value: 50000,
+                maximum: 100000,
+              },
+              {
+                id: 'user.1',
+                label: 'Customer support',
+                kind: 'number',
+                value: 25000,
+                maximum: 50000,
+              },
+            ],
+          },
+          {
+            code: 'provider',
+            scope: 'TENANT_RUNTIME',
+            title: 'Provider and model',
+            editable: true,
+            fields: [
+              {
+                id: 'adapter',
+                label: 'Default provider',
+                kind: 'select',
+                value: 'ollama',
+                options: ['ollama'],
+              },
+              {
+                id: 'model.ollama',
+                label: 'Ollama model',
+                kind: 'text',
+                value: 'qwen2.5-coder:7b',
+              },
+            ],
+          },
+          {
+            code: 'recording',
+            scope: 'TENANT_RUNTIME',
+            title: 'Conversation recording',
+            editable: true,
+            fields: [
+              {
+                id: 'enabled',
+                label: 'Record future turns',
+                kind: 'boolean',
+                value: true,
+              },
+            ],
+          },
+        ],
+      };
+      const realFetch = window.fetch;
+      window.fetch = async (url, options) => {
+        if (!String(url).startsWith('http://fixture.invalid/'))
+          return realFetch(url, options);
+        const command = options?.body ? JSON.parse(options.body) : {};
+        const data = String(url).includes('/administration/history')
+          ? {
+              contractVersion: 1,
+              enterpriseCode: 'example',
+              page: 1,
+              limit: 25,
+              mayHaveMore: false,
+              items: [
+                {
+                  code: 'example-request',
+                  requestedBy: 'Example administrator',
+                  status: 'REQUESTED',
+                  occurredAt: '2026-10-03T10:00:00.000Z',
+                },
+              ],
+            }
+          : String(url).endsWith('/preview')
+            ? {
+                contractVersion: 1,
+                enterpriseCode: 'example',
+                section: command.section,
+                approvalRequired: true,
+                previewDigest: 'b'.repeat(64),
+                changes: settings.sections
+                  .find((section) => section.code === command.section)
+                  .fields.filter(
+                    (field) =>
+                      JSON.stringify(field.value) !==
+                      JSON.stringify(command.values[field.id]),
+                  )
+                  .map((field) => ({
+                    label: field.label,
+                    before: field.value,
+                    after: command.values[field.id],
+                  })),
+              }
+            : String(url).endsWith('/requests')
+              ? {
+                  contractVersion: 1,
+                  enterpriseCode: 'example',
+                  code: 'example-request',
+                  status: 'REQUESTED',
+                }
+              : settings;
+        return new Response(JSON.stringify({ code: 'SUC_TEST', data }));
+      };
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(CopilotAdministrationSession, {
+            configuration: {
+              accessToken: 'fixture',
+              enterpriseCode: 'example',
+              moduleBaseUrl: 'http://fixture.invalid/copilotApi',
+              timeoutMs: 1000,
+            },
+          }),
+        ),
+      );
+    </script>
+  </body>
+</html>

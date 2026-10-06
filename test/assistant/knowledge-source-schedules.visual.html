@@ -1,0 +1,84 @@
+<!doctype html>
+<!-- Synthetic source-aware schedule draft journey. No real persistence or activation. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Knowledge source schedules</title>
+  </head>
+  <body>
+    <div id="root" style="max-width: 1100px; margin: 0 auto; padding: 20px"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { AxisThemeProvider } from '/src/app/AxisThemeProvider.tsx';
+      import { KnowledgeStudioView } from '/src/assistant/KnowledgeStudioView.tsx';
+      import { CronScheduleDraftPanel } from '/src/operations/cron/CronScheduleDraftPanel.tsx';
+      import { parseKnowledgeInventory } from '/src/assistant/api/knowledgeStudioClient.ts';
+      import { knowledgeStudioFixture } from './knowledgeStudioFixture.ts';
+      import {
+        createDraftFixture,
+        connection,
+        configuration,
+      } from '../cron/scheduleDraftFixture.ts';
+      const fixture = knowledgeStudioFixture();
+      Object.assign(fixture.presentation, {
+        subtitle: 'Source inventory',
+        refresh: 'Refresh inventory',
+        repository: 'Repository',
+        project: 'Project',
+        module: 'Module',
+        owner: 'Owner',
+        classification: 'Classification',
+        version: 'Version',
+        included: 'Included paths',
+        excluded: 'Excluded paths',
+        extensions: 'File types',
+        secretScan: 'Secret scanning required',
+        enabled: 'Enabled',
+        unknown: 'Not yet verified',
+        source: 'Sources',
+      });
+      const binding = {
+        moduleName: 'copilotApi',
+        sourceCode: fixture.sources[0].code,
+        policyDigest: 'a'.repeat(64),
+      };
+      const transport = createDraftFixture(false, binding);
+      window.fetch = transport.fetcher;
+      const inventory = parseKnowledgeInventory({
+        ...fixture,
+        context: { ...fixture.context, enterpriseCode: configuration.enterpriseCode },
+        sourceSchedules: { ownerModule: 'cronjob', enabled: true },
+        sources: fixture.sources.map((source) => ({
+          ...source,
+          sourcePolicyDigest: binding.policyDigest,
+        })),
+      });
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          AxisThemeProvider,
+          null,
+          React.createElement(KnowledgeStudioView, {
+            inventory,
+            refreshing: false,
+            onRefresh: () => {},
+            onPreview: async () => {
+              throw new Error('Fixture is read-only');
+            },
+            sourceSchedule: (source) =>
+              React.createElement(CronScheduleDraftPanel, {
+                connection,
+                configuration,
+                sourceBinding: {
+                  moduleName: 'copilotApi',
+                  sourceCode: source.code,
+                  policyDigest: source.sourcePolicyDigest,
+                },
+              }),
+          }),
+        ),
+      );
+    </script>
+  </body>
+</html>
