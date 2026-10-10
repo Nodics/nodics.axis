@@ -40,6 +40,28 @@ function response(readiness = 'READY', allowedActions = ['ROLLBACK', 'RETIRE']) 
 }
 
 describe('documentation publication client', () => {
+  it.each(['IMPORTING', 'BLOCKED', 'MEDIA_DEPENDENCIES_PENDING'])(
+    'retains the fail-closed owner readiness state %s',
+    async (readiness) => {
+      const client = createDocumentationPublicationClient(
+        {
+          connection,
+          enterpriseCode: 'default',
+          accessToken: 'employee-token',
+          timeoutMs: 1_000,
+          profileCode: 'frameworkdocs',
+        },
+        vi
+          .fn<typeof fetch>()
+          .mockResolvedValue(
+            new Response(JSON.stringify(response(readiness, [])), { status: 200 }),
+          ),
+      );
+      const status = await client.getStatus();
+      expect(status.readiness).toBe(readiness);
+      expect(status.allowedActions).toEqual([]);
+    },
+  );
   it('uses only the governed initialization lifecycle endpoints', async () => {
     const fetchImplementation = vi.fn<typeof fetch>().mockImplementation(() =>
       Promise.resolve(

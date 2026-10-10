@@ -5,7 +5,7 @@ import {
   fullMergedApplicationsFixture,
 } from './dashboardCompositionFixture';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -133,28 +133,76 @@ function renderPage(
     </AxisThemeProvider>,
   );
 }
-function mockStatus() {
-  return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-    new Response(
-      JSON.stringify({
-        data: {
-          profileCode: profile.code,
-          type: profile.type,
-          owner: profile.owner,
-          applicationCode: profile.applicationCode,
-          siteCode: profile.siteCode,
-          readiness: 'BLOCKED',
-          releaseCode: 'release',
-          releaseVersion: '1',
-          allowedActions: [],
-        },
-      }),
-      { status: 200 },
+function mockStatus(readiness: () => string = () => 'BLOCKED') {
+  return vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          data: {
+            profileCode: profile.code,
+            type: profile.type,
+            owner: profile.owner,
+            applicationCode: profile.applicationCode,
+            siteCode: profile.siteCode,
+            readiness: readiness(),
+            releaseCode: 'release',
+            releaseVersion: '1',
+            allowedActions: [],
+          },
+        }),
+        { status: 200 },
+      ),
     ),
   );
 }
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 describe('Application-first dashboard', () => {
+  it('observes active preparation and stops after the owner reports completion', async () => {
+    vi.useFakeTimers();
+    let state = 'IMPORTING';
+    const fetch = mockStatus(() => state);
+    renderPage();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    state = 'READY';
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2100);
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60000);
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it('does not repeatedly poll stable application and documentation profiles', async () => {
+    vi.useFakeTimers();
+    const fetch = mockStatus();
+    renderPage({
+      ...bootstrap,
+      applicationInitializationProfiles: [
+        profile,
+        {
+          ...profile,
+          code: 'guide',
+          kind: 'DOCUMENTATION',
+          type: 'DOCUMENTATION_BUNDLE',
+        },
+      ],
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60000);
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
   it('keeps environment guidance reachable in the complete Applications journey', async () => {
     mockStatus();
     renderPage(

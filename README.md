@@ -181,8 +181,8 @@ manifests for Axis are owned by the backend Platform `axis` module at
 `nodics.ai/nodics.platform/modules/axis`.
 
 Axis must not package database import data. When detailed documentation content
-changes, update the backend Platform `axis` module's canonical documentation
-source, regenerate its backend-owned content pack, import it through the
+changes, update the backend Platform `axis` module's canonical CMS data and Media
+dependencies, validate the owning release, import and publish it through the
 governed Nodics process, and let Axis render the CMS-delivered result.
 
 Localization keys, values, approval, and publication remain backend-owned.
@@ -212,6 +212,23 @@ For a first-time local walkthrough:
 This order matters. Axis should feel like a complete BackOffice product, but
 its documentation data and API authority still come from backend modules and
 customer projects.
+
+## Coordinated Documentation Publication
+
+The explicit Approve action completes the existing CMS Process decision, reads
+the backend's pinned Media dependencies, then initiates missing assets through
+the selected Staged Media connection with the employee bearer and exact checksum.
+It completes each actual Media Process task under the existing reviewer policy.
+It never executes returned command URLs, grants permissions, or mutates on mount.
+Denial stops the sequence; completed owner effects remain audited. An explicit
+Complete asset approvals action resumes from fresh evidence without reapproving
+qualified assets. Only backend readiness establishes whole-pack availability;
+this coordination is not a cross-runtime transaction. Owner customization stays
+in CMS, Media and Process rather than a project-specific publishing implementation.
+Shell, dashboard and article observers share readiness evidence for at most 30
+seconds, without focus-triggered duplicate checks. Pending CMS approvals poll at
+10 seconds; explicit refresh and post-action reads still query the owner. This
+display cache is not authorization or a substitute for exact publication checks.
 
 ## Extension boundary
 

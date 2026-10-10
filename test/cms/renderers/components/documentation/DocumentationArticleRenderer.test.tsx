@@ -56,6 +56,30 @@ const article: CmsComponentContract = {
 };
 
 describe('DocumentationArticleRenderer', () => {
+  it('renders owner-resolved related guides and rejects unsafe link projections', () => {
+    render(
+      <MemoryRouter>
+        <DocumentationArticleRenderer
+          component={{
+            ...article,
+            properties: {
+              ...article.properties,
+              relatedLinks: [
+                { title: 'Shared capability', route: '/docs/shared#ownership' },
+                { title: 'Unsafe reference', route: 'javascript:alert(1)' },
+              ],
+            },
+          }}
+        />
+      </MemoryRouter>,
+    );
+    const related = screen.getByRole('navigation', { name: 'Related documentation' });
+    expect(
+      within(related).getByRole('link', { name: 'Shared capability' }),
+    ).toHaveAttribute('href', '/docs/shared#ownership');
+    expect(within(related).queryByText('Unsafe reference')).not.toBeInTheDocument();
+  });
+
   it('opens with a fitted overview, then zooms to readable native size within a scrollable viewport', async () => {
     const user = userEvent.setup();
     render(

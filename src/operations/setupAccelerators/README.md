@@ -33,6 +33,39 @@ the old operation error only when a newer owner response confirms that operation
 requested state transition; do not parse timeout wording or treat an unrelated
 CURRENT release as success. Otherwise preserve the failure and explicit recovery.
 
+For long governed imports, select public `AXIS_REQUEST_TIMEOUT_MS=360000` in the
+root local `.env`; the validated range is 1000..600000 ms and the example remains 10000. Application Initialization already honors the larger configured value
+above its 180000 ms mutation minimum (60000 ms for status reads). Restart the Axis
+dev server or rebuild its deployment to load changed public configuration.
+This wait does not extend backend deadlines or retry a mutation. After an uncertain
+response, inspect fresh owner status/history before another explicit action.
+
+## Signed Operator Stages
+
+For profiles with `preparation.selectionRequired`, Setup renders one explicit
+stage dropdown from the current owner's `selectableStepCodes`. Nothing is selected
+on mount; a changed owner status or session invalidates the old choice. Initialize
+requires both the existing `allowedActions: INITIALIZE` and one still-selectable
+code, even when aggregate preparation is BLOCKED by foreign operators. It sends
+only `afterPublicationStepCode` through the existing initiate client. An empty
+choice list never selects another enterprise or dispatches a bulk AFTER action.
+All required stages remain visible in preparation details, including their
+projected operator and `AUTHORITY_PENDING` status. Local success is not foreign
+proof or aggregate READY. Unscoped profiles retain their selector-free lifecycle.
+
+BackOffice owns signed-operator eligibility, stage ordering, prerequisites and
+dispatch; nPublish/nImport retain their authorization. Axis neither interprets
+the token to grant stage access nor changes the enterprise header to match a
+descriptor. Malformed, duplicate, unknown or contradictory selectable projections
+fail closed; revoked choices and failed status reads disable commands. No command
+is retried automatically. The canonical contract is
+[governed application setup](../../../../../nodics.ai/nodics.platform/modules/backoffice/llm/contracts/governed-application-setup.md#explicit-signed-operator-stages).
+Customize option presentation with the owner's step label, code and operator
+metadata, never by widening its selectable list. The existing route/client tests
+cover explicit/unselected/foreign/normal initialization, refresh revocation,
+bounded projection validation and the exact request body; these are local fixtures,
+not signed-in or live acceptance.
+
 Required Media readiness belongs to the backend readiness owner. It must report
 missing/unknown activation through existing business status, blockers and next
 action; a CMS Online receipt alone cannot certify Media. Axis also rejects a
@@ -40,8 +73,22 @@ contradictory ONLINE label when readiness is not READY or an ERROR, BLOCKED, or
 REPAIR_REQUIRED blocker remains. INFO and WARNING alone do not negate Online.
 Read-only detail expansion remains available during stale/error reads; mutating
 commands stay blocked until authoritative status is available again.
-Media publication UI belongs to its owning native workspace, not setup-owned
-grants, guessed proof fields or automatic approvals.
+An explicit Approve completes the CMS Process task, observes CMS activation with
+at most twenty 500ms GET waits, then uses `coordinatePublicationAssets` with the
+fresh owner's bounded `mediaDependencies`. Each unqualified asset uses the existing
+Staged Media client with its exact publication code, version and checksum. Only an
+actionable Process task matching the returned Media workflow may be approved;
+Media and Process retain employee authorization. No decisions run on mount.
+Denial or missing task evidence stops the sequence and retains completed owner
+effects. CMS Online alone does not clear an asset approval failure. Only fresh
+READY evidence confirms the whole approval operation.
+
+At `MEDIA_DEPENDENCIES_PENDING`, Complete asset approvals is available with
+Staged Media, Process and owner dependencies. It re-reads owner evidence without
+requiring or replaying the completed CMS task, and skips already qualified assets.
+Reject is disabled in this state; a pending CMS Reject retains its existing
+decision and never requests or approves Media. These are independent owner
+operations, not a cross-runtime transaction or a new permission grant.
 
 Media-owned blockers with an explicit asset projection are grouped into one
 inspection table, retaining every media reference, pinned source version and
@@ -56,9 +103,10 @@ The existing handoff carries only mediaCode, not a historical-version selector.
 The destination's readSource therefore inspects current Media metadata. The table's
 pinned version describes the CMS dependency; it is not a claim that current-version
 inspection selects that immutable historical source. Exact-version source drift
-requires Media/CMS owner resolution; Setup never sends the projected publication
-POST, substitutes versions or approves Media. Reviewer eligibility and business
-task context must be projected by Process before Axis can render those decisions.
+requires Media/CMS owner resolution. Setup never executes a projected command URL
+or substitutes versions. Coordinated approval uses only the typed native Media
+request and existing Process decision contract described above; reviewer policy
+remains backend-owned.
 
 Available REFRESH_READINESS descriptors bind only confirmation-free
 `applicationInitialization.status` to explicit GET refresh. They never invoke

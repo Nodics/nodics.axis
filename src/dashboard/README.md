@@ -1,5 +1,16 @@
 # CMS-Governed Dashboard
 
+## Bounded Application Observation
+
+Applications reads the existing owner status once, then reuses Setup's bounded
+read-only observer only while imports, preparation or activation are progressing.
+Stable, review-pending, blocked and unconfigured documentation/application profiles
+do not poll every fifteen seconds. Active observation retains backoff, cooldown
+and the five-minute bound; it never retries a mutation or relaxes server limits.
+The explicit refresh control remains available, and missing or failed evidence
+remains unverified. Customize presentation through CMS; do not create a second
+readiness authority. Dashboard and shared observer tests protect this contract.
+
 ## Framework business Overview
 
 `axis:core-v010` selects `layout: framework` on Overview only. Applications and

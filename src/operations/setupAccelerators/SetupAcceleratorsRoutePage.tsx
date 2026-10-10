@@ -33,6 +33,8 @@ import {
   resolveImportHistoryHandoff,
 } from '../importExport/importHistoryHandoff';
 import { resolveMediaPublicationHandoff } from '../readiness/mediaPublicationHandoff';
+import { coordinatePublicationAssets } from '../readiness/coordinatePublicationAssets';
+import { requestMediaPublication } from '../mediaManagement/api/mediaPublicationClient';
 import {
   applicationReadinessInProgress,
   applicationReadinessCooldownUntil,
@@ -196,10 +198,7 @@ function operationConfirmed(
       status.readiness !== previous?.readiness
     );
   if (operation === 'approve')
-    return (
-      status.publication?.state === 'ONLINE' &&
-      previous?.publication?.state !== 'ONLINE'
-    );
+    return status.readiness === 'READY' && previous?.readiness !== 'READY';
   if (operation === 'reject')
     return (
       status.publication?.state === 'REJECTED' &&
@@ -258,6 +257,7 @@ function blockedActionSummary(
 
 function setupActionLabel(status: ApplicationInitializationStatus | undefined): string {
   if (!status) return 'Initialize';
+  if (status.preparation?.selectionRequired) return 'Initialize';
   if (status.readiness === 'IMPORTED') return 'Submit for review';
   if (status.readiness === 'READY' && preparationNeedsAction(status)) {
     return 'Prepare setup';
@@ -369,6 +369,7 @@ function capabilityNeedsAction(
 function preparationStatusLabel(status: string | undefined, trigger: string): string {
   if (!status) return triggerLabel(trigger);
   if (status === 'SOURCE_READY') return 'Source ready';
+  if (status === 'AUTHORITY_PENDING') return 'Authority pending';
   if (status === 'CURRENT') return 'Current';
   if (status === 'NOT_INSTALLED') return 'Not installed';
   if (status === 'NOT_REGISTERED') return 'Register required';
@@ -496,6 +497,8 @@ function isCustomizationProfile(profile: ApplicationInitializationProfile): bool
 function nextActionText(status: ApplicationInitializationStatus | undefined): string {
   if (!status) return 'Status unavailable';
   if (status.capability?.nextAction) return status.capability.nextAction;
+  if (status.preparation?.selectionRequired)
+    return 'Required setup stages remain pending.';
   if (preparationBlocked(status)) {
     return blockedActionSummary(status);
   }
@@ -628,6 +631,17 @@ function publicationRecoveryGuidance(
           : '',
       actionLabel: prerequisiteRepair.label,
       severity: 'error',
+      priority: 20,
+    };
+  }
+  if (status.preparation?.selectionRequired) {
+    return {
+      key: `${profile.code}:operator-stages`,
+      title: `${title}: required setup stages`,
+      body: status.capability?.nextAction ?? 'Required setup stages remain pending.',
+      route: '',
+      actionLabel: 'Review setup stages',
+      severity: 'warning',
       priority: 20,
     };
   }
@@ -887,6 +901,9 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
   const processConnection = selectModuleConnection(props.bootstrap, 'workflow', {
     server: 'processServer',
   });
+  const mediaConnection = selectModuleConnection(props.bootstrap, 'media', {
+    publicationRole: 'STAGED',
+  });
   const profiles = useMemo(
     () =>
       (props.bootstrap.applicationInitializationProfiles ?? [])
@@ -924,6 +941,11 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
     () => ({ clients, started: new Map<string, number>() }),
     [clients],
   );
+  // A choice belongs to one session/client set and one fresh owner status, never a remembered grant.
+  const [stageSelections, setStageSelections] = useState<{
+    clients: typeof clients;
+    choices: Record<string, { code: string; status: ApplicationInitializationStatus }>;
+  }>();
   const [cooldownTick, setCooldownTick] = useState(() => Date.now());
   const queries = useQueries({
     queries: profiles.map((profile) => ({
@@ -989,11 +1011,13 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
       status,
       operation,
       reason,
+      afterPublicationStepCode,
     }: {
       readonly profile: ApplicationInitializationProfile;
       readonly status?: ApplicationInitializationStatus | undefined;
       readonly operation: AcceleratorOperation;
       readonly reason?: string | undefined;
+      readonly afterPublicationStepCode?: string | undefined;
     }) => {
       const client = clients.get(profile.code);
       if (!client)
@@ -1013,6 +1037,22 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
         !current.data.allowedActions.includes('INITIALIZE')
       )
         throw new Error('Initialization is not available in the current setup state.');
+      if (operation === 'initiate') {
+        const preparation = current.data.preparation;
+        if (
+          preparation?.selectionRequired &&
+          (current.data !== status ||
+            !afterPublicationStepCode ||
+            !preparation.selectableStepCodes?.includes(afterPublicationStepCode))
+        )
+          throw new Error(
+            'Select an available setup stage from the current owner status.',
+          );
+        if (afterPublicationStepCode && !preparation?.selectionRequired)
+          throw new Error(
+            'Setup stage selection is not available in the current owner status.',
+          );
+      }
       if (
         (operation === 'approve' || operation === 'reject') &&
         (current.data.publication?.code !== status?.publication?.code ||
@@ -1023,6 +1063,59 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
           'Publication changed. Refresh its review before taking action.',
         );
       if (operation === 'approve' || operation === 'reject') {
+        const configuration = {
+          accessToken: props.accessToken,
+          enterpriseCode: props.runtime.enterpriseCode,
+          timeoutMs: props.runtime.requestTimeoutMs,
+        };
+        // Re-read pinned owner evidence after CMS activation, including explicit asset retries.
+        const finishAssets = async () => {
+          let nextStatus = await client.getStatus();
+          for (
+            let attempt = 0;
+            attempt < 20 &&
+            ['APPROVED', 'ACTIVATING'].includes(nextStatus.publication?.state ?? '');
+            attempt++
+          ) {
+            await new Promise((resolve) => globalThis.setTimeout(resolve, 500));
+            nextStatus = await client.getStatus();
+          }
+          if (nextStatus.readiness !== 'MEDIA_DEPENDENCIES_PENDING') return nextStatus;
+          if (!nextStatus.mediaDependencies || !mediaConnection || !processConnection)
+            throw new Error(
+              'Pack Media publication requires Staged Media and Process connections',
+            );
+          await coordinatePublicationAssets(
+            nextStatus.mediaDependencies.dependencies,
+            (input) => requestMediaPublication(mediaConnection, configuration, input),
+            async (reference) => {
+              const tasks = await loadProcessTasks(
+                processConnection,
+                configuration,
+                reference,
+              );
+              const task = findActionableProcessApprovalTask(
+                tasks.filter((candidate) => candidate.instanceCode === reference),
+              );
+              if (!task)
+                throw new Error(
+                  'Media approval task is not actionable; review Process evidence',
+                );
+              await completeProcessTask(processConnection, configuration, task.code, {
+                approved: true,
+                reason: `${profile.title} pinned Media publication approved from Setup & Accelerators`,
+              });
+            },
+          );
+          return client.getStatus();
+        };
+        if (
+          operation === 'approve' &&
+          current.data.readiness === 'MEDIA_DEPENDENCIES_PENDING'
+        )
+          return finishAssets();
+        if (!canApprove(current.data))
+          throw new Error('Publication is not awaiting a CMS review decision.');
         if (!processConnection || !status?.publication?.workflowRef) {
           throw new Error(
             processApprovalUnavailableMessage({
@@ -1032,11 +1125,6 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
             }),
           );
         }
-        const configuration = {
-          accessToken: props.accessToken,
-          enterpriseCode: props.runtime.enterpriseCode,
-          timeoutMs: props.runtime.requestTimeoutMs,
-        };
         const workflowRef = status.publication.workflowRef;
         const tasks = await loadProcessTasks(
           processConnection,
@@ -1065,7 +1153,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
               ? `${profile.title} approved from Setup & Accelerators`
               : `${profile.title} rejected from Setup & Accelerators; Online remains unchanged`,
         });
-        return client.getStatus();
+        return operation === 'approve' ? finishAssets() : client.getStatus();
       }
       if (operation === 'prepare') {
         return client.prepare({
@@ -1085,7 +1173,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
       }
       if (operation === 'rollback') return client.rollback({ reason });
       if (operation === 'retire') return client.retire({ reason });
-      return client.initiate();
+      return client.initiate({ afterPublicationStepCode });
     },
     onSuccess: async (status, variables) => {
       if (variables.operation === 'rollback' || variables.operation === 'retire') {
@@ -1484,9 +1572,27 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                               query.dataUpdatedAt,
                             );
                         const expanded = expandedProfile === profile.code;
+                        const selectionRequired =
+                          status?.preparation?.selectionRequired === true;
+                        const selectableSteps =
+                          status?.preparation?.steps.filter((step) =>
+                            status.preparation?.selectableStepCodes?.includes(
+                              step.code,
+                            ),
+                          ) ?? [];
+                        const choice =
+                          stageSelections?.clients === clients
+                            ? stageSelections.choices[profile.code]
+                            : undefined;
+                        const selectedStepCode =
+                          choice &&
+                          choice.status === status &&
+                          selectableSteps.some((step) => step.code === choice.code)
+                            ? choice.code
+                            : '';
                         const canInitialize =
                           Boolean(status?.allowedActions.includes('INITIALIZE')) &&
-                          !preparationBlocked(status) &&
+                          (!preparationBlocked(status) || selectionRequired) &&
                           status?.releaseStatus !== 'INVALID_RELEASE' &&
                           status?.readiness !== 'IMPORTING' &&
                           status?.preparation?.status !== 'RUNNING' &&
@@ -1506,8 +1612,14 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                           )
                             ? mutation.error.message
                             : undefined;
+                        const assetApprovalsPending =
+                          status?.readiness === 'MEDIA_DEPENDENCIES_PENDING';
                         const approvalActionsVisible = Boolean(
-                          status && canApprove(status),
+                          canApprove(status) ||
+                          (assetApprovalsPending &&
+                            mediaConnection &&
+                            processConnection &&
+                            status?.mediaDependencies?.dependencies.length),
                         );
                         const executableRepair = firstExecutableRepair(status);
                         const readinessRefresh = status?.capability?.blockers.find(
@@ -1633,6 +1745,49 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                       {guidance.actionLabel}: {guidance.body}
                                     </Typography>
                                   </Stack>
+                                  {selectionRequired ? (
+                                    <TextField
+                                      disabled={
+                                        commandsDisabled ||
+                                        !canInitialize ||
+                                        !selectableSteps.length
+                                      }
+                                      label="Setup stage"
+                                      onChange={(event) =>
+                                        setStageSelections((previous) => ({
+                                          clients,
+                                          choices: {
+                                            ...(previous?.clients === clients
+                                              ? previous.choices
+                                              : {}),
+                                            [profile.code]: {
+                                              code: event.target.value,
+                                              status,
+                                            },
+                                          },
+                                        }))
+                                      }
+                                      select
+                                      size="small"
+                                      sx={{ maxWidth: 480, width: '100%' }}
+                                      value={selectedStepCode}
+                                    >
+                                      <MenuItem value="">Select setup stage</MenuItem>
+                                      {selectableSteps.map((step) => (
+                                        <MenuItem
+                                          key={step.code}
+                                          value={step.code}
+                                          sx={{
+                                            whiteSpace: 'normal',
+                                            overflowWrap: 'anywhere',
+                                          }}
+                                        >
+                                          {step.label || step.description || step.kind}{' '}
+                                          ({step.code})
+                                        </MenuItem>
+                                      ))}
+                                    </TextField>
+                                  ) : null}
                                 </Stack>
                               ) : (
                                 <Alert severity="warning">
@@ -1716,12 +1871,18 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                   </Button>
                                 ) : status && canInitialize ? (
                                   <Button
-                                    disabled={commandsDisabled}
+                                    disabled={
+                                      commandsDisabled ||
+                                      (selectionRequired && !selectedStepCode)
+                                    }
                                     onClick={() =>
                                       mutation.mutate({
                                         operation: 'initiate',
                                         profile,
                                         status,
+                                        afterPublicationStepCode: selectionRequired
+                                          ? selectedStepCode
+                                          : undefined,
                                       })
                                     }
                                     size="small"
@@ -1738,7 +1899,9 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                       ? 'Working...'
                                       : setupActionLabel(status)}
                                   </Button>
-                                ) : status && preparationBlocked(status) ? (
+                                ) : status &&
+                                  preparationBlocked(status) &&
+                                  !selectionRequired ? (
                                   <Button
                                     disabled={commandsDisabled}
                                     onClick={() => void navigate('/registry')}
@@ -1780,7 +1943,9 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                     sx={{
                                       minHeight: 40,
                                       minWidth: 116,
-                                      whiteSpace: 'nowrap',
+                                      whiteSpace: assetApprovalsPending
+                                        ? 'normal'
+                                        : 'nowrap',
                                       width: '100%',
                                     }}
                                     variant="contained"
@@ -1788,7 +1953,9 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                     {pending &&
                                     mutation.variables?.operation === 'approve'
                                       ? 'Approving...'
-                                      : 'Approve'}
+                                      : assetApprovalsPending
+                                        ? 'Complete asset approvals'
+                                        : 'Approve'}
                                   </Button>
                                 ) : approvalActionsVisible ? (
                                   <Box
@@ -1803,7 +1970,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                 {approvalActionsVisible && status ? (
                                   <Button
                                     color="warning"
-                                    disabled={commandsDisabled}
+                                    disabled={commandsDisabled || assetApprovalsPending}
                                     onClick={() =>
                                       mutation.mutate({
                                         operation: 'reject',
@@ -2080,8 +2247,12 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                               sx={{ overflowWrap: 'anywhere' }}
                                               variant="body2"
                                             >
-                                              {step.kind ||
+                                              {step.label ||
+                                                step.kind ||
                                                 friendlyPackageLabel(step.code)}
+                                              {step.operatorEnterpriseCode
+                                                ? ` · ${step.code} · ${step.operatorEnterpriseCode}`
+                                                : ''}
                                             </Typography>
                                             <Chip
                                               label={`${step.targetRuntimeRole} · ${step.dataType}`}

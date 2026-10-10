@@ -19,6 +19,7 @@ type Preview = {
   status?: string;
   reason?: string;
   approvalReason?: string;
+  approvalCommandKey?: string;
   domain?: { summary: string };
 };
 /** Renders the Order-owned refund plan before an explicit moderator instruction. */
@@ -37,35 +38,36 @@ export function OrderRefundReview({
     [busy, setBusy] = useState(false),
     [reason, setReason] = useState(''),
     [error, setError] = useState('');
+  const commandKey = preview?.recovery ? preview.approvalCommandKey : code + ':refund';
+  const validCommand =
+    typeof commandKey === 'string' && /^[A-Za-z0-9._:-]{8,180}$/.test(commandKey);
+  const loadPreview = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const next = await invokeOperationalOwner<Preview>(
+        configuration,
+        'order',
+        '/disputes/' + encodeURIComponent(code) + '/refund-preview',
+        {},
+      );
+      setPreview(next);
+      setReason(next.approvalReason || '');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Cannot preview refund');
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <>
-      <Button
-        disabled={busy}
-        onClick={() => {
-          void (async () => {
-            setBusy(true);
-            setError('');
-            try {
-              const p = await invokeOperationalOwner<Preview>(
-                configuration,
-                'order',
-                '/disputes/' + encodeURIComponent(code) + '/refund-preview',
-                {},
-              );
-              setPreview(p);
-              setReason(p.approvalReason || '');
-            } catch (e) {
-              setError(e instanceof Error ? e.message : 'Cannot preview refund');
-            } finally {
-              setBusy(false);
-            }
-          })();
-        }}
-      >
+      <Button disabled={busy} onClick={() => void loadPreview()}>
         Preview refund and reversals
       </Button>
       {error && <Alert severity="error">{error}</Alert>}
       <Dialog
+        fullWidth
+        maxWidth="sm"
         open={!!preview}
         onClose={() => {
           if (!busy) setPreview(null);
@@ -74,6 +76,11 @@ export function OrderRefundReview({
         <DialogTitle>Review refund and reversals</DialogTitle>
         <DialogContent>
           {error && <Alert severity="error">{error}</Alert>}
+          {preview?.recovery && !validCommand && (
+            <Alert severity="error">
+              The original refund command reference is unavailable.
+            </Alert>
+          )}
           {preview?.eligible ? (
             <>
               <Typography>
@@ -102,14 +109,18 @@ export function OrderRefundReview({
           )}
         </DialogContent>
         <DialogActions>
+          <Button disabled={busy} onClick={() => void loadPreview()}>
+            Refresh refund plan
+          </Button>
           <Button disabled={busy} onClick={() => setPreview(null)}>
             Cancel
           </Button>
           {preview?.eligible && (
             <Button
-              disabled={busy || reason.trim().length < 10}
+              disabled={busy || !validCommand || reason.trim().length < 10}
               onClick={() => {
                 void (async () => {
+                  if (!validCommand) return;
                   setBusy(true);
                   setError('');
                   try {
@@ -126,10 +137,10 @@ export function OrderRefundReview({
                         expectedRevision: revision,
                         previewToken: preview.previewToken,
                         reason: reason.trim(),
-                        idempotencyKey: code + ':refund',
                       },
+                      undefined,
+                      { idempotencyKey: commandKey },
                     );
-                    await onComplete();
                     if (result.status !== 'COMPLETED') {
                       setError(result.message + ' ' + (result.reason || ''));
                       const next = await invokeOperationalOwner<Preview>(
@@ -141,6 +152,7 @@ export function OrderRefundReview({
                       setPreview(next);
                       setReason(next.approvalReason || reason);
                     } else setPreview(null);
+                    await onComplete();
                   } catch (e) {
                     setError(
                       e instanceof Error ? e.message : 'Refund requires recovery',

@@ -37,6 +37,7 @@ import {
   type DocumentationPublicationReadiness,
   type DocumentationPublicationStatus,
 } from './api/documentationPublicationClient';
+import { publicationQueryPolicy } from './publicationQueryPolicy';
 import { DocumentationDashboard } from './DocumentationDashboard';
 import { DocumentationSourceNavigation } from './DocumentationSourceNavigation';
 import { OpenApiDocumentationRenderer } from './OpenApiDocumentationRenderer';
@@ -111,6 +112,12 @@ function documentationPublicationReadinessLabel(
   switch (readiness) {
     case 'NOT_IMPORTED':
       return 'Not initialized';
+    case 'IMPORTING':
+      return 'Importing';
+    case 'BLOCKED':
+      return 'Blocked';
+    case 'MEDIA_DEPENDENCIES_PENDING':
+      return 'Media pending';
     case 'IMPORTED':
       return 'Approval needed';
     case 'PUBLICATION_PENDING':
@@ -133,7 +140,7 @@ function documentationPublicationReadinessLabel(
 function documentationPublicationColor(
   readiness: DocumentationPublicationReadiness | undefined,
 ): 'default' | 'success' | 'warning' | 'error' {
-  if (['FAILED', 'REJECTED'].includes(readiness ?? '')) return 'error';
+  if (['FAILED', 'REJECTED', 'BLOCKED'].includes(readiness ?? '')) return 'error';
   if (readiness === 'READY') return 'success';
   if (readiness === 'IMPORTED' || readiness === 'PUBLICATION_PENDING') return 'warning';
   return 'default';
@@ -192,10 +199,9 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
     ],
   );
   const publication = useQuery({
+    ...publicationQueryPolicy,
     queryKey: publicationQueryKey(props.runtime.enterpriseCode, initializationProfile),
     queryFn: publicationClient.getStatus,
-    refetchInterval: (query) =>
-      query.state.data?.readiness === 'PUBLICATION_PENDING' ? 2_000 : false,
   });
   const pack = useQuery({
     queryKey: packQueryKey(props.runtime.enterpriseCode, source.packCode),
@@ -420,6 +426,14 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
           </Collapse>
         </Paper>
         <CmsRoutePage
+          actions={{
+            documentationMedia: {
+              bootstrap: props.bootstrap,
+              accessToken: props.accessToken,
+              enterpriseCode: props.runtime.enterpriseCode,
+              timeoutMs: props.runtime.requestTimeoutMs,
+            },
+          }}
           channel={props.channel}
           cmsBaseUrl={props.cmsBaseUrl}
           enterpriseCode={props.runtime.enterpriseCode}

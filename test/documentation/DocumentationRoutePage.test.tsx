@@ -69,6 +69,14 @@ const bootstrap = {
       },
     ],
     backoffice: [{ ...connection, moduleName: 'backoffice' }],
+    media: [
+      {
+        ...connection,
+        moduleName: 'media',
+        endpoint: 'http://localhost:3000/nodics/media',
+        runtimeRole: { code: 'WCMS_STAGED', publication: 'STAGED' },
+      },
+    ],
     workflow: [
       {
         ...connection,
@@ -678,6 +686,179 @@ describe('DocumentationRoutePage', () => {
     ).toBe(true);
     fetchMock.mockRestore();
   });
+
+  it('refreshes sources without inventing or leaking approval-task errors before a workflow exists', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((request) => {
+      if (requestPathname(request).includes('/content-pack')) {
+        return Promise.resolve(new Response(JSON.stringify(packResponse)));
+      }
+      return Promise.resolve(new Response(JSON.stringify(response)));
+    });
+    try {
+      renderPage('/docs');
+      const refresh = await screen.findAllByRole('button', { name: 'Refresh status' });
+      await userEvent.click(refresh[0]!);
+      await userEvent.click(refresh[1]!);
+      expect(
+        fetchMock.mock.calls.some(([request]) =>
+          requestPathname(request).includes('/tasks'),
+        ),
+      ).toBe(false);
+      expect(
+        screen.queryByText(/no workflow reference was returned/),
+      ).not.toBeInTheDocument();
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it.each([false, true])(
+    'coordinates normal CMS and Media approvals from one action (Media denied: %s)',
+    async (denied) => {
+      const mutations: string[] = [];
+      const reference = 'publicationApproval-' + 'b'.repeat(64);
+      const publicationCode = 'cmsMedia_' + 'a'.repeat(64);
+      let cmsApproved = false,
+        mediaApproved = false;
+      const json = (body: unknown, status = 200) =>
+        Promise.resolve(new Response(JSON.stringify(body), { status }));
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((request, init) => {
+          const url = new URL(
+            request instanceof Request ? request.url : String(request),
+          );
+          if (init?.method === 'POST') {
+            mutations.push(url.pathname);
+            expect(new Headers(init.headers).get('Authorization')).toBe('Bearer token');
+          }
+          if (url.pathname.endsWith('/cms-task/complete')) {
+            cmsApproved = true;
+            return json({ data: {} });
+          }
+          if (url.pathname.endsWith('/media-task/complete')) {
+            expect(JSON.parse(init?.body as string)).toEqual({
+              decision: {
+                approved: true,
+                reason:
+                  'Framework pinned Media publication approved from Documentation publication center',
+              },
+            });
+            mediaApproved = true;
+            return json({ data: {} });
+          }
+          if (url.pathname.endsWith('/publication/requests')) {
+            expect(typeof init?.body).toBe('string');
+            expect(JSON.parse(init?.body as string)).toEqual({
+              publicationCode,
+              mediaCode: 'guide-image',
+              versionId: 4,
+              expectedChecksum: 'c'.repeat(64),
+            });
+            return denied
+              ? json({}, 403)
+              : json({
+                  result: {
+                    publicationCode,
+                    mediaCode: 'guide-image',
+                    versionId: 4,
+                    revision: 2,
+                    state: 'PENDING_APPROVAL',
+                    workflowRef: reference,
+                    approvalRequired: true,
+                  },
+                });
+          }
+          if (url.pathname.endsWith('/tasks')) {
+            const instanceCode = url.searchParams.get('instanceCode')!;
+            return json({
+              data: [
+                {
+                  code: instanceCode === reference ? 'media-task' : 'cms-task',
+                  instanceCode,
+                  nodeCode: 'reviewPublication',
+                  assignee: 'admin',
+                  status: 'OPEN',
+                  dueAt: null,
+                },
+              ],
+            });
+          }
+          if (url.pathname.includes('/content-pack'))
+            return json({
+              ...packResponse,
+              data: {
+                ...packResponse.data,
+                state: 'CURRENT',
+                installedVersion: '1.0.0',
+                allowedOperations: [],
+              },
+            });
+          return json({
+            data: {
+              ...response.data,
+              allowedActions: [],
+              readiness: mediaApproved
+                ? 'READY'
+                : cmsApproved
+                  ? 'MEDIA_DEPENDENCIES_PENDING'
+                  : 'PUBLICATION_PENDING',
+              publication: {
+                code: 'cmsPublication',
+                state: cmsApproved ? 'ONLINE' : 'PENDING_APPROVAL',
+                revision: 1,
+                requestedBy: 'admin',
+                workflowRef: 'cmsWorkflow',
+              },
+              ...(cmsApproved
+                ? {
+                    mediaDependencies: {
+                      owner: 'media',
+                      contractVersion: 1,
+                      qualified: mediaApproved,
+                      dependencies: [
+                        {
+                          owner: 'media',
+                          mediaCode: 'guide-image',
+                          versionId: 4,
+                          checksum: 'c'.repeat(64),
+                          publicationCode,
+                          status: mediaApproved ? 'ACTIVE' : 'NOT_ACTIVATED',
+                          qualified: mediaApproved,
+                        },
+                      ],
+                    },
+                  }
+                : {}),
+            },
+          });
+        });
+      try {
+        renderPage('/docs');
+        const approve = await screen.findByRole('button', { name: 'Approve' });
+        expect(mutations).toEqual([]);
+        await userEvent.click(approve);
+        await waitFor(() =>
+          expect(
+            mutations.some((value) => value.endsWith('/publication/requests')),
+          ).toBe(true),
+        );
+        if (denied) {
+          expect(
+            await screen.findByRole('button', { name: 'Complete asset approvals' }),
+          ).toBeVisible();
+          expect(mediaApproved).toBe(false);
+          expect(mutations).toHaveLength(2);
+        } else {
+          await waitFor(() => expect(mediaApproved).toBe(true));
+          expect(mutations).toHaveLength(3);
+          expect(mutations[2]).toContain('/media-task/complete');
+        }
+      } finally {
+        fetchMock.mockRestore();
+      }
+    },
+  );
 
   it('renders the backend-provided live OpenAPI source without embedding the protected Swagger page', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(

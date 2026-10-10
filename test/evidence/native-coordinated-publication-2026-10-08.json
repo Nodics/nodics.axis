@@ -1,0 +1,82 @@
+{
+  "date": "2026-10-08",
+  "environment": "native kickoffLocal",
+  "state": "PASSED_SCOPED_BROWSER_ACCEPTANCE",
+  "sourceReview": {
+    "decision": "PASS_FOR_BOUNDED_READ_ONLY_SCHEDULING",
+    "owner": "nodics.axis/src/dashboard",
+    "files": [
+      "src/dashboard/AxisDashboardRoutePage.tsx",
+      "test/dashboard/AxisDashboardRoutePage.test.tsx",
+      "src/dashboard/README.md",
+      "AGENTS.md"
+    ],
+    "correction": "Replace unconditional 15-second polling of all profiles with the existing Setup bounded active-work observer.",
+    "scope": "Read scheduling only. No backend readiness authority, deployment configuration, permission, rate-limit, mutation retry or data change.",
+    "review": "Source diff inspected; stable and progressing profile fixtures, shared observer coverage, TypeScript and scoped lint checked. Other existing Axis work preserved.",
+    "liveAcceptance": {
+      "state": "PASSED",
+      "url": "http://localhost:3100/dashboard?view=applications",
+      "observedForMs": 35000,
+      "profileReads": 71,
+      "totalReads": 71,
+      "duplicateProfiles": 0
+    }
+  },
+  "checks": {
+    "workflowBootstrap": "PASSED",
+    "publicationDecisionCallback": "PASSED",
+    "dataReleaseService": "PASSED",
+    "mediaLibraryAndUpgradeTests": 19,
+    "baselineConsolidationTests": 5,
+    "frontendFocusedTests": 82,
+    "frontendTypecheck": "PASSED",
+    "frontendScopedLint": "PASSED_NO_WARNINGS",
+    "frontendProductionBuild": "PASSED_WITH_EXISTING_LARGE_CHUNK_WARNING",
+    "llmContextModules": 202,
+    "semanticScopeReview": "PASS_FOR_THIS_BATCH_NOT_FULL_REPOSITORY"
+  },
+  "browser": {
+    "state": "PASSED",
+    "browser": "Playwright with installed Chrome, isolated headless session",
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "credentials": "Existing canonical private Local administrator owner; no values logged or recorded",
+    "captures": "No HAR, trace, video, session-state export or credential screenshots",
+    "firstRun": {
+      "submission": "PASSED_UI",
+      "review": "PASSED_UI",
+      "approval": "PASSED_UI",
+      "publicationCode": "cmsBaseline_axis_0_0_1",
+      "releaseVersion": "0.0.1",
+      "records": 136,
+      "managedDashboard": "OPENED"
+    },
+    "coordinatedAssets": {
+      "profile": "agoraelectronics",
+      "assetCount": 8,
+      "operation": "Complete asset approvals",
+      "state": "ONLINE_READY",
+      "partialRecovery": "Inspection confirmed four qualified and four pending after an interrupted browser check; the explicit UI action skipped qualified dependencies and completed the remainder."
+    },
+    "screenshot": "native-coordinated-publication-2026-10-08.png",
+    "observation": {
+      "state": "PASSED",
+      "url": "http://localhost:3100/dashboard?view=applications",
+      "observedForMs": 35000,
+      "profileReads": 71,
+      "totalReads": 71,
+      "duplicateProfiles": 0
+    },
+    "limits": "Desktop scoped journey only; not all routes, roles, tenants or mobile acceptance."
+  },
+  "screenshot": "native-coordinated-publication-2026-10-08.png",
+  "limits": [
+    "Desktop only; not a full Axis route/role/mobile qualification.",
+    "Normal backend owners retained CMS and independent Media approval authority.",
+    "No trace/HAR/video or private credential/session artifact exported.",
+    "Owned browser, Axis dev server and native supervisor stopped after verification."
+  ]
+}

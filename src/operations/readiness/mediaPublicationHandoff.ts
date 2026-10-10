@@ -11,6 +11,8 @@ export interface MediaPublicationDependency {
   readonly versionId?: number;
   readonly status: string;
   readonly qualified: boolean;
+  readonly checksum?: string;
+  readonly publicationCode?: string;
   readonly handoff?: Readonly<{
     owner: 'media';
     route: string;
@@ -38,6 +40,12 @@ export function parseMediaPublicationDependency(
     typeof source.status !== 'string' ||
     !/^[A-Z][A-Z0-9_]{0,63}$/.test(source.status) ||
     typeof source.qualified !== 'boolean' ||
+    (source.publicationCode !== undefined &&
+      (typeof source.checksum !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(source.checksum))) ||
+    (source.publicationCode !== undefined &&
+      (typeof source.publicationCode !== 'string' ||
+        !/^cmsMedia_[a-f0-9]{64}$/.test(source.publicationCode))) ||
     (source.versionId !== undefined &&
       (!Number.isSafeInteger(source.versionId) || Number(source.versionId) < 0))
   )
@@ -46,6 +54,13 @@ export function parseMediaPublicationDependency(
     mediaCode: source.mediaCode,
     status: source.status,
     qualified: source.qualified,
+    ...(typeof source.publicationCode === 'string' &&
+    typeof source.checksum === 'string'
+      ? { checksum: source.checksum }
+      : {}),
+    ...(typeof source.publicationCode === 'string'
+      ? { publicationCode: source.publicationCode }
+      : {}),
     ...(source.versionId !== undefined
       ? { versionId: source.versionId as number }
       : {}),

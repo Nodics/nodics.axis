@@ -59,3 +59,11 @@ Run `vitest run test/initialization/AxisInitializationWorkspace.test.tsx
 test/initialization/axisInitializationClient.test.ts test/app/AxisBootstrap.test.tsx`
 and `npm run typecheck`. These isolated tests do not establish live publication,
 browser acceptance, configured reviewer permissions or provider qualification.
+
+## Restricted Employee Admission
+
+Authenticated bootstrap may project backend-owned `axisInitializationAdmission`
+for employees without detailed setup inspection rights. Only `READY` admits the
+workspace. `NOT_READY` and `UNAVAILABLE` show a read-only refresh/sign-out screen,
+without requesting setup status or exposing initialization actions. Employees
+with setup inspection rights retain the existing detailed initialization flow.

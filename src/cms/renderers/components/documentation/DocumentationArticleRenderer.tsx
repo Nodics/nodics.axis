@@ -30,7 +30,12 @@ import { axisTokens } from '../../../../app/axisTheme';
 import { workspaceContentGap } from '../../../../app/shell/workspaceLayout';
 import { ShellIcon } from '../../../../app/shell/ShellIcon';
 import { arrayProperty, stringProperty } from '../../shared/rendererProperties';
-import type { CmsComponentRendererProps } from '../../shared/rendererTypes';
+import type {
+  CmsComponentRendererProps,
+  CmsRendererActions,
+} from '../../shared/rendererTypes';
+import { selectModuleConnection } from '../../../../bootstrap/publicBootstrap';
+import { loadApplicationArtwork } from '../../../../operations/setupAccelerators/api/applicationArtworkClient';
 
 const MAX_BLOCKS = 1000;
 const MAX_LIST_ITEMS = 200;
@@ -508,12 +513,90 @@ function DocumentationDiagramRenderer({
   );
 }
 
+function DocumentationMediaImage({
+  mediaCode,
+  alt,
+  title,
+  media,
+}: {
+  readonly mediaCode: string;
+  readonly alt: string;
+  readonly title: string;
+  readonly media: CmsRendererActions['documentationMedia'];
+}) {
+  const connection =
+    media &&
+    selectModuleConnection(media.bootstrap, 'media', {
+      runtimeRoleCode: 'WCMS_ONLINE',
+    });
+  const accessToken = media?.accessToken;
+  const enterpriseCode = media?.enterpriseCode;
+  const timeoutMs = media?.timeoutMs;
+  const identity = JSON.stringify([connection, accessToken, enterpriseCode, mediaCode]);
+  const [loaded, setLoaded] = useState<{ identity: string; url: string }>();
+  useEffect(() => {
+    if (
+      !connection ||
+      !accessToken ||
+      !enterpriseCode ||
+      !timeoutMs ||
+      !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,159}$/.test(mediaCode)
+    )
+      return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let active = true;
+    let url: string | undefined;
+    void loadApplicationArtwork({
+      connection,
+      accessToken,
+      enterpriseCode,
+      signal: controller.signal,
+      visual: {
+        mediaCode,
+        alt: alt.slice(0, 200),
+        runtimeRole: 'WCMS_ONLINE',
+        active: true,
+      },
+    })
+      .then((blob) => {
+        if (!active || controller.signal.aborted) return;
+        url = URL.createObjectURL(blob);
+        setLoaded({ identity, url });
+      })
+      .catch(() => {
+        /* Media denial or absence must not fall back to a source URL. */
+      })
+      .finally(() => clearTimeout(timeout));
+    return () => {
+      active = false;
+      controller.abort();
+      clearTimeout(timeout);
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [connection, accessToken, enterpriseCode, timeoutMs, mediaCode, alt, identity]);
+  return loaded?.identity === identity ? (
+    <DocumentationImageRenderer
+      source={loaded.url}
+      alt={alt}
+      title={title}
+      key={loaded.url}
+    />
+  ) : (
+    <Typography role="status" color="text.secondary">
+      {alt}
+    </Typography>
+  );
+}
+
 function DocumentationBlockRenderer({
   block,
   index,
+  media,
 }: {
   readonly block: DocumentationBlock;
   readonly index: number;
+  readonly media: CmsRendererActions['documentationMedia'];
 }) {
   const kind = text(block.kind);
   const key = `${kind}:${String(index)}`;
@@ -630,10 +713,19 @@ function DocumentationBlockRenderer({
     );
   }
   if (kind === 'image') {
-    const source = safeImageSource(block.source);
-    if (!source) return null;
     const alt = text(block.alt, text(block.title, 'Documentation illustration'));
     const title = text(block.title);
+    if (block.mediaCode !== undefined)
+      return (
+        <DocumentationMediaImage
+          mediaCode={text(block.mediaCode)}
+          alt={alt}
+          title={title}
+          media={media}
+        />
+      );
+    const source = safeImageSource(block.source);
+    if (!source) return null;
     return (
       <DocumentationImageRenderer
         source={source}
@@ -646,7 +738,10 @@ function DocumentationBlockRenderer({
   return null;
 }
 
-export function DocumentationArticleRenderer({ component }: CmsComponentRendererProps) {
+export function DocumentationArticleRenderer({
+  component,
+  actions,
+}: CmsComponentRendererProps) {
   const location = useLocation();
   const title = stringProperty(component, 'title', 'Documentation');
   const category = stringProperty(component, 'category');
@@ -672,6 +767,12 @@ export function DocumentationArticleRenderer({ component }: CmsComponentRenderer
     });
   const previous = documentationLink(component.properties.previous);
   const next = documentationLink(component.properties.next);
+  const relatedLinks = arrayProperty(component, 'relatedLinks')
+    .slice(0, 100)
+    .flatMap((value) => {
+      const link = documentationLink(value);
+      return link ? [link] : [];
+    });
   const blocks = arrayProperty(component, 'blocks')
     .slice(0, MAX_BLOCKS)
     .filter(
@@ -798,11 +899,33 @@ export function DocumentationArticleRenderer({ component }: CmsComponentRenderer
       ) : null}
       {blocks.map((block, index) => (
         <DocumentationBlockRenderer
+          media={actions?.documentationMedia}
           block={block}
           index={index}
           key={`${location.pathname}:${component.code}:${text(block.kind)}:${String(index)}`}
         />
       ))}
+      {relatedLinks.length > 0 ? (
+        <Box component="nav" aria-label="Related documentation">
+          <Typography component="h2" gutterBottom variant="subtitle1">
+            Related Guides
+          </Typography>
+          <Stack spacing={0.75}>
+            {relatedLinks.map((link) => (
+              <Link
+                component={RouterLink}
+                key={link.route}
+                to={link.route}
+                sx={readableLinkSx}
+                underline="always"
+                variant="body2"
+              >
+                {link.title}
+              </Link>
+            ))}
+          </Stack>
+        </Box>
+      ) : null}
       {previous || next ? (
         <>
           <Divider />

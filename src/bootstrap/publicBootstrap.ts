@@ -456,6 +456,11 @@ export interface AxisOperationalReadinessReport {
 }
 
 export interface AxisAuthenticatedBootstrap {
+  readonly axisInitializationAdmission?:
+    | 'READY'
+    | 'NOT_READY'
+    | 'UNAVAILABLE'
+    | undefined;
   readonly axisPolicy: AxisEmployeePolicy;
   readonly navigation: readonly AxisNavigationItem[];
   readonly effectiveNavigationComposition?:
@@ -2794,12 +2799,21 @@ export async function loadAuthenticatedBootstrap(
       'BackOffice employee bootstrap response',
     );
     const data = record(envelope.data, 'BackOffice employee bootstrap data');
+    const admission = data.axisInitializationAdmission;
+    if (
+      admission !== undefined &&
+      (typeof admission !== 'string' ||
+        !['READY', 'NOT_READY', 'UNAVAILABLE'].includes(admission))
+    )
+      throw new Error('BackOffice Axis initialization admission is invalid');
     const moduleContext = parseModuleContext(data.modules);
     const effectiveNavigationComposition = parseEffectiveNavigationComposition(
       data.effectiveNavigationComposition,
     );
     return Object.freeze({
       axisPolicy: parseEmployeePolicy(data.axisPolicy),
+      axisInitializationAdmission:
+        admission as AxisAuthenticatedBootstrap['axisInitializationAdmission'],
       navigation:
         effectiveNavigationComposition?.navigation ??
         parseNavigation(data.catalogue, data.availability),

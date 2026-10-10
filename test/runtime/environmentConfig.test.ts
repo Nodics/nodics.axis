@@ -64,7 +64,7 @@ describe('Axis environment configuration', () => {
     ],
     [
       'timeout above the runtime boundary',
-      { ...validEnvironment, AXIS_REQUEST_TIMEOUT_MS: '120001' },
+      { ...validEnvironment, AXIS_REQUEST_TIMEOUT_MS: '600001' },
     ],
   ])('rejects %s', (_caseName, environment) => {
     expect(() => buildRuntimeConfig(environment)).toThrow();

@@ -29,7 +29,9 @@ export function projectDocumentationProducts(
   for (const product of records) {
     // Metadata eligibility does not prove publication; the reader separately checks Online readiness.
     if (
-      product.lifecycleState !== 'ONLINE' ||
+      (product.lifecycleState !== 'STAGED' &&
+        product.lifecycleState !== 'APPROVED' &&
+        product.lifecycleState !== 'ONLINE') ||
       product.accessMode !== 'PUBLIC' ||
       product.active === false ||
       product.status === 'INACTIVE'

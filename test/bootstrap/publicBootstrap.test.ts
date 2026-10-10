@@ -377,6 +377,51 @@ const authenticatedData = {
 };
 
 describe('Axis bootstrap clients', () => {
+  it.each(['READY', 'NOT_READY', 'UNAVAILABLE'])(
+    'retains owner-derived initialization admission %s',
+    async (admission) => {
+      const request = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            data: { ...authenticatedData, axisInitializationAdmission: admission },
+          }),
+          { status: 200 },
+        ),
+      );
+      const result = await loadAuthenticatedBootstrap(
+        'https://backoffice.example.com',
+        1,
+        'employee-access',
+        10_000,
+        request,
+      );
+      expect(result.axisInitializationAdmission).toBe(admission);
+    },
+  );
+
+  it.each([['READY'], null, {}, 'UNKNOWN'])(
+    'rejects malformed initialization admission %j',
+    async (admission) => {
+      const request = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            data: { ...authenticatedData, axisInitializationAdmission: admission },
+          }),
+          { status: 200 },
+        ),
+      );
+      await expect(
+        loadAuthenticatedBootstrap(
+          'https://backoffice.example.com',
+          1,
+          'employee-access',
+          10_000,
+          request,
+        ),
+      ).rejects.toThrow('initialization admission is invalid');
+    },
+  );
+
   it('accepts only the low-disclosure compatible public contract', async () => {
     const request = vi
       .fn<typeof fetch>()

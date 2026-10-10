@@ -39,6 +39,14 @@ interface Props {
   readonly client: CopilotCouponClient;
   readonly actions: AssistantClient;
 }
+/** Protocol safety label for validated owner simulation evidence, never a delivery or permission assertion. */
+function CouponSimulationNotice() {
+  return (
+    <Alert severity="warning" sx={{ overflowWrap: 'anywhere' }}>
+      Local ITEM simulation. Goods delivery is not verified.
+    </Alert>
+  );
+}
 /** Keeps the original action when the dialog closes; scope remount discards all state. Existing references can be reopened after navigation. */
 export function CopilotCouponComposer({ contract, client, actions }: Props) {
   const copy = contract.presentation;
@@ -59,6 +67,7 @@ export function CopilotCouponComposer({ contract, client, actions }: Props) {
   const [uncertain, setUncertain] = useState(false);
   const [unconfirmed, setUnconfirmed] = useState(false);
   const [receiptCode, setReceiptCode] = useState<string>();
+  const [receiptSimulation, setReceiptSimulation] = useState(false);
   const flight = useRef(false);
   const mounted = useRef(true);
   useEffect(() => {
@@ -258,6 +267,7 @@ export function CopilotCouponComposer({ contract, client, actions }: Props) {
                           accept(result.confirmation);
                           setUnconfirmed(result.receiptState === 'UNCONFIRMED');
                           setReceiptCode(result.receiptCode);
+                          setReceiptSimulation(result.simulated === true);
                         })
                       }
                     >
@@ -268,6 +278,7 @@ export function CopilotCouponComposer({ contract, client, actions }: Props) {
                 {unconfirmed ? (
                   <Alert severity="warning">{copy.unconfirmed}</Alert>
                 ) : null}
+                {receiptSimulation ? <CouponSimulationNotice /> : null}
                 {receiptCode ? (
                   <Typography sx={{ overflowWrap: 'anywhere' }}>
                     {copy.receipt}: {receiptCode}
@@ -311,6 +322,9 @@ export function CopilotCouponComposer({ contract, client, actions }: Props) {
                               <TableCell>
                                 <Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
                                   <Chip size="small" label={row.claimStatus} />
+                                  {row.simulated === true ? (
+                                    <CouponSimulationNotice />
+                                  ) : null}
                                   {row.recoveryRequired ? (
                                     <Typography variant="caption" color="warning.main">
                                       {copy.recoveryRequired}
@@ -423,6 +437,7 @@ export function CopilotCouponComposer({ contract, client, actions }: Props) {
                 setStore(null);
                 setToken('');
                 setReceiptCode(undefined);
+                setReceiptSimulation(false);
                 setUnconfirmed(false);
                 setFailed(false);
                 setWorkspace(undefined);

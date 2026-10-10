@@ -342,6 +342,79 @@ describe('App first-run Process approval route admission', () => {
     window.localStorage.clear();
   });
 
+  it('admits an owner-confirmed ready reviewer without reading the privileged setup endpoint', async () => {
+    owners.authenticatedBootstrap.mockResolvedValue({
+      ...bootstrap([taskNavigation]),
+      axisInitializationAdmission: 'READY',
+    });
+    window.history.replaceState({}, '', '/process/tasks');
+    render(
+      <AppProviders runtimeConfig={runtime}>
+        <App />
+      </AppProviders>,
+    );
+    expect(
+      await screen.findByRole('region', { name: 'Admitted Process workspace' }),
+    ).toBeVisible();
+    expect(owners.initializationStatus).not.toHaveBeenCalled();
+    expect(owners.initialize).not.toHaveBeenCalled();
+  });
+
+  it('refreshes restricted admission through bootstrap without setup authority', async () => {
+    owners.authenticatedBootstrap.mockResolvedValue({
+      ...bootstrap([taskNavigation]),
+      axisInitializationAdmission: 'NOT_READY',
+    });
+    window.history.replaceState({}, '', '/process/tasks');
+    render(
+      <AppProviders runtimeConfig={runtime}>
+        <App />
+      </AppProviders>,
+    );
+    const refresh = await screen.findByRole('button', { name: 'Refresh status' });
+    owners.authenticatedBootstrap.mockResolvedValue({
+      ...bootstrap([taskNavigation]),
+      axisInitializationAdmission: 'READY',
+    });
+    await userEvent.setup().click(refresh);
+    await waitFor(() => expect(window.location.pathname).toBe('/dashboard'));
+    expect(
+      screen.queryByText(
+        'Workspace initialization is not ready. Contact your administrator.',
+      ),
+    ).not.toBeInTheDocument();
+    expect(owners.initializationStatus).not.toHaveBeenCalled();
+    expect(owners.initialize).not.toHaveBeenCalled();
+    expect(owners.completeTask).not.toHaveBeenCalled();
+  });
+
+  it.each(['NOT_READY', 'UNAVAILABLE'] as const)(
+    'blocks an ordinary reviewer while owner admission is %s without setup actions',
+    async (admission) => {
+      owners.authenticatedBootstrap.mockResolvedValue({
+        ...bootstrap([taskNavigation]),
+        axisInitializationAdmission: admission,
+      });
+      window.history.replaceState({}, '', '/process/tasks');
+      render(
+        <AppProviders runtimeConfig={runtime}>
+          <App />
+        </AppProviders>,
+      );
+      expect(
+        await screen.findByText(
+          'Workspace initialization is not ready. Contact your administrator.',
+        ),
+      ).toBeVisible();
+      expect(
+        screen.queryByRole('region', { name: 'Admitted Process workspace' }),
+      ).not.toBeInTheDocument();
+      expect(owners.initializationStatus).not.toHaveBeenCalled();
+      expect(owners.initialize).not.toHaveBeenCalled();
+      expect(owners.completeTask).not.toHaveBeenCalled();
+    },
+  );
+
   it.each([
     ['UP', 'ACTIVE'],
     ['UP', 'PREVIEW'],

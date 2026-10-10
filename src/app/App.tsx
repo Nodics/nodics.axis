@@ -15,7 +15,7 @@ import {
   type ReactNode,
 } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router';
-import { useQueries, useQueryClient, type Query } from '@tanstack/react-query';
+import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Stack } from '@mui/material';
 
 import {
@@ -58,6 +58,7 @@ import {
   createDocumentationPublicationClient,
   type DocumentationPublicationStatus,
 } from '../documentation/api/documentationPublicationClient';
+import { publicationQueryPolicy } from '../documentation/publicationQueryPolicy';
 import { ModuleHealthRoutePage } from '../operations/moduleHealth/ModuleHealthRoutePage';
 import { FunctionalModuleRegistryRoutePage } from '../operations/moduleRegistry/FunctionalModuleRegistryRoutePage';
 import { NavigationCompositionRoutePage } from '../operations/navigationComposition/NavigationCompositionRoutePage';
@@ -668,8 +669,14 @@ export function App() {
   ]);
 
   const hasAuthenticatedBootstrap = Boolean(authenticatedBootstrap);
+  const axisInitializationAdmission =
+    authenticatedBootstrap?.axisInitializationAdmission;
   useEffect(() => {
-    if (!session || !hasAuthenticatedBootstrap) {
+    if (
+      !session ||
+      !hasAuthenticatedBootstrap ||
+      axisInitializationAdmission !== undefined
+    ) {
       initializationReadSequence.current += 1;
       setInitializationStatus(undefined);
       setInitializationError(undefined);
@@ -677,7 +684,12 @@ export function App() {
       return;
     }
     void refreshInitialization();
-  }, [hasAuthenticatedBootstrap, refreshInitialization, session]);
+  }, [
+    hasAuthenticatedBootstrap,
+    refreshInitialization,
+    session,
+    axisInitializationAdmission,
+  ]);
 
   // Only transient status reads recover automatically; writes and approvals never retry.
   useEffect(() => {
@@ -717,6 +729,7 @@ export function App() {
     queries: cmsDocumentationSources
       .filter((source) => source.initializationProfile)
       .map((source) => ({
+        ...publicationQueryPolicy,
         enabled: Boolean(
           session &&
           !locked &&
@@ -739,14 +752,6 @@ export function App() {
             profileCode: source.initializationProfile,
           }).getStatus();
         },
-        refetchInterval: (
-          query: Query<
-            DocumentationPublicationStatus,
-            Error,
-            DocumentationPublicationStatus,
-            readonly unknown[]
-          >,
-        ) => (query.state.data?.readiness === 'PUBLICATION_PENDING' ? 2_000 : false),
       })),
   });
   const onlineDocumentationProfiles = useMemo(
@@ -871,7 +876,7 @@ export function App() {
       !restoringSession &&
       !locked &&
       !switchingContext &&
-      initializationStatus?.readiness === 'READY',
+      (axisInitializationAdmission ?? initializationStatus?.readiness) === 'READY',
     scopeKey: `${session?.generation ?? 0}:${runtime.backofficeBaseUrl}:${runtime.enterpriseCode}`,
     retryWindowMs: runtime.publicDiscoveryRetryWindowMs ?? 300_000,
     load: loadNavigationAvailability,
@@ -2045,17 +2050,41 @@ export function App() {
   const initializationRequired = Boolean(
     session &&
     authenticatedBootstrap &&
-    (initializationStatus || initializationError) &&
-    initializationStatus?.readiness !== 'READY',
+    (axisInitializationAdmission !== undefined
+      ? axisInitializationAdmission !== 'READY'
+      : (initializationStatus || initializationError) &&
+        initializationStatus?.readiness !== 'READY'),
   );
   const initializationLoading = Boolean(
-    session && authenticatedBootstrap && !initializationStatus && !initializationError,
+    session &&
+    authenticatedBootstrap &&
+    axisInitializationAdmission === undefined &&
+    !initializationStatus &&
+    !initializationError,
   );
   const setupWorkflowNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'process-tasks' && item.moduleName === 'workflow',
   );
   const initializationElement =
-    !initializationStatus && !initializationError ? (
+    axisInitializationAdmission !== undefined ? (
+      <Stack spacing={2} sx={{ p: 3 }}>
+        <Alert severity="warning">
+          Workspace initialization is not ready. Contact your administrator.
+        </Alert>
+        {initializationError && <Alert severity="error">{initializationError}</Alert>}
+        <Button
+          onClick={() => {
+            setInitializationError(undefined);
+            void refreshAuthenticatedBootstrap().catch(() =>
+              setInitializationError('Workspace status is unavailable.'),
+            );
+          }}
+        >
+          Refresh status
+        </Button>
+        <Button onClick={() => logout()}>Sign out</Button>
+      </Stack>
+    ) : !initializationStatus && !initializationError ? (
       <LoadingScreen />
     ) : (
       <AxisInitializationWorkspace

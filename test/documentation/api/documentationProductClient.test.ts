@@ -98,6 +98,22 @@ const page = (records: unknown[], pageNumber = 1, totalCount = records.length) =
 });
 
 describe('canonical documentation products', () => {
+  it.each(['STAGED', 'APPROVED', 'ONLINE'])(
+    'discovers reviewed %s metadata without manufacturing publication evidence',
+    (lifecycleState) => {
+      const sources = projectDocumentationProducts(
+        [{ ...product, lifecycleState }],
+        [profile],
+      );
+      expect(sources).toHaveLength(1);
+      expect(sources[0]).toMatchObject({
+        initializationProfile: profile.code,
+        site: product.site,
+      });
+      expect(sources[0]).not.toHaveProperty('readiness');
+      expect(sources[0]).not.toHaveProperty('publication');
+    },
+  );
   it('uses record identities and only joins pack/profile/order from bootstrap', () => {
     expect(projectDocumentationProducts([product], [profile])).toEqual([
       expect.objectContaining({

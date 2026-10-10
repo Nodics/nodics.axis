@@ -126,6 +126,34 @@ export function parseCouponWorkspace(value: unknown, enterpriseCode: string) {
   };
 }
 export type CouponWorkspace = ReturnType<typeof parseCouponWorkspace>;
+type CouponEvidence =
+  | {
+      simulated: true;
+      deliveryVerified: false;
+      evidenceMode: 'LOCAL_SIMULATION';
+    }
+  | { simulated?: never; deliveryVerified?: never; evidenceMode?: never };
+/** Preserves only the owner's complete simulation marker; absence never asserts verified goods. */
+function couponEvidence(value: Record<string, unknown>): CouponEvidence {
+  const keys = ['simulated', 'deliveryVerified', 'evidenceMode'] as const;
+  if (!keys.some((key) => key in value)) return {};
+  const descriptors = keys.map((key) => Object.getOwnPropertyDescriptor(value, key));
+  if (
+    descriptors.some(
+      (descriptor) =>
+        !descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value'),
+    ) ||
+    descriptors[0]?.value !== true ||
+    descriptors[1]?.value !== false ||
+    descriptors[2]?.value !== 'LOCAL_SIMULATION'
+  )
+    throw new Error('Invalid coupon simulation evidence');
+  return {
+    simulated: true,
+    deliveryVerified: false,
+    evidenceMode: 'LOCAL_SIMULATION',
+  };
+}
 /** Accepts only bounded, minimized Digital Core queue evidence for the current enterprise. */
 export function parseCouponRedemptions(value: unknown, enterpriseCode: string) {
   const root = assistantRecord(value, 'Coupon redemptions');
@@ -166,6 +194,9 @@ export function parseCouponRedemptions(value: unknown, enterpriseCode: string) {
       'recoveryRequired',
       'storeCode',
       'storeRevision',
+      'simulated',
+      'deliveryVerified',
+      'evidenceMode',
     ];
     if (
       Object.keys(row).some((key) => !allowed.includes(key)) ||
@@ -194,6 +225,7 @@ export function parseCouponRedemptions(value: unknown, enterpriseCode: string) {
     )
       throw new Error('Invalid coupon redemption');
     return {
+      ...couponEvidence(row),
       entitlementCode: row.entitlementCode as string,
       productCode: row.productCode as string,
       claimStatus: row.claimStatus as string,
@@ -284,6 +316,7 @@ export function createCopilotCouponClient(
       )
         throw new Error('Invalid coupon receipt');
       return {
+        ...couponEvidence(data),
         confirmation: next,
         receiptState: data.receiptState as 'UNCONFIRMED' | 'COMPLETED',
         receiptCode:

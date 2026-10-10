@@ -25,6 +25,302 @@ function hangingFetch(): typeof fetch {
 }
 
 describe('application initialization client', () => {
+  const operatorStep = {
+    order: 10,
+    type: 'DATA_RELEASE',
+    code: 'partner:issuerBudget',
+    kind: 'Issuer budget',
+    required: true,
+    trigger: 'ACTIVATION',
+    phase: 'AFTER_PUBLICATION',
+    operatorEnterpriseCode: 'issuer',
+    dataType: 'core',
+    targetServer: 'commerceStagedServer',
+    targetRuntimeRole: 'COMMERCE_STAGED',
+    status: 'NOT_INSTALLED',
+  };
+  const foreignStep = {
+    ...operatorStep,
+    code: 'merchant:issuance',
+    operatorEnterpriseCode: 'merchant',
+    status: 'AUTHORITY_PENDING',
+  };
+  function operatorClient(
+    preparation: unknown = {
+      status: 'BLOCKED',
+      selectionRequired: true,
+      selectableStepCodes: [operatorStep.code],
+      steps: [operatorStep, foreignStep],
+    },
+  ) {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            result: {
+              profileCode: 'circa',
+              type: 'CMS_SITE',
+              owner: 'cms',
+              applicationCode: 'circa',
+              siteCode: 'circaSite',
+              readiness: 'BLOCKED',
+              releaseCode: 'circa:content',
+              releaseVersion: '0.0.1',
+              allowedActions: ['INITIALIZE'],
+              preparation,
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+    return {
+      fetcher,
+      client: createApplicationInitializationClient(
+        {
+          connection,
+          enterpriseCode: 'issuer',
+          accessToken: 'fixture-access',
+          timeoutMs: 1000,
+          profileCode: 'circa',
+        },
+        fetcher,
+      ),
+    };
+  }
+
+  it('retains required operator stages and only owner-projected choices without foreign proof', async () => {
+    const { client } = operatorClient();
+    const status = await client.getStatus();
+    expect(status.readiness).toBe('BLOCKED');
+    expect(status.preparation).toMatchObject({
+      selectionRequired: true,
+      selectableStepCodes: [operatorStep.code],
+      steps: [operatorStep, foreignStep],
+    });
+    expect(Object.isFrozen(status.preparation?.selectableStepCodes)).toBe(true);
+  });
+
+  it('accepts scoped pre-AFTER owner gates and sends Initialize and Prepare without a selector', async () => {
+    const preparation = {
+      status: 'ACTION_REQUIRED',
+      selectionRequired: false,
+      selectableStepCodes: [],
+      steps: [
+        {
+          ...operatorStep,
+          code: 'circa:profile',
+          phase: 'BEFORE_PUBLICATION',
+          operatorEnterpriseCode: undefined,
+        },
+        { ...operatorStep, status: 'DEFERRED' },
+        foreignStep,
+      ],
+    };
+    const { client, fetcher } = operatorClient(preparation);
+    const status = await client.getStatus();
+    expect(status.preparation).toMatchObject({
+      status: 'ACTION_REQUIRED',
+      selectionRequired: false,
+      selectableStepCodes: [],
+      steps: [
+        { code: 'circa:profile', phase: 'BEFORE_PUBLICATION' },
+        { code: operatorStep.code, status: 'DEFERRED' },
+        foreignStep,
+      ],
+    });
+    await client.initiate();
+    await client.prepare({ reason: 'Prepare BEFORE only' });
+    const posts = fetcher.mock.calls.filter(
+      ([, request]) => request?.method === 'POST',
+    );
+    expect(posts.map(([url]) => (url as URL).pathname)).toEqual([
+      '/nodics/backoffice/v0/applications/circa/initialization/initiate',
+      '/nodics/backoffice/v0/applications/circa/initialization/prepare',
+    ]);
+    for (const [, request] of posts) {
+      const body = request?.body;
+      expect(JSON.parse(typeof body === 'string' ? body : '{}')).not.toHaveProperty(
+        'afterPublicationStepCode',
+      );
+    }
+  });
+
+  it('sends exactly one explicit selector only to initiate, preserving signed transport context', async () => {
+    const { client, fetcher } = operatorClient();
+    const input = {
+      afterPublicationStepCode: operatorStep.code,
+      reason: 'Reviewed issuer budget',
+      enterpriseCode: 'merchant',
+      publicationPlan: { untrusted: true },
+      qualified: true,
+    };
+    await client.initiate(input);
+    const [url, request] = fetcher.mock.calls[0]!;
+    expect((url as URL).pathname).toBe(
+      '/nodics/backoffice/v0/applications/circa/initialization/initiate',
+    );
+    expect(request?.method).toBe('POST');
+    expect(JSON.parse(typeof request?.body === 'string' ? request.body : '{}')).toEqual(
+      {
+        afterPublicationStepCode: operatorStep.code,
+        reason: input.reason,
+      },
+    );
+    expect(request?.headers).toMatchObject({
+      'x-enterprise-code': 'issuer',
+      Authorization: 'Bearer fixture-access',
+    });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it('keeps legacy initialization unselected and ordinary operations selector-free', async () => {
+    const { client, fetcher } = operatorClient(undefined);
+    await client.initiate();
+    await client.prepare();
+    await client.reconcileApproval();
+    await client.rollback();
+    await client.retire();
+    for (const [, request] of fetcher.mock.calls)
+      expect(
+        JSON.parse(typeof request?.body === 'string' ? request.body : '{}'),
+      ).not.toHaveProperty('afterPublicationStepCode');
+  });
+
+  it.each([
+    '',
+    'no-release-separator',
+    ['partner:issuerBudget'],
+    { code: 'partner:issuerBudget' },
+  ])('rejects malformed selector before transport: %j', async (selector) => {
+    const { client, fetcher } = operatorClient();
+    await expect(
+      client.initiate({ afterPublicationStepCode: selector as string }),
+    ).rejects.toThrow(/selection is invalid/);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each(['prepare', 'reconcileApproval', 'rollback', 'retire'] as const)(
+    'rejects selection on %s before transport',
+    async (operation) => {
+      const { client, fetcher } = operatorClient();
+      const input = { reason: 'fixture', afterPublicationStepCode: operatorStep.code };
+      await expect(client[operation](input)).rejects.toThrow(/selection is invalid/);
+      expect(fetcher).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { selectableStepCodes: 'partner:issuerBudget' },
+    { selectableStepCodes: ['missing:stage'] },
+    { selectableStepCodes: [foreignStep.code] },
+    { selectableStepCodes: [operatorStep.code, operatorStep.code] },
+    { selectableStepCodes: Array.from({ length: 257 }, (_, i) => `partner:stage${i}`) },
+    { selectableStepCodes: undefined },
+    { selectionRequired: 'true' },
+    { selectionRequired: false },
+    { steps: [operatorStep, operatorStep, foreignStep] },
+    { steps: [{ ...operatorStep, required: false }] },
+    { steps: [{ ...operatorStep, phase: 'BEFORE_PUBLICATION' }] },
+    { steps: [{ ...operatorStep, operatorEnterpriseCode: undefined }] },
+  ])('rejects incompatible stage choices: %j', async (override) => {
+    const { client } = operatorClient({
+      status: 'BLOCKED',
+      selectionRequired: true,
+      selectableStepCodes: [operatorStep.code],
+      steps: [operatorStep, foreignStep],
+      ...override,
+    });
+    await expect(client.getStatus()).rejects.toThrow(/stage selection is incompatible/);
+  });
+
+  const asset = {
+    owner: 'media',
+    mediaCode: 'apparel-image',
+    versionId: 4,
+    checksum: 'c'.repeat(64),
+    publicationCode: `cmsMedia_${'a'.repeat(64)}`,
+    status: 'NOT_ACTIVATED',
+    qualified: false,
+    publicationRequest: { method: 'POST', path: '/untrusted-command' },
+  };
+  function mediaStatus(mediaDependencies: unknown) {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          result: {
+            profileCode: 'agoraapparel',
+            type: 'CMS_SITE',
+            owner: 'cms',
+            applicationCode: 'agora.apparel',
+            siteCode: 'apparelSite',
+            readiness: 'MEDIA_DEPENDENCIES_PENDING',
+            releaseCode: 'apparel:content',
+            releaseVersion: '1.0.0',
+            allowedActions: [],
+            mediaDependencies,
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    return createApplicationInitializationClient(
+      {
+        connection,
+        enterpriseCode: 'default',
+        accessToken: 'fixture-access',
+        timeoutMs: 1000,
+        profileCode: 'agoraapparel',
+      },
+      fetcher,
+    ).getStatus();
+  }
+
+  it('retains bounded owner Media identities and pins without projecting command URLs', async () => {
+    const status = await mediaStatus({
+      owner: 'media',
+      contractVersion: 1,
+      qualified: false,
+      dependencies: [asset],
+    });
+    expect(status.readiness).toBe('MEDIA_DEPENDENCIES_PENDING');
+    expect(status.mediaDependencies).toEqual({
+      qualified: false,
+      dependencies: [
+        {
+          mediaCode: asset.mediaCode,
+          versionId: 4,
+          checksum: asset.checksum,
+          publicationCode: asset.publicationCode,
+          status: 'NOT_ACTIVATED',
+          qualified: false,
+        },
+      ],
+    });
+    expect(Object.isFrozen(status.mediaDependencies?.dependencies)).toBe(true);
+  });
+
+  it.each([
+    { owner: 'cms' },
+    { contractVersion: 2 },
+    { qualified: 'false' },
+    { dependencies: null },
+    { dependencies: Array.from({ length: 101 }, () => asset) },
+    { dependencies: [undefined] },
+    { dependencies: [{ ...asset, checksum: 'invalid' }] },
+    { dependencies: [{ ...asset, versionId: -1 }] },
+  ])('rejects incompatible owner Media evidence %j', async (override) => {
+    await expect(
+      mediaStatus({
+        owner: 'media',
+        contractVersion: 1,
+        qualified: false,
+        dependencies: [asset],
+        ...override,
+      }),
+    ).rejects.toThrow(/Media dependenc/);
+  });
+
   it.each(['circa', 'agoraapparel', 'agoraelectronics', 'agorahome'])(
     'composes the owner unavailable prerequisite diagnostic for %s without fabricating a command',
     async (profileCode) => {
@@ -461,6 +757,41 @@ describe('application initialization client', () => {
     await expect(request).rejects.toThrow(
       'Application initialization is still running. Refresh status in a moment to continue from the latest backend state.',
     );
+  });
+
+  it('honors a configured six-minute initialization timeout without replaying the mutation', async () => {
+    vi.useFakeTimers();
+    const fetchImplementation = hangingFetch();
+    const client = createApplicationInitializationClient(
+      {
+        connection,
+        enterpriseCode: 'default',
+        accessToken: 'employee-token',
+        timeoutMs: 360_000,
+        profileCode: 'frameworkdocs',
+      },
+      fetchImplementation,
+    );
+    const request = client.initiate();
+    const failure = expect(request).rejects.toThrow(
+      'Application initialization is still running. Refresh status in a moment to continue from the latest backend state.',
+    );
+
+    await vi.advanceTimersByTimeAsync(359_999);
+    await expect(
+      Promise.race([request, Promise.resolve('still waiting')]),
+    ).resolves.toBe('still waiting');
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+    expect(fetchImplementation).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({ method: 'POST' }),
+    );
+
+    await vi.advanceTimersByTimeAsync(1);
+    await failure;
+    await vi.advanceTimersByTimeAsync(360_000);
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('calls the governed prepare-only operation for capability preparation', async () => {

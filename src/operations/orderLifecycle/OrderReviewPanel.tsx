@@ -71,7 +71,11 @@ export function OrderReviewPanel({
   };
   if (!selectModuleConnection(bootstrap, 'order')) return null;
   return (
-    <Paper sx={{ p: 2 }} data-functional-module="order">
+    <Stack
+      component="section"
+      sx={{ p: 2, overflowWrap: 'anywhere' }}
+      data-functional-module="order"
+    >
       <Stack spacing={2}>
         <Typography variant="h6">Manual purchase reviews</Typography>
         <Button disabled={busy} onClick={() => void load()}>
@@ -84,7 +88,7 @@ export function OrderReviewPanel({
               {row.orderCode} · {row.requestedResolution} · {row.status}
             </Typography>
             <Typography>{row.comment}</Typography>
-            {['REFUND', 'CANCELLATION'].includes(row.requestedResolution) &&
+            {['REFUND', 'CANCELLATION', 'RETURN'].includes(row.requestedResolution) &&
               ['SUBMITTED', 'REFUND_RECONCILIATION'].includes(row.status) && (
                 <OrderRefundReview
                   configuration={configuration}
@@ -169,10 +173,11 @@ export function OrderReviewPanel({
                     {
                       confirmed: true,
                       expectedRevision: chosen.revision,
-                      idempotencyKey: chosen.code + ':resolve:' + chosen.revision,
                       outcome,
                       reason,
                     },
+                    undefined,
+                    { idempotencyKey: chosen.code + ':resolve:' + chosen.revision },
                   );
                   setChosen(null);
                   await load();
@@ -188,6 +193,6 @@ export function OrderReviewPanel({
           </Button>
         </DialogActions>
       </Dialog>
-    </Paper>
+    </Stack>
   );
 }

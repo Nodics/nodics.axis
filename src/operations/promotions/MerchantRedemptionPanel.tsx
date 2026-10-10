@@ -19,6 +19,36 @@ import {
 } from '../../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import { invokeOperationalOwner } from '../shared/operationalOwnerClient';
+type BenefitSource = {
+  sourceReference: string;
+  sourceHash: string;
+  sourceRevision: number;
+  storeCode: string;
+  storeRevision: number;
+};
+type MerchantBenefit = BenefitSource &
+  (
+    | {
+        sourceStage: 'PRICED_CART';
+        currency: string;
+        subtotalAmount: string;
+        discountAmount: string;
+      }
+    | {
+        sourceStage: 'SIMULATED_ITEMS';
+        benefitType: 'ITEM';
+        items: { sku: string; quantity: number; unit: 'EACH' }[];
+        simulated: true;
+        verified: false;
+        sourceType: 'ITEM_SIMULATION';
+      }
+    | {
+        sourceStage: 'FULFILLED_ITEMS';
+        benefitType: 'ITEM';
+        items: { sku: string; quantity: number; unit: 'EACH' }[];
+        deliveredAt: string;
+      }
+  );
 type Redemption = {
   entitlementCode: string;
   productCode: string;
@@ -31,6 +61,9 @@ type Redemption = {
   merchantReceiptReference?: string;
   eligible?: boolean;
   recoveryRequired?: boolean;
+  simulated?: true;
+  deliveryVerified?: false;
+  evidenceMode?: 'LOCAL_SIMULATION';
   validationCode?: string;
   validationExpiresAt?: string;
   confirmationKey?: string;
@@ -39,17 +72,7 @@ type Redemption = {
   storeCode?: string;
   storeRevision?: number;
   conditions?: { benefit?: unknown };
-  pricedBenefit?: {
-    sourceReference: string;
-    currency: string;
-    subtotalAmount: string;
-    discountAmount: string;
-    sourceStage: 'PRICED_CART';
-    sourceHash: string;
-    sourceRevision: number;
-    storeCode: string;
-    storeRevision: number;
-  };
+  pricedBenefit?: MerchantBenefit;
 };
 /** Projects bounded inert owner fields before offering a reviewed fulfillment action. */
 function redemption(value: Redemption): Redemption {
@@ -98,49 +121,154 @@ function redemption(value: Redemption): Redemption {
       throw new Error('Merchant request could not be confirmed.');
     if (value[field] !== undefined) result[field] = value[field];
   }
+  if (
+    [value.simulated, value.deliveryVerified, value.evidenceMode].some(
+      (field) => field !== undefined,
+    )
+  ) {
+    if (
+      value.simulated !== true ||
+      value.deliveryVerified !== false ||
+      value.evidenceMode !== 'LOCAL_SIMULATION'
+    )
+      throw new Error('Merchant simulation evidence could not be confirmed.');
+    result.simulated = true;
+    result.deliveryVerified = false;
+    result.evidenceMode = 'LOCAL_SIMULATION';
+  }
   if (value.storeRevision !== undefined) {
     if (!Number.isSafeInteger(value.storeRevision) || value.storeRevision < 1)
       throw new Error('Merchant request could not be confirmed.');
     result.storeRevision = value.storeRevision;
   }
   const benefit = value.conditions?.benefit as Redemption['pricedBenefit'];
-  if (benefit?.sourceStage === 'PRICED_CART') {
+  if (benefit !== undefined) {
+    if (!benefit || typeof benefit !== 'object' || Array.isArray(benefit))
+      throw new Error('The benefit source could not be confirmed.');
     if (
-      [
-        benefit.sourceReference,
-        benefit.currency,
-        benefit.sourceHash,
-        benefit.storeCode,
-      ].some((value) => typeof value !== 'string') ||
-      !/^CART:[A-Za-z0-9_.@-]{1,114}$/.test(benefit.sourceReference) ||
-      !/^[A-Z]{3}$/.test(benefit.currency) ||
+      [benefit.sourceReference, benefit.sourceHash, benefit.storeCode].some(
+        (value) => typeof value !== 'string',
+      ) ||
+      !/^[A-Za-z0-9_.:@-]{1,119}$/.test(benefit.sourceReference) ||
       !/^[a-f0-9]{64}$/.test(benefit.sourceHash) ||
       !Number.isSafeInteger(benefit.sourceRevision) ||
       benefit.sourceRevision < 0 ||
       !/^[A-Za-z0-9_.:-]{1,128}$/.test(benefit.storeCode) ||
       !Number.isSafeInteger(benefit.storeRevision) ||
-      benefit.storeRevision < 1 ||
-      [benefit.subtotalAmount, benefit.discountAmount].some(
-        (amount) =>
-          typeof amount !== 'string' ||
-          amount.length > 128 ||
-          !/^(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(amount),
-      )
+      benefit.storeRevision < 1
     )
-      throw new Error('The priced source could not be confirmed.');
-    result.pricedBenefit = {
-      sourceStage: 'PRICED_CART',
+      throw new Error('The benefit source could not be confirmed.');
+    const source = {
       sourceReference: benefit.sourceReference,
-      currency: benefit.currency,
-      subtotalAmount: benefit.subtotalAmount,
-      discountAmount: benefit.discountAmount,
       sourceHash: benefit.sourceHash,
       sourceRevision: benefit.sourceRevision,
       storeCode: benefit.storeCode,
       storeRevision: benefit.storeRevision,
     };
+    if (benefit.sourceStage === 'PRICED_CART') {
+      if (
+        result.simulated ||
+        ['simulated', 'verified', 'sourceType', 'items', 'deliveredAt'].some((field) =>
+          Object.hasOwn(benefit, field),
+        ) ||
+        !/^CART:[A-Za-z0-9_.@-]{1,114}$/.test(benefit.sourceReference) ||
+        !/^[A-Z]{3}$/.test(benefit.currency) ||
+        [benefit.subtotalAmount, benefit.discountAmount].some(
+          (amount) =>
+            typeof amount !== 'string' ||
+            amount.length > 128 ||
+            !/^(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(amount),
+        )
+      )
+        throw new Error('The priced source could not be confirmed.');
+      result.pricedBenefit = {
+        ...source,
+        sourceStage: 'PRICED_CART',
+        currency: benefit.currency,
+        subtotalAmount: benefit.subtotalAmount,
+        discountAmount: benefit.discountAmount,
+      };
+    } else if (
+      benefit.sourceStage === 'SIMULATED_ITEMS' ||
+      benefit.sourceStage === 'FULFILLED_ITEMS'
+    ) {
+      if (
+        benefit.benefitType !== 'ITEM' ||
+        !Array.isArray(benefit.items) ||
+        !benefit.items.length ||
+        benefit.items.length > 20 ||
+        benefit.items.some(
+          (item) =>
+            !item ||
+            typeof item.sku !== 'string' ||
+            !/^[A-Za-z0-9_.:-]{1,128}$/.test(item.sku) ||
+            !Number.isSafeInteger(item.quantity) ||
+            item.quantity < 1 ||
+            item.quantity > 100 ||
+            item.unit !== 'EACH',
+        ) ||
+        new Set(benefit.items.map((item) => item.sku)).size !== benefit.items.length
+      )
+        throw new Error('The item evidence could not be confirmed.');
+      const items = benefit.items.map(({ sku, quantity, unit }) => ({
+        sku,
+        quantity,
+        unit,
+      }));
+      if (benefit.sourceStage === 'SIMULATED_ITEMS') {
+        if (
+          benefit.simulated !== true ||
+          benefit.verified !== false ||
+          benefit.sourceType !== 'ITEM_SIMULATION' ||
+          !/^SIM:[A-Za-z0-9_.:@-]{1,115}$/.test(benefit.sourceReference) ||
+          Object.hasOwn(benefit, 'deliveredAt')
+        )
+          throw new Error('Merchant simulation evidence could not be confirmed.');
+        result.pricedBenefit = {
+          ...source,
+          sourceStage: 'SIMULATED_ITEMS',
+          benefitType: 'ITEM',
+          items,
+          simulated: true,
+          verified: false,
+          sourceType: 'ITEM_SIMULATION',
+        };
+      } else {
+        if (
+          result.simulated ||
+          Object.hasOwn(benefit, 'simulated') ||
+          Object.hasOwn(benefit, 'verified') ||
+          Object.hasOwn(benefit, 'sourceType') ||
+          typeof benefit.deliveredAt !== 'string' ||
+          !Number.isFinite(Date.parse(benefit.deliveredAt)) ||
+          Date.parse(benefit.deliveredAt) > Date.now()
+        )
+          throw new Error('The item evidence could not be confirmed.');
+        result.pricedBenefit = {
+          ...source,
+          sourceStage: 'FULFILLED_ITEMS',
+          benefitType: 'ITEM',
+          items,
+          deliveredAt: benefit.deliveredAt,
+        };
+      }
+    } else throw new Error('The benefit source could not be confirmed.');
   }
   return result;
+}
+/** Simulation labels consume only the owner's exact evidence marker, never runtime or outlet settings. */
+function isSimulation(value: Redemption | null) {
+  return (
+    value?.simulated === true || value?.pricedBenefit?.sourceStage === 'SIMULATED_ITEMS'
+  );
+}
+/** Distinguishes a local simulation from a genuine goods-delivery assertion. */
+function SimulationNotice() {
+  return (
+    <Alert severity="warning">
+      Local ITEM simulation. Goods delivery is not verified. LOCAL_SIMULATION.
+    </Alert>
+  );
 }
 /** Digital Core owns scoped merchant fulfillment; this panel submits explicitly reviewed commands only. */
 export function MerchantRedemptionPanel({
@@ -272,8 +400,7 @@ export function MerchantRedemptionPanel({
   const sourceReady =
     !!outlets &&
     (!outlets.pricedSourceRequired ||
-      (/^CART:[A-Za-z0-9_.@-]{1,114}$/.test(pricedSource.trim()) &&
-        /^[A-Za-z0-9][A-Za-z0-9 ._:/-]{2,119}$/.test(pricedSource.trim())));
+      /^[A-Za-z0-9_.:@-]{1,119}$/.test(pricedSource.trim()));
   /** Replaces selectable queue state with a fresh bounded owner read; continuation follows a confirmed command. */
   const load = async (continuation = false) => {
     if (!outletReady || (inFlight.current && !continuation)) return;
@@ -445,6 +572,7 @@ export function MerchantRedemptionPanel({
               <Typography>
                 {row.redemptionCode} · {row.claimStatus}
               </Typography>
+              {isSimulation(row) && <SimulationNotice />}
               {row.receiptCode ? (
                 <Typography>
                   Merchant receipt: {row.merchantReceiptReference || row.receiptCode}
@@ -462,7 +590,9 @@ export function MerchantRedemptionPanel({
                   }}
                 >
                   {row.recoveryRequired
-                    ? 'Resume fulfillment confirmation'
+                    ? isSimulation(row)
+                      ? 'Resume local simulation confirmation'
+                      : 'Resume fulfillment confirmation'
                     : 'Review fulfillment'}
                 </Button>
               )}
@@ -478,18 +608,34 @@ export function MerchantRedemptionPanel({
           if (!busy) setChosen(null);
         }}
       >
-        <DialogTitle>Confirm merchant fulfillment</DialogTitle>
+        <DialogTitle>
+          {isSimulation(chosen)
+            ? 'Confirm local ITEM simulation'
+            : 'Confirm merchant fulfillment'}
+        </DialogTitle>
         <DialogContent>
           {error && <Alert severity="error">{error}</Alert>}
           <Typography>{chosen?.merchantLabel}</Typography>
+          {isSimulation(chosen) && <SimulationNotice />}
           {chosen?.pricedBenefit && (
             <Stack spacing={1}>
               <Typography>{chosen.pricedBenefit.sourceStage}</Typography>
               <Typography>{chosen.pricedBenefit.sourceReference}</Typography>
-              <Typography>
-                {chosen.pricedBenefit.currency} / {chosen.pricedBenefit.subtotalAmount}{' '}
-                / {chosen.pricedBenefit.discountAmount}
-              </Typography>
+              {chosen.pricedBenefit.sourceStage === 'PRICED_CART' ? (
+                <Typography>
+                  {chosen.pricedBenefit.currency} /{' '}
+                  {chosen.pricedBenefit.subtotalAmount} /{' '}
+                  {chosen.pricedBenefit.discountAmount}
+                </Typography>
+              ) : (
+                <Stack>
+                  {chosen.pricedBenefit.items.map((item) => (
+                    <Typography key={item.sku}>
+                      {item.sku} / {item.quantity} {item.unit}
+                    </Typography>
+                  ))}
+                </Stack>
+              )}
               <Typography>
                 {chosen.pricedBenefit.sourceRevision} / {chosen.pricedBenefit.storeCode}{' '}
                 / {chosen.pricedBenefit.storeRevision}
@@ -503,17 +649,20 @@ export function MerchantRedemptionPanel({
             </Typography>
           )}
           <Typography>
-            Confirm that this coupon benefit has been fulfilled. This completes
-            redemption and creates a receipt.
+            {isSimulation(chosen)
+              ? 'Record the local ITEM simulation. This does not verify goods delivery.'
+              : 'Confirm that this coupon benefit has been fulfilled. This completes redemption and creates a receipt.'}
           </Typography>
-          {chosen?.mode === 'MERCHANT_SCREEN' && !outlets?.pricedSourceRequired && (
-            <>
-              <Typography>
-                Enterprise: {chosen.merchantLabel}. Enter your transaction or receipt
-                reference after fulfilling this benefit.
-              </Typography>
-            </>
-          )}
+          {chosen?.mode === 'MERCHANT_SCREEN' &&
+            !outlets?.pricedSourceRequired &&
+            !isSimulation(chosen) && (
+              <>
+                <Typography>
+                  Enterprise: {chosen.merchantLabel}. Enter your transaction or receipt
+                  reference after fulfilling this benefit.
+                </Typography>
+              </>
+            )}
           {chosen?.mode === 'LOCAL_SAMPLE' && (
             <Alert severity="info">
               Local sample fulfillment. No external POS is contacted.
@@ -543,7 +692,7 @@ export function MerchantRedemptionPanel({
           <Button
             disabled={
               busy ||
-              !/^[A-Za-z0-9][A-Za-z0-9 ._:/-]{2,119}$/.test(receipt.trim()) ||
+              !/^[A-Za-z0-9][A-Za-z0-9 ._:/@-]{2,119}$/.test(receipt.trim()) ||
               (!chosen?.recoveryRequired &&
                 (!chosen?.validationCode ||
                   !chosen.validationExpiresAt ||
@@ -584,6 +733,7 @@ export function MerchantRedemptionPanel({
                     result.entitlementCode !== chosen.entitlementCode ||
                     result.claimStatus !== 'REDEEMED' ||
                     !result.receiptCode ||
+                    (isSimulation(chosen) && !result.simulated) ||
                     (outlets?.pricedSourceRequired &&
                       (result.merchantReceiptReference !== receipt.trim() ||
                         result.storeCode !== chosen.storeCode ||
@@ -613,7 +763,7 @@ export function MerchantRedemptionPanel({
               })();
             }}
           >
-            Confirm fulfillment
+            {isSimulation(chosen) ? 'Confirm local simulation' : 'Confirm fulfillment'}
           </Button>
         </DialogActions>
       </Dialog>

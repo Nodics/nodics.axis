@@ -3,8 +3,8 @@ import { CopilotWorkspaceRoutePage } from '../assistant/CopilotWorkspaceRoutePag
 import { dashboardComposition, dashboardText } from './dashboardComposition';
 import { AxisOverviewDashboard } from './AxisOverviewDashboard';
 import { isDocumentation } from './overviewStatus';
-import { lazy, Suspense, useMemo, useState } from 'react';
-import { useQueries } from '@tanstack/react-query';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { useQueries, type Query } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
   Accordion,
@@ -42,6 +42,10 @@ import {
 } from '../operations/setupAccelerators/api/applicationInitializationClient';
 import type { AxisRuntimeConfig } from '../runtime/runtimeConfig';
 import { ApplicationArtwork } from './ApplicationArtwork';
+import {
+  applicationReadinessInProgress,
+  applicationReadinessPollInterval,
+} from '../operations/setupAccelerators/api/applicationReadinessPolling';
 
 const TechnicalDashboard = lazy(async () => {
   const module = await import('./AxisTechnicalDashboard');
@@ -107,6 +111,16 @@ export function AxisDashboardRoutePage(props: Props) {
     [props.bootstrap.applicationInitializationProfiles],
   );
   const connection = selectModuleConnection(props.bootstrap, 'backoffice');
+  const [pollingStarted] = useState(() => new Map<string, number>());
+  useEffect(() => {
+    pollingStarted.clear();
+  }, [
+    props.accessToken,
+    props.runtime.enterpriseCode,
+    connection?.instanceId,
+    profiles,
+    pollingStarted,
+  ]);
   const queries = useQueries({
     queries: profiles.map((profile) => ({
       queryKey: [
@@ -128,7 +142,29 @@ export function AxisDashboardRoutePage(props: Props) {
       },
       staleTime: 15_000,
       retry: false,
-      refetchInterval: 15_000,
+      refetchInterval: (
+        query: Query<
+          ApplicationInitializationStatus,
+          Error,
+          ApplicationInitializationStatus,
+          readonly unknown[]
+        >,
+      ) => {
+        if (!applicationReadinessInProgress(query.state.data)) {
+          pollingStarted.delete(profile.code);
+          return false;
+        }
+        const startedAt = pollingStarted.get(profile.code) ?? Date.now();
+        pollingStarted.set(profile.code, startedAt);
+        return applicationReadinessPollInterval(
+          query.state.data,
+          query.state.error,
+          query.state.dataUpdateCount,
+          startedAt,
+          Date.now(),
+          query.state.dataUpdatedAt,
+        );
+      },
       refetchIntervalInBackground: false,
     })),
   });

@@ -1,7 +1,14 @@
 import type { AxisModuleConnection } from '../../bootstrap/publicBootstrap';
+import {
+  parseMediaPublicationDependency,
+  type MediaPublicationDependency,
+} from '../../operations/readiness/mediaPublicationHandoff';
 
 export type DocumentationPublicationReadiness =
   | 'NOT_IMPORTED'
+  | 'IMPORTING'
+  | 'BLOCKED'
+  | 'MEDIA_DEPENDENCIES_PENDING'
   | 'IMPORTED'
   | 'PUBLICATION_PENDING'
   | 'READY'
@@ -31,6 +38,10 @@ export interface DocumentationPublicationStatus {
   }>;
   readonly repair?: DocumentationApprovalRepairEvidence | undefined;
   readonly capability?: DocumentationCapabilityReadiness | undefined;
+  readonly mediaDependencies?: Readonly<{
+    qualified: boolean;
+    dependencies: readonly MediaPublicationDependency[];
+  }>;
 }
 
 export interface DocumentationCapabilityReadiness {
@@ -690,6 +701,9 @@ function parse(value: unknown): DocumentationPublicationStatus {
   if (
     ![
       'NOT_IMPORTED',
+      'IMPORTING',
+      'BLOCKED',
+      'MEDIA_DEPENDENCIES_PENDING',
       'IMPORTED',
       'PUBLICATION_PENDING',
       'READY',
@@ -708,6 +722,19 @@ function parse(value: unknown): DocumentationPublicationStatus {
     data.publication === undefined
       ? undefined
       : record(data.publication, 'Publication');
+  const media =
+    data.mediaDependencies === undefined
+      ? undefined
+      : record(data.mediaDependencies, 'Media dependencies');
+  if (
+    media &&
+    (media.owner !== 'media' ||
+      media.contractVersion !== 1 ||
+      typeof media.qualified !== 'boolean' ||
+      !Array.isArray(media.dependencies) ||
+      media.dependencies.length > 100)
+  )
+    throw new Error('Media dependencies are incompatible');
   const result: DocumentationPublicationStatus = {
     profileCode: text(data.profileCode, 'Documentation profile'),
     siteCode: text(data.siteCode, 'Documentation site'),
@@ -715,6 +742,20 @@ function parse(value: unknown): DocumentationPublicationStatus {
     releaseCode: text(data.releaseCode, 'Documentation release'),
     releaseVersion: text(data.releaseVersion, 'Documentation release version'),
     allowedActions: Object.freeze(actions as DocumentationPublicationAction[]),
+    ...(media
+      ? {
+          mediaDependencies: Object.freeze({
+            qualified: media.qualified as boolean,
+            dependencies: Object.freeze(
+              (media.dependencies as unknown[]).map((item) => {
+                const dependency = parseMediaPublicationDependency(item);
+                if (!dependency) throw new Error('Media dependency is missing');
+                return dependency;
+              }),
+            ),
+          }),
+        }
+      : {}),
     ...(typeof data.releaseStatus === 'string'
       ? { releaseStatus: data.releaseStatus }
       : {}),

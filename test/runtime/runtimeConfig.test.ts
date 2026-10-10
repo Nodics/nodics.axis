@@ -34,6 +34,24 @@ describe('parseRuntimeConfig', () => {
     });
   });
 
+  it.each([1_000, 10_000, 120_000, 120_001, 360_000, 600_000])(
+    'accepts a bounded request timeout of %i ms',
+    (requestTimeoutMs) => {
+      expect(
+        parseRuntimeConfig({ ...validConfig, requestTimeoutMs }).requestTimeoutMs,
+      ).toBe(requestTimeoutMs);
+    },
+  );
+
+  it.each([600_001, Infinity, -Infinity, NaN, 360_000.5, '360000', null, undefined])(
+    'rejects an invalid request timeout of %s',
+    (requestTimeoutMs) => {
+      expect(() => parseRuntimeConfig({ ...validConfig, requestTimeoutMs })).toThrow(
+        /requestTimeoutMs/,
+      );
+    },
+  );
+
   it.each([
     ['relative URL', { ...validConfig, backofficeBaseUrl: '/backoffice' }],
     ['relative Location URL', { ...validConfig, locationBaseUrl: '/location' }],
@@ -46,7 +64,7 @@ describe('parseRuntimeConfig', () => {
     ['zero contract version', { ...validConfig, clientContractVersion: 0 }],
     ['invalid project code', { ...validConfig, projectCode: 'not project' }],
     ['short timeout', { ...validConfig, requestTimeoutMs: 999 }],
-    ['long timeout', { ...validConfig, requestTimeoutMs: 120_001 }],
+    ['long timeout', { ...validConfig, requestTimeoutMs: 600_001 }],
     ['unknown field', { ...validConfig, password: 'must-not-be-here' }],
     ['unbounded discovery', { ...validConfig, publicDiscoveryRetryWindowMs: 600_001 }],
     ['invalid discovery window', { ...validConfig, publicDiscoveryRetryWindowMs: 0 }],

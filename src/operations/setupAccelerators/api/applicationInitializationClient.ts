@@ -76,6 +76,8 @@ export interface ApplicationPreparationStep {
   readonly label?: string | undefined;
   readonly required: boolean;
   readonly trigger: string;
+  readonly phase?: string | undefined;
+  readonly operatorEnterpriseCode?: string | undefined;
   readonly dataType: string;
   readonly targetServer: string;
   readonly targetRuntimeRole: string;
@@ -132,6 +134,8 @@ export interface ApplicationInitializationStatus {
   readonly preparation?: Readonly<{
     readonly status: string;
     readonly steps: readonly ApplicationPreparationStep[];
+    readonly selectionRequired?: boolean | undefined;
+    readonly selectableStepCodes?: readonly string[] | undefined;
     readonly groupReceipts?: readonly ApplicationPreparationGroupReceipt[] | undefined;
     readonly operationFailure?: ApplicationPreparationFailure | undefined;
   }>;
@@ -146,6 +150,10 @@ export interface ApplicationInitializationStatus {
   }>;
   readonly repair?: ApplicationApprovalRepairEvidence | undefined;
   readonly capability?: ApplicationCapabilityReadiness | undefined;
+  readonly mediaDependencies?: Readonly<{
+    qualified: boolean;
+    dependencies: readonly MediaPublicationDependency[];
+  }>;
 }
 
 export interface ApplicationPreparationOperationEvidence {
@@ -334,6 +342,52 @@ interface ApplicationInitializationClientOptions {
 interface ApplicationInitializationOperationInput {
   readonly reason?: string | undefined;
   readonly forceRefresh?: boolean | undefined;
+}
+
+interface ApplicationInitializationInitiateInput extends ApplicationInitializationOperationInput {
+  readonly afterPublicationStepCode?: string | undefined;
+}
+
+const afterPublicationStepCodePattern =
+  /^[A-Za-z][A-Za-z0-9._-]{0,127}:[A-Za-z][A-Za-z0-9_-]{0,127}$/;
+
+/** Retains only the owner's bounded, unambiguous choices; descriptors never grant authority. */
+function parseStageSelection(
+  preparation: Record<string, unknown>,
+  steps: readonly ApplicationPreparationStep[],
+) {
+  if (
+    preparation.selectionRequired === undefined &&
+    preparation.selectableStepCodes === undefined
+  )
+    return {};
+  const codes = preparation.selectableStepCodes;
+  if (
+    typeof preparation.selectionRequired !== 'boolean' ||
+    !Array.isArray(codes) ||
+    codes.length > 256 ||
+    new Set(codes).size !== codes.length ||
+    (preparation.selectionRequired !== true && codes.length > 0) ||
+    codes.some(
+      (code) =>
+        typeof code !== 'string' ||
+        !afterPublicationStepCodePattern.test(code) ||
+        steps.filter((step) => step.code === code).length !== 1 ||
+        !steps.some(
+          (step) =>
+            step.code === code &&
+            step.required &&
+            step.phase === 'AFTER_PUBLICATION' &&
+            step.operatorEnterpriseCode &&
+            step.status !== 'AUTHORITY_PENDING',
+        ),
+    )
+  )
+    throw new Error('Application preparation stage selection is incompatible');
+  return {
+    selectionRequired: preparation.selectionRequired,
+    selectableStepCodes: Object.freeze(codes as string[]),
+  };
 }
 
 function requestTimeoutMs(
@@ -834,6 +888,10 @@ function parseProfile(value: unknown): ApplicationInitializationProfile {
       ...(optionalText(step.label) ? { label: optionalText(step.label) } : {}),
       required: booleanValue(step.required, true),
       trigger: text(step.trigger, 'Application preparation step trigger'),
+      ...(optionalText(step.phase) ? { phase: optionalText(step.phase) } : {}),
+      ...(optionalText(step.operatorEnterpriseCode)
+        ? { operatorEnterpriseCode: optionalText(step.operatorEnterpriseCode) }
+        : {}),
       dataType: text(step.dataType, 'Application preparation step data type'),
       targetServer: text(step.targetServer, 'Application preparation target'),
       targetRuntimeRole: text(
@@ -973,6 +1031,19 @@ function parse(value: unknown): ApplicationInitializationStatus {
     data.publication === undefined
       ? undefined
       : record(data.publication, 'Application publication');
+  const media =
+    data.mediaDependencies === undefined
+      ? undefined
+      : record(data.mediaDependencies, 'Media dependencies');
+  if (
+    media &&
+    (media.owner !== 'media' ||
+      media.contractVersion !== 1 ||
+      typeof media.qualified !== 'boolean' ||
+      !Array.isArray(media.dependencies) ||
+      media.dependencies.length > 100)
+  )
+    throw new Error('Media dependencies are incompatible');
   const preparation =
     data.preparation === undefined
       ? undefined
@@ -1000,6 +1071,10 @@ function parse(value: unknown): ApplicationInitializationStatus {
             ...(optionalText(step.label) ? { label: optionalText(step.label) } : {}),
             required: booleanValue(step.required, true),
             trigger: text(step.trigger, 'Application preparation step trigger'),
+            ...(optionalText(step.phase) ? { phase: optionalText(step.phase) } : {}),
+            ...(optionalText(step.operatorEnterpriseCode)
+              ? { operatorEnterpriseCode: optionalText(step.operatorEnterpriseCode) }
+              : {}),
             dataType: text(step.dataType, 'Application preparation step data type'),
             targetServer: text(step.targetServer, 'Application preparation target'),
             targetRuntimeRole: text(
@@ -1039,11 +1114,26 @@ function parse(value: unknown): ApplicationInitializationStatus {
     releaseVersion: text(data.releaseVersion, 'Application release version'),
     ...(data.profile ? { profile: parseProfile(data.profile) } : {}),
     allowedActions: Object.freeze(allowedActions as ApplicationInitializationAction[]),
+    ...(media
+      ? {
+          mediaDependencies: Object.freeze({
+            qualified: media.qualified as boolean,
+            dependencies: Object.freeze(
+              (media.dependencies as unknown[]).map((item) => {
+                const dependency = parseMediaPublicationDependency(item);
+                if (!dependency) throw new Error('Media dependency is missing');
+                return dependency;
+              }),
+            ),
+          }),
+        }
+      : {}),
     ...(preparation
       ? {
           preparation: Object.freeze({
             status: text(preparation.status, 'Application preparation status'),
             steps: Object.freeze(preparationSteps),
+            ...parseStageSelection(preparation, preparationSteps),
             ...(preparation.groupReceipts !== undefined
               ? { groupReceipts: parseGroupReceipts(preparation.groupReceipts) }
               : {}),
@@ -1279,8 +1369,15 @@ async function invoke(
     | 'reconcile-approval'
     | undefined,
   fetchImplementation: typeof fetch,
-  input: ApplicationInitializationOperationInput = {},
+  input: ApplicationInitializationInitiateInput = {},
 ): Promise<ApplicationInitializationStatus> {
+  if (
+    input.afterPublicationStepCode !== undefined &&
+    (operation !== 'initiate' ||
+      typeof input.afterPublicationStepCode !== 'string' ||
+      !afterPublicationStepCodePattern.test(input.afterPublicationStepCode))
+  )
+    throw new Error('Application after-publication selection is invalid');
   if (!/^[a-z][a-z0-9_-]{0,63}$/.test(options.profileCode)) {
     throw new Error('Application profile is invalid');
   }
@@ -1317,6 +1414,7 @@ async function invoke(
                     ? 'Axis Setup & Accelerators approval reconciliation requested'
                     : `Axis Setup & Accelerators ${operation} requested`),
               forceRefresh: input.forceRefresh === true ? true : undefined,
+              afterPublicationStepCode: input.afterPublicationStepCode,
             }),
           }
         : {}),
@@ -1352,7 +1450,7 @@ export function createApplicationInitializationClient(
 ) {
   return Object.freeze({
     getStatus: () => invoke(options, 'GET', undefined, fetchImplementation),
-    initiate: (input?: ApplicationInitializationOperationInput) =>
+    initiate: (input?: ApplicationInitializationInitiateInput) =>
       invoke(options, 'POST', 'initiate', fetchImplementation, input),
     prepare: (input?: ApplicationInitializationOperationInput) =>
       invoke(options, 'POST', 'prepare', fetchImplementation, input),

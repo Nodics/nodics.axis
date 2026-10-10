@@ -183,6 +183,11 @@ Frontend startup is independent of backend health. Keep unavailable/retry UI and
 frontend tests in this application. Backend API acceptance must never start or
 test this frontend. Container deployment is owned by [docker/README.md](docker/README.md).
 
+Applications dashboard observation reuses Setup's bounded readiness scheduler.
+Only active import/preparation/activation polls; stable and review-pending profiles
+remain explicitly refreshable. Never restore unconditional catalogue-wide polling
+or relax owner rate limits to accommodate documentation profile growth.
+
 First-run publication recovery may render the existing authorized Process
 workspace at `/initialize-axis/approval` only while a baseline workflow reference
 exists, the employee is unlocked, and Process navigation is ACTIVE or PREVIEW

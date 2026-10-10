@@ -18,7 +18,6 @@ import {
   useQueries,
   useQuery,
   useQueryClient,
-  type Query,
 } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link as RouterLink } from 'react-router';
@@ -46,6 +45,8 @@ import {
   processApprovalUnavailableMessage,
 } from '../operations/processWorkflow/processApprovalDiagnostics';
 import { CapabilityReadinessPanel } from '../operations/readiness/CapabilityReadinessPanel';
+import { coordinatePublicationAssets } from '../operations/readiness/coordinatePublicationAssets';
+import { requestMediaPublication } from '../operations/mediaManagement/api/mediaPublicationClient';
 import type { AxisRuntimeConfig } from '../runtime/runtimeConfig';
 import { createDocumentationContentPackClient } from './api/documentationContentPackClient';
 import {
@@ -53,6 +54,7 @@ import {
   type DocumentationPublicationReadiness,
   type DocumentationPublicationStatus,
 } from './api/documentationPublicationClient';
+import { publicationQueryPolicy } from './publicationQueryPolicy';
 
 interface DocumentationDashboardProps {
   readonly accessToken: string;
@@ -394,6 +396,12 @@ function documentationPublicationReadinessLabel(
   switch (readiness) {
     case 'NOT_IMPORTED':
       return 'Not initialized';
+    case 'IMPORTING':
+      return 'Importing';
+    case 'BLOCKED':
+      return 'Blocked';
+    case 'MEDIA_DEPENDENCIES_PENDING':
+      return 'Media pending';
     case 'IMPORTED':
       return 'Approval needed';
     case 'PUBLICATION_PENDING':
@@ -416,7 +424,7 @@ function documentationPublicationReadinessLabel(
 function publicationReadinessColor(
   readiness: DocumentationPublicationStatus['readiness'] | undefined,
 ): 'default' | 'success' | 'warning' | 'error' {
-  if (['FAILED', 'REJECTED'].includes(readiness ?? '')) return 'error';
+  if (['FAILED', 'REJECTED', 'BLOCKED'].includes(readiness ?? '')) return 'error';
   if (readiness === 'READY') return 'success';
   if (readiness === 'PUBLICATION_PENDING' || readiness === 'IMPORTED') return 'warning';
   return 'default';
@@ -748,6 +756,9 @@ function CmsDocumentationReadinessCard({
   const processConnection = selectModuleConnection(bootstrap, 'workflow', {
     server: 'processServer',
   });
+  const mediaConnection = selectModuleConnection(bootstrap, 'media', {
+    publicationRole: 'STAGED',
+  });
   const initializationProfile = source.initializationProfile;
   const canCheck = Boolean(administrationConnection && initializationProfile);
   const packClient =
@@ -781,6 +792,7 @@ function CmsDocumentationReadinessCard({
       query.state.data?.state === 'IMPORTING' ? 2_000 : false,
   });
   const publication = useQuery({
+    ...publicationQueryPolicy,
     queryKey: publicationQueryKey(runtime.enterpriseCode, initializationProfile ?? ''),
     queryFn: () => {
       if (!publicationClient) {
@@ -789,14 +801,13 @@ function CmsDocumentationReadinessCard({
       return publicationClient.getStatus();
     },
     enabled: canCheck,
-    refetchInterval: (query) =>
-      query.state.data?.readiness === 'PUBLICATION_PENDING' ? 2_000 : false,
   });
   const workflowRef = publication.data?.publication?.workflowRef;
   const approvalTasks = useQuery({
     queryKey: [
       'documentation-publication-approval-tasks',
       runtime.enterpriseCode,
+      initializationProfile ?? source.id,
       workflowRef ?? '',
     ],
     queryFn: () => {
@@ -831,7 +842,23 @@ function CmsDocumentationReadinessCard({
     isActionableProcessApprovalTask,
   );
   const reconcile = async () => {
-    await Promise.all([pack.refetch(), publication.refetch(), approvalTasks.refetch()]);
+    const [nextPack, nextPublication] = await Promise.all([
+      pack.refetch(),
+      publication.refetch(),
+    ]);
+    if (nextPack.isSuccess) packMutation.reset();
+    if (nextPublication.isSuccess) {
+      publicationMutation.reset();
+      approvalMutation.reset();
+      if (
+        processConnection &&
+        workflowRef &&
+        nextPublication.data.publication?.workflowRef === workflowRef &&
+        nextPublication.data.readiness === 'PUBLICATION_PENDING'
+      ) {
+        await approvalTasks.refetch();
+      }
+    }
   };
   const packMutation = useMutation({
     mutationFn: () => {
@@ -868,6 +895,55 @@ function CmsDocumentationReadinessCard({
   });
   const approvalMutation = useMutation({
     mutationFn: async (approved: boolean) => {
+      if (!publicationClient)
+        throw new Error('Documentation publication is unavailable');
+      const configuration = {
+        accessToken,
+        enterpriseCode: runtime.enterpriseCode,
+        timeoutMs: runtime.requestTimeoutMs,
+      };
+      const finishAssets = async () => {
+        let status = await publicationClient.getStatus();
+        for (
+          let attempt = 0;
+          attempt < 20 &&
+          ['APPROVED', 'ACTIVATING'].includes(status.publication?.state ?? '');
+          attempt++
+        ) {
+          await new Promise((resolve) => globalThis.setTimeout(resolve, 500));
+          status = await publicationClient.getStatus();
+        }
+        if (status.readiness !== 'MEDIA_DEPENDENCIES_PENDING') return status;
+        if (!status.mediaDependencies || !mediaConnection || !processConnection)
+          throw new Error(
+            'Pack Media publication requires Staged Media and Process connections',
+          );
+        await coordinatePublicationAssets(
+          status.mediaDependencies.dependencies,
+          (input) => requestMediaPublication(mediaConnection, configuration, input),
+          async (reference) => {
+            const tasks = await loadProcessTasks(
+              processConnection,
+              configuration,
+              reference,
+            );
+            const task = findActionableProcessApprovalTask(
+              tasks.filter((candidate) => candidate.instanceCode === reference),
+            );
+            if (!task)
+              throw new Error(
+                'Media approval task is not actionable; review Process evidence',
+              );
+            await completeProcessTask(processConnection, configuration, task.code, {
+              approved: true,
+              reason: `${source.label} pinned Media publication approved from Documentation publication center`,
+            });
+          },
+        );
+        return publicationClient.getStatus();
+      };
+      if (approved && publication.data?.readiness === 'MEDIA_DEPENDENCIES_PENDING')
+        return finishAssets();
       if (!processConnection || !workflowRef) {
         throw new Error(
           processApprovalUnavailableMessage({
@@ -877,11 +953,6 @@ function CmsDocumentationReadinessCard({
           }),
         );
       }
-      const configuration = {
-        accessToken,
-        enterpriseCode: runtime.enterpriseCode,
-        timeoutMs: runtime.requestTimeoutMs,
-      };
       let publicationWorkflowRef = workflowRef;
       let tasks = await loadProcessTasks(
         processConnection,
@@ -928,7 +999,7 @@ function CmsDocumentationReadinessCard({
       if (!publicationClient) {
         throw new Error('Documentation publication is unavailable');
       }
-      return publicationClient.getStatus();
+      return approved ? finishAssets() : publicationClient.getStatus();
     },
     onSuccess: async (nextStatus) => {
       queryClient.setQueryData(
@@ -940,6 +1011,9 @@ function CmsDocumentationReadinessCard({
         approvalTasks.refetch(),
         onPublicationStatusChange?.(nextStatus),
       ]);
+    },
+    onError: async () => {
+      await publication.refetch();
     },
   });
   const packOperation = pack.data?.allowedOperations[0];
@@ -964,7 +1038,8 @@ function CmsDocumentationReadinessCard({
           ? packMutation.error.message
           : publicationMutation.error instanceof Error
             ? publicationMutation.error.message
-            : approvalTasks.error instanceof Error
+            : publicationReadiness === 'PUBLICATION_PENDING' &&
+                approvalTasks.error instanceof Error
               ? approvalTasks.error.message
               : approvalMutation.error instanceof Error
                 ? approvalMutation.error.message
@@ -993,7 +1068,14 @@ function CmsDocumentationReadinessCard({
     transientImportRunning,
   });
   const canOpenApprovalTasks = publication.data?.readiness === 'PUBLICATION_PENDING';
-  const canDecideInline = Boolean(actionableApprovalTask);
+  const canDecideInline =
+    (canOpenApprovalTasks && Boolean(actionableApprovalTask)) ||
+    (publication.data?.readiness === 'MEDIA_DEPENDENCIES_PENDING' &&
+      Boolean(
+        mediaConnection &&
+        processConnection &&
+        publication.data.mediaDependencies?.dependencies.length,
+      ));
   const canModifyStaged = Boolean(packOperation && !canOpenApprovalTasks);
   const pendingApprovalStatus = canOpenApprovalTasks
     ? [
@@ -1172,11 +1254,15 @@ function CmsDocumentationReadinessCard({
                   sx={dashboardActionButtonSx}
                   variant="contained"
                 >
-                  Approve
+                  {publication.data?.readiness === 'MEDIA_DEPENDENCIES_PENDING'
+                    ? 'Complete asset approvals'
+                    : 'Approve'}
                 </Button>
                 <Button
                   color="warning"
-                  disabled={busy}
+                  disabled={
+                    busy || publication.data?.readiness === 'MEDIA_DEPENDENCIES_PENDING'
+                  }
                   onClick={() => approvalMutation.mutate(false)}
                   size="small"
                   sx={{
@@ -1374,6 +1460,7 @@ export function DocumentationDashboard({
   const managedCmsSources = cmsSources.filter((source) => source.initializationProfile);
   const publicationQueries = useQueries({
     queries: managedCmsSources.map((source) => ({
+      ...publicationQueryPolicy,
       enabled: Boolean(administrationConnection && source.initializationProfile),
       queryKey: publicationQueryKey(
         runtime.enterpriseCode,
@@ -1391,14 +1478,6 @@ export function DocumentationDashboard({
           profileCode: source.initializationProfile,
         }).getStatus();
       },
-      refetchInterval: (
-        query: Query<
-          DocumentationPublicationStatus,
-          Error,
-          DocumentationPublicationStatus,
-          readonly unknown[]
-        >,
-      ) => (query.state.data?.readiness === 'PUBLICATION_PENDING' ? 2_000 : false),
     })),
   });
   const readyCmsCount = publicationQueries.filter(

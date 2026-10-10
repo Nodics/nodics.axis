@@ -156,9 +156,32 @@ permission to repeat fulfillment. Customize owner `workbench.couponPresentation`
 not transport destinations or authority in Axis. Read Workbench's
 `llm/examples/secure-coupon-fulfillment.md` for setup, steps and recovery.
 
+Coupon queue and receipt-inspection DTOs may include the exact optional triad
+`simulated: true`, `deliveryVerified: false`, `evidenceMode: LOCAL_SIMULATION`.
+The typed client preserves all three only as own, enumerable data properties or
+rejects the response; inherited/hidden properties, accessors, partial markers,
+coerced values and contradictory claims are invalid. Accessors are never invoked
+to determine evidence. All three absent retains
+the ordinary projection, without asserting verified delivery. The composer
+labels marked activity rows and inspected receipts **Local ITEM simulation.
+Goods delivery is not verified.** This protocol safety notice is not an editable
+delivery assertion. It remains visible for an unconfirmed simulated inspection
+and resets when starting a different action. No amount or currency is inferred.
+
+This is read-only evidence presentation. Copilot ITEM preparation remains
+unsupported; no preparation, approval or execution permissions, inputs or state
+transitions are expanded. Neither LOCAL_SAMPLE mode, a `SIM:` reference, selected
+outlet nor browser configuration grants simulation, delivery or execution
+authority. Extend owner presentation and typed projections without changing
+that boundary or introducing raw delivery evidence into the browser.
+
 Run `CopilotCouponComposer.test.tsx` and the synthetic
 `coupon-fulfillment.visual.html` fixture. Responsive renderer evidence does not
 prove authenticated Commerce deployment, external POS settlement or real redemption.
+`copilotCouponEvidence.test.ts` and `CopilotCouponEvidenceUi.test.tsx` cover exact
+queue/inspection markers, malformed evidence, simulation notice/reset behavior
+and unchanged request identities using isolated transports. A source test is not
+native Commerce qualification; authenticated deployment evidence remains separate.
 
 ## Live Evidence Conversation Form
 

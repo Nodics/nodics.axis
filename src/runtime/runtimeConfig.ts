@@ -14,7 +14,7 @@ export interface AxisRuntimeConfig {
 }
 
 const MINIMUM_TIMEOUT_MS = 1_000;
-const MAXIMUM_TIMEOUT_MS = 120_000;
+const MAXIMUM_TIMEOUT_MS = 600_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

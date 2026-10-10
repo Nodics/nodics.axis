@@ -10,8 +10,13 @@ The full title wraps beside a top-right Close button; Fit, zoom and percentage
 occupy a separate bounded row. Each opening resets to Fit; selecting zoom uses
 the image's native width. Changing the article route, identity or image source
 discards the open viewer.
-The existing image-source allowlist remains authoritative: enlargement adds no
-URL input, publication operation or independent content fetch client.
+Canonical image blocks declare `mediaCode`. Axis reuses the existing bounded
+Media delivery client on its authenticated, registered WCMS Online connection;
+credentials never go to a content-supplied URL. Missing or denied Media does not
+fall back to an embedded source. Object URLs are revoked and requests cancelled
+when the article, enterprise, session or connection changes. The source allowlist
+remains only for older installed content during upgrade. Enlargement adds no
+publication operation or separate storage authority.
 
 `test/cms/renderers/components/documentation/DocumentationArticleRenderer.test.tsx`
 covers native sizing, contained scrolling, fit/zoom, keyboard/focus behavior,
@@ -37,9 +42,11 @@ Project frontend presentation extensions may wrap the source navigation or
 article renderer, but must retain backend identity, permissions, route boundaries
 and the existing typed clients.
 
-Only public Online products are projected into this public-delivery reader.
-Unpublished products remain available for preparation through Setup and
-Accelerators. Missing, ambiguous or denied reads never select a different Site.
+Public products with reviewed STAGED, APPROVED or legacy ONLINE authoring metadata
+are discoverable. Discovery is not public article access: the existing owner
+initialization profile must report READY before Online delivery is contacted.
+DRAFT, retired, inactive and non-public products remain excluded. Missing,
+ambiguous or denied reads never select a different Site.
 Discovery follows advertised schema operations, bounded paging and the current
 employee's permissions; errors allow explicit retry without transport fallback.
 For missing links, inspect the owning record's publicRootPath and lifecycle,
@@ -49,6 +56,9 @@ record/route mismatches through a successor release, not a browser alias.
 Product metadata is not publication evidence. Actual readiness remains owned by
 the initialization/publication APIs, and article content is resolved exclusively
 through Online delivery. Never enable Online generic schema APIs for discovery.
+Blocked, importing and Media-dependency-pending responses are valid owner states,
+not malformed contracts. They must retain locked Online links; only READY unlocks
+delivery. Explicit status refresh does not repeat approval or publication commands.
 
 `test/documentation/DocumentationRoutePage.test.tsx` covers unknown and prefix-lookalike
 routes, nested customer delivery using the declared Site/profile, Framework and
