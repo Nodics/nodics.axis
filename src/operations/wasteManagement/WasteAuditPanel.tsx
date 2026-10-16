@@ -134,7 +134,11 @@ export function WasteAuditPanel({
             )}
             {entries.map((entry) => {
               const date = entry.reviewedAt ? new Date(entry.reviewedAt) : null;
-              const reviewers = [entry.verifiedBy?.code, entry.approvedBy?.code]
+              const reviewers = [
+                entry.verifiedBy?.code,
+                entry.approvedBy?.code,
+                entry.reviewedBy?.code,
+              ]
                 .filter(Boolean)
                 .join(' → ');
               return (

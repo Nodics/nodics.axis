@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { loadWasteReviewPhoto } from '../../src/operations/wasteManagement/api/wasteReviewClient';
+import {
+  loadWasteReviewPhoto,
+  rejectWasteEvidence,
+  verifyWasteSubmission,
+  type WasteReviewSubmission,
+} from '../../src/operations/wasteManagement/api/wasteReviewClient';
 
 vi.mock('../../src/bootstrap/publicBootstrap', () => ({
   selectModuleConnection: () => ({ endpoint: 'https://waste.example/nodics/eWaste' }),
@@ -11,6 +16,28 @@ const configuration = {
   bootstrap: {} as never,
 };
 afterEach(() => vi.unstubAllGlobals());
+it('resumes a recorded verification with only current revision and confirmation, never replacement facts', async () => {
+  const fetch = respond({});
+  await verifyWasteSubmission(
+    configuration,
+    {
+      code: 'submission',
+      revision: 4,
+      verificationPending: {
+        principalCode: 'verifier',
+        facts: { name: 'Original recorded facts' },
+      },
+    } as WasteReviewSubmission,
+    { name: 'Must not replace recorded facts' },
+  );
+  const init = fetch.mock.calls[0]?.[1] as RequestInit;
+  expect(JSON.parse(init.body as string)).toEqual({
+    resumeVerification: true,
+    expectedRevision: 4,
+    confirmed: true,
+    idempotencyKey: 'submission:verify:4',
+  });
+});
 /** Provide a bounded response from the authenticated owning endpoint. */
 function respond(photo: unknown, status = 200) {
   const fetch = vi
@@ -89,4 +116,64 @@ describe('Waste evidence preview contract', () => {
       'response is invalid',
     );
   });
+});
+
+describe('evidence-only rejection transport', () => {
+  const record: WasteReviewSubmission = {
+    code: 'SUB_ARTWORK',
+    revision: 3,
+    submissionStatus: 'UNDER_REVIEW',
+    submitterRef: { code: 'customer' },
+    submittedFacts: {},
+    metadata: {},
+  };
+  it('sends one dedicated exact-revision command with no verification or approval fields', async () => {
+    const fetch = respond({
+      decisionBasis: 'EVIDENCE_ONLY',
+      submission: { ...record, revision: 5, submissionStatus: 'REJECTED' },
+    });
+    await rejectWasteEvidence(configuration, record, 'Unusable photo');
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(
+      'https://waste.example/nodics/eWaste/v0/review-workspace/SUB_ARTWORK/evidence-rejection',
+    );
+    const init = fetch.mock.calls[0]?.[1] as RequestInit;
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({
+      reason: 'Unusable photo',
+      expectedRevision: 3,
+      confirmed: true,
+      idempotencyKey: 'SUB_ARTWORK:evidence-rejection:3',
+    });
+  });
+  it.each([
+    {},
+    { decisionBasis: 'EVIDENCE_ONLY' },
+    {
+      decisionBasis: 'EVIDENCE_ONLY',
+      submission: { ...record, revision: 5, submissionStatus: 'APPROVED' },
+    },
+    {
+      decisionBasis: 'EVIDENCE_ONLY',
+      submission: {
+        ...record,
+        revision: 5,
+        code: 'OTHER',
+        submissionStatus: 'REJECTED',
+      },
+    },
+    {
+      decisionBasis: 'EVIDENCE_ONLY',
+      submission: { ...record, submissionStatus: 'REJECTED' },
+    },
+  ])(
+    'does not treat an invalid or conflicting acknowledgement as saved: %j',
+    async (response) => {
+      const fetch = respond(response);
+      await expect(
+        rejectWasteEvidence(configuration, record, 'Unusable photo'),
+      ).rejects.toThrow('Inspect the saved review');
+      expect(fetch).toHaveBeenCalledOnce();
+    },
+  );
 });

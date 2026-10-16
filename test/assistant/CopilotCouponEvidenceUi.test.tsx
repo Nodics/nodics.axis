@@ -13,7 +13,7 @@ const configuration = {
   accessToken: 'employee',
   timeoutMs: 1000,
 };
-const notice = 'Local ITEM simulation. Goods delivery is not verified.';
+const notice = 'ITEM simulation. Goods delivery is not verified.';
 const markers = {
   simulated: true,
   deliveryVerified: false,
@@ -106,6 +106,7 @@ async function inspect() {
 it.each([
   ['ordinary queue', {}, false],
   ['simulated queue', markers, true],
+  ['current simulated queue', { ...markers, evidenceMode: 'SIMULATION' }, true],
 ] as const)(
   'renders %s without inferring evidence from LOCAL_SAMPLE or SIM handle',
   async (_name, flags, simulated) => {
@@ -123,10 +124,14 @@ it.each([
   },
 );
 
-it.each(['COMPLETED', 'UNCONFIRMED'])(
-  'labels a simulated %s inspection without enabling preparation or execution',
-  async (state) => {
-    const { prepare, actions, fetcher } = mount(markers, state);
+it.each(
+  ['SIMULATION', 'LOCAL_SIMULATION'].flatMap((evidenceMode) =>
+    ['COMPLETED', 'UNCONFIRMED'].map((state) => [evidenceMode, state] as const),
+  ),
+)(
+  'labels a %s %s inspection without enabling preparation or execution',
+  async (evidenceMode, state) => {
+    const { prepare, actions, fetcher } = mount({ ...markers, evidenceMode }, state);
     await inspect();
     expect(await screen.findByText(notice)).toBeInTheDocument();
     if (state === 'COMPLETED')

@@ -1,4 +1,4 @@
-import { Alert, Button, Stack } from '@mui/material';
+import { Alert, Button, CircularProgress, Stack } from '@mui/material';
 import type { FormEvent } from 'react';
 import { getSignInErrorMessage } from '../../../../app/recoveryState';
 
@@ -12,6 +12,7 @@ export function EmployeeLoginFormRenderer({
 }: CmsComponentRendererProps) {
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (actions?.employeeLoginPending) return;
     const values = new FormData(event.currentTarget);
     const loginId = values.get('loginId');
     const password = values.get('password');
@@ -21,7 +22,12 @@ export function EmployeeLoginFormRenderer({
     );
   };
   return (
-    <Stack component="form" onSubmit={submit} spacing={2}>
+    <Stack
+      aria-busy={actions?.employeeLoginPending === true}
+      component="form"
+      onSubmit={submit}
+      spacing={2}
+    >
       {actions?.authenticationError ? (
         <Alert severity="error">
           {getSignInErrorMessage(actions.authenticationError)}
@@ -43,8 +49,13 @@ export function EmployeeLoginFormRenderer({
         type="password"
       />
       <Button
-        disabled={!actions?.onEmployeeLogin}
+        disabled={!actions?.onEmployeeLogin || actions.employeeLoginPending}
         size="large"
+        startIcon={
+          actions?.employeeLoginPending ? (
+            <CircularProgress aria-hidden="true" color="inherit" size={18} />
+          ) : undefined
+        }
         type="submit"
         variant="contained"
       >

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 
@@ -59,4 +59,27 @@ it('retains a safe authentication denial without presenting it as a network outa
   render(<BundledLoginPage error="Sign-in was not accepted." onLogin={vi.fn()} />);
   expect(screen.getByRole('alert')).toHaveTextContent('Sign-in was not accepted.');
   expect(screen.getByRole('alert')).not.toHaveTextContent('temporarily unavailable');
+});
+
+it('shows pending state and refuses click, Enter and direct submit without automatic retry', async () => {
+  const login = vi.fn();
+  const user = userEvent.setup();
+  const view = render(<BundledLoginPage onLogin={login} />);
+  await user.type(screen.getByLabelText(/^Login ID/u), 'operator');
+  await user.type(screen.getByLabelText(/^Password/u), 'test-input');
+  view.rerender(<BundledLoginPage onLogin={login} pending />);
+  const button = screen.getByRole('button', { name: 'Sign in' });
+  const form = button.closest('form');
+  expect(button).toBeDisabled();
+  expect(form).toHaveAttribute('aria-busy', 'true');
+  expect(button.querySelector('.MuiCircularProgress-root')).not.toBeNull();
+  fireEvent.click(button);
+  await user.type(screen.getByLabelText(/^Password/u), '{Enter}');
+  fireEvent.submit(form!);
+  expect(login).not.toHaveBeenCalled();
+  view.rerender(<BundledLoginPage onLogin={login} />);
+  expect(form).toHaveAttribute('aria-busy', 'false');
+  expect(login).not.toHaveBeenCalled();
+  await user.click(button);
+  expect(login).toHaveBeenCalledExactlyOnceWith('operator', 'test-input');
 });

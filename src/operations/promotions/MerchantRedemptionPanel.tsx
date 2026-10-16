@@ -1,5 +1,12 @@
 /** Digital Core merchant-workspace consumer; outlet scope and fulfillment remain owner-enforced. */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Alert,
   Button,
@@ -63,7 +70,7 @@ type Redemption = {
   recoveryRequired?: boolean;
   simulated?: true;
   deliveryVerified?: false;
-  evidenceMode?: 'LOCAL_SIMULATION';
+  evidenceMode?: 'SIMULATION' | 'LOCAL_SIMULATION';
   validationCode?: string;
   validationExpiresAt?: string;
   confirmationKey?: string;
@@ -121,20 +128,25 @@ function redemption(value: Redemption): Redemption {
       throw new Error('Merchant request could not be confirmed.');
     if (value[field] !== undefined) result[field] = value[field];
   }
-  if (
-    [value.simulated, value.deliveryVerified, value.evidenceMode].some(
-      (field) => field !== undefined,
-    )
-  ) {
+  const evidenceKeys = ['simulated', 'deliveryVerified', 'evidenceMode'] as const;
+  if (evidenceKeys.some((key) => key in value)) {
+    const descriptors = evidenceKeys.map((key) =>
+      Object.getOwnPropertyDescriptor(value, key),
+    );
+    const evidenceMode: unknown = descriptors[2]?.value;
     if (
-      value.simulated !== true ||
-      value.deliveryVerified !== false ||
-      value.evidenceMode !== 'LOCAL_SIMULATION'
+      descriptors.some(
+        (descriptor) =>
+          !descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value'),
+      ) ||
+      descriptors[0]?.value !== true ||
+      descriptors[1]?.value !== false ||
+      (evidenceMode !== 'SIMULATION' && evidenceMode !== 'LOCAL_SIMULATION')
     )
       throw new Error('Merchant simulation evidence could not be confirmed.');
     result.simulated = true;
     result.deliveryVerified = false;
-    result.evidenceMode = 'LOCAL_SIMULATION';
+    result.evidenceMode = evidenceMode;
   }
   if (value.storeRevision !== undefined) {
     if (!Number.isSafeInteger(value.storeRevision) || value.storeRevision < 1)
@@ -262,12 +274,41 @@ function isSimulation(value: Redemption | null) {
     value?.simulated === true || value?.pricedBenefit?.sourceStage === 'SIMULATED_ITEMS'
   );
 }
-/** Distinguishes a local simulation from a genuine goods-delivery assertion. */
-function SimulationNotice() {
+/** Preserves the actual owner mode without asserting genuine goods delivery. */
+function SimulationNotice({
+  evidenceMode,
+}: {
+  evidenceMode: Redemption['evidenceMode'];
+}) {
   return (
     <Alert severity="warning">
-      Local ITEM simulation. Goods delivery is not verified. LOCAL_SIMULATION.
+      ITEM simulation. Goods delivery is not verified.
+      {evidenceMode ? ` ${evidenceMode}.` : null}
     </Alert>
+  );
+}
+type MerchantWorkspace = {
+  authority: object;
+  storeRequired: boolean;
+  storeLabel: string;
+  pricedSourceRequired: boolean;
+  pricedSourceLabel?: string;
+  stores: { code: string; name: string; revision: number }[];
+};
+/** Presentation/order changes do not change the fresh owner's outlet/revision and input requirements. */
+function sameOutletScope(
+  previous: MerchantWorkspace,
+  next: MerchantWorkspace,
+): boolean {
+  const revisions = new Map(
+    previous.stores.map((store) => [store.code, store.revision]),
+  );
+  return (
+    previous.authority === next.authority &&
+    previous.storeRequired === next.storeRequired &&
+    previous.pricedSourceRequired === next.pricedSourceRequired &&
+    previous.stores.length === next.stores.length &&
+    next.stores.every((store) => revisions.get(store.code) === store.revision)
   );
 }
 /** Digital Core owns scoped merchant fulfillment; this panel submits explicitly reviewed commands only. */
@@ -275,19 +316,66 @@ export function MerchantRedemptionPanel({
   bootstrap,
   accessToken,
   runtime,
+  sessionGeneration = 0,
 }: {
   bootstrap: AxisAuthenticatedBootstrap;
   accessToken: string;
   runtime: AxisRuntimeConfig;
+  readonly sessionGeneration?: number;
 }) {
+  const connection = selectModuleConnection(bootstrap, 'digitalCore');
+  const navigation = bootstrap.navigation?.find(
+    (item) => item.id === 'merchant-coupon-fulfillment',
+  );
+  // Only inert owner coordinates are serialized; tokens never enter keys or logs.
+  const ownerIdentity = JSON.stringify([
+    connection?.moduleName,
+    connection?.instanceId,
+    connection?.endpoint,
+    connection?.environment,
+    connection?.server,
+    connection?.runtimeRole?.code,
+    connection?.runtimeRole?.publication,
+    connection?.state,
+    navigation?.moduleName,
+    navigation?.route,
+    navigation?.availability,
+    navigation?.featureState,
+    navigation?.sourceTrace?.lifecycleState,
+    navigation?.routeOwner?.ownerType,
+    navigation?.routeOwner?.ownerModule,
+    navigation?.contexts,
+  ]);
+  const tenantCode = bootstrap.tenantCode;
+  const { enterpriseCode, projectCode, backofficeBaseUrl, requestTimeoutMs } = runtime;
+  const authority = useMemo(
+    () => ({
+      accessToken,
+      sessionGeneration,
+      tenantCode,
+      enterpriseCode,
+      projectCode,
+      backofficeBaseUrl,
+      ownerIdentity,
+    }),
+    [
+      accessToken,
+      sessionGeneration,
+      tenantCode,
+      enterpriseCode,
+      projectCode,
+      backofficeBaseUrl,
+      ownerIdentity,
+    ],
+  );
   const configuration = useMemo(
     () => ({
       bootstrap,
       accessToken,
-      enterpriseCode: runtime.enterpriseCode,
-      timeoutMs: runtime.requestTimeoutMs,
+      enterpriseCode,
+      timeoutMs: requestTimeoutMs,
     }),
-    [bootstrap, accessToken, runtime],
+    [bootstrap, accessToken, enterpriseCode, requestTimeoutMs],
   );
   const [rows, setRows] = useState<Redemption[] | null>(null),
     [chosen, setChosen] = useState<Redemption | null>(null),
@@ -295,22 +383,17 @@ export function MerchantRedemptionPanel({
     [error, setError] = useState(''),
     [presentation, setPresentation] = useState(''),
     [receipt, setReceipt] = useState('');
-  const [outletSnapshot, setOutlets] = useState<{
-    configuration: typeof configuration;
-    storeRequired: boolean;
-    storeLabel: string;
-    pricedSourceRequired: boolean;
-    pricedSourceLabel?: string;
-    stores: { code: string; name: string; revision: number }[];
-  }>();
-  const outlets =
-    outletSnapshot?.configuration === configuration ? outletSnapshot : undefined;
+  const [outletSnapshot, setOutlets] = useState<MerchantWorkspace>();
+  const workspaceSnapshot = useRef<MerchantWorkspace | undefined>(undefined);
+  const [workspacePending, setWorkspacePending] = useState(true);
+  const outlets = outletSnapshot?.authority === authority ? outletSnapshot : undefined;
   const [storeCode, setStoreCode] = useState('');
   const [pricedSource, setPricedSource] = useState('');
   const version = useRef(0);
   const inFlight = useRef(false);
-  useEffect(() => {
-    const attempt = ++version.current;
+  const retireWorkspace = useEffectEvent(() => {
+    version.current++;
+    workspaceSnapshot.current = undefined;
     setOutlets(undefined);
     setRows(null);
     setChosen(null);
@@ -321,6 +404,18 @@ export function MerchantRedemptionPanel({
     setReceipt('');
     setPresentation('');
     inFlight.current = false;
+    setWorkspacePending(true);
+  });
+  useLayoutEffect(() => {
+    retireWorkspace();
+    const epoch = version;
+    return () => {
+      epoch.current++;
+    };
+  }, [authority]);
+  useEffect(() => {
+    let active = true;
+    setWorkspacePending(true);
     void invokeOperationalOwner<unknown>(
       configuration,
       'digitalCore',
@@ -371,9 +466,9 @@ export function MerchantRedemptionPanel({
         );
         if (new Set(stores.map((item) => item.code)).size !== stores.length)
           throw new Error('Merchant outlet selection is unavailable.');
-        if (attempt === version.current)
-          setOutlets({
-            configuration,
+        if (active) {
+          const next: MerchantWorkspace = {
+            authority,
             storeRequired: source.storeRequired,
             storeLabel: source.storeLabel,
             pricedSourceRequired: source.pricedSourceRequired,
@@ -381,21 +476,31 @@ export function MerchantRedemptionPanel({
               ? { pricedSourceLabel: source.pricedSourceLabel as string }
               : {}),
             stores,
-          });
+          };
+          const previous = workspaceSnapshot.current;
+          if (previous && !sameOutletScope(previous, next)) retireWorkspace();
+          workspaceSnapshot.current = next;
+          setOutlets(next);
+        }
       })
       .catch((reason) => {
-        if (attempt === version.current)
+        if (active) {
+          retireWorkspace();
           setError(
             reason instanceof Error
               ? reason.message
               : 'Merchant workspace is unavailable.',
           );
+        }
+      })
+      .finally(() => {
+        if (active) setWorkspacePending(false);
       });
-    const epoch = version;
     return () => {
-      epoch.current++;
+      active = false;
     };
-  }, [configuration]);
+  }, [configuration, authority]);
+  const working = busy || workspacePending;
   const outletReady = !!outlets && (!outlets.storeRequired || !!storeCode);
   const sourceReady =
     !!outlets &&
@@ -403,7 +508,7 @@ export function MerchantRedemptionPanel({
       /^[A-Za-z0-9_.:@-]{1,119}$/.test(pricedSource.trim()));
   /** Replaces selectable queue state with a fresh bounded owner read; continuation follows a confirmed command. */
   const load = async (continuation = false) => {
-    if (!outletReady || (inFlight.current && !continuation)) return;
+    if (!outletReady || workspacePending || (inFlight.current && !continuation)) return;
     inFlight.current = true;
     const attempt = version.current;
     setBusy(true);
@@ -435,7 +540,7 @@ export function MerchantRedemptionPanel({
       }
     }
   };
-  if (!selectModuleConnection(bootstrap, 'digitalCore')) return null;
+  if (!connection) return null;
   return (
     <Paper
       sx={{ p: 2, minWidth: 0, overflowWrap: 'anywhere' }}
@@ -450,7 +555,7 @@ export function MerchantRedemptionPanel({
         <TextField
           label="Customer coupon code"
           value={presentation}
-          disabled={busy}
+          disabled={busy || (workspacePending && !!outlets)}
           slotProps={{ htmlInput: { maxLength: 256 } }}
           onChange={(e) => {
             setPresentation(e.target.value.trim().toUpperCase());
@@ -462,7 +567,7 @@ export function MerchantRedemptionPanel({
             select
             label={outlets.storeLabel}
             value={storeCode}
-            disabled={busy}
+            disabled={working}
             onChange={(event) => {
               version.current++;
               setStoreCode(event.target.value);
@@ -484,7 +589,7 @@ export function MerchantRedemptionPanel({
           <TextField
             label={outlets.pricedSourceLabel}
             value={pricedSource}
-            disabled={busy}
+            disabled={working}
             slotProps={{ htmlInput: { maxLength: 119 } }}
             onChange={(event) => {
               setPricedSource(event.target.value);
@@ -494,10 +599,10 @@ export function MerchantRedemptionPanel({
           />
         )}
         <Button
-          disabled={busy || !presentation || !outletReady || !sourceReady}
+          disabled={working || !presentation || !outletReady || !sourceReady}
           onClick={() => {
             void (async () => {
-              if (inFlight.current || !sourceReady) return;
+              if (inFlight.current || workspacePending || !sourceReady) return;
               inFlight.current = true;
               setBusy(true);
               setError('');
@@ -558,11 +663,11 @@ export function MerchantRedemptionPanel({
         >
           Validate presented coupon
         </Button>
-        <Button disabled={busy || !outletReady} onClick={() => void load()}>
+        <Button disabled={working || !outletReady} onClick={() => void load()}>
           Load merchant requests
         </Button>
         {error && <Alert severity="error">{error}</Alert>}
-        {busy && <Typography role="status">Working…</Typography>}
+        {working && <Typography role="status">Working…</Typography>}
         {outletReady &&
           rows?.map((row) => (
             <Paper variant="outlined" sx={{ p: 2 }} key={row.entitlementCode}>
@@ -572,7 +677,9 @@ export function MerchantRedemptionPanel({
               <Typography>
                 {row.redemptionCode} · {row.claimStatus}
               </Typography>
-              {isSimulation(row) && <SimulationNotice />}
+              {isSimulation(row) && (
+                <SimulationNotice evidenceMode={row.evidenceMode} />
+              )}
               {row.receiptCode ? (
                 <Typography>
                   Merchant receipt: {row.merchantReceiptReference || row.receiptCode}
@@ -580,7 +687,7 @@ export function MerchantRedemptionPanel({
               ) : (
                 <Button
                   disabled={
-                    busy ||
+                    working ||
                     !['UNCLAIMED', 'CLAIMED'].includes(row.claimStatus) ||
                     !row.recoveryRequired
                   }
@@ -591,7 +698,7 @@ export function MerchantRedemptionPanel({
                 >
                   {row.recoveryRequired
                     ? isSimulation(row)
-                      ? 'Resume local simulation confirmation'
+                      ? 'Resume simulation confirmation'
                       : 'Resume fulfillment confirmation'
                     : 'Review fulfillment'}
                 </Button>
@@ -605,18 +712,20 @@ export function MerchantRedemptionPanel({
       <Dialog
         open={!!chosen && outletReady}
         onClose={() => {
-          if (!busy) setChosen(null);
+          if (!working) setChosen(null);
         }}
       >
         <DialogTitle>
           {isSimulation(chosen)
-            ? 'Confirm local ITEM simulation'
+            ? 'Confirm ITEM simulation'
             : 'Confirm merchant fulfillment'}
         </DialogTitle>
         <DialogContent>
           {error && <Alert severity="error">{error}</Alert>}
           <Typography>{chosen?.merchantLabel}</Typography>
-          {isSimulation(chosen) && <SimulationNotice />}
+          {isSimulation(chosen) && (
+            <SimulationNotice evidenceMode={chosen?.evidenceMode} />
+          )}
           {chosen?.pricedBenefit && (
             <Stack spacing={1}>
               <Typography>{chosen.pricedBenefit.sourceStage}</Typography>
@@ -650,7 +759,7 @@ export function MerchantRedemptionPanel({
           )}
           <Typography>
             {isSimulation(chosen)
-              ? 'Record the local ITEM simulation. This does not verify goods delivery.'
+              ? 'Record the ITEM simulation. This does not verify goods delivery.'
               : 'Confirm that this coupon benefit has been fulfilled. This completes redemption and creates a receipt.'}
           </Typography>
           {chosen?.mode === 'MERCHANT_SCREEN' &&
@@ -677,7 +786,7 @@ export function MerchantRedemptionPanel({
             }
             value={receipt}
             disabled={
-              busy ||
+              working ||
               chosen?.recoveryRequired === true ||
               outlets?.pricedSourceRequired === true
             }
@@ -686,12 +795,12 @@ export function MerchantRedemptionPanel({
           />
         </DialogContent>
         <DialogActions>
-          <Button disabled={busy} onClick={() => setChosen(null)}>
+          <Button disabled={working} onClick={() => setChosen(null)}>
             Cancel
           </Button>
           <Button
             disabled={
-              busy ||
+              working ||
               !/^[A-Za-z0-9][A-Za-z0-9 ._:/@-]{2,119}$/.test(receipt.trim()) ||
               (!chosen?.recoveryRequired &&
                 (!chosen?.validationCode ||
@@ -701,7 +810,7 @@ export function MerchantRedemptionPanel({
             }
             onClick={() => {
               void (async () => {
-                if (!chosen || inFlight.current) return;
+                if (!chosen || inFlight.current || workspacePending) return;
                 inFlight.current = true;
                 setBusy(true);
                 setError('');
@@ -763,7 +872,7 @@ export function MerchantRedemptionPanel({
               })();
             }}
           >
-            {isSimulation(chosen) ? 'Confirm local simulation' : 'Confirm fulfillment'}
+            {isSimulation(chosen) ? 'Confirm simulation' : 'Confirm fulfillment'}
           </Button>
         </DialogActions>
       </Dialog>

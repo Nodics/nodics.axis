@@ -12,6 +12,23 @@ vi.mock('../../src/operations/wasteManagement/api/wasteReviewClient', () => ({
 const configuration = {} as Parameters<typeof loadWasteAudit>[0];
 const labels = { auditAction: 'View review audit', auditTitle: 'Waste review audit' };
 beforeEach(() => vi.resetAllMocks());
+it('shows the evidence-only decision actor without inventing a physical verifier', async () => {
+  vi.mocked(loadWasteAudit).mockResolvedValue([
+    {
+      code: 'ARTWORK',
+      status: 'REJECTED',
+      revision: 5,
+      reviewBasis: 'EVIDENCE_ONLY',
+      reviewedBy: { code: 'assigned-reviewer' },
+    },
+  ]);
+  render(<WasteAuditPanel configuration={configuration} labels={labels} />);
+  await userEvent
+    .setup()
+    .click(screen.getByRole('button', { name: 'View review audit' }));
+  expect(await screen.findByText(/assigned-reviewer/)).toBeVisible();
+  expect(screen.getByText('REJECTED')).toBeVisible();
+});
 it('can close a pending audit; late responses stay hidden and reopening reads fresh data', async () => {
   let resolve!: (entries: WasteAuditEntry[]) => void;
   vi.mocked(loadWasteAudit)

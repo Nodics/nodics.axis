@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   combineWorkbenchFilterGroups,
+  currentDiscoveredWorkbenchSchema,
   lifecycleActionsForRecord,
   resolveWorkbenchDefaultColumns,
   resolveWorkbenchRecordSort,
@@ -73,6 +74,28 @@ function summarize(target: WorkbenchDeepLinkTarget | undefined) {
     connectionServer: target.schema.connectionServer,
   };
 }
+
+describe('currentDiscoveredWorkbenchSchema', () => {
+  it('uses the fresh owner descriptor and refuses absent or foreign connection metadata', () => {
+    const older = {
+      ...schema('order', 'commerceOrder', ['read', 'search', 'update']),
+      connectionInstanceId: 'one',
+    };
+    const current = { ...older, operations: ['read', 'search'] as const };
+    expect(currentDiscoveredWorkbenchSchema(older, [current])).toBe(current);
+    expect(currentDiscoveredWorkbenchSchema(older, undefined)).toBeUndefined();
+    expect(currentDiscoveredWorkbenchSchema(older, [])).toBeUndefined();
+    expect(
+      currentDiscoveredWorkbenchSchema(older, [
+        { ...current, connectionInstanceId: 'two' },
+      ]),
+    ).toBeUndefined();
+    expect(
+      currentDiscoveredWorkbenchSchema(older, [{ ...current, moduleName: 'profile' }]),
+    ).toBeUndefined();
+    expect(currentDiscoveredWorkbenchSchema(undefined, [current])).toBeUndefined();
+  });
+});
 
 describe('resolveWorkbenchDeepLinkTarget', () => {
   it('selects the requested schema from URL parameters', () => {

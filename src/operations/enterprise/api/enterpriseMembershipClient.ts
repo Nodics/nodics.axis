@@ -238,6 +238,14 @@ export interface EnterpriseTeamWorkspace {
   readonly presentation: Readonly<Record<(typeof teamCopyKeys)[number], string>>;
   readonly items: readonly (EnterpriseMembership & {
     readonly email: string;
+    readonly businessAccess?: {
+      readonly businessArea: string;
+      readonly businessAreaLabel: string;
+      readonly accessLevel: 'view' | 'edit' | 'fullControl';
+      readonly accessLevelLabel: string;
+      readonly scopeType: 'ENTERPRISE';
+      readonly scopeCode: string;
+    };
     readonly designated: boolean;
     readonly actions: readonly TeamAction[];
   })[];
@@ -281,8 +289,29 @@ export function parseEnterpriseTeamWorkspace(value: unknown): EnterpriseTeamWork
       )
     )
       throw new Error('Team workspace could not be confirmed.');
+    const access =
+      item.businessAccess === undefined ? undefined : record(item.businessAccess);
+    if (
+      access &&
+      (!['view', 'edit', 'fullControl'].includes(String(access.accessLevel)) ||
+        access.scopeType !== 'ENTERPRISE' ||
+        access.scopeCode !== enterpriseCode)
+    )
+      throw new Error('Business access scope could not be confirmed.');
     return {
       ...membership,
+      ...(access
+        ? {
+            businessAccess: {
+              businessArea: text(access.businessArea, 192),
+              businessAreaLabel: text(access.businessAreaLabel, 192),
+              accessLevel: access.accessLevel as 'view' | 'edit' | 'fullControl',
+              accessLevelLabel: text(access.accessLevelLabel, 192),
+              scopeType: 'ENTERPRISE' as const,
+              scopeCode: text(access.scopeCode, 128),
+            },
+          }
+        : {}),
       email: text(item.email, 320),
       designated: item.designated,
       actions: item.actions as TeamAction[],

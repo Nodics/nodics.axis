@@ -130,7 +130,7 @@ type CouponEvidence =
   | {
       simulated: true;
       deliveryVerified: false;
-      evidenceMode: 'LOCAL_SIMULATION';
+      evidenceMode: 'SIMULATION' | 'LOCAL_SIMULATION';
     }
   | { simulated?: never; deliveryVerified?: never; evidenceMode?: never };
 /** Preserves only the owner's complete simulation marker; absence never asserts verified goods. */
@@ -138,6 +138,7 @@ function couponEvidence(value: Record<string, unknown>): CouponEvidence {
   const keys = ['simulated', 'deliveryVerified', 'evidenceMode'] as const;
   if (!keys.some((key) => key in value)) return {};
   const descriptors = keys.map((key) => Object.getOwnPropertyDescriptor(value, key));
+  const evidenceMode: unknown = descriptors[2]?.value;
   if (
     descriptors.some(
       (descriptor) =>
@@ -145,13 +146,13 @@ function couponEvidence(value: Record<string, unknown>): CouponEvidence {
     ) ||
     descriptors[0]?.value !== true ||
     descriptors[1]?.value !== false ||
-    descriptors[2]?.value !== 'LOCAL_SIMULATION'
+    (evidenceMode !== 'SIMULATION' && evidenceMode !== 'LOCAL_SIMULATION')
   )
     throw new Error('Invalid coupon simulation evidence');
   return {
     simulated: true,
     deliveryVerified: false,
-    evidenceMode: 'LOCAL_SIMULATION',
+    evidenceMode,
   };
 }
 /** Accepts only bounded, minimized Digital Core queue evidence for the current enterprise. */

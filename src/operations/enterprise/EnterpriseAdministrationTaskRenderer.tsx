@@ -8,10 +8,218 @@ import {
   DialogContent,
   DialogTitle,
   Stack,
+  MenuItem,
+  TextField,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
   Typography,
 } from '@mui/material';
 import { WorkspaceContainer } from '../../app/shell/ShellPrimitives';
 import { ShellIcon } from '../../app/shell/ShellIcon';
+import type { BusinessAccessContract } from './api/businessAccessContract';
+
+/** Presentation-only area selections; the Team adapter owns mutation DTO construction. */
+export interface EnterpriseBusinessAccessSelection {
+  readonly businessArea: string;
+  readonly accessLevel: 'noAccess' | 'view' | 'edit' | 'fullControl';
+}
+
+/** Renders independent owner-defined business areas without deriving or granting permissions.
+ * @param props Validated catalogue, scoped draft, and a controlled immutable change callback.
+ * @returns Accessible area/level/scope rows; changing a row preserves every other selection.
+ */
+export function EnterpriseBusinessAccessTable({
+  contract,
+  selections,
+  scope,
+  onChange,
+  disabled = false,
+}: {
+  readonly contract: BusinessAccessContract;
+  readonly selections: readonly EnterpriseBusinessAccessSelection[];
+  readonly scope: string;
+  readonly onChange: (selections: readonly EnterpriseBusinessAccessSelection[]) => void;
+  readonly disabled?: boolean;
+}) {
+  return (
+    <TableContainer>
+      <Table
+        size="small"
+        aria-label={contract.presentation.areaLabel}
+        sx={{
+          tableLayout: 'fixed',
+          '& th, & td': { px: { xs: 0.75, sm: 2 }, overflowWrap: 'anywhere' },
+        }}
+      >
+        <TableHead>
+          <TableRow>
+            <TableCell sx={{ width: { xs: '40%', sm: '32%' } }}>
+              {contract.presentation.areaLabel}
+            </TableCell>
+            <TableCell sx={{ width: { xs: '60%', sm: '43%' } }}>
+              {contract.presentation.levelLabel}
+            </TableCell>
+            <TableCell sx={{ width: '25%', display: { xs: 'none', sm: 'table-cell' } }}>
+              {contract.presentation.scopeLabel}
+            </TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {contract.businessAreas.map((area) => (
+            <TableRow key={area.code}>
+              <TableCell component="th" scope="row" sx={{ overflowWrap: 'anywhere' }}>
+                {area.label}
+                <Typography
+                  variant="caption"
+                  sx={{ display: { xs: 'block', sm: 'none' } }}
+                >
+                  {scope}
+                </Typography>
+              </TableCell>
+              <TableCell>
+                <TextField
+                  select
+                  fullWidth
+                  size="small"
+                  slotProps={{
+                    select: {
+                      SelectDisplayProps: {
+                        'aria-label': `${area.label}: ${contract.presentation.levelLabel}`,
+                      },
+                    },
+                  }}
+                  value={
+                    selections.find((selection) => selection.businessArea === area.code)
+                      ?.accessLevel || 'noAccess'
+                  }
+                  disabled={disabled}
+                  onChange={(event) => {
+                    const accessLevel = event.target.value;
+                    if (
+                      accessLevel !== 'noAccess' &&
+                      !area.levels.some((level) => level.value === accessLevel)
+                    )
+                      return;
+                    const next: EnterpriseBusinessAccessSelection = {
+                      businessArea: area.code,
+                      accessLevel:
+                        accessLevel as EnterpriseBusinessAccessSelection['accessLevel'],
+                    };
+                    onChange(
+                      Object.freeze([
+                        ...selections.filter(
+                          (selection) => selection.businessArea !== area.code,
+                        ),
+                        Object.freeze(next),
+                      ]),
+                    );
+                  }}
+                  sx={{
+                    '&& .MuiSelect-select': {
+                      whiteSpace: 'normal',
+                      overflowWrap: 'anywhere',
+                      textOverflow: 'clip',
+                    },
+                  }}
+                >
+                  <MenuItem value="noAccess">{contract.presentation.noAccess}</MenuItem>
+                  {area.levels.map((level) => (
+                    <MenuItem key={level.value} value={level.value}>
+                      {contract.presentation[level.value]}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </TableCell>
+              <TableCell
+                sx={{
+                  overflowWrap: 'anywhere',
+                  display: { xs: 'none', sm: 'table-cell' },
+                }}
+              >
+                {scope}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
+}
+
+/** Chooses one explicit backend role through business labels; an empty draft confers no access.
+ * @param props Validated owner choices, current draft and presentation-only change callback.
+ * @returns Business area and level controls. It performs no API calls or persisted revocation.
+ */
+export function EnterpriseBusinessAccessSelector({
+  contract,
+  roleCode,
+  onChange,
+  disabled = false,
+  error,
+}: {
+  readonly contract: BusinessAccessContract;
+  readonly roleCode: string;
+  readonly onChange: (roleCode: string) => void;
+  readonly disabled?: boolean;
+  readonly error?: string | undefined;
+}) {
+  const [draftArea, setDraftArea] = useState('');
+  const assignedArea = contract.businessAreas.find((area) =>
+    area.levels.some((level) => level.roleCode === roleCode),
+  );
+  const area =
+    assignedArea || contract.businessAreas.find((area) => area.code === draftArea);
+  const selected = area?.levels.find((level) => level.roleCode === roleCode);
+  return (
+    <Stack spacing={2} sx={{ minWidth: 0 }}>
+      <TextField
+        select
+        fullWidth
+        size="small"
+        label={contract.presentation.areaLabel}
+        value={area?.code || ''}
+        disabled={disabled}
+        onChange={(event) => {
+          setDraftArea(event.target.value);
+          onChange('');
+        }}
+      >
+        {contract.businessAreas.map((area) => (
+          <MenuItem key={area.code} value={area.code}>
+            {area.label}
+          </MenuItem>
+        ))}
+      </TextField>
+      <TextField
+        select
+        fullWidth
+        size="small"
+        label={contract.presentation.levelLabel}
+        value={selected?.value || 'noAccess'}
+        disabled={disabled || !area}
+        error={Boolean(error)}
+        helperText={error}
+        onChange={(event) =>
+          onChange(
+            area?.levels.find((level) => level.value === event.target.value)
+              ?.roleCode || '',
+          )
+        }
+      >
+        <MenuItem value="noAccess">{contract.presentation.noAccess}</MenuItem>
+        {(area?.levels || []).map((level) => (
+          <MenuItem key={level.value} value={level.value}>
+            {contract.presentation[level.value]}
+          </MenuItem>
+        ))}
+      </TextField>
+    </Stack>
+  );
+}
 
 /** Frontend view model only, not a published Profile DTO or executable command body. */
 export interface EnterpriseAdministrationTaskCommand {

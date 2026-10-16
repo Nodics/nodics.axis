@@ -9,6 +9,7 @@ import { wasteOverviewAliases } from '../operations/wasteManagement/wasteOvervie
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -308,15 +309,22 @@ export function App() {
   const sessionInvalidated = useRef(false);
   const admittedSession = useRef<EmployeeSession | undefined>(undefined);
   const availabilityReadSequence = useRef(0);
+  const loginAttempt = useRef<object | undefined>(undefined);
+  const [loginPending, setLoginPending] = useState(false);
+  const retireLogin = useCallback(() => {
+    loginAttempt.current = undefined;
+    setLoginPending(false);
+  }, []);
   const updateSession = useCallback(
     (value: EmployeeSession | undefined, preserveCreationCheckpoint = false) => {
+      retireLogin();
       if (!preserveCreationCheckpoint) enterpriseCreationCheckpoint.clear();
       if (value) sessionInvalidated.current = false;
       admittedSession.current = value;
       availabilityReadSequence.current += 1;
       setSession(value);
     },
-    [enterpriseCreationCheckpoint],
+    [enterpriseCreationCheckpoint, retireLogin],
   );
   const [authenticatedBootstrap, setAuthenticatedBootstrap] =
     useState<AxisAuthenticatedBootstrap>();
@@ -342,6 +350,7 @@ export function App() {
     state.active = true;
     return () => {
       state.active = false;
+      loginAttempt.current = undefined;
     };
   }, []);
   // Routing context never changes project endpoints or constitutes a grant.
@@ -358,6 +367,13 @@ export function App() {
     [baseRuntime, selectedEnterprise],
   );
   const localization = useAxisLocalizationController(bootstrap, runtime);
+  // Retire before paint on any router navigation, including same-path search/state changes.
+  useLayoutEffect(() => {
+    retireLogin();
+    return () => {
+      loginAttempt.current = undefined;
+    };
+  }, [runtime, bootstrap?.endpoints.profile, location.key, retireLogin]);
   const currentRoutePath = sessionInvalidated.current
     ? location.pathname
     : `${location.pathname}${location.search}${location.hash}`;
@@ -1041,7 +1057,22 @@ export function App() {
   };
 
   const login = async (loginId: string, password: string) => {
-    if (contextTransition.current) return;
+    if (
+      !lifetime.current.active ||
+      contextTransition.current ||
+      admittedSession.current ||
+      loginAttempt.current
+    )
+      return;
+    // Admit synchronously: a second submit can arrive before React disables the form.
+    const originalAttempt = {};
+    loginAttempt.current = originalAttempt;
+    const isCurrent = () =>
+      lifetime.current.active &&
+      loginAttempt.current === originalAttempt &&
+      !contextTransition.current &&
+      !admittedSession.current;
+    setLoginPending(true);
     setAuthenticationError(undefined);
     try {
       const nextSession = await authenticateEmployee(
@@ -1051,12 +1082,14 @@ export function App() {
         password,
         runtime.requestTimeoutMs,
       );
+      if (!isCurrent()) return;
       const employeeBootstrap = await loadAuthenticatedBootstrap(
         runtime.backofficeBaseUrl,
         runtime.clientContractVersion,
         nextSession.accessToken,
         runtime.requestTimeoutMs,
       );
+      if (!isCurrent()) return;
       rememberEnterpriseContext(runtime.backofficeBaseUrl, runtime.enterpriseCode);
       queryClient.clear();
       updateSession(nextSession);
@@ -1071,15 +1104,19 @@ export function App() {
         replace: true,
       });
     } catch (error: unknown) {
+      if (!isCurrent()) return;
       updateSession(undefined);
       setAuthenticationError(
         localization.formatError(error, 'Employee authentication failed'),
       );
+    } finally {
+      if (loginAttempt.current === originalAttempt) retireLogin();
     }
   };
 
   const logout = (requestedEnterpriseCode?: string) => {
     if (contextTransition.current) return;
+    retireLogin();
     const signInEnterpriseCode = enterpriseContextCode(requestedEnterpriseCode);
     const showSignIn = () =>
       void navigate(signInEnterpriseCode ? '/login' : composition.defaultPublicPage, {
@@ -1358,11 +1395,19 @@ export function App() {
                 bootstrap={authenticatedBootstrap}
                 runtime={runtime}
               />
-            ) : navigationItem.backendWorkspace.workspaceCode === 'waste.review' &&
+            ) : (navigationItem.backendWorkspace.workspaceCode === 'waste.review' ||
+                (navigationItem.moduleName === 'eWaste' &&
+                  navigationItem.backendWorkspace.workspaceCode === 'waste.listing' &&
+                  navigationItem.backendWorkspace.viewCode ===
+                    'ewaste.listingRequests' &&
+                  !['DISABLED', 'HIDDEN'].includes(
+                    navigationItem.featureState ?? 'ACTIVE',
+                  ))) &&
               ['UP', 'DEGRADED'].includes(navigationItem.availability) ? (
               <WasteManagementRoutePage
                 key={`${navigationItem.moduleName}:${navigationItem.id}`}
                 accessToken={session.accessToken}
+                sessionGeneration={session.generation}
                 bootstrap={authenticatedBootstrap}
                 employeeId={session.loginId}
                 navigation={navigationItem}
@@ -1487,6 +1532,7 @@ export function App() {
               )
             ? authenticatedShell(
                 <BackendOperationsWorkspaceRoutePage
+                  bootstrap={authenticatedBootstrap}
                   key={`${session.generation}:${navigationItem.moduleName}:${navigationItem.id}:${navigationItem.route}`}
                   enterpriseCreationCheckpoint={{
                     checkpoint: enterpriseCreationCheckpoint,
@@ -1832,6 +1878,7 @@ export function App() {
             <MerchantRedemptionPanel
               bootstrap={authenticatedBootstrap}
               accessToken={session.accessToken}
+              sessionGeneration={session.generation}
               runtime={runtime}
             />
           ) : (
@@ -2049,6 +2096,7 @@ export function App() {
 
   const initializationRequired = Boolean(
     session &&
+    !locked &&
     authenticatedBootstrap &&
     (axisInitializationAdmission !== undefined
       ? axisInitializationAdmission !== 'READY'
@@ -2057,6 +2105,7 @@ export function App() {
   );
   const initializationLoading = Boolean(
     session &&
+    !locked &&
     authenticatedBootstrap &&
     axisInitializationAdmission === undefined &&
     !initializationStatus &&
@@ -2204,10 +2253,14 @@ export function App() {
               page(
                 '/login',
                 undefined,
-                { onEmployeeLogin: (id, secret) => void login(id, secret) },
+                {
+                  onEmployeeLogin: (id, secret) => void login(id, secret),
+                  employeeLoginPending: loginPending,
+                },
                 undefined,
                 <BundledLoginPage
                   error={authenticationError}
+                  pending={loginPending}
                   onLogin={(id, secret) => void login(id, secret)}
                 />,
               )

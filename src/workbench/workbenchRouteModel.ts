@@ -33,6 +33,22 @@ export interface WorkbenchRouteConnectionPreference {
   readonly server?: string | undefined;
 }
 
+/** An owner discovery refresh cannot reuse an older, broader schema descriptor. */
+export function currentDiscoveredWorkbenchSchema(
+  selected: WorkbenchSchema | undefined,
+  discovered: readonly WorkbenchSchema[] | undefined,
+): WorkbenchSchema | undefined {
+  if (!selected) return undefined;
+  return discovered?.find(
+    (candidate) =>
+      candidate.moduleName === selected.moduleName &&
+      candidate.schemaName === selected.schemaName &&
+      candidate.connectionInstanceId === selected.connectionInstanceId &&
+      candidate.connectionServer === selected.connectionServer &&
+      candidate.connectionEnvironment === selected.connectionEnvironment,
+  );
+}
+
 export function resolveWorkbenchDeepLinkTarget(
   search: string,
   schemas: readonly WorkbenchSchema[],

@@ -170,6 +170,7 @@ export interface CmsRendererActions {
     | undefined;
   readonly dashboard?: MediaManagementRendererController | undefined;
   readonly onEmployeeLogin?: (loginId: string, password: string) => void;
+  readonly employeeLoginPending?: boolean;
   readonly onEmployeeRecovery?: (identifier: string) => void;
   readonly onEmployeeUnlock?: (password: string) => void;
   readonly onEmployeeSignOut?: () => void;

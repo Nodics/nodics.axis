@@ -86,6 +86,89 @@ function json(result: unknown, status = 200): Response {
   });
 }
 
+describe('owner-governed Workbench discovery', () => {
+  const productConnection = {
+    ...connection,
+    moduleName: 'product',
+    endpoint: 'https://commerce.example.test/nodics/product',
+  };
+  const descriptor = { path: '/business/products/schemas', apiVersion: 'v0' };
+  const owner = { moduleName: 'product', descriptor };
+  const product = { ...address, moduleName: 'product', schemaName: 'product' };
+
+  it('uses only the advertised same-owner connection and retains ordinary session headers', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(json({ schemas: [product] }));
+    const result = await loadWorkbenchSchemas(
+      [connection, productConnection],
+      configuration,
+      fetcher,
+      owner,
+    );
+    expect(result[0]?.moduleName).toBe('product');
+    expect(fetcher).toHaveBeenCalledOnce();
+    const target = fetcher.mock.calls[0]?.[0];
+    expect(target instanceof URL && target.href).toBe(
+      'https://commerce.example.test/nodics/product/v0/business/products/schemas',
+    );
+    const headers = new Headers(fetcher.mock.calls[0]?.[1]?.headers);
+    expect(headers.get('x-enterprise-code')).toBe(configuration.enterpriseCode);
+    expect(headers.get('Authorization')).toBe(`Bearer ${configuration.accessToken}`);
+  });
+
+  it('does not fall back to generic schemas after an owner refusal', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json({}, 403));
+    await expect(
+      loadWorkbenchSchemas([productConnection], configuration, fetcher, owner),
+    ).rejects.toThrow('unavailable');
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it('rejects descriptors projecting foreign modules', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(json({ schemas: [address] }));
+    await expect(
+      loadWorkbenchSchemas([productConnection], configuration, fetcher, owner),
+    ).rejects.toThrow('unavailable');
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it('requires the actual owner connection and rejects malformed paths before transport', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    await expect(
+      loadWorkbenchSchemas([connection], configuration, fetcher, owner),
+    ).rejects.toThrow('connection');
+    await expect(
+      loadWorkbenchSchemas([productConnection], configuration, fetcher, {
+        ...owner,
+        descriptor: { ...descriptor, path: '//foreign.test/schemas' },
+      }),
+    ).rejects.toThrow('invalid');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('uses a later owner route and current enterprise without remembered authority', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(json({ schemas: [product] }));
+    await loadWorkbenchSchemas(
+      [productConnection],
+      { ...configuration, enterpriseCode: 'other-enterprise' },
+      fetcher,
+      { ...owner, descriptor: { path: '/business/custom/schemas', apiVersion: 'v3' } },
+    );
+    const target = fetcher.mock.calls[0]?.[0];
+    expect(target instanceof URL && target.href).toBe(
+      'https://commerce.example.test/nodics/product/v3/business/custom/schemas',
+    );
+    expect(
+      new Headers(fetcher.mock.calls[0]?.[1]?.headers).get('x-enterprise-code'),
+    ).toBe('other-enterprise');
+  });
+});
+
 describe('Schema Workbench API client', () => {
   it.each([
     { matchedCount: 1, modifiedCount: 1 },

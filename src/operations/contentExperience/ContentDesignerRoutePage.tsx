@@ -51,6 +51,7 @@ import {
   type ContentDesignerOperationResult,
   type ContentDesignerReference,
 } from './api/contentDesignerClient';
+import { ContentDesignerRetirementPanel } from './ContentDesignerRetirementPanel';
 
 interface ContentDesignerRoutePageProps {
   readonly accessToken: string;
@@ -213,12 +214,15 @@ const designerSteps: readonly DesignerStep[] = Object.freeze([
 const emptyDraftDefaults: ContentDesignerDraftDefaults = Object.freeze({});
 const emptyComponentKinds: readonly ContentDesignerComponentKind[] = Object.freeze([]);
 
+/** Displays a workflow step without exposing a link absent from authorized navigation. */
 function DesignerStepCard({
   step,
   index,
+  available,
 }: {
   readonly index: number;
   readonly step: DesignerStep;
+  readonly available: boolean;
 }) {
   return (
     <Card elevation={0} sx={{ border: 1, borderColor: 'divider', height: '100%' }}>
@@ -248,22 +252,29 @@ function DesignerStepCard({
             </Box>
           </Stack>
           <Typography color="text.secondary">{step.description}</Typography>
-          <Button component={RouterLink} to={step.route} variant="outlined">
-            {step.action}
-          </Button>
+          {available ? (
+            <Button component={RouterLink} to={step.route} variant="outlined">
+              {step.action}
+            </Button>
+          ) : (
+            <Button disabled variant="outlined">
+              {step.action}
+            </Button>
+          )}
         </Stack>
       </CardContent>
     </Card>
   );
 }
 
+/** Selects only the catalogue-declared authoring role, independent of deployment server names. */
 function firstHealthyCmsConnection(
   bootstrap: AxisAuthenticatedBootstrap,
 ): AxisModuleConnection | undefined {
-  return (
-    selectModuleConnection(bootstrap, 'cms', { server: 'wcmsStagedServer' }) ??
-    selectModuleConnection(bootstrap, 'cms', { server: 'wcmsServer' })
-  );
+  return selectModuleConnection(bootstrap, 'cms', {
+    runtimeRoleCode: 'WCMS_STAGED',
+    publicationRole: 'STAGED',
+  });
 }
 
 function safeCode(value: string, fallback: string): string {
@@ -530,7 +541,7 @@ function AuthoringContractPanel({
       </Typography>
       <Typography color="text.secondary" variant="body2">
         Supported operations:{' '}
-        {model?.operations?.length ? model.operations.join(', ') : 'loading from WCMS'}
+        {model ? model.operations.join(', ') || 'None' : 'loading from WCMS'}
       </Typography>
     </Stack>
   );
@@ -823,6 +834,7 @@ function BackendGuidancePanel({
   );
 }
 
+/** Renders CMS-owned references and commands; bootstrap and the fresh owner model govern executable controls. */
 export function ContentDesignerRoutePage({
   accessToken,
   bootstrap,
@@ -840,7 +852,35 @@ export function ContentDesignerRoutePage({
   const [selectedLocale, setSelectedLocale] = useState('en');
   const [validatedDraftSignature, setValidatedDraftSignature] = useState('');
   const [savedDraftSignature, setSavedDraftSignature] = useState('');
-  const connections = useMemo(() => activeConnections(bootstrap), [bootstrap]);
+  const [retirementPending, setRetirementPending] = useState(false);
+  const authorizedNavigation = useMemo(
+    () =>
+      bootstrap.navigation.filter(
+        (item) =>
+          ['ACTIVE', 'PREVIEW'].includes(item.featureState ?? 'ACTIVE') &&
+          ['UP', 'DEGRADED'].includes(item.availability),
+      ),
+    [bootstrap],
+  );
+  // Bootstrap owns navigation admission. A reachable module alone never admits schema reads.
+  const permittedMetrics = useMemo(
+    () =>
+      designerMetrics.filter((metric) =>
+        authorizedNavigation.some(
+          (item) =>
+            item.workbenchTarget?.moduleName === metric.moduleName &&
+            item.workbenchTarget.schemaName === metric.schemaName,
+        ),
+      ),
+    [authorizedNavigation],
+  );
+  const connections = useMemo(
+    () =>
+      activeConnections(bootstrap).filter((connection) =>
+        permittedMetrics.some((metric) => metric.moduleName === connection.moduleName),
+      ),
+    [bootstrap, permittedMetrics],
+  );
   const designerConnection = useMemo(
     () => firstHealthyCmsConnection(bootstrap),
     [bootstrap],
@@ -854,16 +894,25 @@ export function ContentDesignerRoutePage({
     [accessToken, runtime.enterpriseCode, runtime.requestTimeoutMs],
   );
   const data = useQuery({
-    queryKey: ['content-designer', runtime.enterpriseCode, connectionKey(connections)],
+    enabled: permittedMetrics.length > 0 && connections.length > 0,
+    queryKey: [
+      'content-designer',
+      bootstrap.tenantCode,
+      runtime.enterpriseCode,
+      connectionKey(connections),
+      permittedMetrics.map((metric) => metric.id),
+    ],
     queryFn: () =>
-      loadWorkbenchMetrics(connections, bootstrap, configuration, designerMetrics),
+      loadWorkbenchMetrics(connections, bootstrap, configuration, permittedMetrics),
   });
   const authoringModel = useQuery({
     enabled: Boolean(designerConnection),
     queryKey: [
       'content-designer-authoring-model',
+      bootstrap.tenantCode,
       runtime.enterpriseCode,
       designerConnection?.instanceId,
+      designerConnection?.endpoint,
     ],
     queryFn: () => {
       if (!designerConnection) throw new Error('CMS connection is not available');
@@ -980,9 +1029,18 @@ export function ContentDesignerRoutePage({
     draft.page.renderer,
   );
   const draftSignature = useMemo(() => JSON.stringify(draft), [draft]);
+  const permittedOperations =
+    designerConnection && authoringModel.isSuccess && !authoringModel.isFetching
+      ? authoringModel.data.operations
+      : [];
+  const canValidate = permittedOperations.includes('validateDraftComposition');
+  const canSave = permittedOperations.includes('saveDraftComposition');
+  const canSubmit = permittedOperations.includes('submitForPublication');
 
   const validateMutation = useMutation({
     mutationFn: () => {
+      if (!canValidate || retirementPending)
+        throw new Error('CMS did not authorize this operation');
       if (!designerConnection || !authoringReady)
         throw new Error(
           'Choose the configured authoring references before validating a draft',
@@ -995,6 +1053,8 @@ export function ContentDesignerRoutePage({
   });
   const saveMutation = useMutation({
     mutationFn: () => {
+      if (!canSave || retirementPending)
+        throw new Error('CMS did not authorize this operation');
       if (!designerConnection) throw new Error('CMS connection is not available');
       return saveContentDesignerDraft(designerConnection, configuration, draft);
     },
@@ -1002,6 +1062,8 @@ export function ContentDesignerRoutePage({
   });
   const submitPublicationMutation = useMutation({
     mutationFn: () => {
+      if (!canSubmit || retirementPending)
+        throw new Error('CMS did not authorize this operation');
       if (!designerConnection) throw new Error('CMS connection is not available');
       return submitContentDesignerDraftForPublication(
         designerConnection,
@@ -1015,7 +1077,7 @@ export function ContentDesignerRoutePage({
     validationSucceeded(validateMutation.data);
   const draftIsSaved =
     savedDraftSignature === draftSignature && Boolean(saveMutation.data);
-  const metrics = metricsById(data.data, designerMetrics);
+  const metrics = metricsById(data.data, permittedMetrics);
   const operationError =
     validateMutation.error instanceof Error
       ? validateMutation.error
@@ -1101,7 +1163,14 @@ export function ContentDesignerRoutePage({
                 }}
               >
                 {designerSteps.map((step, index) => (
-                  <DesignerStepCard key={step.id} index={index} step={step} />
+                  <DesignerStepCard
+                    key={step.id}
+                    index={index}
+                    step={step}
+                    available={authorizedNavigation.some(
+                      (item) => item.route === step.route.split('?')[0],
+                    )}
+                  />
                 ))}
               </Box>
             </Stack>
@@ -1322,7 +1391,11 @@ export function ContentDesignerRoutePage({
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
                 <Button
                   disabled={
-                    !designerConnection || !authoringReady || validateMutation.isPending
+                    !canValidate ||
+                    retirementPending ||
+                    !designerConnection ||
+                    !authoringReady ||
+                    validateMutation.isPending
                   }
                   onClick={() => validateMutation.mutate()}
                   variant="contained"
@@ -1331,6 +1404,8 @@ export function ContentDesignerRoutePage({
                 </Button>
                 <Button
                   disabled={
+                    !canSave ||
+                    retirementPending ||
                     !designerConnection ||
                     !draftIsValidated ||
                     saveMutation.isPending ||
@@ -1343,6 +1418,8 @@ export function ContentDesignerRoutePage({
                 </Button>
                 <Button
                   disabled={
+                    !canSubmit ||
+                    retirementPending ||
                     !designerConnection ||
                     !draftIsValidated ||
                     !draftIsSaved ||
@@ -1367,89 +1444,128 @@ export function ContentDesignerRoutePage({
                 >
                   Reset defaults
                 </Button>
-                <Button
-                  component={RouterLink}
-                  to="/media/items?folderCode=cmsAssets"
-                  variant="outlined"
-                >
-                  Choose media
-                </Button>
-                <Button component={RouterLink} to="/publishing/requests" variant="text">
-                  Review publication requests
-                </Button>
-                <Button component={RouterLink} to="/publishing/status" variant="text">
-                  Verify Online status
-                </Button>
+                {authorizedNavigation.some((item) => item.route === '/media/items') ? (
+                  <Button
+                    component={RouterLink}
+                    to="/media/items?folderCode=cmsAssets"
+                    variant="outlined"
+                  >
+                    Choose media
+                  </Button>
+                ) : null}
+                {authorizedNavigation.some(
+                  (item) => item.route === '/publishing/requests',
+                ) ? (
+                  <Button
+                    component={RouterLink}
+                    to="/publishing/requests"
+                    variant="text"
+                  >
+                    Review publication requests
+                  </Button>
+                ) : null}
+                {authorizedNavigation.some(
+                  (item) => item.route === '/publishing/status',
+                ) ? (
+                  <Button component={RouterLink} to="/publishing/status" variant="text">
+                    Verify Online status
+                  </Button>
+                ) : null}
               </Stack>
+              {authoringModel.data?.retirement && (
+                <ContentDesignerRetirementPanel
+                  connection={designerConnection}
+                  configuration={configuration}
+                  operations={permittedOperations}
+                  presentation={authoringModel.data.retirement}
+                  catalogCode={effectiveCatalogIntent}
+                  siteCode={effectiveSiteIntent}
+                  disabled={
+                    validateMutation.isPending ||
+                    saveMutation.isPending ||
+                    submitPublicationMutation.isPending
+                  }
+                  onPendingChange={setRetirementPending}
+                  onRetired={() => {
+                    setValidatedDraftSignature('');
+                    setSavedDraftSignature('');
+                    validateMutation.reset();
+                    saveMutation.reset();
+                    submitPublicationMutation.reset();
+                  }}
+                />
+              )}
             </Stack>
           </Paper>
         </Box>
 
-        <Paper
-          component="section"
-          elevation={0}
-          sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
-        >
-          <Stack spacing={dashboardContentGap}>
-            <Box>
-              <Typography variant="h4">Readiness snapshot</Typography>
-              <Typography color="text.secondary">
-                These counts come from live workbench contracts. If one is unavailable,
-                the designer can still explain the flow, but save actions must stay
-                inside the owning workspace.
-              </Typography>
-            </Box>
-            <Alert severity="info">
-              CMS Online verification card: after a publication request is approved,
-              confirm Online status, deployment history, audit evidence, and browser
-              rendering for {draftRoutePath(draft)} before closing the content task.
-            </Alert>
-            <Box
-              sx={{
-                display: 'grid',
-                gap: dashboardComponentGap,
-                gridTemplateColumns: {
-                  xs: '1fr',
-                  md: 'repeat(2, minmax(0, 1fr))',
-                  xl: 'repeat(4, minmax(0, 1fr))',
-                },
-              }}
-            >
-              {metrics.map((metric) => (
-                <Card
-                  key={metric.id}
-                  elevation={0}
-                  sx={{ border: 1, borderColor: 'divider' }}
-                >
-                  <CardContent>
-                    <Stack spacing={1}>
-                      <Stack
-                        direction="row"
-                        spacing={1}
-                        sx={{ alignItems: 'center', justifyContent: 'space-between' }}
-                      >
-                        <Typography variant="h6">{metric.label}</Typography>
-                        <Chip
-                          color={metric.status === 'ready' ? 'success' : 'warning'}
-                          label={metric.status === 'ready' ? 'Live' : 'Unavailable'}
-                          size="small"
-                        />
+        {metrics.length > 0 ? (
+          <Paper
+            component="section"
+            elevation={0}
+            sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
+          >
+            <Stack spacing={dashboardContentGap}>
+              <Box>
+                <Typography variant="h4">Readiness snapshot</Typography>
+                <Typography color="text.secondary">
+                  These counts come from live workbench contracts. If one is
+                  unavailable, the designer can still explain the flow, but save actions
+                  must stay inside the owning workspace.
+                </Typography>
+              </Box>
+              <Alert severity="info">
+                CMS Online verification card: after a publication request is approved,
+                confirm Online status, deployment history, audit evidence, and browser
+                rendering for {draftRoutePath(draft)} before closing the content task.
+              </Alert>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: dashboardComponentGap,
+                  gridTemplateColumns: {
+                    xs: '1fr',
+                    md: 'repeat(2, minmax(0, 1fr))',
+                    xl: 'repeat(4, minmax(0, 1fr))',
+                  },
+                }}
+              >
+                {metrics.map((metric) => (
+                  <Card
+                    key={metric.id}
+                    elevation={0}
+                    sx={{ border: 1, borderColor: 'divider' }}
+                  >
+                    <CardContent>
+                      <Stack spacing={1}>
+                        <Stack
+                          direction="row"
+                          spacing={1}
+                          sx={{ alignItems: 'center', justifyContent: 'space-between' }}
+                        >
+                          <Typography variant="h6">{metric.label}</Typography>
+                          <Chip
+                            color={metric.status === 'ready' ? 'success' : 'warning'}
+                            label={metric.status === 'ready' ? 'Live' : 'Unavailable'}
+                            size="small"
+                          />
+                        </Stack>
+                        <Typography sx={{ fontSize: 34, fontWeight: 800 }}>
+                          {metric.status === 'ready'
+                            ? new Intl.NumberFormat().format(metric.value ?? 0)
+                            : '—'}
+                        </Typography>
+                        <Typography color="text.secondary" variant="body2">
+                          {metric.detail}
+                        </Typography>
                       </Stack>
-                      <Typography sx={{ fontSize: 34, fontWeight: 800 }}>
-                        {metric.status === 'ready'
-                          ? new Intl.NumberFormat().format(metric.value ?? 0)
-                          : '—'}
-                      </Typography>
-                      <Typography color="text.secondary" variant="body2">
-                        {metric.detail}
-                      </Typography>
-                    </Stack>
-                  </CardContent>
-                </Card>
-              ))}
-            </Box>
-          </Stack>
-        </Paper>
+                    </CardContent>
+                  </Card>
+                ))}
+              </Box>
+            </Stack>
+          </Paper>
+        ) : null}
       </Stack>
     </WorkspaceContainer>
   );

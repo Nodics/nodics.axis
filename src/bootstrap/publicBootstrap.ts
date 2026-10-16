@@ -1,5 +1,11 @@
 import { parseApplicationSetupPlan } from '../operations/setupAccelerators/api/applicationSetupPlan';
 import {
+  parseBusinessAccessContract,
+  parseBusinessAccessEditorContract,
+  type BusinessAccessContract,
+  type BusinessAccessEditorContract,
+} from '../operations/enterprise/api/businessAccessContract';
+import {
   parseEnterpriseSetupDescriptor,
   type EnterpriseSetupDescriptor,
 } from '../operations/enterprise/api/enterpriseSetupDescriptor';
@@ -85,7 +91,31 @@ export interface AxisWorkbenchPresentationRecoveryAction {
   readonly order: number;
 }
 
+export interface AxisWorkbenchSchemaDiscovery {
+  readonly path: string;
+  readonly apiVersion: string;
+}
+
+/** Discovery selects an inert same-module GET path, never authority or headers. */
+export function parseWorkbenchSchemaDiscovery(
+  value: unknown,
+): AxisWorkbenchSchemaDiscovery {
+  const discovery = record(value, 'Workbench schema discovery');
+  if (
+    Object.keys(discovery).sort().join(',') !== 'apiVersion,path' ||
+    typeof discovery.path !== 'string' ||
+    discovery.path.length > 256 ||
+    !/^\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/.test(discovery.path) ||
+    typeof discovery.apiVersion !== 'string' ||
+    !/^v[0-9]{1,3}$/.test(discovery.apiVersion)
+  ) {
+    throw new Error('Workbench schema discovery is invalid');
+  }
+  return Object.freeze({ path: discovery.path, apiVersion: discovery.apiVersion });
+}
+
 export interface AxisWorkbenchPresentation {
+  readonly schemaDiscovery?: AxisWorkbenchSchemaDiscovery | undefined;
   readonly defaultColumns?: readonly string[] | undefined;
   readonly hiddenFields?: readonly string[] | undefined;
   readonly editableFields?: readonly string[] | undefined;
@@ -158,6 +188,7 @@ export interface AxisNavigationLifecycleActionInputField {
 }
 
 export type AxisBackendWorkspaceFieldType =
+  | 'BUSINESS_ACCESS'
   | 'TEXT'
   | 'EMAIL'
   | 'PASSWORD'
@@ -174,6 +205,7 @@ export interface AxisBackendWorkspaceOption {
 }
 
 export interface AxisBackendWorkspaceField {
+  readonly businessAccess?: BusinessAccessContract | undefined;
   readonly defaultFromParameter?: string | undefined;
   readonly name: string;
   readonly label: string;
@@ -236,6 +268,7 @@ export interface AxisBackendWorkspaceTab {
 }
 
 export interface AxisBackendWorkspace {
+  readonly businessAccess?: BusinessAccessEditorContract | undefined;
   readonly setupContinuation?: EnterpriseSetupDescriptor | undefined;
   readonly ownerSelector?:
     | Readonly<{
@@ -715,6 +748,7 @@ function backendWorkspaceField(
   if (
     ![
       'TEXT',
+      'BUSINESS_ACCESS',
       'EMAIL',
       'PASSWORD',
       'MULTILINE',
@@ -742,6 +776,10 @@ function backendWorkspaceField(
     throw new Error(`${name} context parameter is invalid`);
   }
   const parsed = {
+    businessAccess:
+      type === 'BUSINESS_ACCESS'
+        ? parseBusinessAccessContract(source.businessAccess)
+        : undefined,
     name: text(source.name, `${name} name`),
     label: text(source.label, `${name} label`),
     type: type as AxisBackendWorkspaceFieldType,
@@ -1090,6 +1128,10 @@ export function parseBackendWorkspace(
     renderer: text(source.renderer, `${name} renderer`),
     defaultTab: optionalText(source.defaultTab, `${name} default tab`),
     ownerSelector,
+    businessAccess:
+      source.businessAccess === undefined
+        ? undefined
+        : parseBusinessAccessEditorContract(source.businessAccess),
     setupContinuation:
       source.setupContinuation === undefined
         ? undefined
@@ -1580,6 +1622,10 @@ function parseWorkbenchPresentation(
 ): AxisWorkbenchPresentation | undefined {
   if (value === undefined) return undefined;
   const presentation = record(value, `${moduleName} workbench presentation`);
+  const schemaDiscovery =
+    presentation.schemaDiscovery === undefined
+      ? undefined
+      : parseWorkbenchSchemaDiscovery(presentation.schemaDiscovery);
   const defaultColumns =
     presentation.defaultColumns === undefined
       ? undefined
@@ -1631,6 +1677,7 @@ function parseWorkbenchPresentation(
           moduleName,
         );
   return Object.freeze({
+    ...(schemaDiscovery === undefined ? {} : { schemaDiscovery }),
     ...(defaultColumns === undefined ? {} : { defaultColumns }),
     ...(hiddenFields === undefined ? {} : { hiddenFields }),
     ...(editableFields === undefined ? {} : { editableFields }),

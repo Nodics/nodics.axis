@@ -47,6 +47,7 @@ import {
 } from './preferences/workbenchPreferences';
 import {
   combineWorkbenchFilterGroups,
+  currentDiscoveredWorkbenchSchema,
   relatedRecordPanelFilter,
   resolveWorkbenchDefaultColumns,
   resolveWorkbenchDeepLinkTarget,
@@ -193,13 +194,34 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
     queryKey: [
       'schema-workbench',
       'schemas',
+      props.employeeId,
       props.runtime.enterpriseCode,
       connectionKey,
+      props.routeNavigation?.workbenchPresentation?.schemaDiscovery?.path ?? '/schemas',
+      props.routeNavigation?.workbenchPresentation?.schemaDiscovery?.apiVersion ?? 'v0',
+      props.routeNavigation?.workbenchPresentation?.schemaDiscovery
+        ? props.routeNavigation.moduleName
+        : '',
     ],
-    queryFn: () => loadWorkbenchSchemas(connections, configuration),
+    queryFn: () =>
+      loadWorkbenchSchemas(
+        connections,
+        configuration,
+        fetch,
+        props.routeNavigation?.workbenchPresentation?.schemaDiscovery
+          ? {
+              moduleName: props.routeNavigation.moduleName,
+              descriptor: props.routeNavigation.workbenchPresentation.schemaDiscovery,
+            }
+          : undefined,
+      ),
   });
-  const normalizedSelectedSchema = selectedSchema
-    ? schemaWithValidQueryCapabilities(selectedSchema)
+  const discoveredSelection = props.routeNavigation?.workbenchPresentation
+    ?.schemaDiscovery
+    ? currentDiscoveredWorkbenchSchema(selectedSchema, schemas.data)
+    : selectedSchema;
+  const normalizedSelectedSchema = discoveredSelection
+    ? schemaWithValidQueryCapabilities(discoveredSelection)
     : undefined;
   const fixedRecordFilters = normalizedSelectedSchema
     ? workbenchFixedFilterGroup(
@@ -244,11 +266,13 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
   const recordQueryPrefix = [
     'schema-workbench',
     'records',
+    props.employeeId,
     props.runtime.enterpriseCode,
     recordConnection?.instanceId,
     recordConnection?.endpoint,
     normalizedSelectedSchema?.moduleName,
     normalizedSelectedSchema?.schemaName,
+    JSON.stringify(normalizedSelectedSchema?.apiOperations ?? null),
   ];
   const records = useQuery({
     enabled: Boolean(
@@ -598,6 +622,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
           moduleName: props.routeNavigation.moduleName,
           target: props.routeNavigation.workbenchTarget,
           fixedFilters: props.routeNavigation.workbenchPresentation?.fixedFilters ?? [],
+          schemaDiscovery: props.routeNavigation.workbenchPresentation?.schemaDiscovery,
         })
       : undefined;
     return (

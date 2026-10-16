@@ -45,6 +45,31 @@ revision-checked before selection. Malformed or duplicate queue data fails close
 Failed refresh clears selectable rows. Target/receipt inputs cannot change during
 requests, and in-flight guards prevent rapid duplicate commands.
 
+Authenticated bootstrap observation is not a new merchant authority by object
+identity. Equal-authority refreshes preserve outlet/coupon/basket drafts, queue
+rows, visible errors, reviewed evidence and pending outcomes. Each refresh still
+reads the existing workspace owner; new commands wait for that read. An unchanged
+authorized outlet/revision set and input requirements retain state, including when
+only labels or ordering change. No full bootstrap or authorization result is cached.
+
+App supplies the admission generation, so a new admission retires old replies even
+when its token is reused. Token, tenant, enterprise, project or selected owner
+identity/endpoint/role/availability and navigation-access changes retire drafts,
+proofs and replies before paint. Fresh changed outlet revisions/choices or input
+requirements, malformed workspace evidence or owner denial also retire them.
+Permission/access-group decisions remain backend-owned: navigation withdrawal
+unmounts the panel, fresh workspace denial/scope changes invalidate it, and every
+queue/validation/confirmation request retains current owner authorization. The
+client does not infer a grant or cache hidden server permission/group state.
+Unmount and superseded workspace reads reject late replies. No command retries
+automatically, including a refused validation or uncertain confirmation. Operators
+inspect current requests and choose any subsequent command explicitly.
+
+`test/enterprise/merchantBootstrapRefresh.test.tsx` protects equal-bootstrap,
+deferred GET and refused-command preservation, changed-authority retirement and
+fresh workspace scope/denial handling. Customize copy/outlet policy at the existing
+owner; preserve these epoch and fresh-read boundaries in presentation extensions.
+
 Both MERCHANT_SCREEN and LOCAL_SAMPLE confirmations require an explicit merchant
 transaction/receipt reference because that is the existing owner command contract.
 LOCAL_SAMPLE remains visibly identified and does not contact an external POS.
@@ -66,7 +91,7 @@ be consumed only through a matched versioned contract; never execute CMS code.
 Authoritative priced basket/benefit validation and external POS proof cannot be
 added as editable browser assertions.
 
-## ITEM Evidence and Local Simulation
+## ITEM Evidence and Simulation
 
 The same owner validation protocol can return ITEM evidence instead of money.
 Axis accepts only the bounded `FULFILLED_ITEMS` or `SIMULATED_ITEMS` stage, exact
@@ -78,11 +103,13 @@ Delivered ITEM evidence requires a nonfuture `deliveredAt` from the owner.
 
 Simulation additionally requires `simulated: true`, `verified: false`,
 `sourceType: ITEM_SIMULATION` and a `SIM:<handle>` reference, with no delivery time.
-The review explicitly says **Local ITEM simulation. Goods delivery is not
+The review explicitly says **ITEM simulation. Goods delivery is not
 verified.** Its confirmation action records a simulation, not verified delivery.
 Queue and confirmation summaries use the exact owner marker trio
-`simulated: true`, `deliveryVerified: false`, `evidenceMode: LOCAL_SIMULATION`;
-partial or contradictory markers fail closed. A simulated review cannot complete
+`simulated: true`, `deliveryVerified: false`, `evidenceMode: SIMULATION`.
+The complete historical `LOCAL_SIMULATION` trio remains readable; Axis preserves
+the actual owner mode rather than converting one into the other. Partial,
+mixed/malformed modes or contradictory markers fail closed. A simulated review cannot complete
 successfully when its confirmation omits those markers. Receipt rows preserve
 the warning even when their minimized summary does not include item details.
 

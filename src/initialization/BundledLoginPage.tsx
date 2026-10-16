@@ -1,9 +1,19 @@
-import { Alert, Box, Button, Paper, Stack, TextField, Typography } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Button,
+  CircularProgress,
+  Paper,
+  Stack,
+  TextField,
+  Typography,
+} from '@mui/material';
 import { useState, type FormEvent } from 'react';
 import { getSignInErrorMessage } from '../app/recoveryState';
 
 interface BundledLoginPageProps {
   readonly error?: string | undefined;
+  readonly pending?: boolean;
   readonly onLogin: (loginId: string, password: string) => void;
 }
 
@@ -11,13 +21,17 @@ interface BundledLoginPageProps {
  * Minimal executable login fallback used only while CMS-delivered Axis login is unavailable.
  * It owns no configurable business content and submits credentials only to the existing Profile flow.
  */
-export function BundledLoginPage({ error, onLogin }: BundledLoginPageProps) {
+export function BundledLoginPage({
+  error,
+  pending = false,
+  onLogin,
+}: BundledLoginPageProps) {
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (loginId.trim() && password) onLogin(loginId.trim(), password);
+    if (!pending && loginId.trim() && password) onLogin(loginId.trim(), password);
   };
 
   return (
@@ -32,6 +46,7 @@ export function BundledLoginPage({ error, onLogin }: BundledLoginPageProps) {
       }}
     >
       <Paper
+        aria-busy={pending}
         component="form"
         elevation={4}
         onSubmit={submit}
@@ -66,7 +81,12 @@ export function BundledLoginPage({ error, onLogin }: BundledLoginPageProps) {
             value={password}
           />
           <Button
-            disabled={!loginId.trim() || !password}
+            disabled={pending || !loginId.trim() || !password}
+            startIcon={
+              pending ? (
+                <CircularProgress aria-hidden="true" color="inherit" size={18} />
+              ) : undefined
+            }
             type="submit"
             variant="contained"
           >

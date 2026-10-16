@@ -1,5 +1,5 @@
 /** Managed login transport presentation only; no live authentication or automatic retry. */
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 import { EmployeeLoginFormRenderer } from '../../../../../src/cms/renderers/components/authentication/EmployeeLoginFormRenderer';
@@ -73,4 +73,36 @@ it('does not reclassify safe authentication denial as an outage or send a reques
   expect(screen.getByRole('alert')).toHaveTextContent('Sign-in was not accepted.');
   expect(screen.getByRole('alert')).not.toHaveTextContent('temporarily unavailable');
   expect(onEmployeeLogin).not.toHaveBeenCalled();
+});
+
+it('shows pending state and refuses click, Enter and direct submit until explicit retry', async () => {
+  const onEmployeeLogin = vi.fn();
+  const user = userEvent.setup();
+  const view = render(
+    <EmployeeLoginFormRenderer component={component} actions={{ onEmployeeLogin }} />,
+  );
+  await user.type(screen.getByLabelText('Employee login'), 'operator');
+  await user.type(screen.getByLabelText('Password'), 'test-input');
+  view.rerender(
+    <EmployeeLoginFormRenderer
+      component={component}
+      actions={{ onEmployeeLogin, employeeLoginPending: true }}
+    />,
+  );
+  const button = screen.getByRole('button', { name: 'Sign in' });
+  const form = button.closest('form');
+  expect(button).toBeDisabled();
+  expect(form).toHaveAttribute('aria-busy', 'true');
+  expect(button.querySelector('.MuiCircularProgress-root')).not.toBeNull();
+  fireEvent.click(button);
+  await user.type(screen.getByLabelText('Password'), '{Enter}');
+  fireEvent.submit(form!);
+  expect(onEmployeeLogin).not.toHaveBeenCalled();
+  view.rerender(
+    <EmployeeLoginFormRenderer component={component} actions={{ onEmployeeLogin }} />,
+  );
+  expect(form).toHaveAttribute('aria-busy', 'false');
+  expect(onEmployeeLogin).not.toHaveBeenCalled();
+  await user.click(button);
+  expect(onEmployeeLogin).toHaveBeenCalledExactlyOnceWith('operator', 'test-input');
 });

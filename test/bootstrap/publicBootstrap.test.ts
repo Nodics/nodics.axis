@@ -3,10 +3,45 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   AuthenticatedBootstrapUnavailableError,
   parseBackendWorkspace,
+  parseWorkbenchSchemaDiscovery,
   loadAuthenticatedBootstrap,
   loadPublicBootstrap,
   selectModuleConnection,
 } from '../../src/bootstrap/publicBootstrap';
+
+describe('module-owned Workbench schema discovery', () => {
+  it('accepts only an inert same-module GET descriptor', () => {
+    const descriptor = { path: '/business/products/schemas', apiVersion: 'v0' };
+    expect(parseWorkbenchSchemaDiscovery(descriptor)).toEqual(descriptor);
+    expect(Object.isFrozen(parseWorkbenchSchemaDiscovery(descriptor))).toBe(true);
+  });
+  it.each([
+    null,
+    [],
+    {},
+    { path: '/schemas' },
+    { path: '/schemas', apiVersion: 'latest' },
+    { path: '/schemas', apiVersion: 'v1000' },
+    { path: '/schemas', apiVersion: 'v0', moduleName: 'foreign' },
+    { path: '/schemas', apiVersion: 'v0', method: 'POST' },
+    { path: '/schemas', apiVersion: 'v0', headers: {} },
+    ...[
+      'https://foreign.test/schemas',
+      '//foreign.test/schemas',
+      '/../schemas',
+      '/%2e%2e/schemas',
+      '/schemas?tenant=foreign',
+      '/schemas#fragment',
+      '/schemas/{id}',
+      '/schemas/:id',
+      '/',
+      '/schemas/',
+      '/' + 'a'.repeat(256),
+    ].map((path) => ({ path, apiVersion: 'v0' })),
+  ])('rejects invalid discovery metadata %#', (value) => {
+    expect(() => parseWorkbenchSchemaDiscovery(value)).toThrow();
+  });
+});
 
 describe('authenticated bootstrap read-only recovery classification', () => {
   it.each([408, 429, 502, 503, 504])(

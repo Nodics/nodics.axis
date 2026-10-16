@@ -105,6 +105,44 @@ function mount() {
   };
 }
 afterEach(() => vi.resetAllMocks());
+it('keeps the invitation responsibility visible without presenting its role-derived badge as current employee access', async () => {
+  const businessAccess = {
+    businessArea: 'products',
+    businessAreaLabel: 'Products',
+    accessLevel: 'view',
+    accessLevelLabel: 'View',
+    scopeType: 'ENTERPRISE',
+    scopeCode: 'business',
+  };
+  const value = parseEnterpriseTeamWorkspace({
+    ...workspace,
+    owner: 'profile',
+    renderer: 'axis.enterprise-team',
+    items: [{ ...member, businessAccess }],
+  });
+  vi.mocked(loadEnterpriseTeamWorkspace).mockResolvedValue(value);
+  render(
+    <EnterpriseTeamRoutePage
+      bootstrap={bootstrap}
+      accessToken="test-token"
+      runtime={{ ...runtime, enterpriseCode: 'business' }}
+    />,
+  );
+  expect(await screen.findByText('Operator')).toBeVisible();
+  expect(screen.queryByText('Products')).toBeNull();
+  expect(screen.queryByText('View')).toBeNull();
+  expect(changeEnterpriseMembership).not.toHaveBeenCalled();
+  expect(() =>
+    parseEnterpriseTeamWorkspace({
+      ...workspace,
+      owner: 'profile',
+      renderer: 'axis.enterprise-team',
+      items: [
+        { ...member, businessAccess: { ...businessAccess, scopeCode: 'foreign' } },
+      ],
+    }),
+  ).toThrow();
+});
 it('requires explicit review before submitting an immutable revision and operation ID', async () => {
   vi.mocked(changeEnterpriseMembership).mockResolvedValue(workspace.items[0]!);
   const { user } = mount();

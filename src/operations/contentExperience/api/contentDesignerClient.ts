@@ -127,6 +127,7 @@ export interface ContentDesignerAuthoringMetadata {
 }
 
 export interface ContentDesignerAuthoringModel {
+  readonly retirement?: ContentDesignerRetirementPresentation | undefined;
   readonly defaults: {
     readonly componentKinds: readonly ContentDesignerComponentKind[];
     readonly draftDefaults: ContentDesignerDraftDefaults;
@@ -142,6 +143,110 @@ export interface ContentDesignerAuthoringModel {
     readonly frontendPersistence: boolean;
     readonly pixelPerfectRendering: boolean;
   };
+}
+
+/** Existing CMS retirement commands, not generic CRUD or permission identifiers. */
+export type ContentDesignerRetirementOperation =
+  | 'deleteSection'
+  | 'deleteComponent'
+  | 'detachMedia';
+
+/** Owner-provided inert review copy for the three supported retirement commands. */
+export interface ContentDesignerRetirementPresentation {
+  readonly title: string;
+  readonly targetLabel: string;
+  readonly codeLabel: string;
+  readonly catalogLabel: string;
+  readonly siteLabel: string;
+  readonly enterpriseLabel: string;
+  readonly reviewLabel: string;
+  readonly reviewTitle: string;
+  readonly confirmLabel: string;
+  readonly cancelLabel: string;
+  readonly acknowledgeLabel: string;
+  readonly inspectionLabel: string;
+  readonly uncertainMessage: string;
+  readonly successMessage: string;
+  readonly changedMessage: string;
+  readonly historyMessage: string;
+  readonly actions: readonly Readonly<{
+    operation: ContentDesignerRetirementOperation;
+    label: string;
+    consequence: string;
+  }>[];
+}
+
+/** Exact owner command scope; neither record identities nor tenant scope are inferred from labels. */
+export interface ContentDesignerRetirementIntent {
+  readonly code: string;
+  readonly siteCode: string;
+  readonly catalogCode: string;
+}
+
+const retirementPaths = Object.freeze({
+  deleteSection: '/designer/composition/sections/delete',
+  deleteComponent: '/designer/composition/components/delete',
+  detachMedia: '/designer/composition/media/delete',
+});
+
+/** Accepts only known transport commands and bounded owner copy, never executable owner paths. */
+function parseRetirementPresentation(
+  value: unknown,
+): ContentDesignerRetirementPresentation | undefined {
+  if (value === undefined) return undefined;
+  const source = asRecord(value, 'CMS retirement presentation');
+  const copy = (key: string): string => {
+    const text = source[key];
+    if (typeof text !== 'string' || !text.trim() || text.length > 1_024) {
+      throw new Error('CMS retirement presentation is invalid');
+    }
+    return text;
+  };
+  if (!Array.isArray(source.actions) || source.actions.length > 3) {
+    throw new Error('CMS retirement actions are invalid');
+  }
+  const seen = new Set<string>();
+  const actions = source.actions.map((value) => {
+    const item = asRecord(value, 'CMS retirement action');
+    if (
+      typeof item.operation !== 'string' ||
+      !Object.hasOwn(retirementPaths, item.operation) ||
+      seen.has(item.operation) ||
+      typeof item.label !== 'string' ||
+      !item.label.trim() ||
+      item.label.length > 192 ||
+      typeof item.consequence !== 'string' ||
+      !item.consequence.trim() ||
+      item.consequence.length > 1_024
+    ) {
+      throw new Error('CMS retirement action is invalid');
+    }
+    seen.add(item.operation);
+    return Object.freeze({
+      operation: item.operation as ContentDesignerRetirementOperation,
+      label: item.label,
+      consequence: item.consequence,
+    });
+  });
+  return Object.freeze({
+    title: copy('title'),
+    targetLabel: copy('targetLabel'),
+    codeLabel: copy('codeLabel'),
+    catalogLabel: copy('catalogLabel'),
+    siteLabel: copy('siteLabel'),
+    enterpriseLabel: copy('enterpriseLabel'),
+    reviewLabel: copy('reviewLabel'),
+    reviewTitle: copy('reviewTitle'),
+    confirmLabel: copy('confirmLabel'),
+    cancelLabel: copy('cancelLabel'),
+    acknowledgeLabel: copy('acknowledgeLabel'),
+    inspectionLabel: copy('inspectionLabel'),
+    uncertainMessage: copy('uncertainMessage'),
+    successMessage: copy('successMessage'),
+    changedMessage: copy('changedMessage'),
+    historyMessage: copy('historyMessage'),
+    actions: Object.freeze(actions),
+  });
 }
 
 export interface ContentDesignerOperationResult {
@@ -187,12 +292,22 @@ async function responseError(response: Response): Promise<Error> {
   return new ContentDesignerRequestError(response.status, message);
 }
 
+/** Rejects owner failure envelopes even when transport succeeded; writes are never replayed. */
 function envelopeResult(value: unknown): unknown {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error('CMS Designer returned an invalid response envelope');
+  const source = asRecord(value, 'CMS Designer response envelope');
+  if (
+    source.error ||
+    (source.success !== undefined && source.success !== true) ||
+    (source.acknowledged !== undefined && source.acknowledged !== true) ||
+    (source.errors !== undefined &&
+      source.errors !== null &&
+      (!Array.isArray(source.errors) || source.errors.length > 0)) ||
+    (source.code !== undefined &&
+      (typeof source.code !== 'string' || !source.code.startsWith('SUC_')))
+  ) {
+    throw new Error('CMS Designer returned an unsuccessful response envelope');
   }
-  if ('result' in value) return (value as { readonly result: unknown }).result;
-  if ('data' in value) return (value as { readonly data: unknown }).data;
+  if ('result' in source) return source.result;
   throw new Error('CMS Designer response does not contain result data');
 }
 
@@ -314,6 +429,16 @@ function parseAuthoringMetadata(value: unknown): ContentDesignerAuthoringMetadat
 function parseAuthoringModel(value: unknown): ContentDesignerAuthoringModel {
   const source = asRecord(value, 'CMS Designer authoring model');
   const rules = asRecord(source.rules, 'CMS Designer rules');
+  if (
+    source.operations !== undefined &&
+    (!Array.isArray(source.operations) ||
+      source.operations.length > 100 ||
+      source.operations.some(
+        (operation) => typeof operation !== 'string' || !operation.trim(),
+      ))
+  ) {
+    throw new Error('CMS Designer permitted operations are invalid');
+  }
   const defaults =
     typeof source.defaults === 'object' &&
     source.defaults !== null &&
@@ -397,8 +522,9 @@ function parseAuthoringModel(value: unknown): ContentDesignerAuthoringModel {
       Array.isArray(source.hierarchy) ? source.hierarchy.map(String) : [],
     ),
     metadata: parseAuthoringMetadata(source.metadata),
+    retirement: parseRetirementPresentation(source.retirement),
     operations: Object.freeze(
-      Array.isArray(source.operations) ? source.operations.map(String) : [],
+      Array.isArray(source.operations) ? (source.operations as string[]) : [],
     ),
     rules: Object.freeze({
       arbitrarySlots: rules.arbitrarySlots === true,
@@ -455,6 +581,7 @@ async function designerRequest(
   }
 }
 
+/** Loads the CMS-owned model only; failure never falls back to generic schema discovery. */
 export async function loadContentDesignerAuthoringModel(
   connection: AxisModuleConnection,
   configuration: ContentDesignerClientConfiguration,
@@ -471,6 +598,7 @@ export async function loadContentDesignerAuthoringModel(
   );
 }
 
+/** Validates a draft through its CMS command with the original enterprise context. */
 export async function validateContentDesignerDraft(
   connection: AxisModuleConnection,
   configuration: ContentDesignerClientConfiguration,
@@ -488,6 +616,7 @@ export async function validateContentDesignerDraft(
   );
 }
 
+/** Sends one CMS draft write; ambiguous or unsuccessful responses reject without replay. */
 export async function saveContentDesignerDraft(
   connection: AxisModuleConnection,
   configuration: ContentDesignerClientConfiguration,
@@ -505,6 +634,7 @@ export async function saveContentDesignerDraft(
   );
 }
 
+/** Requests normal CMS publication governance without granting approval authority. */
 export async function submitContentDesignerDraftForPublication(
   connection: AxisModuleConnection,
   configuration: ContentDesignerClientConfiguration,
@@ -520,4 +650,50 @@ export async function submitContentDesignerDraftForPublication(
       fetchImplementation,
     ),
   );
+}
+
+/** Sends one existing owner retirement command and requires matching inactive version evidence; never retries. */
+export async function retireContentDesignerRecord(
+  connection: AxisModuleConnection,
+  configuration: ContentDesignerClientConfiguration,
+  operation: ContentDesignerRetirementOperation,
+  intent: ContentDesignerRetirementIntent,
+  fetchImplementation: typeof fetch = fetch,
+): Promise<Readonly<{ code: string; versionId: number }>> {
+  if (
+    !Object.hasOwn(retirementPaths, operation) ||
+    ![intent.code, intent.siteCode, intent.catalogCode].every((value) =>
+      /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value),
+    )
+  ) {
+    throw new Error('CMS retirement selection is invalid');
+  }
+  const result = asRecord(
+    await designerRequest(
+      connection,
+      configuration,
+      retirementPaths[operation],
+      { method: 'POST', body: JSON.stringify(intent) },
+      fetchImplementation,
+    ),
+    'CMS retirement result',
+  );
+  const scope = asRecord(result.authoringScope, 'CMS retirement scope');
+  if (
+    result.code !== intent.code ||
+    result.active !== false ||
+    typeof result.versionId !== 'number' ||
+    !Number.isSafeInteger(result.versionId) ||
+    result.versionId < 0 ||
+    scope.enterpriseCode !== configuration.enterpriseCode ||
+    scope.catalogCode !== intent.catalogCode ||
+    (operation === 'deleteSection' &&
+      scope.siteCode !== undefined &&
+      scope.siteCode !== intent.siteCode)
+  ) {
+    throw new Error(
+      'CMS retirement result is uncertain; inspect the owner record before another submission',
+    );
+  }
+  return Object.freeze({ code: result.code, versionId: result.versionId });
 }

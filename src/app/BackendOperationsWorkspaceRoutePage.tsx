@@ -1,4 +1,6 @@
 import { EmployeeRegistrationRoutePage } from '../operations/enterprise/registration/EmployeeRegistrationRoutePage';
+import { EnterpriseBusinessAccessSelector } from '../operations/enterprise/EnterpriseAdministrationTaskRenderer';
+import { EnterpriseBusinessAccessPanel } from '../operations/enterprise/EnterpriseBusinessAccessPanel';
 import {
   EnterpriseSetupContinuation,
   type EnterpriseSetupPresentation,
@@ -52,6 +54,7 @@ import { Link as RouterLink } from 'react-router';
 import { observeEmployeeSessionResponse } from '../auth/employeeSessionEvents';
 
 import type {
+  AxisAuthenticatedBootstrap,
   AxisBackendWorkspace,
   AxisModuleConnection,
   AxisBackendWorkspaceEndpoint,
@@ -62,6 +65,7 @@ import { envelopeData, backendWorkspaceResponseError } from './backendWorkspaceC
 import type { AxisRuntimeConfig } from '../runtime/runtimeConfig';
 
 interface BackendOperationsWorkspaceRoutePageProps {
+  readonly bootstrap?: AxisAuthenticatedBootstrap | undefined;
   readonly workspace: AxisBackendWorkspace;
   readonly connection?: AxisModuleConnection | undefined;
   readonly runtime: AxisRuntimeConfig;
@@ -141,6 +145,14 @@ function fieldValidationMessage(
     ? value.length === 0
     : typeof value !== 'boolean' && !String(value ?? '').trim();
   if (field.required && empty) return `${field.label} is required.`;
+  if (
+    field.type === 'BUSINESS_ACCESS' &&
+    !empty &&
+    !field.businessAccess?.businessAreas.some((area) =>
+      area.levels.some((level) => level.roleCode === value),
+    )
+  )
+    return `${field.label} is unavailable.`;
   if (field.type === 'EMAIL' && !empty) {
     // Native syntax validation is only a convenience; the owner still admits the command.
     const input = document.createElement('input');
@@ -250,6 +262,15 @@ function FieldControl({
 }) {
   const controlId = useId();
   const helperId = `${controlId}-helper`;
+  if (field.type === 'BUSINESS_ACCESS' && field.businessAccess)
+    return (
+      <EnterpriseBusinessAccessSelector
+        contract={field.businessAccess}
+        roleCode={String(value || '')}
+        onChange={onChange}
+        error={error}
+      />
+    );
   if (field.type === 'HIDDEN') return null;
   if (field.type === 'IDEMPOTENCY') {
     return (
@@ -578,6 +599,7 @@ function FormSection({
     }
   }, [creationCheckpoint, retained, fields, section.id]);
   const [busy, setBusy] = useState(false);
+  const requestGeneration = useRef(0);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const fieldContainers = useRef(new Map<string, HTMLDivElement>());
   const [error, setError] = useState<string>();
@@ -754,6 +776,7 @@ function FormSection({
         ?.focus();
       return;
     }
+    const attempt = ++requestGeneration.current;
     setBusy(true);
     const checkpointTicket = creationCheckpoint?.begin(values);
     if (creationCheckpoint && !checkpointTicket) {
@@ -796,7 +819,8 @@ function FormSection({
           : 'Backend workspace action failed',
       );
     } finally {
-      if (mounted.current && liveContext.current === submissionContext) setBusy(false);
+      // Ending this request is separate from admitting its result into the current form.
+      if (mounted.current && requestGeneration.current === attempt) setBusy(false);
     }
   };
   return (
@@ -993,6 +1017,7 @@ function EnterpriseSetupSection({
 }
 
 export function BackendOperationsWorkspaceRoutePage({
+  bootstrap,
   workspace,
   runtime,
   connection,
@@ -1002,6 +1027,36 @@ export function BackendOperationsWorkspaceRoutePage({
   authorizedRoutes,
   enterpriseCreationCheckpoint,
 }: BackendOperationsWorkspaceRoutePageProps) {
+  const businessAccessConfiguration = useMemo(() => {
+    if (
+      mode !== 'authenticated' ||
+      !bootstrap ||
+      !accessToken ||
+      !workspace.businessAccess ||
+      connection?.moduleName !== 'profile' ||
+      !['UP', 'DEGRADED'].includes(connection.state)
+    )
+      return undefined;
+    return {
+      bootstrap,
+      accessToken,
+      enterpriseCode: runtime.enterpriseCode,
+      timeoutMs: runtime.requestTimeoutMs,
+      ownerSelector: {
+        instanceId: connection.instanceId,
+        ...(connection.server ? { server: connection.server } : {}),
+        environment: connection.environment,
+      },
+    };
+  }, [
+    mode,
+    bootstrap,
+    accessToken,
+    workspace.businessAccess,
+    connection,
+    runtime.enterpriseCode,
+    runtime.requestTimeoutMs,
+  ]);
   const checkpointStore = enterpriseCreationCheckpoint?.checkpoint;
   const checkpointScope = enterpriseCreationCheckpoint?.scope;
   const creationCheckpoint = useMemo(() => {
@@ -1097,6 +1152,14 @@ export function BackendOperationsWorkspaceRoutePage({
           </Box>
         </Stack>
         <Divider />
+        {businessAccessConfiguration && workspace.businessAccess ? (
+          <EnterpriseBusinessAccessPanel
+            key={sessionGeneration}
+            configuration={businessAccessConfiguration}
+            presentation={workspace.businessAccess.presentation}
+            onCommitted={invalidateListings}
+          />
+        ) : null}
         {retainedCreation &&
         retainedCreation.phase !== 'DRAFT' &&
         workspace.setupContinuation ? (
@@ -1135,16 +1198,18 @@ export function BackendOperationsWorkspaceRoutePage({
             }}
           />
         ) : null}
-        <Tabs
-          allowScrollButtonsMobile
-          value={selected?.id ?? false}
-          variant="scrollable"
-          onChange={(_, next) => setTab(String(next))}
-        >
-          {tabs.map((item) => (
-            <Tab key={item.id} label={item.label} value={item.id} />
-          ))}
-        </Tabs>
+        {tabs.length > 0 ? (
+          <Tabs
+            allowScrollButtonsMobile
+            value={selected?.id ?? false}
+            variant="scrollable"
+            onChange={(_, next) => setTab(String(next))}
+          >
+            {tabs.map((item) => (
+              <Tab key={item.id} label={item.label} value={item.id} />
+            ))}
+          </Tabs>
+        ) : null}
         {selected ? (
           <Stack spacing={2} sx={{ minWidth: 0, maxWidth: '100%' }}>
             {selected.sections.map((section) =>
@@ -1181,7 +1246,7 @@ export function BackendOperationsWorkspaceRoutePage({
               ),
             )}
           </Stack>
-        ) : (
+        ) : businessAccessConfiguration ? null : (
           <Alert severity="warning">
             Backend workspace has no renderable sections.
           </Alert>

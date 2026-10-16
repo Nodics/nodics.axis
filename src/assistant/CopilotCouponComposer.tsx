@@ -43,7 +43,7 @@ interface Props {
 function CouponSimulationNotice() {
   return (
     <Alert severity="warning" sx={{ overflowWrap: 'anywhere' }}>
-      Local ITEM simulation. Goods delivery is not verified.
+      ITEM simulation. Goods delivery is not verified.
     </Alert>
   );
 }

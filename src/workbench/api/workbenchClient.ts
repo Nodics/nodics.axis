@@ -1,4 +1,8 @@
-import type { AxisModuleConnection } from '../../bootstrap/publicBootstrap';
+import {
+  parseWorkbenchSchemaDiscovery,
+  type AxisWorkbenchSchemaDiscovery,
+  type AxisModuleConnection,
+} from '../../bootstrap/publicBootstrap';
 import { workbenchCommandKey } from '../record/workbenchCommand';
 import type { AxisNavigationLifecycleAction } from '../../bootstrap/publicBootstrap';
 import {
@@ -222,12 +226,41 @@ export async function loadWorkbenchSchemas(
   connections: readonly AxisModuleConnection[],
   configuration: WorkbenchClientConfiguration,
   fetchImplementation: typeof fetch = fetch,
+  ownerDiscovery?: Readonly<{
+    moduleName: string;
+    descriptor: AxisWorkbenchSchemaDiscovery;
+  }>,
 ): Promise<readonly WorkbenchSchema[]> {
+  const discovery = ownerDiscovery
+    ? parseWorkbenchSchemaDiscovery(ownerDiscovery.descriptor)
+    : undefined;
+  const selectedConnections = ownerDiscovery
+    ? connections.filter(
+        (connection) => connection.moduleName === ownerDiscovery.moduleName,
+      )
+    : connections;
+  if (ownerDiscovery && selectedConnections.length === 0) {
+    throw new Error('Owner schema discovery connection is unavailable');
+  }
   const results = await Promise.allSettled(
-    connections.map(async (connection) => {
+    selectedConnections.map(async (connection) => {
       const schemas = parseWorkbenchSchemaList(
-        await request(connection, '/schemas', configuration, {}, fetchImplementation),
+        await request(
+          connection,
+          discovery?.path ?? '/schemas',
+          configuration,
+          {},
+          fetchImplementation,
+          false,
+          discovery?.apiVersion ?? 'v0',
+        ),
       );
+      if (
+        ownerDiscovery &&
+        schemas.some((schema) => schema.moduleName !== ownerDiscovery.moduleName)
+      ) {
+        throw new Error('Owner schema discovery returned a foreign module');
+      }
       return schemas.map((schema) =>
         Object.freeze({
           ...schema,

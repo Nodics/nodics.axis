@@ -157,13 +157,15 @@ not transport destinations or authority in Axis. Read Workbench's
 `llm/examples/secure-coupon-fulfillment.md` for setup, steps and recovery.
 
 Coupon queue and receipt-inspection DTOs may include the exact optional triad
-`simulated: true`, `deliveryVerified: false`, `evidenceMode: LOCAL_SIMULATION`.
+`simulated: true`, `deliveryVerified: false`, `evidenceMode: SIMULATION`.
+Complete historical `LOCAL_SIMULATION` trios also remain readable without
+rewriting their mode; mixed/malformed modes never qualify as either tuple.
 The typed client preserves all three only as own, enumerable data properties or
 rejects the response; inherited/hidden properties, accessors, partial markers,
 coerced values and contradictory claims are invalid. Accessors are never invoked
 to determine evidence. All three absent retains
 the ordinary projection, without asserting verified delivery. The composer
-labels marked activity rows and inspected receipts **Local ITEM simulation.
+labels marked activity rows and inspected receipts **ITEM simulation.
 Goods delivery is not verified.** This protocol safety notice is not an editable
 delivery assertion. It remains visible for an unconfirmed simulated inspection
 and resets when starting a different action. No amount or currency is inferred.

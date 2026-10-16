@@ -1,5 +1,5 @@
 /** In-memory draft/remount/uncertainty fixtures, not browser acceptance or backend qualification. */
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BackendOperationsWorkspaceRoutePage } from '../../src/app/BackendOperationsWorkspaceRoutePage';
@@ -255,6 +255,72 @@ async function fill(user: ReturnType<typeof userEvent.setup>) {
   );
 }
 describe('Enterprise creation routed remount', () => {
+  it.each(['acknowledged', 'uncertain', 'failed'])(
+    'ends request-busy presentation after an equivalent workspace refresh while retaining the held %s creation',
+    async (outcome) => {
+      const checkpoint = new EnterpriseCreationCheckpoint();
+      let finish!: (response: Response) => void;
+      const fetcher = vi.fn<typeof fetch>().mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      vi.stubGlobal('fetch', fetcher);
+      const view = render(page(checkpoint));
+      const user = userEvent.setup();
+      await fill(user);
+      await user.click(screen.getByRole('button', { name: 'Create enterprise' }));
+      expect(screen.getByRole('button', { name: 'Working...' })).toBeDisabled();
+      const binding = checkpoint.bind(
+        'same-admission/project/tenant/enterprise',
+        connection,
+        workspace,
+        section,
+      )!;
+      const originalKey = binding.get()?.values.idempotencyKey;
+      view.rerender(page(checkpoint, 1, structuredClone(workspace)));
+      await act(async () => {
+        finish(
+          new Response(
+            JSON.stringify(
+              outcome === 'failed'
+                ? { message: 'Creation outcome unavailable' }
+                : {
+                    data:
+                      outcome === 'uncertain'
+                        ? {}
+                        : {
+                            code: 'business',
+                            name: 'Example Repair',
+                            tenant: 'business',
+                            active: true,
+                          },
+                  },
+            ),
+            { status: outcome === 'failed' ? 503 : 200 },
+          ),
+        );
+        await Promise.resolve();
+      });
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', { name: 'Create enterprise' }),
+        ).toBeDisabled(),
+      );
+      expect(
+        screen.queryByRole('button', { name: 'Working...' }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByLabelText(/^Enterprise code/)).toHaveValue('business');
+      expect(screen.getByLabelText(/^Enterprise code/)).toBeDisabled();
+      expect(binding.get()?.values.idempotencyKey).toBe(originalKey);
+      expect(binding.get()?.phase).toBe(
+        outcome === 'acknowledged' ? 'ACKNOWLEDGED' : 'UNCERTAIN',
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Create enterprise' }));
+      expect(fetcher).toHaveBeenCalledOnce();
+    },
+  );
   it.each(['acknowledged', 'uncertain', 'failed', 'refresh-failed'])(
     'refreshes only declared listing reads after creation: %s',
     async (outcome) => {

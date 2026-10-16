@@ -94,13 +94,38 @@ export interface WasteReviewFacts {
   conditionGrade?: string;
   preferredCollectionPointCode?: string;
 }
+export interface WasteReviewDiagnostic {
+  code: string;
+  stage: string;
+  message: string;
+  retryAllowed: boolean;
+}
 export interface WasteReviewSubmission {
+  verificationPending?: { principalCode: string; facts: WasteReviewFacts };
+  notificationDiagnostic?: {
+    classification: string;
+    message: string;
+    attempt?: number;
+    intentStatus?: string;
+  };
+  evidenceRejectionAvailable?: boolean;
+  savedRewardRecovery?: { available: boolean; message: string };
+  outcomeNotification?: {
+    status: string;
+    message?: string;
+    retryAllowed: boolean;
+  };
+  reviewDiagnostic?: WasteReviewDiagnostic;
   evidenceReview?: WasteEvidenceReview;
   descriptor?: WasteItemDescriptor;
   code: string;
   revision: number;
   submissionStatus: string;
-  reviewPending?: { decision: 'APPROVED' | 'REJECTED'; principalCode?: string };
+  reviewPending?: {
+    decision: 'APPROVED' | 'REJECTED';
+    principalCode?: string;
+    basis?: 'EVIDENCE_ONLY';
+  };
   submitterRef: { code: string };
   submittedFacts: WasteReviewFacts;
   confirmedFacts?: WasteReviewFacts;
@@ -125,8 +150,12 @@ export interface WasteReviewSubmission {
       intentCode?: string;
       revision?: number;
       nextAttemptAt?: string;
+      message?: string;
+      diagnostic?: WasteReviewDiagnostic;
     };
     publicReason?: string;
+    reviewBasis?: 'EVIDENCE_ONLY';
+    reviewedBy?: { code: string };
     reviewAssignment?: {
       type: 'QUEUE' | 'EMPLOYEE';
       queueCode?: string;
@@ -183,6 +212,40 @@ export function decideWasteReview(
       idempotencyKey: record.code + ':review:' + record.revision + ':' + decision,
     },
   );
+}
+/** Sends only the public evidence-rejection reason and exact command identity; never physical corrections. */
+export async function rejectWasteEvidence(
+  configuration: WasteReviewClientConfiguration,
+  record: WasteReviewSubmission,
+  reason: string,
+) {
+  const result = await invoke<{
+    settlementStatus?: string;
+    settlementMessage?: string;
+    decisionBasis?: string;
+    submission?: WasteReviewSubmission;
+  }>(
+    configuration,
+    'eWaste',
+    '/review-workspace/' + encodeURIComponent(record.code) + '/evidence-rejection',
+    {
+      reason,
+      expectedRevision: record.revision,
+      confirmed: true,
+      idempotencyKey: record.code + ':evidence-rejection:' + record.revision,
+    },
+  );
+  if (
+    result?.decisionBasis !== 'EVIDENCE_ONLY' ||
+    result.submission?.code !== record.code ||
+    result.submission.submissionStatus !== 'REJECTED' ||
+    !Number.isSafeInteger(result.submission.revision) ||
+    result.submission.revision <= record.revision
+  )
+    throw new Error(
+      'The rejection result could not be confirmed. Inspect the saved review before submitting again.',
+    );
+  return result;
 }
 /** Reads original photo evidence through Media's employee authorization. */
 export async function loadWasteReviewPhoto(
@@ -285,7 +348,9 @@ export function verifyWasteSubmission(
     'eWaste',
     '/reviews/' + encodeURIComponent(record.code) + '/verify',
     {
-      verifiedFacts,
+      ...(record.verificationPending
+        ? { resumeVerification: true }
+        : { verifiedFacts }),
       expectedRevision: record.revision,
       confirmed: true,
       idempotencyKey: record.code + ':verify:' + record.revision,
@@ -293,6 +358,8 @@ export function verifyWasteSubmission(
   );
 }
 export interface WasteAuditEntry {
+  reviewBasis?: 'EVIDENCE_ONLY';
+  reviewedBy?: { code: string };
   code: string;
   status: string;
   revision: number;

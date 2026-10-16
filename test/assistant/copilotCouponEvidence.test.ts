@@ -54,15 +54,34 @@ const malformed = [
   ['null simulation', { ...markers, simulated: null }],
   ['null delivery', { ...markers, deliveryVerified: null }],
   ['null mode', { ...markers, evidenceMode: null }],
+  [
+    'new mode without simulation',
+    { deliveryVerified: false, evidenceMode: 'SIMULATION' },
+  ],
+  ['new mode without delivery flag', { simulated: true, evidenceMode: 'SIMULATION' }],
+  [
+    'new mode with verified goods',
+    { ...markers, evidenceMode: 'SIMULATION', deliveryVerified: true },
+  ],
+  [
+    'new mode with false simulation',
+    { ...markers, evidenceMode: 'SIMULATION', simulated: false },
+  ],
+  ['combined mode string', { ...markers, evidenceMode: 'SIMULATION|LOCAL_SIMULATION' }],
+  ['multiple modes', { ...markers, evidenceMode: ['SIMULATION', 'LOCAL_SIMULATION'] }],
 ] as const;
 
-it('preserves the complete queue triad, not a caller-selected mode or delivery assertion', () => {
-  const source = queue(markers);
-  const projected = parseCouponRedemptions(source, 'ACME').redemptions[0];
-  expect(projected).toMatchObject(markers);
-  Object.assign(source.redemptions[0]!, { evidenceMode: 'CHANGED' });
-  expect(projected?.evidenceMode).toBe('LOCAL_SIMULATION');
-});
+it.each(['SIMULATION', 'LOCAL_SIMULATION'])(
+  'preserves the complete %s queue triad without a delivery assertion',
+  (evidenceMode) => {
+    const expected = { ...markers, evidenceMode };
+    const source = queue(expected);
+    const projected = parseCouponRedemptions(source, 'ACME').redemptions[0];
+    expect(projected).toMatchObject(expected);
+    Object.assign(source.redemptions[0]!, { evidenceMode: 'CHANGED' });
+    expect(projected?.evidenceMode).toBe(evidenceMode);
+  },
+);
 it('keeps all-absent evidence ordinary even for LOCAL_SAMPLE or a SIM reference', () => {
   const source = queue({
     mode: 'LOCAL_SAMPLE',
@@ -158,7 +177,7 @@ it('rejects all-inherited receipt markers instead of treating them as absent', a
 it.each(['COMPLETED', 'UNCONFIRMED'] as const)(
   'preserves optional exact receipt markers for %s without changing request authority',
   async (state) => {
-    for (const flags of [{}, markers]) {
+    for (const flags of [{}, markers, { ...markers, evidenceMode: 'SIMULATION' }]) {
       const fetcher = vi.fn().mockResolvedValue(
         new Response(
           JSON.stringify({
@@ -179,7 +198,7 @@ it.each(['COMPLETED', 'UNCONFIRMED'] as const)(
       const projected = await createCopilotCouponClient(configuration, fetcher).inspect(
         couponReview,
       );
-      if ('simulated' in flags) expect(projected).toMatchObject(markers);
+      if ('simulated' in flags) expect(projected).toMatchObject(flags);
       else
         for (const key of Object.keys(markers))
           expect(Object.hasOwn(projected, key)).toBe(false);

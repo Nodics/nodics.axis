@@ -1,5 +1,74 @@
 # Enterprise Workspace Consumers
 
+The invitation workspace's `BUSINESS_ACCESS` field renders two owner-defined
+selectors using `EnterpriseBusinessAccessSelector`: business area and access
+level. Its parser admits only unique explicit role mappings and ENTERPRISE scope.
+Axis does not maintain permission lists or infer business authority from role
+names. The invitation control still creates one initial area assignment; existing
+employees use the multi-area administration editor described below.
+Empty invitation selection is a draft with no role, not a persisted revoke.
+
+## Employee Business Access
+
+`EnterpriseBusinessAccessPanel` is mounted inside the admitted ordinary
+`BackendOperationsWorkspaceRoutePage` from its parsed `businessAccess` contribution.
+It uses the actual authenticated bootstrap and matched Profile connection, with no
+Team workspace request, membership prerequisite or browser-owned permission check.
+The owner supplies command copy in `businessAccess.presentation`, independently of
+Team presentation. Public mode and missing/non-Profile connections never mount it.
+Its typed
+client uses GET `/enterprise-team/business-access` on the discovered Profile v0
+connection, without query selectors. The authenticated current enterprise is a
+read-only scope, never an input that can select another tenant. Profile supplies
+employees, a fresh review fingerprint, current area selections, advanced groups,
+and the same persisted role-derived business-area descriptor used by invitations.
+No assignment code is required for native employees.
+
+Each employee opens an area/level/scope table. Only owner-declared levels appear;
+No access removes that area's ordinary selection. Unchanged areas are omitted
+from the command. `otherGroupCodes` remain inspectable in a native closed-by-default
+disclosure using the owner's `advancedLabel`; `advancedMessage` stays visible,
+including during review. These groups may retain
+authority independently of the area controls, so No access is never presented as
+an effective-permission denial. The original Team invitation responsibility
+remains visible separately; it is not the current employee authority projection.
+Whole-membership REVOKE must not substitute for removing one area.
+
+Review freezes exactly `{employeeCode, reviewFingerprint, operationId, changes}`.
+POST uses the same endpoint and accepts only `{employeeCode, changed:boolean}`
+for the reviewed employee. Scope, role codes, permissions, groups, assignment
+locators and private registration evidence are never submitted. Success refreshes
+the employee view and ordinary workspace listings rather than applying optimistic
+permissions. The original Team lifecycle page remains separately qualified and
+does not gate this ordinary employee editor.
+
+Uncertain delivery or malformed outcomes retain the exact reviewed changes and
+original operation ID. There is no automatic retry. Explicit inspection must
+succeed before retry or dismissal; retry remains disabled when the employee's
+fingerprint changed. Inspection never rebases an old command or treats matching
+current selections as an acknowledgement. Dismissal after inspection abandons
+only the local review and returns to fresh owner state. Actor, enterprise or owner
+configuration changes discard drafts and late responses. Unknown area mappings,
+duplicate employees/selections, unsupported scopes and incomplete advanced-group
+projections fail closed. API inventories are bounded to 100 employees/areas.
+
+Customize labels and mappings through Profile's persisted owner metadata and
+presentation. A project-owned renderer may reuse the presentation-only
+`EnterpriseBusinessAccessTable`, but must retain the typed adapter, current-scope
+binding, immutable review, uncertainty fence and visible advanced authority.
+Do not copy role/permission mappings into Axis. Compact fixed-column area controls
+wrap long labels and scope codes; on narrow displays the scope moves beneath each
+area and employee rows stack their selections beneath the employee identity.
+Legacy membership tables retain horizontal scrolling rather than overlapping controls.
+
+Focused coverage is in `test/enterprise/businessAccessLevels.test.tsx`,
+`enterpriseBusinessAccessClient.test.ts`, `enterpriseBusinessAccessPanel.test.tsx`
+and `enterpriseTeamUi.test.tsx`. It covers independent area edits, targeted removal,
+advanced disclosures, ordinary administration with memberships disabled, native
+employee projections, exact transport, malformed/foreign
+responses, review/cancel, pending commands, uncertainty, stale fingerprints and
+late replies. These HTTP/rendered fixtures are not live runtime or browser acceptance.
+
 Axis owns the typed, accessible browser consumers in this folder. Profile owns
 identity, canonical credentials, memberships, consent, application state and
 access decisions. Process owns review decisions and task retirement. Platform
@@ -33,6 +102,12 @@ create retries or restored review confirmations. The existing setup contribution
 shows its owner-configured working label while the original request remains
 SUBMITTING, including a same-context remount; the uncertainty warning is shown
 only after settlement, never as a claim that an in-flight request has failed.
+The create form's request-busy label ends when that exact request settles, even
+after an equivalent catalogue object replacement. Its original owner-configured
+submit label then returns disabled while the checkpoint remains held. Result/error
+admission stays context-gated, and ending busy never clears a checkpoint, edits its
+key or enables a retry. Focused tests cover acknowledged, uncertain and failed
+replies across replacement while preserving the retained inputs and single write.
 The existing setup contribution
 offers explicit owner inspection, with the retained enterprise code prefilled.
 HELD/RESUMABLE reads preserve the checkpoint; existing reviewed setup resume

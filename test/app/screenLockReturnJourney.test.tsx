@@ -11,6 +11,7 @@ import type {
   AxisPublicBootstrap,
 } from '../../src/bootstrap/publicBootstrap';
 import type { CmsRendererActions } from '../../src/cms/renderers/shared/rendererTypes';
+import { persistScreenLock } from '../../src/auth/screenLockState';
 import {
   connection,
   runtime,
@@ -225,6 +226,115 @@ describe('App enterprise creation return after screen unlock', () => {
     expect(await screen.findByText('Authentication denied')).toBeVisible();
     expect(window.location.pathname).toBe('/lock-screen');
     expect(screen.queryByLabelText(/^Enterprise code/)).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(['NOT_READY', 'UNAVAILABLE', undefined] as const)(
+    'keeps Unlock visible for stale admission %s and rechecks owner admission before restoring the route',
+    async (admission) => {
+      const user = userEvent.setup();
+      window.history.replaceState({}, '', '/profile/enterprises?tab=enterprises');
+      persistScreenLock('/profile/enterprises?tab=enterprises');
+      owners.restore.mockResolvedValue({
+        accessToken: 'restored-fixture-access',
+        loginId: 'operator',
+        enterpriseCode: runtime.enterpriseCode,
+        generation: 1,
+      });
+      owners.authenticate.mockResolvedValue({
+        accessToken: 'unlocked-fixture-access',
+        loginId: 'operator',
+        enterpriseCode: runtime.enterpriseCode,
+        generation: 2,
+      });
+      owners.authenticatedBootstrap.mockResolvedValueOnce({
+        ...admitted,
+        axisInitializationAdmission: admission,
+      });
+      if (admission === undefined)
+        owners.status.mockImplementationOnce(() => new Promise(() => {}));
+      let resolveBootstrap!: (value: AxisAuthenticatedBootstrap) => void;
+      owners.authenticatedBootstrap.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveBootstrap = resolve;
+          }),
+      );
+      render(
+        <AppProviders runtimeConfig={runtime}>
+          <App />
+        </AppProviders>,
+      );
+      const unlock = await screen.findByRole('button', { name: 'Unlock' });
+      expect(unlock).toBeVisible();
+      expect(window.location.pathname).toBe('/lock-screen');
+      expect(
+        screen.queryByRole('button', { name: 'Refresh status' }),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/^Enterprise code/)).not.toBeInTheDocument();
+      await user.click(unlock);
+      await waitFor(() =>
+        expect(owners.authenticatedBootstrap).toHaveBeenCalledTimes(2),
+      );
+      expect(owners.authenticatedBootstrap).toHaveBeenLastCalledWith(
+        runtime.backofficeBaseUrl,
+        runtime.clientContractVersion,
+        'unlocked-fixture-access',
+        runtime.requestTimeoutMs,
+      );
+      expect(screen.getByRole('button', { name: 'Unlock' })).toBeVisible();
+      expect(screen.queryByLabelText(/^Enterprise code/)).not.toBeInTheDocument();
+      await act(async () => {
+        resolveBootstrap({ ...admitted, axisInitializationAdmission: 'READY' });
+        await Promise.resolve();
+      });
+      expect(await screen.findByLabelText(/^Enterprise code/)).toBeVisible();
+      expect(window.location.pathname + window.location.search).toBe(
+        '/profile/enterprises?tab=enterprises',
+      );
+      expect(owners.authenticate).toHaveBeenCalledTimes(1);
+      expect(window.sessionStorage.getItem('nodics-axis-screen-lock-v1')).toBeNull();
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it('retains the setup gate when fresh unlock admission is unavailable and permits explicit status refresh', async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, '', '/profile/enterprises');
+    persistScreenLock('/profile/enterprises');
+    owners.restore.mockResolvedValue({
+      accessToken: 'restored-fixture-access',
+      loginId: 'operator',
+      enterpriseCode: runtime.enterpriseCode,
+      generation: 1,
+    });
+    owners.authenticatedBootstrap
+      .mockResolvedValueOnce({ ...admitted, axisInitializationAdmission: 'NOT_READY' })
+      .mockResolvedValueOnce({
+        ...admitted,
+        axisInitializationAdmission: 'UNAVAILABLE',
+      });
+    render(
+      <AppProviders runtimeConfig={runtime}>
+        <App />
+      </AppProviders>,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Unlock' }));
+    expect(
+      await screen.findByText(
+        'Workspace initialization is not ready. Contact your administrator.',
+      ),
+    ).toBeVisible();
+    expect(screen.queryByLabelText(/^Enterprise code/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Unlock' })).not.toBeInTheDocument();
+    owners.authenticatedBootstrap.mockResolvedValue({
+      ...admitted,
+      axisInitializationAdmission: 'READY',
+    });
+    await user.click(screen.getByRole('button', { name: 'Refresh status' }));
+    await waitFor(() => expect(window.location.pathname).toBe('/dashboard'));
+    expect(owners.authenticatedBootstrap).toHaveBeenCalledTimes(3);
+    expect(owners.status).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
   });
 });

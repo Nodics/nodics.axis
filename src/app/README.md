@@ -144,6 +144,36 @@ substituted and no owner eligibility or qualification is inferred.
 
 ## Session Expiry
 
+Screen lock takes precedence over initialization recovery and loading. A stale
+NOT_READY/UNAVAILABLE admission or pending legacy setup read must not mask Unlock
+with a recovery action that cannot run while locked. Unlock retains Profile
+authentication and a fresh authenticated bootstrap before restoring a route;
+unready fresh admission still gates the unlocked workspace. No setup/import/
+approval is bypassed or retried. `test/app/screenLockReturnJourney.test.tsx` covers
+denied, unavailable and loading snapshots, pending unlock bootstrap, fresh READY
+restoration and fresh UNAVAILABLE followed by explicit status refresh.
+
+Employee password login is single-flight across Profile authentication and
+BackOffice bootstrap. App admits the attempt synchronously, not just by disabling
+the button after a render. Both managed and bundled login forms expose busy state
+and a progress icon while retaining their existing captions. No sign-in retries
+automatically. A current failure releases the form for an explicit retry.
+
+Logout, changed login context, router navigation, session replacement/expiry and
+unmount retire the attempt. Router location identity includes pathname, search,
+hash and state changes, including a new entry at the same path; retirement runs
+before paint. Returning to sign-in requires a fresh explicit submission.
+Late success or failure cannot issue a dependent bootstrap request,
+install/clear authority, clear queries or navigate. This is client response
+admission, not server-side cancellation or revocation of an HttpOnly cookie that
+Profile may already have issued. Profile retains session/cookie authority.
+Customize managed captions through existing CMS properties and presentation
+through the two existing renderers; preserve the App-owned guard and retirement.
+`test/app/employeeLoginRace.test.tsx` covers deferred responses at both boundaries,
+rapid submit, logout, newer authority and unmount using synthetic owner responses.
+Route-departure regressions cover both response phases, success/failure, managed
+and bundled forms, query changes and same-enterprise sign-in state changes.
+
 Generic owner requests attach the current admission generation to their private
 HTTP 401 signal. App invalidates only the exact issued token and generation;
 an older response cannot clear a newer login, including a reused token. Admissions

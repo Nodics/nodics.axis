@@ -507,10 +507,18 @@ describe('App first-run Process approval route admission', () => {
   it('does not admit a persisted locked employee session', async () => {
     persistScreenLock('/initialize-axis/approval');
     openApproval();
-    await expectInitializer();
+    await waitFor(() => expect(window.location.pathname).toBe('/lock-screen'));
+    expect(
+      screen.queryByRole('heading', { name: 'Initializer retained' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('region', { name: 'Admitted Process workspace' }),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Review workflow' }),
     ).not.toBeInTheDocument();
+    expect(owners.initialize).not.toHaveBeenCalled();
+    expect(owners.completeTask).not.toHaveBeenCalled();
   });
 
   it('does not admit an unauthenticated approval deep link', async () => {
