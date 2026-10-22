@@ -297,6 +297,11 @@ const authenticatedData = {
               permission: 'promotion.evaluation.repair',
               operationRoute: '/promotions/evaluations/repair',
             },
+            ...(['READ', 'WRITE', 'VERIFY', 'ARCHIVE'] as const).map((intent) => ({
+              id: `${intent.toLowerCase()}-owner-action`,
+              label: `${intent} owner action`,
+              intent,
+            })),
           ],
           help: {
             summary: 'Manage content pages and components.',
@@ -643,6 +648,22 @@ describe('Axis bootstrap clients', () => {
           expect.objectContaining({
             id: 'repair-evaluation',
             intent: 'REPAIR',
+          }),
+          expect.objectContaining({
+            id: 'read-owner-action',
+            intent: 'READ',
+          }),
+          expect.objectContaining({
+            id: 'write-owner-action',
+            intent: 'WRITE',
+          }),
+          expect.objectContaining({
+            id: 'verify-owner-action',
+            intent: 'VERIFY',
+          }),
+          expect.objectContaining({
+            id: 'archive-owner-action',
+            intent: 'ARCHIVE',
           }),
         ],
         help: {

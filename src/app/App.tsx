@@ -83,6 +83,8 @@ import { ProductSellabilityWorkspace } from '../operations/productManagement/Pro
 import { DiscoveryManagementRoutePage } from '../operations/discovery/DiscoveryManagementRoutePage';
 import { MerchantRedemptionPanel } from '../operations/promotions/MerchantRedemptionPanel';
 import { PromotionsBuilderRoutePage } from '../operations/promotions/PromotionsBuilderRoutePage';
+import { CouponOfferWorkspace } from '../operations/promotions/CouponOfferWorkspace';
+import { CouponAcquisitionReportPanel } from '../operations/promotions/CouponAcquisitionReportPanel';
 import { LocalizationOperationsRoutePage } from '../operations/localization/LocalizationOperationsRoutePage';
 import { CustomerEngagementRoutePage } from '../operations/customerEngagement/CustomerEngagementRoutePage';
 import { SetupAcceleratorsRoutePage } from '../operations/setupAccelerators/SetupAcceleratorsRoutePage';
@@ -90,6 +92,12 @@ import { CollectionCentresRoutePage } from '../operations/location/CollectionCen
 import { LocationMapConfigurationRoutePage } from '../operations/location/LocationMapConfigurationRoutePage';
 import { WasteManagementRoutePage } from '../operations/wasteManagement/WasteManagementRoutePage';
 import { RulesManagementRoutePage } from '../operations/rulesManagement/RulesManagementRoutePage';
+import { CommercialAgreementRoutePage } from '../operations/commercialAgreement/CommercialAgreementRoutePage';
+import { admitsAgreementWorkspace } from '../operations/commercialAgreement/agreementClient';
+import { LoyaltyParticipationRoutePage } from '../operations/loyaltyParticipation/LoyaltyParticipationRoutePage';
+import { DigitalParticipationRoutePage } from '../operations/digitalParticipation/DigitalParticipationRoutePage';
+import { admitsParticipation } from '../operations/digitalParticipation/participationClient';
+import { loyaltyView } from '../operations/loyaltyParticipation/loyaltyClient';
 import { RuntimeConfigurationRoutePage } from '../operations/runtimeConfiguration/RuntimeConfigurationRoutePage';
 import { EnterpriseRelationshipsRoutePage } from '../operations/enterprise/EnterpriseRelationshipsRoutePage';
 import { EnterpriseTeamRoutePage } from '../operations/enterprise/EnterpriseTeamRoutePage';
@@ -432,7 +440,7 @@ export function App() {
       bootstrap.endpoints.profile,
       runtime.enterpriseCode,
       runtime.browserSessionCsrfCookieName,
-      runtime.requestTimeoutMs,
+      runtime.browserSessionTimeoutMs,
     )
       .then(async (nextSession) => {
         const employeeBootstrap = await loadAuthenticatedBootstrap(
@@ -741,6 +749,9 @@ export function App() {
   const cmsDocumentationSources = (
     authenticatedBootstrap?.documentationSources ?? []
   ).filter(isCmsDocumentationSource);
+  const documentationWorkspaceActive =
+    normalizeRoutePath(location.pathname) === '/docs' ||
+    normalizeRoutePath(location.pathname).startsWith('/docs/');
   const publicationNavigationQueries = useQueries({
     queries: cmsDocumentationSources
       .filter((source) => source.initializationProfile)
@@ -750,7 +761,8 @@ export function App() {
           session &&
           !locked &&
           authenticatedBootstrap &&
-          documentationAdministrationConnection,
+          documentationAdministrationConnection &&
+          documentationWorkspaceActive,
         ),
         queryKey: documentationPublicationQueryKey(
           runtime.enterpriseCode,
@@ -1080,7 +1092,7 @@ export function App() {
         runtime.enterpriseCode,
         loginId,
         password,
-        runtime.requestTimeoutMs,
+        runtime.browserSessionTimeoutMs,
       );
       if (!isCurrent()) return;
       const employeeBootstrap = await loadAuthenticatedBootstrap(
@@ -1137,7 +1149,7 @@ export function App() {
       bootstrap.endpoints.profile,
       runtime.enterpriseCode,
       runtime.browserSessionCsrfCookieName,
-      runtime.requestTimeoutMs,
+      runtime.browserSessionTimeoutMs,
     )
       .then(() => {
         updateSession(undefined);
@@ -1211,7 +1223,7 @@ export function App() {
         runtime.enterpriseCode,
         session.loginId,
         password,
-        runtime.requestTimeoutMs,
+        runtime.browserSessionTimeoutMs,
       );
       const employeeBootstrap = await loadAuthenticatedBootstrap(
         runtime.backofficeBaseUrl,
@@ -1499,6 +1511,82 @@ export function App() {
                 runtime={runtime}
                 title={navigationItem.label}
               />
+            ) : navigationItem.moduleName === 'promotion' &&
+              navigationItem.backendWorkspace.workspaceCode ===
+                'promotion.couponOffers' &&
+              navigationItem.backendWorkspace.viewCode === 'authoring' &&
+              navigationItem.backendWorkspace.ownerSelector?.runtimeRoleCode ===
+                'COMMERCE_STAGED' &&
+              navigationItem.backendWorkspace.ownerSelector.publicationRole ===
+                'STAGED' &&
+              ['ACTIVE', 'PREVIEW'].includes(navigationItem.featureState || '') &&
+              ['UP', 'DEGRADED'].includes(navigationItem.availability) &&
+              selectModuleConnection(
+                authenticatedBootstrap,
+                'promotion',
+                navigationItem.backendWorkspace.ownerSelector,
+              ) ? (
+              <CouponOfferWorkspace
+                key={`${navigationItem.id}:${session.generation}`}
+                accessToken={session.accessToken}
+                sessionGeneration={session.generation}
+                bootstrap={authenticatedBootstrap}
+                runtime={runtime}
+              />
+            ) : navigationItem.moduleName === 'promotion' &&
+              navigationItem.backendWorkspace.workspaceCode ===
+                'promotion.couponAcquisition' &&
+              navigationItem.backendWorkspace.viewCode === 'reporting' &&
+              navigationItem.backendWorkspace.ownerSelector?.runtimeRoleCode ===
+                'COMMERCE' &&
+              navigationItem.backendWorkspace.ownerSelector.publicationRole ===
+                'ONLINE' &&
+              ['ACTIVE', 'PREVIEW'].includes(navigationItem.featureState || '') &&
+              ['UP', 'DEGRADED'].includes(navigationItem.availability) &&
+              selectModuleConnection(
+                authenticatedBootstrap,
+                'promotion',
+                navigationItem.backendWorkspace.ownerSelector,
+              ) ? (
+              <CouponAcquisitionReportPanel
+                key={`${navigationItem.id}:${session.generation}`}
+                accessToken={session.accessToken}
+                sessionGeneration={session.generation}
+                bootstrap={authenticatedBootstrap}
+                runtime={runtime}
+              />
+            ) : admitsParticipation(navigationItem) ? (
+              <DigitalParticipationRoutePage
+                accessToken={session.accessToken}
+                sessionGeneration={session.generation}
+                bootstrap={authenticatedBootstrap}
+                navigation={navigationItem}
+                runtime={runtime}
+              />
+            ) : loyaltyView(navigationItem) ? (
+              <LoyaltyParticipationRoutePage
+                accessToken={session.accessToken}
+                sessionGeneration={session.generation}
+                bootstrap={authenticatedBootstrap}
+                navigation={navigationItem}
+                runtime={runtime}
+                cmsBaseUrl={bootstrap.endpoints.cms}
+                site={composition.site}
+                locale={composition.locale}
+                channel={composition.channel}
+              />
+            ) : admitsAgreementWorkspace(navigationItem) ? (
+              <CommercialAgreementRoutePage
+                accessToken={session.accessToken}
+                sessionGeneration={session.generation}
+                bootstrap={authenticatedBootstrap}
+                navigation={navigationItem}
+                runtime={runtime}
+                cmsBaseUrl={bootstrap.endpoints.cms}
+                site={composition.site}
+                locale={composition.locale}
+                channel={composition.channel}
+              />
             ) : navigationItem.backendWorkspace.workspaceCode === 'rules.policy' &&
               ['UP', 'DEGRADED'].includes(navigationItem.availability) ? (
               <RulesManagementRoutePage
@@ -1533,6 +1621,12 @@ export function App() {
             ? authenticatedShell(
                 <BackendOperationsWorkspaceRoutePage
                   bootstrap={authenticatedBootstrap}
+                  spendCms={{
+                    baseUrl: bootstrap.endpoints.cms,
+                    site: composition.site,
+                    locale: composition.locale,
+                    channel: composition.channel,
+                  }}
                   key={`${session.generation}:${navigationItem.moduleName}:${navigationItem.id}:${navigationItem.route}`}
                   enterpriseCreationCheckpoint={{
                     checkpoint: enterpriseCreationCheckpoint,

@@ -23,6 +23,7 @@ const runtime = {
   projectCode: 'nodics.kickoff',
   clientContractVersion: 1,
   requestTimeoutMs: 10_000,
+  browserSessionTimeoutMs: 15_000,
   browserSessionCsrfCookieName: 'nodics_axis_csrf',
   assistantMaximumEventBytes: 65_536,
   assistantReconnectWindowMs: 120_000,

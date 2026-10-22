@@ -10,6 +10,7 @@ const validEnvironment = {
   AXIS_PROJECT_CODE: 'nodics.kickoff',
   AXIS_CLIENT_CONTRACT_VERSION: '1',
   AXIS_REQUEST_TIMEOUT_MS: '10000',
+  AXIS_BROWSER_SESSION_TIMEOUT_MS: '15000',
   AXIS_BROWSER_SESSION_CSRF_COOKIE_NAME: 'nodics_axis_csrf',
   AXIS_ASSISTANT_MAXIMUM_EVENT_BYTES: '65536',
   AXIS_ASSISTANT_RECONNECT_WINDOW_MS: '120000',
@@ -26,6 +27,7 @@ describe('Axis environment configuration', () => {
       projectCode: 'nodics.kickoff',
       clientContractVersion: 1,
       requestTimeoutMs: 10000,
+      browserSessionTimeoutMs: 15000,
       publicDiscoveryRetryWindowMs: 300_000,
       browserSessionCsrfCookieName: 'nodics_axis_csrf',
       assistantMaximumEventBytes: 65536,
@@ -65,6 +67,10 @@ describe('Axis environment configuration', () => {
     [
       'timeout above the runtime boundary',
       { ...validEnvironment, AXIS_REQUEST_TIMEOUT_MS: '600001' },
+    ],
+    [
+      'browser session restore timeout above the runtime boundary',
+      { ...validEnvironment, AXIS_BROWSER_SESSION_TIMEOUT_MS: '60001' },
     ],
   ])('rejects %s', (_caseName, environment) => {
     expect(() => buildRuntimeConfig(environment)).toThrow();

@@ -26,6 +26,7 @@ import {
 } from '../../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import { invokeOperationalOwner } from '../shared/operationalOwnerClient';
+import { CouponQrInput } from './CouponQrInput';
 type BenefitSource = {
   sourceReference: string;
   sourceHash: string;
@@ -561,6 +562,20 @@ export function MerchantRedemptionPanel({
             setPresentation(e.target.value.trim().toUpperCase());
             setChosen(null);
           }}
+        />
+        <CouponQrInput
+          disabled={working || !!chosen}
+          authority={authority}
+          scope={JSON.stringify([storeCode, pricedSource, presentation])}
+          onToken={(token) => {
+            version.current++;
+            setPresentation(token);
+            setChosen(null);
+            setRows(null);
+            setReceipt('');
+            setError('');
+          }}
+          onError={setError}
         />
         {outlets?.storeRequired && (
           <TextField

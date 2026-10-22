@@ -52,6 +52,7 @@ const props: WasteManagementRoutePageProps = {
   runtime: {
     enterpriseCode: configuration.enterpriseCode,
     requestTimeoutMs: 1000,
+    browserSessionTimeoutMs: 15_000,
     backofficeBaseUrl: 'https://backoffice.example.test',
     projectCode: 'synthetic',
     clientContractVersion: 1,

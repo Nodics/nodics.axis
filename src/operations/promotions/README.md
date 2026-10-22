@@ -1,5 +1,41 @@
 # Merchant Fulfillment Consumer
 
+## Coupon Native Workspaces
+
+`CouponOfferWorkspace` renders owner-authored presentation and exact inspected
+records. It creates through the existing Promotion PUT draft command only after
+review, permits name-only corrections, locks saved promises and uses unsaved
+prefill without copying stock/history. Uncertain writes require original record
+inspection. This bounded editor supports one ITEM line; multi-item prefill refuses
+rather than silently dropping items. Canonical Product/Store/Pricing references are
+explicit input fields, not frontend-owned catalogue choices.
+
+`CouponAcquisitionReportPanel` renders and exports the same protected aggregate
+response, preserving null cells and UTC coverage. No raw attribution endpoint,
+customer identifiers or unapproved filters exist here. Both accept
+`{bootstrap, accessToken, runtime, sessionGeneration?}` and retire stale session,
+owner and filter responses. Copy, limits and modes come from Promotion's
+`GET /promotions/coupon-offers/workspace`.
+
+The shared Axis registry in `src/app/App.tsx` binds
+`promotion.couponOffers` / `authoring` to `CouponOfferWorkspace`
+(COMMERCE_STAGED/STAGED) and `promotion.couponAcquisition` / `reporting`
+to `CouponAcquisitionReportPanel` (COMMERCE/ONLINE). Dispatch requires the exact
+Promotion native workspace, declared role pair, admitted feature/availability
+and matching owner connection. It passes the original authenticated token,
+bootstrap, runtime and admission generation; a new admission remounts the renderer.
+`test/app/couponWorkspaceNavigation.test.tsx` covers real App dispatch with
+isolated authentication and renderer fixtures. This is source wiring, not proof
+of installed metadata, grants, publication or live coupon acquisition completion.
+
+`CouponQrInput` adds local image decoding to the existing merchant panel. Supported
+browsers may capture a camera image; this is not a live video scanner or universal
+browser decoder. It accepts one literal code, never follows URLs, and only fills
+manual presentation. Existing validate/review/confirm remains mandatory. Changed
+manual text, outlet, owner or session retires pending image work. Unsupported
+browsers retain manual input. Unit/DOM tests do not prove live camera/provider or
+desktop/mobile visual acceptance.
+
 Digital Core owns merchant eligibility, receipt persistence and entitlement
 completion; Promotion owns coupon single-use consumption and merchant conditions.
 Profile owns employee scope. Axis renders the discovered Digital Core workspace

@@ -645,6 +645,21 @@ function publicationRecoveryGuidance(
       priority: 20,
     };
   }
+  if (
+    status.allowedActions.includes('INITIALIZE') &&
+    !preparationBlocked(status) &&
+    status.releaseStatus !== 'INVALID_RELEASE'
+  ) {
+    return {
+      key: `${profile.code}:initialize-available`,
+      title: `${title}: ready to prepare`,
+      body: 'Use the profile action to install the governed setup data before publication.',
+      route: '',
+      actionLabel: setupActionLabel(status),
+      severity: 'success',
+      priority: 90,
+    };
+  }
   if (preparationBlocked(status)) {
     return {
       key: `${profile.code}:preparation-blocked`,
@@ -1821,15 +1836,6 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                   >
                                     Review import history
                                   </Button>
-                                ) : readinessRefresh ? (
-                                  <Button
-                                    disabled={refreshDisabled}
-                                    onClick={() => void query.refetch()}
-                                    startIcon={<ShellIcon name="refresh" />}
-                                    variant="contained"
-                                  >
-                                    {readinessRefresh.repair?.label}
-                                  </Button>
                                 ) : status &&
                                   executableRepair &&
                                   executableRepairOperation ? (
@@ -1898,6 +1904,15 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                     mutation.variables?.operation === 'initiate'
                                       ? 'Working...'
                                       : setupActionLabel(status)}
+                                  </Button>
+                                ) : readinessRefresh ? (
+                                  <Button
+                                    disabled={refreshDisabled}
+                                    onClick={() => void query.refetch()}
+                                    startIcon={<ShellIcon name="refresh" />}
+                                    variant="contained"
+                                  >
+                                    {readinessRefresh.repair?.label}
                                   </Button>
                                 ) : status &&
                                   preparationBlocked(status) &&

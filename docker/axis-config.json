@@ -4,6 +4,7 @@
   "projectCode": "nodics.kickoff",
   "clientContractVersion": 1,
   "requestTimeoutMs": 10000,
+  "browserSessionTimeoutMs": 15000,
   "browserSessionCsrfCookieName": "nodics_docker_axis_csrf",
   "assistantMaximumEventBytes": 65536,
   "assistantReconnectWindowMs": 120000,

@@ -19,6 +19,8 @@ import {
   Typography,
 } from '@mui/material';
 import { ShellIcon } from '../../app/shell/ShellIcon';
+import { EnterpriseSpendControl } from './EnterpriseSpendControl';
+import type { EnterpriseSpendCmsContext } from './api/enterpriseSpendClient';
 import type { OperationalOwnerConfiguration } from '../shared/operationalOwnerClient';
 import type { BusinessAccessEditorContract } from './api/businessAccessContract';
 import {
@@ -50,12 +52,14 @@ export function EnterpriseBusinessAccessPanel({
   disabled = false,
   onHeldChange,
   onCommitted,
+  spendCms,
 }: {
   readonly configuration: OperationalOwnerConfiguration;
   readonly presentation: BusinessAccessEditorContract['presentation'];
   readonly disabled?: boolean;
   readonly onHeldChange?: ((held: boolean) => void) | undefined;
   readonly onCommitted?: (() => void) | undefined;
+  readonly spendCms?: EnterpriseSpendCmsContext | undefined;
 }) {
   const [snapshot, setSnapshot] = useState<{
     configuration: OperationalOwnerConfiguration;
@@ -63,6 +67,7 @@ export function EnterpriseBusinessAccessPanel({
   }>();
   const [draft, setDraft] = useState<Draft>();
   const [review, setReview] = useState<EnterpriseBusinessAccessCommand>();
+  const [spendHeld, setSpendHeld] = useState(false);
   const [busy, setBusy] = useState(false),
     [uncertain, setUncertain] = useState(false),
     [inspected, setInspected] = useState(false);
@@ -96,6 +101,7 @@ export function EnterpriseBusinessAccessPanel({
   }, [configuration]);
   useEffect(() => {
     setDraft(undefined);
+    setSpendHeld(false);
     setReview(undefined);
     setUncertain(false);
     setNotice('');
@@ -331,7 +337,7 @@ export function EnterpriseBusinessAccessPanel({
         fullWidth
         maxWidth="md"
         onClose={() => {
-          if (!busy && (!uncertain || inspected)) {
+          if (!busy && !spendHeld && (!uncertain || inspected)) {
             setDraft(undefined);
             setReview(undefined);
             setUncertain(false);
@@ -358,6 +364,15 @@ export function EnterpriseBusinessAccessPanel({
                 {selected.workspace.enterpriseCode}
               </Typography>
               {advanced(selected.employee, selected.workspace)}
+              {spendCms && !review && (
+                <EnterpriseSpendControl
+                  configuration={configuration}
+                  actorCode={selected.employee.loginId}
+                  cms={spendCms}
+                  disabled={busy || disabled}
+                  onHeldChange={setSpendHeld}
+                />
+              )}
               {review ? (
                 <Table
                   size="small"
@@ -431,7 +446,7 @@ export function EnterpriseBusinessAccessPanel({
         >
           {(!uncertain || inspected) && (
             <Button
-              disabled={busy}
+              disabled={busy || spendHeld}
               onClick={() => {
                 if (uncertain) {
                   setReview(undefined);
@@ -457,6 +472,7 @@ export function EnterpriseBusinessAccessPanel({
           <Button
             disabled={
               busy ||
+              spendHeld ||
               disabled ||
               !selected ||
               (!review && !changes.length) ||

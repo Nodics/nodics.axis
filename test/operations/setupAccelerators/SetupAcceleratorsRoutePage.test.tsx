@@ -24,6 +24,7 @@ const runtime: AxisRuntimeConfig = {
   projectCode: 'nodics.kickoff',
   clientContractVersion: 1,
   requestTimeoutMs: 1_000,
+  browserSessionTimeoutMs: 15_000,
   browserSessionCsrfCookieName: 'csrf',
   assistantMaximumEventBytes: 1_024,
   assistantReconnectWindowMs: 1_000,
@@ -982,6 +983,76 @@ describe('SetupAcceleratorsRoutePage', () => {
     expect(JSON.parse(typeof body === 'string' ? body : '{}')).toEqual({
       reason: 'Axis Setup & Accelerators initialization requested',
     });
+  });
+
+  it('keeps the governed preparation action primary when readiness refresh is also available', async () => {
+    const user = userEvent.setup();
+    const status = {
+      ...responseFor('circa-ewaste').result,
+      readiness: 'NOT_IMPORTED',
+      releaseStatus: 'CURRENT',
+      allowedActions: ['INITIALIZE'],
+      publication: undefined,
+      preparation: { status: 'NOT_INSTALLED', steps: [] },
+      capability: {
+        ...responseFor('circa-ewaste').result.capability,
+        businessStatus: 'NEEDS_ATTENTION',
+        blockers: [
+          {
+            code: 'READINESS_REFRESH_REQUIRED',
+            severity: 'REPAIR_REQUIRED',
+            owner: 'circa.ewaste',
+            source: 'backoffice',
+            message: 'Refresh readiness after owner preparation.',
+            action: 'Refresh readiness',
+            repair: {
+              available: true,
+              label: 'Refresh readiness',
+              action: 'REFRESH_READINESS',
+              operation: 'applicationInitialization.status',
+              requiresConfirmation: false,
+              idempotent: true,
+            },
+          },
+          {
+            code: 'IMPORT_NOT_STARTED',
+            severity: 'REPAIR_REQUIRED',
+            owner: 'process',
+            source: 'nImport',
+            message: 'Required setup data has not been installed yet.',
+            action: 'Prepare capability',
+            repair: {
+              available: true,
+              label: 'Prepare capability',
+              action: 'PREPARE_CAPABILITY',
+              operation: 'applicationInitialization.prepareCapability',
+              requiresConfirmation: false,
+              idempotent: true,
+            },
+          },
+        ],
+      },
+    };
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      await Promise.resolve();
+      return new Response(JSON.stringify({ result: status }), { status: 200 });
+    });
+    renderPage('/setup-accelerators?profile=circa-ewaste');
+    const prepare = await screen.findByRole('button', {
+      name: 'Prepare capability',
+    });
+    expect(prepare).toBeEnabled();
+    expect(screen.queryByText('Publishing recovery path')).toBeNull();
+    await user.click(prepare);
+    await waitFor(() =>
+      expect(
+        fetcher.mock.calls.filter(([, request]) => request?.method === 'POST'),
+      ).toHaveLength(1),
+    );
+    expect(
+      (fetcher.mock.calls.find(([, request]) => request?.method === 'POST')?.[0] as URL)
+        .pathname,
+    ).toMatch(/\/initialization\/prepare$/);
   });
 
   it.each(['admitted', 'missing', 'disabled', 'conflicting-target', 'ambiguous'])(

@@ -178,6 +178,7 @@ const runtime: AxisRuntimeConfig = {
   enterpriseCode: 'default',
   projectCode: 'nodics.kickoff',
   requestTimeoutMs: 1_000,
+  browserSessionTimeoutMs: 15_000,
 };
 
 function schemaVariant(

@@ -10,6 +10,19 @@ Empty invitation selection is a draft with no role, not a persisted revoke.
 
 ## Employee Business Access
 
+The selected employee dialog also embeds `EnterpriseSpendControl` when the
+composition supplies CMS context and discovery supplies CheckoutCore. This small
+independent control uses the employee loginId, an explicitly entered currency,
+and Checkout's exact returned string-or-null limit/revision. The optional
+Checkout `enterpriseSpendWorkspace` release owns its labels. No frontend policy
+defaults, permissions or Wallet authority are introduced. Review, readback,
+uncertainty inspection and context retirement stay independent of Profile's area
+selection command; a held spending review prevents closing or submitting the
+outer editor. Tests live in `test/enterprise/enterpriseSpendControl.test.tsx`.
+Acknowledgement and recovery require the owner's exact next revision, including
+revision zero for a first selection. A later matching value is a conflict, not
+evidence that this selection was saved.
+
 `EnterpriseBusinessAccessPanel` is mounted inside the admitted ordinary
 `BackendOperationsWorkspaceRoutePage` from its parsed `businessAccess` contribution.
 It uses the actual authenticated bootstrap and matched Profile connection, with no

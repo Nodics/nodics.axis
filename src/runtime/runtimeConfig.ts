@@ -6,6 +6,7 @@ export interface AxisRuntimeConfig {
   readonly projectCode: string;
   readonly clientContractVersion: number;
   readonly requestTimeoutMs: number;
+  readonly browserSessionTimeoutMs: number;
   readonly publicDiscoveryRetryWindowMs?: number;
   readonly browserSessionCsrfCookieName: string;
   readonly assistantMaximumEventBytes: number;
@@ -87,6 +88,7 @@ export function parseRuntimeConfig(value: unknown): AxisRuntimeConfig {
     'projectCode',
     'clientContractVersion',
     'requestTimeoutMs',
+    'browserSessionTimeoutMs',
     'publicDiscoveryRetryWindowMs',
     'browserSessionCsrfCookieName',
     'assistantMaximumEventBytes',
@@ -125,6 +127,12 @@ export function parseRuntimeConfig(value: unknown): AxisRuntimeConfig {
       'clientContractVersion',
     ),
     requestTimeoutMs,
+    browserSessionTimeoutMs: parseBoundedInteger(
+      value.browserSessionTimeoutMs ?? 15_000,
+      'browserSessionTimeoutMs',
+      1_000,
+      60_000,
+    ),
     publicDiscoveryRetryWindowMs: parseBoundedInteger(
       value.publicDiscoveryRetryWindowMs ?? 300_000,
       'publicDiscoveryRetryWindowMs',

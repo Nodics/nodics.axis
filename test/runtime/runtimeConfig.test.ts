@@ -26,6 +26,7 @@ describe('parseRuntimeConfig', () => {
       projectCode: 'nodics.kickoff',
       clientContractVersion: 1,
       requestTimeoutMs: 10_000,
+      browserSessionTimeoutMs: 15_000,
       publicDiscoveryRetryWindowMs: 300_000,
       browserSessionCsrfCookieName: 'nodics_axis_csrf',
       assistantMaximumEventBytes: 65_536,
@@ -68,6 +69,10 @@ describe('parseRuntimeConfig', () => {
     ['unknown field', { ...validConfig, password: 'must-not-be-here' }],
     ['unbounded discovery', { ...validConfig, publicDiscoveryRetryWindowMs: 600_001 }],
     ['invalid discovery window', { ...validConfig, publicDiscoveryRetryWindowMs: 0 }],
+    [
+      'long browser session restore timeout',
+      { ...validConfig, browserSessionTimeoutMs: 60_001 },
+    ],
   ])('rejects %s', (_name, value) => {
     expect(() => parseRuntimeConfig(value)).toThrow();
   });

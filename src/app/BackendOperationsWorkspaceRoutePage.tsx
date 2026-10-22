@@ -65,6 +65,9 @@ import { envelopeData, backendWorkspaceResponseError } from './backendWorkspaceC
 import type { AxisRuntimeConfig } from '../runtime/runtimeConfig';
 
 interface BackendOperationsWorkspaceRoutePageProps {
+  readonly spendCms?:
+    | import('../operations/enterprise/api/enterpriseSpendClient').EnterpriseSpendCmsContext
+    | undefined;
   readonly bootstrap?: AxisAuthenticatedBootstrap | undefined;
   readonly workspace: AxisBackendWorkspace;
   readonly connection?: AxisModuleConnection | undefined;
@@ -1026,6 +1029,7 @@ export function BackendOperationsWorkspaceRoutePage({
   mode = accessToken ? 'authenticated' : 'public',
   authorizedRoutes,
   enterpriseCreationCheckpoint,
+  spendCms,
 }: BackendOperationsWorkspaceRoutePageProps) {
   const businessAccessConfiguration = useMemo(() => {
     if (
@@ -1157,6 +1161,7 @@ export function BackendOperationsWorkspaceRoutePage({
             key={sessionGeneration}
             configuration={businessAccessConfiguration}
             presentation={workspace.businessAccess.presentation}
+            spendCms={spendCms}
             onCommitted={invalidateListings}
           />
         ) : null}

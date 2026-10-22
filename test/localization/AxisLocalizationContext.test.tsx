@@ -42,6 +42,7 @@ const runtime: AxisRuntimeConfig = {
   projectCode: 'project-a',
   clientContractVersion: 1,
   requestTimeoutMs: 10_000,
+  browserSessionTimeoutMs: 15_000,
   browserSessionCsrfCookieName: 'axis_csrf',
   assistantMaximumEventBytes: 65_536,
   assistantReconnectWindowMs: 120_000,

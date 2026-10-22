@@ -163,6 +163,10 @@ export interface AxisNavigationLifecycleAction {
     | 'TEST'
     | 'ACTIVATE'
     | 'ROTATE_CONNECTOR'
+    | 'READ'
+    | 'WRITE'
+    | 'VERIFY'
+    | 'ARCHIVE'
     | 'OTHER';
   readonly permission?: string | undefined;
   readonly ownerModule?: string | undefined;
@@ -1463,6 +1467,10 @@ function parseNavigationLifecycleActions(
           'TEST',
           'ACTIVATE',
           'ROTATE_CONNECTOR',
+          'READ',
+          'WRITE',
+          'VERIFY',
+          'ARCHIVE',
           'OTHER',
         ];
         if (!supportedIntents.includes(intent)) {
