@@ -6,6 +6,20 @@ import {
 } from '../shared/operationalOwnerClient';
 
 export const couponLabels = [
+  'submittedBy',
+  'submittedAt',
+  'approvedBy',
+  'approvedAt',
+  'lastAction',
+  'lastActionBy',
+  'lastActionAt',
+  'budgetLimit',
+  'submit',
+  'approve',
+  'schedule',
+  'suspend',
+  'archive',
+  'reasonCode',
   'title',
   'code',
   'name',
@@ -41,6 +55,10 @@ export const couponLabels = [
   'immutable',
   'uncertain',
   'reportTitle',
+  'reportOffer',
+  'reportOffersUnavailable',
+  'reportNoOffers',
+  'reportOffersLoading',
   'channel',
   'issuer',
   'redeemer',
@@ -77,6 +95,7 @@ export const couponLabels = [
 export type CouponWorkspace = {
   contractVersion: 1;
   canCreate: boolean;
+  reportChannels: { code: string; name: string }[];
   labels: Record<(typeof couponLabels)[number], string>;
   benefitOptions: { value: 'PERCENT' | 'FIXED' | 'ITEM'; label: string }[];
   requirementOptions: { value: 'REWARDS' | 'CERTIFICATES' | 'BOTH'; label: string }[];
@@ -111,16 +130,39 @@ export type CouponOffer = {
   terms: string[];
 };
 export type CouponContent = {
+  budget?: { limit: string };
+  vendorEnterpriseRef?: {
+    moduleName: 'profile';
+    schemaName: 'enterprise';
+    code: string;
+  };
   name: string;
   actions: Record<string, unknown>;
   conditions: Record<string, unknown>;
   couponOffer: CouponOffer;
 };
 export type CouponRecord = CouponContent & {
+  lifecycleActions: CouponLifecycleAction[];
   code: string;
   status: string;
   revision: number;
   versionId: number;
+};
+export type CouponLifecycleAction = {
+  actionCode: string;
+  labelKey: 'submit' | 'approve' | 'schedule' | 'suspend' | 'archive';
+  method: 'POST';
+  route: string;
+  expectedVersionId: number;
+  expectedRevision: number;
+};
+export type CouponCreation = CouponContent & {
+  code: string;
+  vendorEnterpriseRef?: {
+    moduleName: 'profile';
+    schemaName: 'enterprise';
+    code: string;
+  };
 };
 export type AcquisitionReportSelection = {
   promotionCode: string;
@@ -181,6 +223,20 @@ export function couponWorkspace(value: unknown): CouponWorkspace {
   if (
     row.contractVersion !== 1 ||
     typeof row.canCreate !== 'boolean' ||
+    !Array.isArray(row.reportChannels) ||
+    row.reportChannels.length > Number(limits.maximumStores) ||
+    row.reportChannels.some((option: unknown) => {
+      const choice = couponData(option);
+      return (
+        typeof choice.code !== 'string' ||
+        !/^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,127}$/.test(choice.code) ||
+        typeof choice.name !== 'string' ||
+        !choice.name.trim() ||
+        choice.name.length > Number(limits.maximumTermLength)
+      );
+    }) ||
+    new Set(row.reportChannels.map((option: { code: string }) => option.code)).size !==
+      row.reportChannels.length ||
     couponLabels.some(
       (key) =>
         typeof labels[key] !== 'string' ||
@@ -222,6 +278,12 @@ export function couponWorkspace(value: unknown): CouponWorkspace {
   return {
     contractVersion: 1,
     canCreate: row.canCreate,
+    reportChannels: row.reportChannels.map(
+      (option: { code: string; name: string }) => ({
+        code: option.code,
+        name: option.name,
+      }),
+    ),
     labels: Object.fromEntries(couponLabels.map((key) => [key, labels[key]])),
     limits,
     benefitOptions: row.benefitOptions,
@@ -271,11 +333,40 @@ export function couponContent(value: unknown): CouponContent {
       throw new Error('The offer response is invalid.');
   }
   return {
+    ...couponReferences(row),
     name: row.name,
     actions: couponData(row.actions),
     conditions: couponData(row.conditions),
     couponOffer: offer as CouponOffer,
   };
+}
+
+function couponReferences(
+  row: Record<string, unknown>,
+): Pick<CouponContent, 'budget' | 'vendorEnterpriseRef'> {
+  const result: Pick<CouponContent, 'budget' | 'vendorEnterpriseRef'> = {};
+  if (row.budget !== undefined) {
+    const budget = couponData(row.budget);
+    if (typeof budget.limit !== 'string' || !/^\d+(?:\.\d+)?$/.test(budget.limit))
+      throw new Error('The offer budget is invalid.');
+    result.budget = { limit: budget.limit };
+  }
+  if (row.vendorEnterpriseRef !== undefined) {
+    const ref = couponData(row.vendorEnterpriseRef);
+    if (
+      ref.moduleName !== 'profile' ||
+      ref.schemaName !== 'enterprise' ||
+      typeof ref.code !== 'string' ||
+      !/^[A-Za-z0-9_.:-]{1,128}$/.test(ref.code)
+    )
+      throw new Error('The offer vendor is invalid.');
+    result.vendorEnterpriseRef = {
+      moduleName: 'profile',
+      schemaName: 'enterprise',
+      code: ref.code,
+    };
+  }
+  return result;
 }
 
 /** Requires exact persisted identity and usable version/revision; an acknowledgement is never a saved record. */
@@ -290,13 +381,80 @@ export function couponRecord(value: unknown, code: string): CouponRecord {
     Number(row.revision) < 0
   )
     throw new Error('The saved offer could not be confirmed.');
+  const lifecycleActions = parseCouponLifecycleActions(
+    row.lifecycleActions,
+    code,
+    Number(row.versionId),
+    Number(row.revision),
+  );
   return {
     ...couponContent(row),
     code,
     status: row.status,
     revision: Number(row.revision),
     versionId: Number(row.versionId),
+    lifecycleActions,
   };
+}
+
+function parseCouponLifecycleActions(
+  value: unknown,
+  code: string,
+  version: number,
+  revision: number,
+): CouponLifecycleAction[] {
+  if (!Array.isArray(value)) throw new Error('The offer actions are invalid.');
+  const seen = new Set<string>();
+  return value.map((entry: unknown) => {
+    const action = couponData(entry);
+    const key =
+      typeof action.actionCode === 'string' ? action.actionCode.toLowerCase() : '';
+    if (
+      !['submit', 'approve', 'schedule', 'suspend', 'archive'].includes(key) ||
+      action.actionCode !== key.toUpperCase() ||
+      action.labelKey !== key ||
+      action.method !== 'POST' ||
+      action.route !== `/promotions/${encodeURIComponent(code)}/${key}` ||
+      action.expectedVersionId !== version ||
+      action.expectedRevision !== revision ||
+      seen.has(key)
+    )
+      throw new Error('The offer actions are invalid.');
+    seen.add(key);
+    return action as CouponLifecycleAction;
+  });
+}
+
+/** Only exact inspected actions may execute; command acknowledgement is followed by owner readback. */
+export async function transitionCoupon(
+  configuration: OperationalOwnerConfiguration,
+  record: CouponRecord,
+  action: CouponLifecycleAction,
+  reasonCode: string,
+) {
+  if (
+    !reasonCode.trim() ||
+    reasonCode.length > 512 ||
+    !record.lifecycleActions.includes(action)
+  )
+    throw new Error('The offer action is invalid.');
+  parseCouponLifecycleActions([action], record.code, record.versionId, record.revision);
+  if (navigator.onLine === false) throw new Error('The browser is offline.');
+  await invokeOperationalOwner(
+    configuration,
+    'promotion',
+    action.route,
+    {
+      expectedVersionId: action.expectedVersionId,
+      expectedRevision: action.expectedRevision,
+      reasonCode,
+    },
+    'POST',
+  );
+  const current = await inspectCoupon(configuration, record.code);
+  if (current.versionId <= record.versionId || current.revision <= record.revision)
+    throw new Error('The offer action could not be confirmed.');
+  return current;
 }
 
 /** Reads one exact offer through the authorized owner's fixed endpoint. */
@@ -319,7 +477,7 @@ export async function inspectCoupon(
 /** Runs the existing PUT draft command once; uncertain acknowledgement must be inspected, never retried. */
 export async function createCoupon(
   configuration: OperationalOwnerConfiguration,
-  input: CouponContent & { code: string },
+  input: CouponCreation,
 ) {
   if (navigator.onLine === false) throw new Error('The browser is offline.');
   const connection = selectModuleConnection(
@@ -347,6 +505,16 @@ export async function createCoupon(
         actions: input.actions,
         conditions: input.conditions,
         couponOffer: input.couponOffer,
+        ...(input.budget ? { budget: { limit: input.budget.limit } } : {}),
+        ...(input.vendorEnterpriseRef
+          ? {
+              vendorEnterpriseRef: {
+                moduleName: 'profile',
+                schemaName: 'enterprise',
+                code: input.vendorEnterpriseRef.code,
+              },
+            }
+          : {}),
       }),
       cache: 'no-store',
       credentials: 'omit',

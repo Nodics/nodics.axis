@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -61,6 +62,120 @@ function release(releaseCode: string, status: DataRelease['status']): DataReleas
 }
 
 describe('DataReleaseWorkbench', () => {
+  function renderWorkbench(
+    overrides: Partial<ComponentProps<typeof DataReleaseWorkbench>>,
+  ) {
+    const props: ComponentProps<typeof DataReleaseWorkbench> = {
+      catalogueErrorMessage: undefined,
+      catalogueIsError: false,
+      catalogueIsLoading: false,
+      catalogueIsSuccess: true,
+      connectionAvailable: true,
+      executableReleaseCount: 1,
+      operationErrorMessage: undefined,
+      operationIsError: false,
+      operationIsPending: false,
+      operationIsSuccess: false,
+      releaseType: 'sample',
+      selectedReleaseCount: 1,
+      selectedReleaseKeys: new Set(),
+      successMessage: '',
+      summary: { current: 0, installable: 1, selected: 1, total: 1 },
+      visibleReleases: [release('circa.ewaste:content', 'NOT_INSTALLED')],
+      onDeselectVisible: vi.fn(),
+      onInstallSelected: vi.fn(),
+      onSelectReleases: vi.fn(),
+      onSelectVisible: vi.fn(),
+      onToggleRelease: vi.fn(),
+      onValidateSelected: vi.fn(),
+      ...overrides,
+    };
+    render(
+      <AxisThemeProvider>
+        <DataReleaseWorkbench {...props} />
+      </AxisThemeProvider>,
+    );
+    return props;
+  }
+
+  it('keeps every selection and command locked while an operation is pending', () => {
+    const props = renderWorkbench({ operationIsPending: true });
+    for (const checkbox of screen.getAllByRole('checkbox')) {
+      expect(checkbox).toBeDisabled();
+    }
+    for (const name of ['Select pack', 'Select 1', 'Validate selected', 'Working…']) {
+      const button = screen.getByRole('button', { name });
+      expect(button).toBeDisabled();
+    }
+    expect(props.onToggleRelease).not.toHaveBeenCalled();
+    expect(props.onSelectReleases).not.toHaveBeenCalled();
+    expect(props.onInstallSelected).not.toHaveBeenCalled();
+  });
+
+  it('shows raw release evidence without inventing missing readiness or repair authority', () => {
+    renderWorkbench({
+      visibleReleases: [
+        {
+          ...release('circa.ewaste:content', 'UPDATE_AVAILABLE'),
+          readiness: undefined,
+          installedVersion: '0.0.0',
+        },
+      ],
+    });
+    expect(screen.getByText('Installed 0.0.0')).toBeVisible();
+    expect(screen.getByText('Available 0.0.1')).toBeVisible();
+    expect(screen.getByText('Target WCMS_STAGED')).toBeVisible();
+    expect(screen.queryByText('Preparation readiness')).not.toBeInTheDocument();
+    expect(screen.queryByText('Repair available')).not.toBeInTheDocument();
+  });
+
+  it('does not let a current release hide incoming release blockers in the same capability', () => {
+    const current = { ...release('circa.ewaste:aaa', 'CURRENT'), moduleIndex: '1' };
+    const incoming = {
+      ...release('circa.ewaste:zzz', 'UPDATE_AVAILABLE'),
+      moduleIndex: '2',
+    };
+    renderWorkbench({
+      visibleReleases: [current, incoming],
+      summary: { current: 1, installable: 1, selected: 0, total: 2 },
+    });
+    const readiness = screen
+      .getByRole('heading', { name: 'Preparation readiness' })
+      .closest('section');
+    // The owning status and blockers must survive release ordering.
+    expect(readiness).not.toBeNull();
+    expect(within(readiness!).getByText('NOT_PREPARED')).toBeVisible();
+    expect(
+      within(readiness!).getByText(
+        'Data release has not been installed for this runtime.',
+      ),
+    ).toBeVisible();
+    expect(within(readiness!).queryByText('PREPARED_STAGED')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['RUNNING', 'Running'],
+    ['DOWNGRADE_AVAILABLE', 'Downgrade Available'],
+  ] as const)('keeps %s out of repair and non-selectable', (status, heading) => {
+    renderWorkbench({
+      visibleReleases: [
+        { ...release('circa.ewaste:content', status), readiness: undefined },
+      ],
+      executableReleaseCount: 0,
+      selectedReleaseCount: 0,
+      summary: { current: 0, installable: 0, selected: 0, total: 1 },
+    });
+    expect(screen.getByRole('heading', { name: heading })).toBeVisible();
+    expect(
+      screen.queryByRole('heading', { name: 'Requires repair' }),
+    ).not.toBeInTheDocument();
+    for (const checkbox of screen.getAllByRole('checkbox'))
+      expect(checkbox).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Install or update selected' }),
+    ).toBeDisabled();
+  });
+
   it('groups readiness by capability and selects actionable releases only', async () => {
     const actionable = release('circa.ewaste:content', 'NOT_INSTALLED');
     const current = release('circa.ewaste:profile', 'CURRENT');
@@ -182,7 +297,19 @@ describe('DataReleaseWorkbench', () => {
           catalogueIsLoading={false}
           catalogueIsSuccess
           connectionAvailable
-          dryRun={dryRun}
+          dryRun={{
+            ...dryRun,
+            outcomes: Array.from({ length: 9 }, (_, index) => ({
+              ...dryRun.outcomes[0]!,
+              releaseCode: `content-${index}`,
+              displayName: index === 0 ? 'Circa content' : `Incoming release ${index}`,
+            })),
+            publicationFollowUps: Array.from({ length: 7 }, (_, index) => ({
+              ...dryRun.publicationFollowUps[0]!,
+              releaseCode: `follow-up-${index}`,
+              displayName: `Publication follow-up ${index}`,
+            })),
+          }}
           executableReleaseCount={1}
           operationErrorMessage={undefined}
           operationIsError={false}
@@ -209,6 +336,8 @@ describe('DataReleaseWorkbench', () => {
     expect(screen.getAllByText('Install').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Circa content').length).toBeGreaterThan(0);
     expect(screen.getByText('Publication follow-up required')).toBeInTheDocument();
-    expect(screen.getByText('To WCMS_ONLINE')).toBeInTheDocument();
+    expect(screen.getAllByText('To WCMS_ONLINE')).toHaveLength(7);
+    expect(screen.getByText('Incoming release 8')).toBeVisible();
+    expect(screen.getByText('Publication follow-up 6')).toBeVisible();
   });
 });

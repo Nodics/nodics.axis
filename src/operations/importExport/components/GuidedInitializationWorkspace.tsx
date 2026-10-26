@@ -19,6 +19,7 @@ import {
 interface Props {
   readonly profiles: readonly InitializationProfile[];
   readonly isLoading: boolean;
+  readonly operationIsPending: boolean;
   readonly errorMessage?: string | undefined;
   readonly operationError?:
     | { readonly profileKey: string; readonly message: string }
@@ -187,7 +188,7 @@ export function GuidedInitializationWorkspace(props: Props) {
           ) : null}
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
             <Button
-              disabled={isPending || profile.blocked}
+              disabled={props.operationIsPending || profile.blocked}
               onClick={() => props.onRun(profile, 'validate')}
               variant="outlined"
             >
@@ -196,7 +197,9 @@ export function GuidedInitializationWorkspace(props: Props) {
                 : 'Validate plan'}
             </Button>
             <Button
-              disabled={isPending || profile.blocked || installable === 0}
+              disabled={
+                props.operationIsPending || profile.blocked || installable === 0
+              }
               onClick={() => props.onRun(profile, 'install')}
               variant="contained"
             >

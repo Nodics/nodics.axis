@@ -2,7 +2,12 @@ import { Box, CircularProgress, Stack, Typography } from '@mui/material';
 
 import { AxisMark } from './shell/AxisMark';
 
-export function LoadingScreen() {
+/** Generic startup phase only; the backend retains all readiness and access decisions. */
+export function LoadingScreen({
+  label = 'Loading Axis configuration',
+}: {
+  readonly label?: string;
+}) {
   return (
     <Box
       component="main"
@@ -15,9 +20,9 @@ export function LoadingScreen() {
     >
       <Stack spacing={2} sx={{ alignItems: 'center' }}>
         <AxisMark />
-        <CircularProgress aria-label="Loading Axis configuration" />
-        <Typography color="text.secondary">
-          Preparing the secure Axis workspace…
+        <CircularProgress aria-label={label} />
+        <Typography color="text.secondary" role="status">
+          {label}
         </Typography>
       </Stack>
     </Box>

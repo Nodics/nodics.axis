@@ -1,5 +1,26 @@
 # Axis First-Run Recovery
 
+## Explicit Sign-In Context
+
+Both bundled and CMS-managed login expose an Enterprise code input, prefilled
+from App's existing runtime sign-in context. There is no customer-specific
+enterprise default in CMS properties. The input selects only the target of the
+existing Profile password request; it grants no permissions and does not require
+invitation/membership switching to be enabled. Profile remains responsible for
+credentials and scope admission. Tenant and project endpoints are not editable.
+
+The selected code is captured for one sign-in attempt, disabled while pending,
+and retained in the form on denial. There is no automatic retry or fallback to
+another enterprise. Only successful authentication plus authenticated bootstrap
+admit a session, using the existing accepted-context retention mechanism; the
+form never writes a routing hint. Post-login membership switching is unchanged.
+CMS may customize `enterpriseLabel` as inert presentation copy; it cannot set
+the enterprise default or permission policy. The generic fallback label is
+`Enterprise code`. The field remains full-width in both narrow login layouts.
+`test/app/employeeLoginRace.test.tsx` covers both forms, explicit scope, denial,
+invalid input and single-flight/stale-response behavior. Runtime acceptance is
+separate from these synthetic tests.
+
 This bundled frontend renders the Platform-owned Axis baseline status until its
 governed publication reaches Online. CMS owns content and publication, Process
 owns reviewer decisions, and BackOffice owns initialization. Axis owns no imports,
@@ -13,6 +34,24 @@ in memory only and never retry sign-in automatically. CMS still owns managed for
 labels; this shared fallback owns only unavailable-service presentation. Focused
 coverage lives in `test/initialization/BundledLoginPage.test.tsx` and
 `test/cms/renderers/components/authentication/EmployeeLoginFormRenderer.test.tsx`.
+
+Known browser abort/timeout messages also use the shared Axis presentation
+default: `Sign-in took too long or was interrupted. Please try again.` This
+applies to raw browser interruptions from sign-in transport. The dependent
+authenticated bootstrap retains its existing friendly BackOffice-unavailable
+owner message when that client has already classified the interruption.
+Safe owner denials remain unchanged; arbitrary text containing "aborted" is not
+reclassified. No timeout implies rejected credentials, admitted authority or a
+safe automatic retry. Both forms retain input and require an explicit retry.
+`test/app/signInRecoveryMessage.test.ts` and the deferred bootstrap cases in
+`test/app/employeeLoginRace.test.tsx` protect this framework-owned fallback.
+
+Employee cookies can be shared with another same-host application; browser ports
+are not a cookie isolation boundary. Axis still sends its normal credentialed
+logout request when the CSRF companion has disappeared. Only Profile can
+acknowledge an already-absent browser session. A failed/uncertain response keeps
+the workspace locked; neither client storage clearing nor a fabricated success
+substitutes for the owner response. No per-application cookie override is added.
 
 First-run initialization sends one explicit operation. If its response is lost,
 App observes status once through GET; it never replays the write. Importing and

@@ -153,6 +153,25 @@ describe('data release client', () => {
       unsubscribe();
     }
   });
+  it.each([undefined, null])(
+    'normalizes absent readiness %s to undefined at transport',
+    async (readiness) => {
+      const request = vi.fn<typeof fetch>().mockImplementation((input) =>
+        Promise.resolve(
+          response({
+            data: (input as URL).pathname.endsWith('/core')
+              ? [{ ...release, readiness }]
+              : [],
+          }),
+        ),
+      );
+      const result = await loadDataReleases(connection, configuration, request);
+      expect(result).toHaveLength(1);
+      expect(result[0]?.readiness).toBeUndefined();
+      expect(result[0]?.status).toBe('UPDATE_AVAILABLE');
+    },
+  );
+
   it('loads and parses the backend-owned catalogue', async () => {
     const fetchImplementation = vi.fn<typeof fetch>().mockImplementation((input) => {
       const pathname = (input as URL).pathname;

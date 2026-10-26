@@ -153,6 +153,13 @@ approval is bypassed or retried. `test/app/screenLockReturnJourney.test.tsx` cov
 denied, unavailable and loading snapshots, pending unlock bootstrap, fresh READY
 restoration and fresh UNAVAILABLE followed by explicit status refresh.
 
+Unlock also admits one explicit attempt at a time through Profile authentication
+and BackOffice admission. The managed form exposes `aria-busy`, disables its
+submit button and shows a progress icon without changing CMS-owned captions.
+Failures allow an explicit retry; session replacement retires the pending attempt.
+Custom renderers consume `employeeUnlockPending` and preserve the App guard.
+The lock-form and screen-lock return tests cover duplicate submission and denial.
+
 Employee password login is single-flight across Profile authentication and
 BackOffice bootstrap. App admits the attempt synchronously, not just by disabling
 the button after a render. Both managed and bundled login forms expose busy state

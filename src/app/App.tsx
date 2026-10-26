@@ -9,6 +9,7 @@ import { wasteOverviewAliases } from '../operations/wasteManagement/wasteOvervie
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -79,6 +80,7 @@ import { MediaManagementDashboardRoutePage } from '../operations/mediaManagement
 import { MediaManagementRoutePage } from '../operations/mediaManagement/MediaManagementRoutePage';
 import { ProcessWorkflowRoutePage } from '../operations/processWorkflow/ProcessWorkflowRoutePage';
 import { ProductManagementRoutePage } from '../operations/productManagement/ProductManagementRoutePage';
+import { ProductWorkbenchRoutePage } from '../operations/productManagement/ProductWorkbenchRoutePage';
 import { ProductSellabilityWorkspace } from '../operations/productManagement/ProductSellabilityWorkspace';
 import { DiscoveryManagementRoutePage } from '../operations/discovery/DiscoveryManagementRoutePage';
 import { MerchantRedemptionPanel } from '../operations/promotions/MerchantRedemptionPanel';
@@ -319,6 +321,12 @@ export function App() {
   const availabilityReadSequence = useRef(0);
   const loginAttempt = useRef<object | undefined>(undefined);
   const [loginPending, setLoginPending] = useState(false);
+  const unlockAttempt = useRef<object | undefined>(undefined);
+  const [unlockPending, setUnlockPending] = useState(false);
+  const retireUnlock = useCallback(() => {
+    unlockAttempt.current = undefined;
+    setUnlockPending(false);
+  }, []);
   const retireLogin = useCallback(() => {
     loginAttempt.current = undefined;
     setLoginPending(false);
@@ -326,13 +334,14 @@ export function App() {
   const updateSession = useCallback(
     (value: EmployeeSession | undefined, preserveCreationCheckpoint = false) => {
       retireLogin();
+      retireUnlock();
       if (!preserveCreationCheckpoint) enterpriseCreationCheckpoint.clear();
       if (value) sessionInvalidated.current = false;
       admittedSession.current = value;
       availabilityReadSequence.current += 1;
       setSession(value);
     },
-    [enterpriseCreationCheckpoint, retireLogin],
+    [enterpriseCreationCheckpoint, retireLogin, retireUnlock],
   );
   const [authenticatedBootstrap, setAuthenticatedBootstrap] =
     useState<AxisAuthenticatedBootstrap>();
@@ -350,6 +359,8 @@ export function App() {
   const [initializationStatusUnavailable, setInitializationStatusUnavailable] =
     useState(false);
   const [restoringSession, setRestoringSession] = useState(true);
+  const [restorePhase, setRestorePhase] = useState<'profile' | 'workspace'>('profile');
+  const [restoreError, setRestoreError] = useState<string>();
   const [switchingContext, setSwitchingContext] = useState(false);
   const contextTransition = useRef(false);
   const lifetime = useRef({ active: true });
@@ -431,11 +442,31 @@ export function App() {
       active = false;
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [attempt, runtime]);
+  }, [
+    attempt,
+    runtime.backofficeBaseUrl,
+    runtime.clientContractVersion,
+    runtime.requestTimeoutMs,
+    runtime.publicDiscoveryRetryWindowMs,
+  ]);
+
+  // Route changes do not rotate Profile proof again; completion uses the latest route.
+  const finishRestoreNavigation = useEffectEvent(() => {
+    const persistedLock = restoreScreenLock();
+    if (persistedLock) {
+      setLockedReturnPath(persistedLock.returnPath);
+      setLocked(true);
+      void navigate('/lock-screen', { replace: true });
+    } else if (!['/', '/login', '/forgot-password'].includes(location.pathname)) {
+      void navigate(currentRoutePath, { replace: true });
+    }
+  });
 
   useEffect(() => {
     if (!bootstrap || !restoringSession) return;
     let active = true;
+    let profileRestored = false;
+    setRestorePhase('profile');
     void restoreEmployeeSession(
       bootstrap.endpoints.profile,
       runtime.enterpriseCode,
@@ -443,6 +474,9 @@ export function App() {
       runtime.browserSessionTimeoutMs,
     )
       .then(async (nextSession) => {
+        if (!active) return;
+        profileRestored = true;
+        setRestorePhase('workspace');
         const employeeBootstrap = await loadAuthenticatedBootstrap(
           runtime.backofficeBaseUrl,
           runtime.clientContractVersion,
@@ -455,21 +489,20 @@ export function App() {
         updateSession(nextSession);
         setAuthenticatedBootstrap(employeeBootstrap);
         setEmployeePolicy(employeeBootstrap.axisPolicy);
-        const persistedLock = restoreScreenLock();
-        if (persistedLock) {
-          setLockedReturnPath(persistedLock.returnPath);
-          setLocked(true);
-          void navigate('/lock-screen', { replace: true });
-        } else if (!['/', '/login', '/forgot-password'].includes(location.pathname)) {
-          void navigate(currentRoutePath, { replace: true });
-        }
+        finishRestoreNavigation();
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (active) {
           queryClient.clear();
           updateSession(undefined);
           setAuthenticatedBootstrap(undefined);
           setEmployeePolicy(undefined);
+          if (profileRestored)
+            setRestoreError(
+              error instanceof Error
+                ? error.message
+                : 'BackOffice could not load your authorized workspace.',
+            );
         }
       })
       .finally(() => {
@@ -478,16 +511,7 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [
-    bootstrap,
-    currentRoutePath,
-    location.pathname,
-    navigate,
-    restoringSession,
-    runtime,
-    queryClient,
-    updateSession,
-  ]);
+  }, [bootstrap, restoringSession, runtime, queryClient, updateSession]);
 
   const lockScreen = useCallback(() => {
     if (!session || locked) return;
@@ -927,7 +951,31 @@ export function App() {
       />
     );
   }
-  if (!bootstrap || restoringSession || switchingContext) return <LoadingScreen />;
+  if (restoreError) {
+    return (
+      <RecoveryScreen
+        state={{ kind: 'session', detail: restoreError, retryable: true }}
+        onRetry={() => {
+          setRestoreError(undefined);
+          setRestoringSession(true);
+        }}
+      />
+    );
+  }
+  if (!bootstrap || restoringSession || switchingContext)
+    return (
+      <LoadingScreen
+        label={
+          !bootstrap
+            ? 'Discovering your workspace'
+            : switchingContext
+              ? 'Switching enterprise context'
+              : restorePhase === 'profile'
+                ? 'Restoring your session'
+                : 'Loading your authorized workspace'
+        }
+      />
+    );
 
   const composition = bootstrap.uiComposition;
   const assistantNavigation = authenticatedBootstrap?.navigation.find(
@@ -1068,7 +1116,11 @@ export function App() {
     }
   };
 
-  const login = async (loginId: string, password: string) => {
+  const login = async (
+    loginId: string,
+    password: string,
+    requestedEnterpriseCode?: string,
+  ) => {
     if (
       !lifetime.current.active ||
       contextTransition.current ||
@@ -1076,6 +1128,14 @@ export function App() {
       loginAttempt.current
     )
       return;
+    // This is request scope only; Profile owns credential and enterprise admission.
+    const targetEnterprise = enterpriseContextCode(
+      requestedEnterpriseCode ?? runtime.enterpriseCode,
+    );
+    if (!targetEnterprise) {
+      setAuthenticationError('Enter a valid enterprise code.');
+      return;
+    }
     // Admit synchronously: a second submit can arrive before React disables the form.
     const originalAttempt = {};
     loginAttempt.current = originalAttempt;
@@ -1089,7 +1149,7 @@ export function App() {
     try {
       const nextSession = await authenticateEmployee(
         bootstrap.endpoints.profile,
-        runtime.enterpriseCode,
+        targetEnterprise,
         loginId,
         password,
         runtime.browserSessionTimeoutMs,
@@ -1102,7 +1162,7 @@ export function App() {
         runtime.requestTimeoutMs,
       );
       if (!isCurrent()) return;
-      rememberEnterpriseContext(runtime.backofficeBaseUrl, runtime.enterpriseCode);
+      rememberEnterpriseContext(runtime.backofficeBaseUrl, targetEnterprise);
       queryClient.clear();
       updateSession(nextSession);
       setAuthenticatedBootstrap(employeeBootstrap);
@@ -1213,9 +1273,17 @@ export function App() {
   };
 
   const unlock = async (password: string) => {
-    if (!session || admittedSession.current !== session || contextTransition.current)
+    if (
+      !session ||
+      admittedSession.current !== session ||
+      contextTransition.current ||
+      unlockAttempt.current
+    )
       return;
     const originalSession = session;
+    const attempt = {};
+    unlockAttempt.current = attempt;
+    setUnlockPending(true);
     setAuthenticationError(undefined);
     try {
       const nextSession = await authenticateEmployee(
@@ -1233,6 +1301,7 @@ export function App() {
       );
       if (
         !lifetime.current.active ||
+        unlockAttempt.current !== attempt ||
         admittedSession.current !== originalSession ||
         contextTransition.current
       )
@@ -1252,12 +1321,15 @@ export function App() {
     } catch (error: unknown) {
       if (
         lifetime.current.active &&
+        unlockAttempt.current === attempt &&
         admittedSession.current === originalSession &&
         !contextTransition.current
       )
         setAuthenticationError(
           localization.formatError(error, 'Employee unlock failed'),
         );
+    } finally {
+      if (unlockAttempt.current === attempt) retireUnlock();
     }
   };
 
@@ -1325,7 +1397,7 @@ export function App() {
     navigationItem.workbenchTarget
       ? authenticatedShell(
           canRenderWorkbenchNavigation(authenticatedBootstrap, navigationItem) ? (
-            <WorkbenchRoutePage
+            <ProductWorkbenchRoutePage
               accessToken={session.accessToken}
               bootstrap={authenticatedBootstrap}
               channel={composition.channel}
@@ -1540,7 +1612,7 @@ export function App() {
               navigationItem.backendWorkspace.ownerSelector?.runtimeRoleCode ===
                 'COMMERCE' &&
               navigationItem.backendWorkspace.ownerSelector.publicationRole ===
-                'ONLINE' &&
+                'OPERATIONAL' &&
               ['ACTIVE', 'PREVIEW'].includes(navigationItem.featureState || '') &&
               ['UP', 'DEGRADED'].includes(navigationItem.availability) &&
               selectModuleConnection(
@@ -2348,14 +2420,20 @@ export function App() {
                 '/login',
                 undefined,
                 {
-                  onEmployeeLogin: (id, secret) => void login(id, secret),
+                  onEmployeeLogin: (id, secret, enterprise) =>
+                    void login(id, secret, enterprise),
+                  employeeLoginEnterpriseCode: runtime.enterpriseCode,
                   employeeLoginPending: loginPending,
                 },
                 undefined,
                 <BundledLoginPage
+                  key={runtime.enterpriseCode}
+                  enterpriseCode={runtime.enterpriseCode}
                   error={authenticationError}
                   pending={loginPending}
-                  onLogin={(id, secret) => void login(id, secret)}
+                  onLogin={(id, secret, enterprise) =>
+                    void login(id, secret, enterprise)
+                  }
                 />,
               )
             )
@@ -2881,6 +2959,7 @@ export function App() {
               page('/lock-screen', session.accessToken, {
                 currentEmployeeId: session.loginId,
                 onEmployeeUnlock: (password) => void unlock(password),
+                employeeUnlockPending: unlockPending,
                 onEmployeeSignOut: logout,
               })
             ) : (

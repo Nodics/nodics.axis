@@ -81,7 +81,7 @@ const modes = {
   reporting: {
     workspaceCode: 'promotion.couponAcquisition',
     runtimeRoleCode: 'COMMERCE',
-    publicationRole: 'ONLINE',
+    publicationRole: 'OPERATIONAL',
   },
 } as const;
 
@@ -89,6 +89,7 @@ async function mount(
   mode: keyof typeof modes,
   alter?: (item: AxisNavigationItem) => AxisNavigationItem,
   availableOwner = true,
+  connectionPublication?: string,
 ) {
   window.history.replaceState({}, '', '/login');
   const { workspaceCode, ...ownerSelector } = modes[mode];
@@ -137,7 +138,7 @@ async function mount(
           state: 'UP',
           runtimeRole: {
             code: availableOwner ? ownerSelector.runtimeRoleCode : 'UNRELATED',
-            publication: ownerSelector.publicationRole,
+            publication: connectionPublication ?? ownerSelector.publicationRole,
           },
         },
       ],
@@ -279,3 +280,24 @@ it.each(['authoring', 'reporting'] as const)(
     expect(owners.reporting).not.toHaveBeenCalled();
   },
 );
+
+it('rejects an ONLINE report descriptor rather than treating it as operational', async () => {
+  await mount(
+    'reporting',
+    (item) => ({
+      ...item,
+      backendWorkspace: {
+        ...item.backendWorkspace!,
+        ownerSelector: { runtimeRoleCode: 'COMMERCE', publicationRole: 'ONLINE' },
+      },
+    }),
+    true,
+    'ONLINE',
+  );
+  expect(owners.reporting).not.toHaveBeenCalled();
+});
+
+it('does not select an ONLINE connection for the operational report', async () => {
+  await mount('reporting', undefined, true, 'ONLINE');
+  expect(owners.reporting).not.toHaveBeenCalled();
+});

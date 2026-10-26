@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Autocomplete,
   Button,
   MenuItem,
   Stack,
@@ -23,8 +24,9 @@ import {
   type CouponWorkspace,
 } from './couponOfferClient';
 import { useCouponWorkspace, type CouponWorkspaceProps } from './useCouponWorkspace';
+import { searchReportOffers, type ReportOfferOption } from './reportOfferLookup';
 
-/** Uses only the advertised Online Promotion owner and retires results when that authority changes. */
+/** Uses only the advertised operational Promotion owner and retires results when that authority changes. */
 export function CouponAcquisitionReportPanel(props: CouponWorkspaceProps) {
   const owner = useCouponWorkspace(props, 'reporting');
   if (!owner.allowed) return null;
@@ -46,7 +48,9 @@ function Report({
   workspace: CouponWorkspace;
 }) {
   const [code, setCode] = useState(''),
-    [channel, setChannel] = useState(''),
+    [channel, setChannel] = useState(
+      workspace.reportChannels.length === 1 ? workspace.reportChannels[0]!.code : '',
+    ),
     [view, setView] = useState<'ISSUER' | 'REDEEMER'>('ISSUER'),
     [scopeType, setScopeType] =
       useState<AcquisitionReportSelection['scope']['type']>('ENTERPRISE'),
@@ -61,6 +65,35 @@ function Report({
   const active = useRef(true),
     running = useRef(false),
     l = workspace.labels;
+  const [offerSearch, setOfferSearch] = useState(''),
+    [offerOpen, setOfferOpen] = useState(false),
+    [offerOptions, setOfferOptions] = useState<ReportOfferOption[]>([]),
+    [selectedOffer, setSelectedOffer] = useState<ReportOfferOption | null>(null),
+    [offersLoading, setOffersLoading] = useState(false),
+    [offersError, setOffersError] = useState(false);
+  useEffect(() => {
+    if (!offerOpen) return;
+    const controller = new AbortController();
+    setOfferOptions([]);
+    setOffersLoading(true);
+    setOffersError(false);
+    const timer = setTimeout(() => {
+      void searchReportOffers(owner.configuration, offerSearch, controller.signal)
+        .then((rows) => {
+          if (!controller.signal.aborted) setOfferOptions(rows);
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setOffersError(true);
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setOffersLoading(false);
+        });
+    }, 250);
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [offerOpen, offerSearch, owner.configuration]);
   useEffect(() => {
     active.current = true;
     return () => {
@@ -75,16 +108,52 @@ function Report({
     >
       <Typography variant="h6">{l.reportTitle}</Typography>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-        <TextField
-          label={l.code}
-          value={code}
+        <Autocomplete<ReportOfferOption>
+          sx={{ minWidth: 260, flex: 1 }}
+          options={offerOptions}
+          value={selectedOffer}
+          loading={offersLoading}
+          loadingText={l.reportOffersLoading}
+          noOptionsText={l.reportNoOffers}
           disabled={busy}
-          onChange={(event) => {
-            setCode(event.target.value);
+          filterOptions={(rows) => rows}
+          getOptionLabel={(option) => option.name}
+          isOptionEqualToValue={(a, b) => a.code === b.code}
+          renderOption={(props, option) => (
+            <li {...props} key={option.code}>
+              <Stack>
+                <span>{option.name}</span>
+                <Typography variant="caption">{option.code}</Typography>
+              </Stack>
+            </li>
+          )}
+          onOpen={() => setOfferOpen(true)}
+          onClose={() => setOfferOpen(false)}
+          onInputChange={(_event, text, reason) => {
+            if (reason === 'input' || reason === 'clear') {
+              setOfferSearch(text);
+              setCode('');
+              setSelectedOffer(null);
+              setReport(undefined);
+            }
+          }}
+          onChange={(_event, choice) => {
+            setSelectedOffer(choice);
+            setCode(choice?.code || '');
             setReport(undefined);
           }}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label={l.reportOffer}
+              error={offersError}
+              helperText={offersError ? l.reportOffersUnavailable : undefined}
+            />
+          )}
         />
         <TextField
+          select
+          sx={{ minWidth: 160 }}
           label={l.channel}
           value={channel}
           disabled={busy}
@@ -92,7 +161,13 @@ function Report({
             setChannel(event.target.value);
             setReport(undefined);
           }}
-        />
+        >
+          {workspace.reportChannels.map((choice) => (
+            <MenuItem key={choice.code} value={choice.code}>
+              {choice.name}
+            </MenuItem>
+          ))}
+        </TextField>
       </Stack>
       <ToggleButtonGroup
         value={view}
@@ -269,7 +344,18 @@ function Report({
             </Alert>
           )}
           <Typography>
-            {l.dataUpdatedThrough}: {report.dataUpdatedThrough || l.unknown} (UTC)
+            {l.dataUpdatedThrough}:{' '}
+            {report.dataUpdatedThrough ? (
+              <time
+                dateTime={report.dataUpdatedThrough}
+                title={report.dataUpdatedThrough}
+              >
+                {new Date(report.dataUpdatedThrough).toLocaleString()} (
+                {Intl.DateTimeFormat().resolvedOptions().timeZone})
+              </time>
+            ) : (
+              l.unknown
+            )}
           </Typography>
           {report.counts && report.rates && (
             <AggregateTable

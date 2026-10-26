@@ -141,9 +141,170 @@ const dashboardPage = {
 function response(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), { status });
 }
+function requestUrl(input: Parameters<typeof fetch>[0]): string {
+  return typeof input === 'string'
+    ? input
+    : input instanceof URL
+      ? input.href
+      : input.url;
+}
 function authResponse(): Response {
   return response({ result: { authToken: 'old-access', loginId: 'operator' } });
 }
+
+function restoreFixture() {
+  document.cookie = 'nodics_axis_csrf=synthetic; Path=/';
+  let completeRestore!: (value: Response) => void;
+  let completeBootstrap!: (value: Response) => void;
+  const restore = new Promise<Response>((resolve) => {
+    completeRestore = resolve;
+  });
+  const bootstrap = new Promise<Response>((resolve) => {
+    completeBootstrap = resolve;
+  });
+  const request = vi.fn<typeof fetch>().mockImplementation((input) => {
+    const url = requestUrl(input);
+    if (url.includes('/bootstrap/public'))
+      return Promise.resolve(response(publicBootstrap));
+    if (url.includes('/browser/restore')) return restore;
+    if (url.endsWith('/bootstrap')) return bootstrap;
+    return Promise.resolve(response({ result: loginPage }));
+  });
+  vi.stubGlobal('fetch', request);
+  const view = render(
+    <AppProviders runtimeConfig={runtime}>
+      <App />
+      <NavigationProbe />
+    </AppProviders>,
+  );
+  return {
+    request,
+    view,
+    completeRestore: (value: Response) => {
+      completeRestore(value);
+      return restore;
+    },
+    completeBootstrap: (value: Response) => {
+      completeBootstrap(value);
+      return bootstrap;
+    },
+  };
+}
+
+it('does not restart session restoration on route-only navigation and shows its phase', async () => {
+  const f = restoreFixture();
+  await waitFor(() =>
+    expect(
+      f.request.mock.calls.filter(([input]) =>
+        requestUrl(input).includes('/browser/restore'),
+      ),
+    ).toHaveLength(1),
+  );
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Open recovery' }));
+  expect(
+    f.request.mock.calls.filter(([input]) =>
+      requestUrl(input).includes('/browser/restore'),
+    ),
+  ).toHaveLength(1);
+  expect(screen.getByRole('progressbar')).toHaveAttribute(
+    'aria-label',
+    'Restoring your session',
+  );
+  await act(async () => {
+    await f.completeRestore(authResponse());
+  });
+  expect(screen.getByRole('progressbar')).toHaveAttribute(
+    'aria-label',
+    'Loading your authorized workspace',
+  );
+  f.view.unmount();
+  await act(async () => {
+    await f.completeBootstrap(response(authenticatedBootstrap));
+  });
+});
+
+it('does not launch authenticated bootstrap after restoration is retired by unmount', async () => {
+  const f = restoreFixture();
+  await waitFor(() =>
+    expect(
+      f.request.mock.calls.some(([input]) =>
+        requestUrl(input).includes('/browser/restore'),
+      ),
+    ).toBe(true),
+  );
+  f.view.unmount();
+  await act(async () => {
+    await f.completeRestore(authResponse());
+  });
+  expect(
+    f.request.mock.calls.some(([input]) => requestUrl(input).endsWith('/bootstrap')),
+  ).toBe(false);
+});
+
+it('does not rediscover public deployment endpoints when only the sign-in enterprise changes', async () => {
+  const f = restoreFixture();
+  await waitFor(() =>
+    expect(
+      f.request.mock.calls.some(([input]) =>
+        requestUrl(input).includes('/browser/restore'),
+      ),
+    ).toBe(true),
+  );
+  await userEvent
+    .setup()
+    .click(screen.getByRole('button', { name: 'Change sign-in state' }));
+  await waitFor(() =>
+    expect(
+      f.request.mock.calls.filter(([input]) =>
+        requestUrl(input).includes('/browser/restore'),
+      ),
+    ).toHaveLength(2),
+  );
+  const restoredRequests = f.request.mock.calls.filter(([input]) =>
+    requestUrl(input).includes('/browser/restore'),
+  );
+  expect(new Headers(restoredRequests[1]?.[1]?.headers).get('x-enterprise-code')).toBe(
+    'enterprise-b',
+  );
+  expect(
+    f.request.mock.calls.filter(([input]) =>
+      requestUrl(input).includes('/bootstrap/public'),
+    ),
+  ).toHaveLength(1);
+  f.view.unmount();
+  await act(async () => {
+    await f.completeRestore(authResponse());
+  });
+  expect(
+    f.request.mock.calls.some(([input]) => requestUrl(input).endsWith('/bootstrap')),
+  ).toBe(false);
+});
+
+it('surfaces restored-session bootstrap failure for explicit recovery without automatic restore retry', async () => {
+  const f = restoreFixture();
+  await waitFor(() =>
+    expect(
+      f.request.mock.calls.some(([input]) =>
+        requestUrl(input).includes('/browser/restore'),
+      ),
+    ).toBe(true),
+  );
+  await act(async () => {
+    await f.completeRestore(authResponse());
+  });
+  await act(async () => {
+    await f.completeBootstrap(response({}, 503));
+  });
+  expect(await screen.findByRole('button', { name: 'Retry session' })).toBeEnabled();
+  expect(
+    screen.getByRole('heading', { name: 'Your workspace could not be restored' }),
+  ).toBeVisible();
+  expect(
+    f.request.mock.calls.filter(([input]) =>
+      requestUrl(input).includes('/browser/restore'),
+    ),
+  ).toHaveLength(1);
+});
 function NavigationProbe() {
   const navigate = useNavigate();
   return (
@@ -155,7 +316,7 @@ function NavigationProbe() {
       <button
         onClick={() =>
           void navigate('/login', {
-            state: { registrationSignIn: { enterpriseCode: 'enterprise-a' } },
+            state: { registrationSignIn: { enterpriseCode: 'enterprise-b' } },
           })
         }
       >
@@ -167,8 +328,10 @@ function NavigationProbe() {
 
 function fixture(phase: 'authentication' | 'bootstrap', bundled = false) {
   let complete!: (value: Response) => void;
-  const deferred = new Promise<Response>((resolve) => {
+  let reject!: (error: Error) => void;
+  const deferred = new Promise<Response>((resolve, rejectPromise) => {
     complete = resolve;
+    reject = rejectPromise;
   });
   let authenticationCalls = 0,
     bootstrapCalls = 0;
@@ -222,6 +385,16 @@ function fixture(phase: 'authentication' | 'bootstrap', bundled = false) {
     request,
     authenticationCalls: () => authenticationCalls,
     bootstrapCalls: () => bootstrapCalls,
+    async interrupt() {
+      await act(async () => {
+        reject(
+          Object.assign(new Error('signal is aborted without reason'), {
+            name: 'AbortError',
+          }),
+        );
+        await deferred.catch(() => undefined);
+      });
+    },
     async submit(rapid = false) {
       const login = await screen.findByLabelText(
         bundled ? /^Login ID/u : 'Employee ID',
@@ -268,9 +441,123 @@ beforeEach(() => {
   document.cookie = 'nodics_axis_csrf=; Max-Age=0; Path=/';
   window.history.replaceState({}, '', '/login');
 });
+
+it.each(
+  (['authentication', 'bootstrap'] as const).flatMap((phase) => [
+    { phase, bundled: false },
+    { phase, bundled: true },
+  ]),
+)(
+  'sanitizes interrupted $phase without retry or admission (bundled=$bundled)',
+  async ({ phase, bundled }) => {
+    const f = fixture(phase, bundled);
+    await f.submit();
+    await f.interrupt();
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      phase === 'bootstrap'
+        ? 'BackOffice availability is temporarily unavailable.'
+        : 'Sign-in took too long or was interrupted. Please try again.',
+    );
+    expect(screen.getByRole('alert')).not.toHaveTextContent('signal is aborted');
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
+    expect(screen.getByLabelText(/^Enterprise code/u)).toHaveValue(
+      runtime.enterpriseCode,
+    );
+    expect(window.location.pathname).toBe('/login');
+    expect(f.authenticationCalls()).toBe(1);
+    expect(f.bootstrapCalls()).toBe(phase === 'bootstrap' ? 1 : 0);
+  },
+);
 afterEach(() => {
   vi.unstubAllGlobals();
 });
+
+it('retires the local admission only after Profile acknowledges an already-absent shared session', async () => {
+  const f = fixture('authentication');
+  await f.submit();
+  await f.settle(true);
+  await waitFor(() => expect(window.location.pathname).toBe('/dashboard'));
+  // Model a different same-host application's completed logout, not a client recovery action.
+  document.cookie = 'nodics_axis_csrf=; Max-Age=0; Path=/';
+  await f.logout();
+  await waitFor(() => expect(window.location.pathname).toBe('/login'));
+  const logoutCalls = f.request.mock.calls.filter(([input]) =>
+    requestUrl(input).includes('/employee/browser/logout'),
+  );
+  expect(logoutCalls).toHaveLength(1);
+  expect(new Headers(logoutCalls[0]?.[1]?.headers).get('X-CSRF-Token')).toBe('');
+  expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
+  expect(f.authenticationCalls()).toBe(1);
+});
+
+it.each([false, true])(
+  'uses explicit sign-in scope without membership switching (bundled=%s)',
+  async (bundled) => {
+    const f = fixture('authentication', bundled);
+    const enterprise = await screen.findByLabelText(/^Enterprise code/u);
+    expect(enterprise).toHaveValue(runtime.enterpriseCode);
+    await f.user.clear(enterprise);
+    await f.user.type(enterprise, 'GREENPERKS_RETAIL');
+    await f.submit();
+    expect(enterprise).toBeDisabled();
+    const call = f.request.mock.calls.find(([input]) =>
+      requestUrl(input).includes('/employee/browser/authenticate'),
+    );
+    expect(new Headers(call?.[1]?.headers).get('x-enterprise-code')).toBe(
+      'GREENPERKS_RETAIL',
+    );
+    expect(call?.[1]?.body).toBe(
+      JSON.stringify({ loginId: 'operator', password: 'synthetic-password' }),
+    );
+    expect(window.sessionStorage.length).toBe(0);
+    await f.settle(true);
+    await waitFor(() => expect(window.location.pathname).toBe('/dashboard'));
+    expect(f.authenticationCalls()).toBe(1);
+    expect(
+      f.request.mock.calls.some(([input]) =>
+        requestUrl(input).includes('switch-enterprise'),
+      ),
+    ).toBe(false);
+  },
+);
+
+it.each([false, true])(
+  'keeps denied explicit scope without fallback or automatic retry (bundled=%s)',
+  async (bundled) => {
+    const f = fixture('authentication', bundled);
+    const enterprise = await screen.findByLabelText(/^Enterprise code/u);
+    await f.user.clear(enterprise);
+    await f.user.type(enterprise, 'UNASSIGNED');
+    await f.submit();
+    await f.settle(false);
+    expect(await screen.findByRole('alert')).toBeVisible();
+    expect(enterprise).toHaveValue('UNASSIGNED');
+    expect(enterprise).not.toBeDisabled();
+    expect(f.authenticationCalls()).toBe(1);
+    expect(f.bootstrapCalls()).toBe(0);
+    expect(window.location.pathname).toBe('/login');
+    expect(window.sessionStorage.length).toBe(0);
+  },
+);
+
+it.each([false, true])(
+  'rejects malformed explicit scope before transport (bundled=%s)',
+  async (bundled) => {
+    const f = fixture('authentication', bundled);
+    const enterprise = await screen.findByLabelText(/^Enterprise code/u);
+    fireEvent.change(enterprise, { target: { value: '../other' } });
+    await f.user.type(
+      screen.getByLabelText(bundled ? /^Login ID/u : 'Employee ID'),
+      'operator',
+    );
+    await f.user.type(screen.getByLabelText(/^Password/u), 'synthetic-password');
+    fireEvent.submit(screen.getByRole('button', { name: 'Sign in' }).closest('form')!);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Enter a valid enterprise code.',
+    );
+    expect(f.authenticationCalls()).toBe(0);
+  },
+);
 
 it.each(
   (['authentication', 'bootstrap'] as const).flatMap((phase) => [
@@ -282,6 +569,12 @@ it.each(
   async ({ phase, bundled }) => {
     const f = fixture(phase, bundled);
     await f.submit(true);
+    const authentication = f.request.mock.calls.find(([input]) =>
+      requestUrl(input).includes('/employee/browser/authenticate'),
+    );
+    expect(new Headers(authentication?.[1]?.headers).get('x-enterprise-code')).toBe(
+      runtime.enterpriseCode,
+    );
     const button = screen.getByRole('button', { name: 'Sign in' });
     expect(button).toBeDisabled();
     expect(button.closest('form')).toHaveAttribute('aria-busy', 'true');

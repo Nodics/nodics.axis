@@ -7,7 +7,7 @@ import type {
   AxisNavigationItem,
 } from '../../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
-import { WorkbenchRoutePage } from '../../workbench/WorkbenchRoutePage';
+import { ProductWorkbenchRoutePage } from './ProductWorkbenchRoutePage';
 import { ProductLocalizationPreview } from './ProductLocalizationPreview';
 
 interface ProductManagementRoutePageProps {
@@ -152,7 +152,7 @@ export function ProductManagementRoutePage(props: ProductManagementRoutePageProp
           runtime={props.runtime}
         />
       ) : (
-        <WorkbenchRoutePage
+        <ProductWorkbenchRoutePage
           accessToken={props.accessToken}
           bootstrap={props.bootstrap}
           channel={props.channel}

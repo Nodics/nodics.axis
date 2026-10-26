@@ -1,4 +1,4 @@
-import { Alert, Button, CircularProgress, Stack } from '@mui/material';
+import { Alert, Button, CircularProgress, Stack, TextField } from '@mui/material';
 import type { FormEvent } from 'react';
 import { getSignInErrorMessage } from '../../../../app/recoveryState';
 
@@ -16,9 +16,13 @@ export function EmployeeLoginFormRenderer({
     const values = new FormData(event.currentTarget);
     const loginId = values.get('loginId');
     const password = values.get('password');
+    const enterprise = values.get('enterpriseCode');
+    const enterpriseCode = typeof enterprise === 'string' ? enterprise.trim() : '';
+    if (actions?.employeeLoginEnterpriseCode && !enterpriseCode) return;
     actions?.onEmployeeLogin?.(
       typeof loginId === 'string' ? loginId : '',
       typeof password === 'string' ? password : '',
+      ...(enterpriseCode ? [enterpriseCode] : []),
     );
   };
   return (
@@ -33,6 +37,22 @@ export function EmployeeLoginFormRenderer({
           {getSignInErrorMessage(actions.authenticationError)}
         </Alert>
       ) : null}
+      <TextField
+        key={actions?.employeeLoginEnterpriseCode}
+        autoComplete="off"
+        defaultValue={actions?.employeeLoginEnterpriseCode ?? ''}
+        disabled={actions?.employeeLoginPending === true}
+        fullWidth
+        label={stringProperty(component, 'enterpriseLabel') || 'Enterprise code'}
+        name="enterpriseCode"
+        required={Boolean(actions?.employeeLoginEnterpriseCode)}
+        slotProps={{
+          htmlInput: {
+            maxLength: 128,
+            pattern: String.raw`[A-Za-z0-9][A-Za-z0-9._\-]{0,127}`,
+          },
+        }}
+      />
       <AuthenticationField
         autoComplete="username"
         id="axis-employee-login-id"

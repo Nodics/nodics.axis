@@ -332,6 +332,9 @@ export interface ApplicationApprovalDiagnostic {
 }
 
 interface ApplicationInitializationClientOptions {
+  readonly statusQueue?:
+    | { run<T>(key: string, read: () => Promise<T>, signal?: AbortSignal): Promise<T> }
+    | undefined;
   readonly connection: AxisModuleConnection;
   readonly enterpriseCode: string;
   readonly accessToken: string;
@@ -1370,6 +1373,7 @@ async function invoke(
     | undefined,
   fetchImplementation: typeof fetch,
   input: ApplicationInitializationInitiateInput = {},
+  signal?: AbortSignal,
 ): Promise<ApplicationInitializationStatus> {
   if (
     input.afterPublicationStepCode !== undefined &&
@@ -1386,6 +1390,9 @@ async function invoke(
     options.profileCode,
   )}/initialization${operation ? `/${operation}` : ''}`;
   const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal?.aborted) abort();
+  signal?.addEventListener('abort', abort, { once: true });
   const timeout = globalThis.setTimeout(
     () => controller.abort(),
     requestTimeoutMs(options, operation),
@@ -1429,6 +1436,7 @@ async function invoke(
     }
     return parse(await response.json());
   } catch (error: unknown) {
+    if (signal?.aborted) throw new DOMException('Status read canceled', 'AbortError');
     if (controller.signal.aborted) {
       throw new Error(
         operation
@@ -1440,6 +1448,7 @@ async function invoke(
       ? error
       : new Error('Application initialization request failed');
   } finally {
+    signal?.removeEventListener('abort', abort);
     globalThis.clearTimeout(timeout);
   }
 }
@@ -1449,7 +1458,14 @@ export function createApplicationInitializationClient(
   fetchImplementation: typeof fetch = fetch,
 ) {
   return Object.freeze({
-    getStatus: () => invoke(options, 'GET', undefined, fetchImplementation),
+    getStatus: (signal?: AbortSignal) =>
+      options.statusQueue
+        ? options.statusQueue.run(
+            options.profileCode,
+            () => invoke(options, 'GET', undefined, fetchImplementation, {}, signal),
+            signal,
+          )
+        : invoke(options, 'GET', undefined, fetchImplementation, {}, signal),
     initiate: (input?: ApplicationInitializationInitiateInput) =>
       invoke(options, 'POST', 'initiate', fetchImplementation, input),
     prepare: (input?: ApplicationInitializationOperationInput) =>

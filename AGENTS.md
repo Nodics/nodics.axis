@@ -184,6 +184,11 @@ frontend tests in this application. Backend API acceptance must never start or
 test this frontend. Container deployment is owned by [docker/README.md](docker/README.md).
 
 Applications dashboard observation reuses Setup's bounded readiness scheduler.
+Setup status transport consumes BackOffice's versioned
+`applicationReadinessScheduling` projection, with no frontend scheduling default.
+Initial, poll and manual GETs share one queue; priority must yield to oldest work.
+Keep queued/fetching evidence non-authoritative and cancel obsolete session work.
+See `src/operations/setupAccelerators/README.md` for deployment and live gates.
 Only active import/preparation/activation polls; stable and review-pending profiles
 remain explicitly refreshable. Never restore unconditional catalogue-wide polling
 or relax owner rate limits to accommodate documentation profile growth.
@@ -209,3 +214,8 @@ CMS-importable documentation belong to their backend documentation owners.
 Link to that canonical content rather than copying it here. Before retiring or
 moving guidance, preserve its technical detail and update all references;
 historical test statements are not current acceptance evidence.
+
+Coupon acquisition reporting uses the exact `COMMERCE/OPERATIONAL` registry owner
+pair in the descriptor, route admission and transport. Published offer `ONLINE`
+state does not change the runtime publication role. Preserve strict selection;
+never add an ONLINE fallback or relabel runtime configuration for this workspace.

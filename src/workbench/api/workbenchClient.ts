@@ -23,6 +23,8 @@ export interface WorkbenchClientConfiguration {
   readonly accessToken: string;
   readonly enterpriseCode: string;
   readonly timeoutMs: number;
+  /** Local owner adapter only; never populated from executable backend metadata. */
+  readonly ownerFetch?: typeof fetch;
 }
 
 export class WorkbenchRequestError extends Error {
@@ -191,7 +193,7 @@ async function request(
   );
   try {
     const callerHeaders = new Headers(options.headers);
-    const response = await fetchImplementation(
+    const response = await (configuration.ownerFetch ?? fetchImplementation)(
       new URL(`${endpoint.toString().replace(/\/$/, '')}/${apiVersion}${path}`),
       {
         ...options,

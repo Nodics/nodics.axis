@@ -87,7 +87,7 @@ function redemption(value: Redemption): Redemption {
   if (
     !value ||
     !Number.isSafeInteger(value.revision) ||
-    value.revision < 1 ||
+    value.revision < 0 ||
     !['MERCHANT_SCREEN', 'LOCAL_SAMPLE'].includes(value.mode)
   )
     throw new Error('Merchant request could not be confirmed.');

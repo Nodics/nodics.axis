@@ -19,9 +19,12 @@ describe('Axis workspace layout contract', () => {
       .filter((path) => !path.endsWith('/CmsRoutePage.tsx'))
       .filter((path) => {
         const source = readFileSync(path, 'utf8');
-        return !['<WorkspaceContainer', '<WorkbenchRoutePage', '<CmsRoutePage'].some(
-          (boundary) => source.includes(boundary),
-        );
+        return ![
+          '<WorkspaceContainer',
+          '<WorkbenchRoutePage',
+          '<ProductWorkbenchRoutePage',
+          '<CmsRoutePage',
+        ].some((boundary) => source.includes(boundary));
       })
       .map((path) => relative(process.cwd(), path));
 

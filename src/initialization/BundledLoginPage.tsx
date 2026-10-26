@@ -14,7 +14,12 @@ import { getSignInErrorMessage } from '../app/recoveryState';
 interface BundledLoginPageProps {
   readonly error?: string | undefined;
   readonly pending?: boolean;
-  readonly onLogin: (loginId: string, password: string) => void;
+  readonly enterpriseCode?: string;
+  readonly onLogin: (
+    loginId: string,
+    password: string,
+    enterpriseCode?: string,
+  ) => void;
 }
 
 /**
@@ -24,14 +29,20 @@ interface BundledLoginPageProps {
 export function BundledLoginPage({
   error,
   pending = false,
+  enterpriseCode,
   onLogin,
 }: BundledLoginPageProps) {
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
+  const [targetEnterprise, setTargetEnterprise] = useState(enterpriseCode ?? '');
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (!pending && loginId.trim() && password) onLogin(loginId.trim(), password);
+    if (!pending && loginId.trim() && password) {
+      if (targetEnterprise.trim())
+        onLogin(loginId.trim(), password, targetEnterprise.trim());
+      else if (!enterpriseCode) onLogin(loginId.trim(), password);
+    }
   };
 
   return (
@@ -64,6 +75,20 @@ export function BundledLoginPage({
           {error ? (
             <Alert severity="error">{getSignInErrorMessage(error)}</Alert>
           ) : null}
+          <TextField
+            autoComplete="off"
+            disabled={pending}
+            label="Enterprise code"
+            onChange={(event) => setTargetEnterprise(event.target.value)}
+            required={Boolean(enterpriseCode)}
+            slotProps={{
+              htmlInput: {
+                maxLength: 128,
+                pattern: String.raw`[A-Za-z0-9][A-Za-z0-9._\-]{0,127}`,
+              },
+            }}
+            value={targetEnterprise}
+          />
           <TextField
             autoComplete="username"
             autoFocus

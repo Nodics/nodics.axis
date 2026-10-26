@@ -36,7 +36,10 @@ export async function invokeOperationalOwner<T>(
   path: string,
   body?: unknown,
   method?: 'GET' | 'POST' | 'PATCH',
-  options: { readonly idempotencyKey?: string } = {},
+  options: {
+    readonly idempotencyKey?: string;
+    readonly signal?: AbortSignal | undefined;
+  } = {},
 ): Promise<T> {
   if (
     options.idempotencyKey !== undefined &&
@@ -57,6 +60,9 @@ export async function invokeOperationalOwner<T>(
     throw new Error('The owning service endpoint is invalid.');
   const controller = new AbortController(),
     timer = globalThis.setTimeout(() => controller.abort(), configuration.timeoutMs);
+  const abort = () => controller.abort();
+  options.signal?.addEventListener('abort', abort, { once: true });
+  if (options.signal?.aborted) controller.abort();
   try {
     const response = await fetch(url, {
       method: method || (body === undefined ? 'GET' : 'POST'),
@@ -83,6 +89,7 @@ export async function invokeOperationalOwner<T>(
       );
     return unwrap(envelope) as T;
   } finally {
+    options.signal?.removeEventListener('abort', abort);
     globalThis.clearTimeout(timer);
   }
 }

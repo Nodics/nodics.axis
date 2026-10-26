@@ -4,6 +4,14 @@ Axis renders effective backend schema descriptors and CMS presentation copy.
 Module discovery, permissions, validation, reference identity, versioning and
 publication remain owned by the connected Nodics services.
 
+Locally implemented owner adapters may supply `ownerTransport` to reuse these
+forms with bounded owner commands. This is executable frontend code, never a
+bootstrap-supplied function. It must preserve signed headers, validate the owner
+envelope, reject unsupported routes without fallback, and supply a target-specific
+cache key. Advertised capability/create/update commands may explicitly use POST.
+See [Product Workbench](../operations/productManagement/README.md). Administrative
+target selection does not grant ordinary CRUD or publication authority.
+
 ## Business Editing
 
 Records open by default; Schema remains a separate inspection tab. Effective

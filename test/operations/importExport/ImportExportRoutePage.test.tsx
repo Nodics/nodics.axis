@@ -1,5 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { BrowserRouter } from 'react-router';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -192,59 +199,62 @@ const addressSchema = {
 };
 
 describe('ImportExportRoutePage', () => {
-  it('keeps an acknowledged install distinct from an unauthorized refresh and hides stale release state', async () => {
-    let installed = false;
-    const pendingRelease = {
-      ...currentRelease,
-      status: 'NOT_INSTALLED',
-      installedVersion: undefined,
-      destinationRole: 'WCMS_STAGED',
-    };
-    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
-      const url = fetchInputUrl(input);
-      if (url.endsWith('/core/install')) {
-        installed = true;
-        return Promise.resolve(
-          jsonResponse({
-            dataType: 'core',
-            tenant: 'default',
-            releases: [
-              { ...pendingRelease, status: 'CURRENT', installedVersion: '1.0.0' },
-            ],
-          }),
-        );
-      }
-      if (url.endsWith('/core'))
-        return Promise.resolve(
-          installed
-            ? new Response(JSON.stringify({ message: 'Expired stamp' }), {
-                status: 401,
-              })
-            : jsonResponse([pendingRelease]),
-        );
-      return Promise.resolve(jsonResponse([]));
-    });
-    renderPage();
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole('tab', { name: 'Core data' }));
-    const checkbox = await screen.findByRole('checkbox', { name: /Scheduled Jobs/ });
-    await user.click(checkbox);
-    await user.click(
-      screen.getByRole('button', { name: 'Install or update selected' }),
-    );
-    expect(
-      await screen.findByText(
-        /1 release\(s\) acknowledged by the Import owner\. Refreshed installation state is unverified/,
-      ),
-    ).toBeVisible();
-    expect(screen.queryByRole('heading', { name: 'Needs action' })).toBeNull();
-    expect(screen.queryByRole('checkbox', { name: /Scheduled Jobs/ })).toBeNull();
-    expect(
-      fetcher.mock.calls.filter(([input]) =>
-        fetchInputUrl(input).endsWith('/core/install'),
-      ),
-    ).toHaveLength(1);
-  });
+  it.each([401, 503])(
+    'keeps an acknowledged install distinct from a failed %s refresh and hides stale release state',
+    async (status) => {
+      let installed = false;
+      const pendingRelease = {
+        ...currentRelease,
+        status: 'NOT_INSTALLED',
+        installedVersion: undefined,
+        destinationRole: 'WCMS_STAGED',
+      };
+      const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+        const url = fetchInputUrl(input);
+        if (url.endsWith('/core/install')) {
+          installed = true;
+          return Promise.resolve(
+            jsonResponse({
+              dataType: 'core',
+              tenant: 'default',
+              releases: [
+                { ...pendingRelease, status: 'CURRENT', installedVersion: '1.0.0' },
+              ],
+            }),
+          );
+        }
+        if (url.endsWith('/core'))
+          return Promise.resolve(
+            installed
+              ? new Response(JSON.stringify({ message: 'Expired stamp' }), {
+                  status,
+                })
+              : jsonResponse([pendingRelease]),
+          );
+        return Promise.resolve(jsonResponse([]));
+      });
+      renderPage();
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole('tab', { name: 'Core data' }));
+      const checkbox = await screen.findByRole('checkbox', { name: /Scheduled Jobs/ });
+      await user.click(checkbox);
+      await user.click(
+        screen.getByRole('button', { name: 'Install or update selected' }),
+      );
+      expect(
+        await screen.findByText(
+          /1 release\(s\) acknowledged by the Import owner\. Refreshed installation state is unverified/,
+        ),
+      ).toBeVisible();
+      expect(screen.queryByRole('heading', { name: 'Needs action' })).toBeNull();
+      expect(screen.queryByRole('checkbox', { name: /Scheduled Jobs/ })).toBeNull();
+      expect(
+        fetcher.mock.calls.filter(([input]) =>
+          fetchInputUrl(input).endsWith('/core/install'),
+        ),
+      ).toHaveLength(1);
+    },
+  );
   it('does not substitute another run when an explicit target run is absent', async () => {
     window.history.replaceState(
       {},
@@ -588,6 +598,134 @@ describe('ImportExportRoutePage', () => {
       ],
     );
   });
+
+  it.each([
+    ['validate', false],
+    ['install', false],
+    ['validate', true],
+    ['install', true],
+  ] as const)(
+    'locks every guided command through %s and authoritative refresh (failure: %s)',
+    async (mode, fails) => {
+      const profile = {
+        profileCode: 'sharedFoundation',
+        label: 'Staged foundation',
+        description: 'Owner-defined foundation.',
+        completionMessage: 'Foundation ready.',
+        destinationRole: 'WCMS_STAGED',
+        status: 'ACTION_REQUIRED',
+        blocked: false,
+        steps: [
+          {
+            order: 1,
+            dataType: 'init',
+            releases: [
+              {
+                ...currentRelease,
+                status: 'NOT_INSTALLED',
+                installedVersion: undefined,
+              },
+            ],
+          },
+        ],
+      };
+      const ownerProfiles = [
+        profile,
+        { ...profile, label: 'Process foundation', destinationRole: 'PROCESS' },
+      ];
+      let finishCommand!: (response: Response) => void;
+      let finishProfiles!: () => void;
+      let finishCatalogue!: () => void;
+      const command = new Promise<Response>((resolve) => {
+        finishCommand = resolve;
+      });
+      const profileRefresh = new Promise<void>((resolve) => {
+        finishProfiles = resolve;
+      });
+      const catalogueRefresh = new Promise<void>((resolve) => {
+        finishCatalogue = resolve;
+      });
+      let refreshing = false;
+      let profileReads = 0;
+      let catalogueReads = 0;
+      const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+        const url = fetchInputUrl(input);
+        if (url.endsWith(`/sharedFoundation/${mode}`)) return command;
+        if (url.endsWith('/initialization-profiles')) {
+          if (refreshing) {
+            profileReads += 1;
+            return profileRefresh.then(() => jsonResponse(ownerProfiles));
+          }
+          return Promise.resolve(jsonResponse(ownerProfiles));
+        }
+        if (refreshing && /\/(init|core|sample)$/u.test(url)) {
+          catalogueReads += 1;
+          return catalogueRefresh.then(() => jsonResponse([]));
+        }
+        return Promise.resolve(jsonResponse([]));
+      });
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByText('Process foundation');
+      const caption = mode === 'validate' ? 'Validate plan' : 'Validate and initialize';
+      await user.click(screen.getAllByRole('button', { name: caption })[0]!);
+      const expectLocked = () => {
+        const buttons = screen.getAllByRole('button', {
+          name: /^(Validate plan|Validate and initialize|Validating\.\.\.|Initializing\.\.\.)$/u,
+        });
+        expect(buttons).toHaveLength(4);
+        buttons.forEach((button) => expect(button).toBeDisabled());
+        screen.getAllByRole('tab').forEach((tab) => expect(tab).toBeDisabled());
+        expect(
+          screen.getAllByRole('button', {
+            name: mode === 'validate' ? 'Validating...' : 'Initializing...',
+          }),
+        ).toHaveLength(1);
+      };
+      expectLocked();
+      fireEvent.click(screen.getAllByRole('button', { name: caption }).at(-1)!);
+      refreshing = true;
+      await act(async () => {
+        finishCommand(
+          fails
+            ? new Response(JSON.stringify({ message: 'Controlled profile failure' }), {
+                status: 503,
+                headers: { 'Content-Type': 'application/json' },
+              })
+            : jsonResponse({
+                profileCode: profile.profileCode,
+                mode: mode.toUpperCase(),
+                profile,
+              }),
+        );
+        await command;
+      });
+      await waitFor(() => {
+        expect(profileReads).toBeGreaterThan(0);
+        expect(catalogueReads).toBeGreaterThan(0);
+      });
+      expectLocked();
+      await act(async () => {
+        finishProfiles();
+        await profileRefresh;
+      });
+      expectLocked();
+      await act(async () => {
+        finishCatalogue();
+        await catalogueRefresh;
+      });
+      await waitFor(() => {
+        screen
+          .getAllByRole('button', { name: caption })
+          .forEach((button) => expect(button).toBeEnabled());
+        expect(screen.getByRole('tab', { name: 'History' })).toBeEnabled();
+      });
+      if (fails) expect(screen.getByText('Controlled profile failure')).toBeVisible();
+      expect(
+        fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST'),
+      ).toHaveLength(1);
+    },
+  );
 
   it('shows guided profile operation feedback only on the selected profile card', async () => {
     const pendingRelease = {
@@ -1014,6 +1152,71 @@ describe('ImportExportRoutePage', () => {
     );
   });
 
+  it('preserves pending operation evidence and refreshes owner state after a lost install response', async () => {
+    let finishInstall: ((response: Response) => void) | undefined;
+    let applied = false;
+    let installCalls = 0;
+    let postInstallReads = 0;
+    const updateRelease = {
+      ...currentRelease,
+      releaseCode: 'cronjob:core',
+      version: '1.1.0',
+      installedVersion: '1.0.0',
+      status: 'UPDATE_AVAILABLE',
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.endsWith('/core/install')) {
+        installCalls += 1;
+        return new Promise<Response>((resolve) => {
+          finishInstall = resolve;
+        });
+      }
+      if (url.endsWith('/core')) {
+        if (applied) postInstallReads += 1;
+        return Promise.resolve(
+          jsonResponse([
+            applied
+              ? { ...updateRelease, installedVersion: '1.1.0', status: 'CURRENT' }
+              : updateRelease,
+          ]),
+        );
+      }
+      return Promise.resolve(jsonResponse([]));
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole('tab', { name: 'Core data' }));
+    await user.click(
+      await screen.findByRole('checkbox', { name: 'Select all actionable releases' }),
+    );
+    await user.click(
+      screen.getByRole('button', { name: 'Install or update selected' }),
+    );
+    await waitFor(() => expect(finishInstall).toBeDefined());
+    expect(screen.getByRole('tab', { name: 'History' })).toBeDisabled();
+    expect(
+      screen.getByRole('checkbox', { name: 'Select Scheduled Jobs' }),
+    ).toBeDisabled();
+    applied = true;
+    act(() => {
+      finishInstall!(
+        new Response(JSON.stringify({ message: 'Import response lost' }), {
+          status: 504,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    });
+    expect(await screen.findByText('Import response lost')).toBeVisible();
+    expect(await screen.findByText('Version 1.1.0')).toBeVisible();
+    expect(postInstallReads).toBeGreaterThan(0);
+    expect(installCalls).toBe(1);
+    expect(screen.getByRole('tab', { name: 'History' })).toBeEnabled();
+    expect(
+      screen.getByRole('button', { name: 'Install or update selected' }),
+    ).toBeDisabled();
+  });
+
   it('shows selected data release operation errors inside the action footer', async () => {
     const updateRelease = {
       ...currentRelease,
@@ -1312,7 +1515,7 @@ describe('ImportExportRoutePage', () => {
     expect(
       screen.getByText(/Repair the owning module release descriptor/iu),
     ).toBeVisible();
-    expect(screen.getByText(/repair the source descriptor/iu)).toBeVisible();
+    expect(screen.queryByText('Preparation readiness')).not.toBeInTheDocument();
     expect(screen.getAllByText('Agora Customer Review Source')[0]).toBeVisible();
     expect(
       screen.getAllByText(/Publishable data must target a Staged runtime/iu)[0],

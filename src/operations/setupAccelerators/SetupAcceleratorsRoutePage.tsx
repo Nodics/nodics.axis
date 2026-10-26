@@ -4,6 +4,7 @@ import {
   useQueryClient,
   type Query,
 } from '@tanstack/react-query';
+import { createApplicationStatusQueue } from './api/applicationStatusQueue';
 import {
   Alert,
   Box,
@@ -140,6 +141,7 @@ function canApprove(status: ApplicationInitializationStatus | undefined): boolea
   return Boolean(
     status?.readiness === 'PUBLICATION_PENDING' &&
     status.publication?.state === 'PENDING_APPROVAL' &&
+    status.capability?.approvalDiagnostic?.status === 'WAITING_REVIEWER' &&
     status.publication.workflowRef,
   );
 }
@@ -356,6 +358,7 @@ function capabilityNeedsAction(
   profile: ApplicationInitializationProfile,
   status: ApplicationInitializationStatus | undefined,
 ): boolean {
+  if (!status) return false;
   const businessStatus = capabilityBusinessStatus(status);
   if (businessStatus) {
     return !['ONLINE', 'RETIRED'].includes(businessStatus);
@@ -927,6 +930,50 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
         .sort((left, right) => left.order - right.order),
     [props.bootstrap.applicationInitializationProfiles, focusedProfile],
   );
+  const readinessPolicy = props.bootstrap.applicationReadinessScheduling;
+  const contractVersion = readinessPolicy?.contractVersion;
+  const concurrency = readinessPolicy?.concurrency;
+  const priorityBurst = readinessPolicy?.priorityBurst;
+  // Bootstrap replaces DTO objects during registry refresh; only effective owner values retire work.
+  const readinessOwnerKey = JSON.stringify(
+    backofficeConnection
+      ? [
+          backofficeConnection.moduleName,
+          backofficeConnection.instanceId,
+          backofficeConnection.endpoint,
+          backofficeConnection.environment,
+          backofficeConnection.server,
+          backofficeConnection.runtimeRole?.code,
+          backofficeConnection.runtimeRole?.publication,
+          backofficeConnection.state,
+        ]
+      : null,
+  );
+  const statusQueue = useMemo(() => {
+    // A new authenticated owner scope gets a queue, never another scope's evidence.
+    void props.accessToken;
+    void props.runtime.enterpriseCode;
+    void readinessOwnerKey;
+    return createApplicationStatusQueue(
+      contractVersion === undefined ||
+        concurrency === undefined ||
+        priorityBurst === undefined
+        ? undefined
+        : { contractVersion, concurrency, priorityBurst },
+    );
+  }, [
+    props.accessToken,
+    props.runtime.enterpriseCode,
+    readinessOwnerKey,
+    contractVersion,
+    concurrency,
+    priorityBurst,
+  ]);
+  useEffect(() => {
+    statusQueue.activate();
+    return () => statusQueue.deactivate();
+  }, [statusQueue]);
+  useEffect(() => statusQueue.prefer(expandedProfile), [statusQueue, expandedProfile]);
   const clients = useMemo(() => {
     if (!backofficeConnection)
       return new Map<
@@ -942,6 +989,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
           accessToken: props.accessToken,
           timeoutMs: props.runtime.requestTimeoutMs,
           profileCode: profile.code,
+          statusQueue,
         }),
       ]),
     );
@@ -951,6 +999,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
     props.runtime.requestTimeoutMs,
     backofficeConnection,
     profiles,
+    statusQueue,
   ]);
   const polling = useMemo(
     () => ({ clients, started: new Map<string, number>() }),
@@ -969,11 +1018,11 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
       retry: false,
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
-      queryFn: () => {
+      queryFn: ({ signal }) => {
         const client = polling.clients.get(profile.code);
         if (!client)
           throw new Error('BackOffice application initialization is unavailable');
-        return client.getStatus();
+        return client.getStatus(signal);
       },
       refetchInterval: (
         query: Query<
@@ -1037,6 +1086,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
       const client = clients.get(profile.code);
       if (!client)
         throw new Error('BackOffice application initialization is unavailable');
+      statusQueue.prioritize(profile.code);
       const current = queryClient.getQueryState<ApplicationInitializationStatus>([
         ...queryRoot,
         profile.code,
@@ -1202,14 +1252,22 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
         setRepairConfirmation(undefined);
       }
       queryClient.setQueryData([...queryRoot, variables.profile.code], status);
+      statusQueue.prioritize(variables.profile.code);
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryRoot }),
+        queryClient.invalidateQueries({
+          queryKey: [...queryRoot, variables.profile.code],
+          exact: true,
+        }),
         props.onBootstrapRefresh?.(),
       ]);
     },
-    onError: async () => {
+    onError: async (_error, variables) => {
+      statusQueue.prioritize(variables.profile.code);
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryRoot }),
+        queryClient.invalidateQueries({
+          queryKey: [...queryRoot, variables.profile.code],
+          exact: true,
+        }),
         props.onBootstrapRefresh?.(),
       ]);
     },
@@ -1252,13 +1310,23 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
         readonly query: AcceleratorStatusQuery;
       } => Boolean(item),
     );
-  const readyCount = statuses.filter((item) =>
+  // Query availability is not business readiness, including during cached refresh.
+  const settledStatuses = statuses.filter(
+    (item) => item.query.isSuccess && !item.query.isFetching,
+  );
+  const loadingCount = statuses.filter(
+    (item) => item.query.isPending || item.query.isFetching,
+  ).length;
+  const unavailableCount = statuses.filter(
+    (item) => item.query.isError && !item.query.isFetching,
+  ).length;
+  const readyCount = settledStatuses.filter((item) =>
     capabilityIsOnline(item.query.data),
   ).length;
-  const pendingCount = statuses.filter((item) =>
+  const pendingCount = settledStatuses.filter((item) =>
     capabilityNeedsApproval(item.query.data),
   ).length;
-  const actionCount = statuses.filter((item) =>
+  const actionCount = settledStatuses.filter((item) =>
     capabilityNeedsAction(item.profile, item.query.data),
   ).length;
   const recoveryGuidance = statuses
@@ -1274,11 +1342,14 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
     .filter((item) => item.severity !== 'success')
     .sort((left, right) => left.priority - right.priority)
     .slice(0, 4);
-  const loading = queries.some((query) => query.isPending);
   const filteredStatuses = statuses.filter((item) => {
     if (filter === 'ALL') return true;
     if (filter === 'NEEDS_ACTION')
-      return capabilityNeedsAction(item.profile, item.query.data);
+      return (
+        item.query.isSuccess &&
+        !item.query.isFetching &&
+        capabilityNeedsAction(item.profile, item.query.data)
+      );
     return `category:${item.profile.category}` === filter;
   });
   const destructiveReasonIsValid = destructiveReason.trim().length >= 12;
@@ -1364,6 +1435,20 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                   value={pendingCount}
                 />
                 <SetupMetric color="info" label="Need attention" value={actionCount} />
+                {loadingCount > 0 ? (
+                  <SetupMetric
+                    color="info"
+                    label="Loading status"
+                    value={loadingCount}
+                  />
+                ) : null}
+                {unavailableCount > 0 ? (
+                  <SetupMetric
+                    color="warning"
+                    label="Status unavailable"
+                    value={unavailableCount}
+                  />
+                ) : null}
               </Box>
               <Stack
                 direction={{ xs: 'column', sm: 'row' }}
@@ -1527,954 +1612,968 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
             </CardContent>
           </Card>
         ) : null}
-        {loading ? (
-          <Stack sx={{ alignItems: 'center', py: 4 }}>
-            <CircularProgress aria-label="Loading setup accelerators" />
-          </Stack>
-        ) : (
-          <Card variant="outlined">
-            <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
-              <Stack divider={<Divider flexItem />} spacing={0}>
-                {statusGroups.map((group) => (
-                  <Box key={group.key}>
-                    <Box
-                      sx={{
-                        alignItems: { xs: 'stretch', sm: 'center' },
-                        bgcolor: 'action.hover',
-                        display: 'grid',
-                        gap: 0.5,
-                        gridTemplateColumns: { xs: '1fr', sm: 'minmax(0, 1fr) auto' },
-                        px: 2,
-                        py: 1,
-                      }}
+        <Card variant="outlined">
+          <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
+            <Stack divider={<Divider flexItem />} spacing={0}>
+              {statusGroups.map((group) => (
+                <Box key={group.key}>
+                  <Box
+                    sx={{
+                      alignItems: { xs: 'stretch', sm: 'center' },
+                      bgcolor: 'action.hover',
+                      display: 'grid',
+                      gap: 0.5,
+                      gridTemplateColumns: { xs: '1fr', sm: 'minmax(0, 1fr) auto' },
+                      px: 2,
+                      py: 1,
+                    }}
+                  >
+                    <Typography
+                      component="h3"
+                      sx={{ fontWeight: 800 }}
+                      variant="subtitle1"
                     >
-                      <Typography
-                        component="h3"
-                        sx={{ fontWeight: 800 }}
-                        variant="subtitle1"
-                      >
-                        {group.title}
-                      </Typography>
-                      <Typography
-                        color="text.secondary"
-                        sx={{ justifySelf: { sm: 'end' }, maxWidth: 760 }}
-                        variant="body2"
-                      >
-                        {group.description}
-                      </Typography>
-                    </Box>
-                    <Stack divider={<Divider flexItem />} spacing={0}>
-                      {group.items.map(({ profile, query }) => {
-                        const status = query.data;
-                        const guidance = publicationRecoveryGuidance(
-                          profile,
-                          status,
-                          props.bootstrap,
-                          observedImportFailure(profile.code, status),
-                        );
-                        const pending =
-                          mutation.isPending &&
-                          mutation.variables?.profile.code === profile.code;
-                        const commandsDisabled =
-                          mutation.isPending || query.isFetching || query.isError;
-                        const refreshDisabled =
-                          mutation.isPending ||
-                          query.isFetching ||
-                          Date.now() <
-                            applicationReadinessCooldownUntil(
-                              query.data,
-                              query.error,
-                              query.dataUpdatedAt,
-                            );
-                        const expanded = expandedProfile === profile.code;
-                        const selectionRequired =
-                          status?.preparation?.selectionRequired === true;
-                        const selectableSteps =
-                          status?.preparation?.steps.filter((step) =>
-                            status.preparation?.selectableStepCodes?.includes(
-                              step.code,
-                            ),
-                          ) ?? [];
-                        const choice =
-                          stageSelections?.clients === clients
-                            ? stageSelections.choices[profile.code]
-                            : undefined;
-                        const selectedStepCode =
-                          choice &&
-                          choice.status === status &&
-                          selectableSteps.some((step) => step.code === choice.code)
-                            ? choice.code
-                            : '';
-                        const canInitialize =
-                          Boolean(status?.allowedActions.includes('INITIALIZE')) &&
-                          (!preparationBlocked(status) || selectionRequired) &&
-                          status?.releaseStatus !== 'INVALID_RELEASE' &&
-                          status?.readiness !== 'IMPORTING' &&
-                          status?.preparation?.status !== 'RUNNING' &&
-                          status?.capability?.businessStatus !== 'PREPARING' &&
-                          status?.readiness !== 'PUBLICATION_PENDING';
-                        const rowMutationError =
-                          mutation.error instanceof Error &&
-                          mutation.variables?.profile.code === profile.code &&
-                          !(
-                            query.dataUpdatedAt >
-                              (mutation.context?.statusUpdatedAt ?? Infinity) &&
-                            operationConfirmed(
-                              status,
-                              mutation.variables?.status,
-                              mutation.variables?.operation,
-                            )
+                      {group.title}
+                    </Typography>
+                    <Typography
+                      color="text.secondary"
+                      sx={{ justifySelf: { sm: 'end' }, maxWidth: 760 }}
+                      variant="body2"
+                    >
+                      {group.description}
+                    </Typography>
+                  </Box>
+                  <Stack divider={<Divider flexItem />} spacing={0}>
+                    {group.items.map(({ profile, query }) => {
+                      const status = query.data;
+                      const guidance = publicationRecoveryGuidance(
+                        profile,
+                        status,
+                        props.bootstrap,
+                        observedImportFailure(profile.code, status),
+                      );
+                      const pending =
+                        mutation.isPending &&
+                        mutation.variables?.profile.code === profile.code;
+                      const commandsDisabled =
+                        mutation.isPending ||
+                        query.isPending ||
+                        query.isFetching ||
+                        query.isError;
+                      const refreshDisabled =
+                        mutation.isPending ||
+                        query.isFetching ||
+                        Date.now() <
+                          applicationReadinessCooldownUntil(
+                            query.data,
+                            query.error,
+                            query.dataUpdatedAt,
+                          );
+                      const expanded = expandedProfile === profile.code;
+                      const selectionRequired =
+                        status?.preparation?.selectionRequired === true;
+                      const selectableSteps =
+                        status?.preparation?.steps.filter((step) =>
+                          status.preparation?.selectableStepCodes?.includes(step.code),
+                        ) ?? [];
+                      const choice =
+                        stageSelections?.clients === clients
+                          ? stageSelections.choices[profile.code]
+                          : undefined;
+                      const selectedStepCode =
+                        choice &&
+                        choice.status === status &&
+                        selectableSteps.some((step) => step.code === choice.code)
+                          ? choice.code
+                          : '';
+                      const canInitialize =
+                        Boolean(status?.allowedActions.includes('INITIALIZE')) &&
+                        (!preparationBlocked(status) || selectionRequired) &&
+                        status?.releaseStatus !== 'INVALID_RELEASE' &&
+                        status?.readiness !== 'IMPORTING' &&
+                        status?.preparation?.status !== 'RUNNING' &&
+                        status?.capability?.businessStatus !== 'PREPARING' &&
+                        status?.readiness !== 'PUBLICATION_PENDING';
+                      const rowMutationError =
+                        mutation.error instanceof Error &&
+                        mutation.variables?.profile.code === profile.code &&
+                        !(
+                          query.dataUpdatedAt >
+                            (mutation.context?.statusUpdatedAt ?? Infinity) &&
+                          operationConfirmed(
+                            status,
+                            mutation.variables?.status,
+                            mutation.variables?.operation,
                           )
-                            ? mutation.error.message
-                            : undefined;
-                        const assetApprovalsPending =
-                          status?.readiness === 'MEDIA_DEPENDENCIES_PENDING';
-                        const approvalActionsVisible = Boolean(
-                          canApprove(status) ||
-                          (assetApprovalsPending &&
-                            mediaConnection &&
-                            processConnection &&
-                            status?.mediaDependencies?.dependencies.length),
-                        );
-                        const executableRepair = firstExecutableRepair(status);
-                        const readinessRefresh = status?.capability?.blockers.find(
-                          supportsReadinessRefresh,
-                        );
-                        const executableRepairOperation =
-                          supportedRepairOperation(executableRepair);
-                        const lifecycleActionCount = [
-                          status?.allowedActions.includes('ROLLBACK'),
-                          status?.allowedActions.includes('RETIRE'),
-                        ].filter(Boolean).length;
-                        const actionColumns = approvalActionsVisible
-                          ? '148px 128px 112px 40px 40px'
-                          : lifecycleActionCount > 1
-                            ? '148px 112px 112px 40px 40px'
-                            : lifecycleActionCount > 0
-                              ? '148px 112px 40px 40px'
-                              : '148px 40px 40px';
-                        return (
-                          <Box key={profile.code} sx={{ px: 2, py: 1.5 }}>
-                            <Box
-                              sx={{
-                                alignItems: { xs: 'stretch', md: 'center' },
-                                display: 'grid',
-                                gap: { xs: 1.25, md: 2 },
-                                gridTemplateColumns: {
-                                  xs: '1fr',
-                                  md: 'minmax(260px, 0.9fr) minmax(300px, 1fr) minmax(460px, auto)',
-                                  xl: 'minmax(340px, 1fr) minmax(360px, 0.95fr) minmax(480px, auto)',
-                                },
-                                minHeight: 72,
-                              }}
-                            >
-                              <Box sx={{ minWidth: 0 }}>
-                                <Typography
-                                  component="h4"
-                                  noWrap
-                                  sx={{ lineHeight: 1.15 }}
-                                  title={displayProfileTitle(profile)}
-                                  variant="h6"
-                                >
-                                  {displayProfileTitle(profile)}
+                        )
+                          ? mutation.error.message
+                          : undefined;
+                      const assetApprovalsPending =
+                        status?.readiness === 'MEDIA_DEPENDENCIES_PENDING';
+                      const approvalActionsVisible = Boolean(
+                        canApprove(status) ||
+                        (assetApprovalsPending &&
+                          mediaConnection &&
+                          processConnection &&
+                          status?.mediaDependencies?.dependencies.length),
+                      );
+                      const executableRepair = firstExecutableRepair(status);
+                      const readinessRefresh = status?.capability?.blockers.find(
+                        supportsReadinessRefresh,
+                      );
+                      const executableRepairOperation =
+                        supportedRepairOperation(executableRepair);
+                      const lifecycleActionCount = [
+                        status?.allowedActions.includes('ROLLBACK'),
+                        status?.allowedActions.includes('RETIRE'),
+                      ].filter(Boolean).length;
+                      const actionColumns = approvalActionsVisible
+                        ? '148px 128px 112px 40px 40px'
+                        : lifecycleActionCount > 1
+                          ? '148px 112px 112px 40px 40px'
+                          : lifecycleActionCount > 0
+                            ? '148px 112px 40px 40px'
+                            : '148px 40px 40px';
+                      return (
+                        <Box key={profile.code} sx={{ px: 2, py: 1.5 }}>
+                          <Box
+                            sx={{
+                              alignItems: { xs: 'stretch', md: 'center' },
+                              display: 'grid',
+                              gap: { xs: 1.25, md: 2 },
+                              gridTemplateColumns: {
+                                xs: '1fr',
+                                md: 'minmax(260px, 0.9fr) minmax(300px, 1fr) minmax(460px, auto)',
+                                xl: 'minmax(340px, 1fr) minmax(360px, 0.95fr) minmax(480px, auto)',
+                              },
+                              minHeight: 72,
+                            }}
+                          >
+                            <Box sx={{ minWidth: 0 }}>
+                              {query.isFetching && status ? (
+                                <CircularProgress
+                                  aria-label={`Refreshing ${profile.title} status`}
+                                  size={16}
+                                />
+                              ) : null}
+                              <Typography
+                                component="h4"
+                                noWrap
+                                sx={{ lineHeight: 1.15 }}
+                                title={displayProfileTitle(profile)}
+                                variant="h6"
+                              >
+                                {displayProfileTitle(profile)}
+                              </Typography>
+                              <Typography
+                                color="text.secondary"
+                                sx={{
+                                  display: '-webkit-box',
+                                  maxWidth: 520,
+                                  overflow: 'hidden',
+                                  WebkitBoxOrient: 'vertical',
+                                  WebkitLineClamp: 2,
+                                }}
+                                title={profile.summary}
+                                variant="body2"
+                              >
+                                {profile.summary}
+                              </Typography>
+                            </Box>
+                            {query.isPending ? (
+                              <Stack
+                                direction="row"
+                                spacing={1}
+                                sx={{ alignItems: 'center' }}
+                              >
+                                <CircularProgress
+                                  aria-label={`Loading ${profile.title} status`}
+                                  size={20}
+                                />
+                                <Typography color="text.secondary" variant="body2">
+                                  Loading status...
                                 </Typography>
-                                <Typography
-                                  color="text.secondary"
+                              </Stack>
+                            ) : query.error instanceof Error ? (
+                              <Alert severity="error">
+                                {profileErrorMessage(profile, query.error.message)}
+                              </Alert>
+                            ) : status ? (
+                              <Stack
+                                spacing={0.75}
+                                sx={{ alignItems: 'stretch', minWidth: 0 }}
+                              >
+                                <Box
                                   sx={{
-                                    display: '-webkit-box',
-                                    maxWidth: 520,
-                                    overflow: 'hidden',
-                                    WebkitBoxOrient: 'vertical',
-                                    WebkitLineClamp: 2,
+                                    alignItems: 'center',
+                                    display: 'flex',
+                                    flexWrap: 'wrap',
+                                    gap: 0.75,
+                                    minWidth: 0,
                                   }}
-                                  title={profile.summary}
+                                >
+                                  <SetupStatusChip
+                                    color={capabilityStatusColor(status)}
+                                    label={capabilityStatusLabel(status)}
+                                  />
+                                  <SetupStatusChip
+                                    color={releaseStatusColor(status.releaseStatus)}
+                                    label={releaseStatusLabel(status.releaseStatus)}
+                                    variant="outlined"
+                                  />
+                                </Box>
+                                <Typography
+                                  color={
+                                    status.readiness === 'FAILED' ||
+                                    status.readiness === 'REJECTED' ||
+                                    status.capability?.businessStatus ===
+                                      'NEEDS_ATTENTION' ||
+                                    status.releaseStatus === 'INVALID_RELEASE'
+                                      ? 'error'
+                                      : 'text.secondary'
+                                  }
+                                  sx={{ maxWidth: 480 }}
                                   variant="body2"
                                 >
-                                  {profile.summary}
+                                  {guidance.key.endsWith(':import-failed')
+                                    ? 'Review import history'
+                                    : nextActionText(status)}
                                 </Typography>
-                              </Box>
-                              {query.error instanceof Error ? (
-                                <Alert severity="error">
-                                  {profileErrorMessage(profile, query.error.message)}
-                                </Alert>
-                              ) : status ? (
                                 <Stack
+                                  direction="row"
                                   spacing={0.75}
-                                  sx={{ alignItems: 'stretch', minWidth: 0 }}
+                                  sx={{ alignItems: 'center', flexWrap: 'wrap' }}
                                 >
-                                  <Box
+                                  <Chip
+                                    color={guidance.severity}
+                                    label={rowGuidanceLabel(guidance)}
+                                    size="small"
+                                    variant="outlined"
+                                  />
+                                  <Typography
+                                    color="text.secondary"
                                     sx={{
-                                      alignItems: 'center',
-                                      display: 'flex',
-                                      flexWrap: 'wrap',
-                                      gap: 0.75,
-                                      minWidth: 0,
+                                      maxWidth: 480,
+                                      overflowWrap: 'anywhere',
+                                    }}
+                                    variant="caption"
+                                  >
+                                    {guidance.actionLabel}: {guidance.body}
+                                  </Typography>
+                                </Stack>
+                                {selectionRequired ? (
+                                  <TextField
+                                    disabled={
+                                      commandsDisabled ||
+                                      !canInitialize ||
+                                      !selectableSteps.length
+                                    }
+                                    label="Setup stage"
+                                    onChange={(event) =>
+                                      setStageSelections((previous) => ({
+                                        clients,
+                                        choices: {
+                                          ...(previous?.clients === clients
+                                            ? previous.choices
+                                            : {}),
+                                          [profile.code]: {
+                                            code: event.target.value,
+                                            status,
+                                          },
+                                        },
+                                      }))
+                                    }
+                                    select
+                                    size="small"
+                                    sx={{ maxWidth: 480, width: '100%' }}
+                                    value={selectedStepCode}
+                                  >
+                                    <MenuItem value="">Select setup stage</MenuItem>
+                                    {selectableSteps.map((step) => (
+                                      <MenuItem
+                                        key={step.code}
+                                        value={step.code}
+                                        sx={{
+                                          whiteSpace: 'normal',
+                                          overflowWrap: 'anywhere',
+                                        }}
+                                      >
+                                        {step.label || step.description || step.kind} (
+                                        {step.code})
+                                      </MenuItem>
+                                    ))}
+                                  </TextField>
+                                ) : null}
+                              </Stack>
+                            ) : (
+                              <Alert severity="warning">
+                                Profile status is unavailable.
+                              </Alert>
+                            )}
+                            <Box
+                              sx={{
+                                alignItems: 'center',
+                                alignSelf: 'center',
+                                display: { xs: 'flex', md: 'grid' },
+                                flexWrap: { xs: 'wrap', md: 'nowrap' },
+                                gap: 1,
+                                gridTemplateColumns: {
+                                  md: actionColumns,
+                                },
+                                justifyContent: { xs: 'flex-start', md: 'flex-end' },
+                                justifySelf: { md: 'end' },
+                                minWidth: 0,
+                                pb: { xs: 0.25, md: 0 },
+                                pt: 0.25,
+                                width: { xs: '100%', md: 'auto' },
+                              }}
+                            >
+                              {guidance.key.endsWith(':import-failed') ? (
+                                <Button
+                                  disabled={!guidance.route}
+                                  onClick={() => void navigate(guidance.route)}
+                                  startIcon={<ShellIcon name="history" />}
+                                  variant="contained"
+                                >
+                                  Review import history
+                                </Button>
+                              ) : status &&
+                                executableRepair &&
+                                executableRepairOperation ? (
+                                <Button
+                                  color="warning"
+                                  disabled={commandsDisabled}
+                                  onClick={() =>
+                                    executableRepair.repair?.requiresConfirmation
+                                      ? setRepairConfirmation({
+                                          blocker: executableRepair,
+                                          operation: executableRepairOperation,
+                                          profile,
+                                          status,
+                                        })
+                                      : mutation.mutate({
+                                          operation: executableRepairOperation,
+                                          profile,
+                                          status,
+                                        })
+                                  }
+                                  size="small"
+                                  startIcon={
+                                    <ShellIcon fontSize="small" name="operations" />
+                                  }
+                                  sx={{
+                                    minHeight: 40,
+                                    minWidth: 148,
+                                    whiteSpace: 'nowrap',
+                                    width: '100%',
+                                  }}
+                                  variant="contained"
+                                >
+                                  {pending &&
+                                  mutation.variables?.operation ===
+                                    executableRepairOperation
+                                    ? 'Repairing...'
+                                    : (executableRepair.repair?.label ??
+                                      operationLabel(executableRepairOperation))}
+                                </Button>
+                              ) : status && canInitialize ? (
+                                <Button
+                                  disabled={
+                                    commandsDisabled ||
+                                    (selectionRequired && !selectedStepCode)
+                                  }
+                                  onClick={() =>
+                                    mutation.mutate({
+                                      operation: 'initiate',
+                                      profile,
+                                      status,
+                                      afterPublicationStepCode: selectionRequired
+                                        ? selectedStepCode
+                                        : undefined,
+                                    })
+                                  }
+                                  size="small"
+                                  sx={{
+                                    minHeight: 40,
+                                    minWidth: 132,
+                                    whiteSpace: 'nowrap',
+                                    width: '100%',
+                                  }}
+                                  variant="contained"
+                                >
+                                  {pending &&
+                                  mutation.variables?.operation === 'initiate'
+                                    ? 'Working...'
+                                    : setupActionLabel(status)}
+                                </Button>
+                              ) : readinessRefresh ? (
+                                <Button
+                                  disabled={refreshDisabled}
+                                  onClick={() => {
+                                    statusQueue.prioritize(profile.code);
+                                    void query.refetch();
+                                  }}
+                                  startIcon={<ShellIcon name="refresh" />}
+                                  variant="contained"
+                                >
+                                  {readinessRefresh.repair?.label}
+                                </Button>
+                              ) : status &&
+                                preparationBlocked(status) &&
+                                !selectionRequired ? (
+                                <Button
+                                  disabled={commandsDisabled}
+                                  onClick={() => void navigate('/registry')}
+                                  size="small"
+                                  sx={{
+                                    minHeight: 40,
+                                    minWidth: 148,
+                                    whiteSpace: 'nowrap',
+                                    width: '100%',
+                                  }}
+                                  variant="outlined"
+                                >
+                                  Module Registry
+                                </Button>
+                              ) : (
+                                <Box
+                                  aria-hidden="true"
+                                  sx={{
+                                    display: { xs: 'none', md: 'block' },
+                                    visibility: 'hidden',
+                                    width: 148,
+                                  }}
+                                />
+                              )}
+                              {approvalActionsVisible && status ? (
+                                <Button
+                                  disabled={commandsDisabled}
+                                  onClick={() =>
+                                    mutation.mutate({
+                                      operation: 'approve',
+                                      profile,
+                                      status,
+                                    })
+                                  }
+                                  size="small"
+                                  startIcon={
+                                    <ShellIcon fontSize="small" name="approve" />
+                                  }
+                                  sx={{
+                                    minHeight: 40,
+                                    minWidth: 116,
+                                    whiteSpace: assetApprovalsPending
+                                      ? 'normal'
+                                      : 'nowrap',
+                                    width: '100%',
+                                  }}
+                                  variant="contained"
+                                >
+                                  {pending &&
+                                  mutation.variables?.operation === 'approve'
+                                    ? 'Approving...'
+                                    : assetApprovalsPending
+                                      ? 'Complete asset approvals'
+                                      : 'Approve'}
+                                </Button>
+                              ) : approvalActionsVisible ? (
+                                <Box
+                                  aria-hidden="true"
+                                  sx={{
+                                    display: { xs: 'none', md: 'block' },
+                                    visibility: 'hidden',
+                                    width: 128,
+                                  }}
+                                />
+                              ) : null}
+                              {approvalActionsVisible && status ? (
+                                <Button
+                                  color="warning"
+                                  disabled={commandsDisabled || assetApprovalsPending}
+                                  onClick={() =>
+                                    mutation.mutate({
+                                      operation: 'reject',
+                                      profile,
+                                      status,
+                                    })
+                                  }
+                                  size="small"
+                                  sx={{
+                                    minHeight: 40,
+                                    minWidth: 96,
+                                    whiteSpace: 'nowrap',
+                                    width: '100%',
+                                  }}
+                                  variant="outlined"
+                                >
+                                  {pending && mutation.variables?.operation === 'reject'
+                                    ? 'Rejecting...'
+                                    : 'Reject'}
+                                </Button>
+                              ) : approvalActionsVisible ? (
+                                <Box
+                                  aria-hidden="true"
+                                  sx={{
+                                    display: { xs: 'none', md: 'block' },
+                                    visibility: 'hidden',
+                                    width: 112,
+                                  }}
+                                />
+                              ) : null}
+                              {status?.allowedActions.includes('ROLLBACK') ? (
+                                <Button
+                                  color="warning"
+                                  disabled={commandsDisabled}
+                                  onClick={() => {
+                                    setDestructiveReason(
+                                      `${profile.title} rollback requested after Online evidence review.`,
+                                    );
+                                    setDestructiveConfirmation({
+                                      operation: 'rollback',
+                                      profile,
+                                      status,
+                                    });
+                                  }}
+                                  size="small"
+                                  sx={{
+                                    minHeight: 40,
+                                    minWidth: 96,
+                                    whiteSpace: 'nowrap',
+                                    width: '100%',
+                                  }}
+                                  variant="outlined"
+                                >
+                                  {operationLabel('rollback')}
+                                </Button>
+                              ) : null}
+                              {status?.allowedActions.includes('RETIRE') ? (
+                                <Button
+                                  color="warning"
+                                  disabled={commandsDisabled}
+                                  onClick={() => {
+                                    setDestructiveReason(
+                                      `${profile.title} retirement requested after Online evidence review.`,
+                                    );
+                                    setDestructiveConfirmation({
+                                      operation: 'retire',
+                                      profile,
+                                      status,
+                                    });
+                                  }}
+                                  size="small"
+                                  sx={{
+                                    minHeight: 40,
+                                    minWidth: 96,
+                                    whiteSpace: 'nowrap',
+                                    width: '100%',
+                                  }}
+                                  variant="outlined"
+                                >
+                                  {operationLabel('retire')}
+                                </Button>
+                              ) : null}
+                              <RowIconAction
+                                disabled={refreshDisabled}
+                                label={`Refresh ${profile.title} status`}
+                                name="refresh"
+                                onClick={() => {
+                                  statusQueue.prioritize(profile.code);
+                                  void query.refetch();
+                                }}
+                              />
+                              <Tooltip
+                                arrow
+                                title={`${expanded ? 'Hide' : 'Show'} ${profile.title} details`}
+                              >
+                                <span>
+                                  <IconButton
+                                    aria-expanded={expanded}
+                                    aria-label={`${expanded ? 'Hide' : 'Show'} ${profile.title} details`}
+                                    onClick={() =>
+                                      setExpandedProfile(
+                                        expanded ? undefined : profile.code,
+                                      )
+                                    }
+                                    size="small"
+                                    sx={{
+                                      border: 1,
+                                      borderColor: 'divider',
+                                      height: 36,
+                                      width: 36,
                                     }}
                                   >
-                                    <SetupStatusChip
-                                      color={capabilityStatusColor(status)}
-                                      label={capabilityStatusLabel(status)}
+                                    <ShellIcon
+                                      fontSize="small"
+                                      name={expanded ? 'chevron-up' : 'chevron-down'}
                                     />
-                                    <SetupStatusChip
-                                      color={releaseStatusColor(status.releaseStatus)}
-                                      label={releaseStatusLabel(status.releaseStatus)}
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+                            </Box>
+                          </Box>
+                          {rowMutationError ? (
+                            <Alert severity="error" sx={{ mt: 1.5 }}>
+                              {profileErrorMessage(profile, rowMutationError)}
+                            </Alert>
+                          ) : null}
+                          {expanded && !status ? (
+                            <Alert
+                              severity={query.isError ? 'error' : 'info'}
+                              sx={{ mt: 1.5 }}
+                            >
+                              {query.isError
+                                ? 'Dependency details are unavailable because the owning status read failed. Refresh status to inspect the prerequisites.'
+                                : 'Dependency details are loading.'}
+                            </Alert>
+                          ) : null}
+                          {expanded && status ? (
+                            <Box
+                              sx={{
+                                bgcolor: 'action.hover',
+                                borderRadius: 1,
+                                mt: 1.5,
+                                p: 1.5,
+                              }}
+                            >
+                              <Stack spacing={1.25}>
+                                <Stack
+                                  direction="row"
+                                  spacing={1}
+                                  sx={{ flexWrap: 'wrap' }}
+                                >
+                                  <Chip
+                                    label={conciseReleaseLabel(profile, status)}
+                                    size="small"
+                                    variant="outlined"
+                                  />
+                                  <Chip
+                                    label={profilePublishChannel(profile)}
+                                    size="small"
+                                    variant="outlined"
+                                  />
+                                  <Chip
+                                    label={`${status.applicationCode} · ${status.siteCode}`}
+                                    size="small"
+                                    variant="outlined"
+                                  />
+                                  <Chip
+                                    label={status.owner}
+                                    size="small"
+                                    variant="outlined"
+                                  />
+                                  {status.capability ? (
+                                    <Chip
+                                      label={`${status.capability.group} · ${status.capability.capabilityType}`}
+                                      size="small"
                                       variant="outlined"
                                     />
-                                  </Box>
-                                  <Typography
-                                    color={
-                                      status.readiness === 'FAILED' ||
-                                      status.readiness === 'REJECTED' ||
-                                      status.capability?.businessStatus ===
-                                        'NEEDS_ATTENTION' ||
-                                      status.releaseStatus === 'INVALID_RELEASE'
-                                        ? 'error'
-                                        : 'text.secondary'
-                                    }
-                                    sx={{ maxWidth: 480 }}
-                                    variant="body2"
-                                  >
-                                    {guidance.key.endsWith(':import-failed')
-                                      ? 'Review import history'
-                                      : nextActionText(status)}
+                                  ) : null}
+                                  <Chip
+                                    label={`Online approval ${
+                                      profile.activationPolicy.approvalRequiredForOnline
+                                        ? 'required'
+                                        : 'not required'
+                                    }`}
+                                    size="small"
+                                    variant="outlined"
+                                  />
+                                </Stack>
+                                <Box>
+                                  <Typography color="text.secondary" variant="caption">
+                                    Required runtime
                                   </Typography>
                                   <Stack
                                     direction="row"
                                     spacing={0.75}
-                                    sx={{ alignItems: 'center', flexWrap: 'wrap' }}
-                                  >
-                                    <Chip
-                                      color={guidance.severity}
-                                      label={rowGuidanceLabel(guidance)}
-                                      size="small"
-                                      variant="outlined"
-                                    />
-                                    <Typography
-                                      color="text.secondary"
-                                      sx={{
-                                        maxWidth: 480,
-                                        overflowWrap: 'anywhere',
-                                      }}
-                                      variant="caption"
-                                    >
-                                      {guidance.actionLabel}: {guidance.body}
-                                    </Typography>
-                                  </Stack>
-                                  {selectionRequired ? (
-                                    <TextField
-                                      disabled={
-                                        commandsDisabled ||
-                                        !canInitialize ||
-                                        !selectableSteps.length
-                                      }
-                                      label="Setup stage"
-                                      onChange={(event) =>
-                                        setStageSelections((previous) => ({
-                                          clients,
-                                          choices: {
-                                            ...(previous?.clients === clients
-                                              ? previous.choices
-                                              : {}),
-                                            [profile.code]: {
-                                              code: event.target.value,
-                                              status,
-                                            },
-                                          },
-                                        }))
-                                      }
-                                      select
-                                      size="small"
-                                      sx={{ maxWidth: 480, width: '100%' }}
-                                      value={selectedStepCode}
-                                    >
-                                      <MenuItem value="">Select setup stage</MenuItem>
-                                      {selectableSteps.map((step) => (
-                                        <MenuItem
-                                          key={step.code}
-                                          value={step.code}
-                                          sx={{
-                                            whiteSpace: 'normal',
-                                            overflowWrap: 'anywhere',
-                                          }}
-                                        >
-                                          {step.label || step.description || step.kind}{' '}
-                                          ({step.code})
-                                        </MenuItem>
-                                      ))}
-                                    </TextField>
-                                  ) : null}
-                                </Stack>
-                              ) : (
-                                <Alert severity="warning">
-                                  Profile status is unavailable.
-                                </Alert>
-                              )}
-                              <Box
-                                sx={{
-                                  alignItems: 'center',
-                                  alignSelf: 'center',
-                                  display: { xs: 'flex', md: 'grid' },
-                                  flexWrap: { xs: 'wrap', md: 'nowrap' },
-                                  gap: 1,
-                                  gridTemplateColumns: {
-                                    md: actionColumns,
-                                  },
-                                  justifyContent: { xs: 'flex-start', md: 'flex-end' },
-                                  justifySelf: { md: 'end' },
-                                  minWidth: 0,
-                                  pb: { xs: 0.25, md: 0 },
-                                  pt: 0.25,
-                                  width: { xs: '100%', md: 'auto' },
-                                }}
-                              >
-                                {guidance.key.endsWith(':import-failed') ? (
-                                  <Button
-                                    disabled={!guidance.route}
-                                    onClick={() => void navigate(guidance.route)}
-                                    startIcon={<ShellIcon name="history" />}
-                                    variant="contained"
-                                  >
-                                    Review import history
-                                  </Button>
-                                ) : status &&
-                                  executableRepair &&
-                                  executableRepairOperation ? (
-                                  <Button
-                                    color="warning"
-                                    disabled={commandsDisabled}
-                                    onClick={() =>
-                                      executableRepair.repair?.requiresConfirmation
-                                        ? setRepairConfirmation({
-                                            blocker: executableRepair,
-                                            operation: executableRepairOperation,
-                                            profile,
-                                            status,
-                                          })
-                                        : mutation.mutate({
-                                            operation: executableRepairOperation,
-                                            profile,
-                                            status,
-                                          })
-                                    }
-                                    size="small"
-                                    startIcon={
-                                      <ShellIcon fontSize="small" name="operations" />
-                                    }
-                                    sx={{
-                                      minHeight: 40,
-                                      minWidth: 148,
-                                      whiteSpace: 'nowrap',
-                                      width: '100%',
-                                    }}
-                                    variant="contained"
-                                  >
-                                    {pending &&
-                                    mutation.variables?.operation ===
-                                      executableRepairOperation
-                                      ? 'Repairing...'
-                                      : (executableRepair.repair?.label ??
-                                        operationLabel(executableRepairOperation))}
-                                  </Button>
-                                ) : status && canInitialize ? (
-                                  <Button
-                                    disabled={
-                                      commandsDisabled ||
-                                      (selectionRequired && !selectedStepCode)
-                                    }
-                                    onClick={() =>
-                                      mutation.mutate({
-                                        operation: 'initiate',
-                                        profile,
-                                        status,
-                                        afterPublicationStepCode: selectionRequired
-                                          ? selectedStepCode
-                                          : undefined,
-                                      })
-                                    }
-                                    size="small"
-                                    sx={{
-                                      minHeight: 40,
-                                      minWidth: 132,
-                                      whiteSpace: 'nowrap',
-                                      width: '100%',
-                                    }}
-                                    variant="contained"
-                                  >
-                                    {pending &&
-                                    mutation.variables?.operation === 'initiate'
-                                      ? 'Working...'
-                                      : setupActionLabel(status)}
-                                  </Button>
-                                ) : readinessRefresh ? (
-                                  <Button
-                                    disabled={refreshDisabled}
-                                    onClick={() => void query.refetch()}
-                                    startIcon={<ShellIcon name="refresh" />}
-                                    variant="contained"
-                                  >
-                                    {readinessRefresh.repair?.label}
-                                  </Button>
-                                ) : status &&
-                                  preparationBlocked(status) &&
-                                  !selectionRequired ? (
-                                  <Button
-                                    disabled={commandsDisabled}
-                                    onClick={() => void navigate('/registry')}
-                                    size="small"
-                                    sx={{
-                                      minHeight: 40,
-                                      minWidth: 148,
-                                      whiteSpace: 'nowrap',
-                                      width: '100%',
-                                    }}
-                                    variant="outlined"
-                                  >
-                                    Module Registry
-                                  </Button>
-                                ) : (
-                                  <Box
-                                    aria-hidden="true"
-                                    sx={{
-                                      display: { xs: 'none', md: 'block' },
-                                      visibility: 'hidden',
-                                      width: 148,
-                                    }}
-                                  />
-                                )}
-                                {approvalActionsVisible && status ? (
-                                  <Button
-                                    disabled={commandsDisabled}
-                                    onClick={() =>
-                                      mutation.mutate({
-                                        operation: 'approve',
-                                        profile,
-                                        status,
-                                      })
-                                    }
-                                    size="small"
-                                    startIcon={
-                                      <ShellIcon fontSize="small" name="approve" />
-                                    }
-                                    sx={{
-                                      minHeight: 40,
-                                      minWidth: 116,
-                                      whiteSpace: assetApprovalsPending
-                                        ? 'normal'
-                                        : 'nowrap',
-                                      width: '100%',
-                                    }}
-                                    variant="contained"
-                                  >
-                                    {pending &&
-                                    mutation.variables?.operation === 'approve'
-                                      ? 'Approving...'
-                                      : assetApprovalsPending
-                                        ? 'Complete asset approvals'
-                                        : 'Approve'}
-                                  </Button>
-                                ) : approvalActionsVisible ? (
-                                  <Box
-                                    aria-hidden="true"
-                                    sx={{
-                                      display: { xs: 'none', md: 'block' },
-                                      visibility: 'hidden',
-                                      width: 128,
-                                    }}
-                                  />
-                                ) : null}
-                                {approvalActionsVisible && status ? (
-                                  <Button
-                                    color="warning"
-                                    disabled={commandsDisabled || assetApprovalsPending}
-                                    onClick={() =>
-                                      mutation.mutate({
-                                        operation: 'reject',
-                                        profile,
-                                        status,
-                                      })
-                                    }
-                                    size="small"
-                                    sx={{
-                                      minHeight: 40,
-                                      minWidth: 96,
-                                      whiteSpace: 'nowrap',
-                                      width: '100%',
-                                    }}
-                                    variant="outlined"
-                                  >
-                                    {pending &&
-                                    mutation.variables?.operation === 'reject'
-                                      ? 'Rejecting...'
-                                      : 'Reject'}
-                                  </Button>
-                                ) : approvalActionsVisible ? (
-                                  <Box
-                                    aria-hidden="true"
-                                    sx={{
-                                      display: { xs: 'none', md: 'block' },
-                                      visibility: 'hidden',
-                                      width: 112,
-                                    }}
-                                  />
-                                ) : null}
-                                {status?.allowedActions.includes('ROLLBACK') ? (
-                                  <Button
-                                    color="warning"
-                                    disabled={commandsDisabled}
-                                    onClick={() => {
-                                      setDestructiveReason(
-                                        `${profile.title} rollback requested after Online evidence review.`,
-                                      );
-                                      setDestructiveConfirmation({
-                                        operation: 'rollback',
-                                        profile,
-                                        status,
-                                      });
-                                    }}
-                                    size="small"
-                                    sx={{
-                                      minHeight: 40,
-                                      minWidth: 96,
-                                      whiteSpace: 'nowrap',
-                                      width: '100%',
-                                    }}
-                                    variant="outlined"
-                                  >
-                                    {operationLabel('rollback')}
-                                  </Button>
-                                ) : null}
-                                {status?.allowedActions.includes('RETIRE') ? (
-                                  <Button
-                                    color="warning"
-                                    disabled={commandsDisabled}
-                                    onClick={() => {
-                                      setDestructiveReason(
-                                        `${profile.title} retirement requested after Online evidence review.`,
-                                      );
-                                      setDestructiveConfirmation({
-                                        operation: 'retire',
-                                        profile,
-                                        status,
-                                      });
-                                    }}
-                                    size="small"
-                                    sx={{
-                                      minHeight: 40,
-                                      minWidth: 96,
-                                      whiteSpace: 'nowrap',
-                                      width: '100%',
-                                    }}
-                                    variant="outlined"
-                                  >
-                                    {operationLabel('retire')}
-                                  </Button>
-                                ) : null}
-                                <RowIconAction
-                                  disabled={refreshDisabled}
-                                  label={`Refresh ${profile.title} status`}
-                                  name="refresh"
-                                  onClick={() => void query.refetch()}
-                                />
-                                <Tooltip
-                                  arrow
-                                  title={`${expanded ? 'Hide' : 'Show'} ${profile.title} details`}
-                                >
-                                  <span>
-                                    <IconButton
-                                      aria-expanded={expanded}
-                                      aria-label={`${expanded ? 'Hide' : 'Show'} ${profile.title} details`}
-                                      onClick={() =>
-                                        setExpandedProfile(
-                                          expanded ? undefined : profile.code,
-                                        )
-                                      }
-                                      size="small"
-                                      sx={{
-                                        border: 1,
-                                        borderColor: 'divider',
-                                        height: 36,
-                                        width: 36,
-                                      }}
-                                    >
-                                      <ShellIcon
-                                        fontSize="small"
-                                        name={expanded ? 'chevron-up' : 'chevron-down'}
-                                      />
-                                    </IconButton>
-                                  </span>
-                                </Tooltip>
-                              </Box>
-                            </Box>
-                            {rowMutationError ? (
-                              <Alert severity="error" sx={{ mt: 1.5 }}>
-                                {profileErrorMessage(profile, rowMutationError)}
-                              </Alert>
-                            ) : null}
-                            {expanded && !status ? (
-                              <Alert
-                                severity={query.isError ? 'error' : 'info'}
-                                sx={{ mt: 1.5 }}
-                              >
-                                {query.isError
-                                  ? 'Dependency details are unavailable because the owning status read failed. Refresh status to inspect the prerequisites.'
-                                  : 'Dependency details are loading.'}
-                              </Alert>
-                            ) : null}
-                            {expanded && status ? (
-                              <Box
-                                sx={{
-                                  bgcolor: 'action.hover',
-                                  borderRadius: 1,
-                                  mt: 1.5,
-                                  p: 1.5,
-                                }}
-                              >
-                                <Stack spacing={1.25}>
-                                  <Stack
-                                    direction="row"
-                                    spacing={1}
                                     sx={{ flexWrap: 'wrap' }}
                                   >
-                                    <Chip
-                                      label={conciseReleaseLabel(profile, status)}
-                                      size="small"
-                                      variant="outlined"
-                                    />
-                                    <Chip
-                                      label={profilePublishChannel(profile)}
-                                      size="small"
-                                      variant="outlined"
-                                    />
-                                    <Chip
-                                      label={`${status.applicationCode} · ${status.siteCode}`}
-                                      size="small"
-                                      variant="outlined"
-                                    />
-                                    <Chip
-                                      label={status.owner}
-                                      size="small"
-                                      variant="outlined"
-                                    />
-                                    {status.capability ? (
+                                    {profile.requiredServers.map((server) => (
                                       <Chip
-                                        label={`${status.capability.group} · ${status.capability.capabilityType}`}
+                                        key={server}
+                                        label={server}
                                         size="small"
                                         variant="outlined"
                                       />
-                                    ) : null}
-                                    <Chip
-                                      label={`Online approval ${
-                                        profile.activationPolicy
-                                          .approvalRequiredForOnline
-                                          ? 'required'
-                                          : 'not required'
-                                      }`}
-                                      size="small"
-                                      variant="outlined"
-                                    />
+                                    ))}
                                   </Stack>
+                                </Box>
+                                {status.preparation?.operationFailure ? (
+                                  <Alert severity="error">
+                                    {status.preparation.operationFailure.message} (
+                                    {status.preparation.operationFailure.failureCode}) ·{' '}
+                                    {status.preparation.operationFailure.targetServer} /{' '}
+                                    {
+                                      status.preparation.operationFailure
+                                        .targetRuntimeRole
+                                    }
+                                  </Alert>
+                                ) : null}
+                                {status.preparation?.groupReceipts?.map(
+                                  (group, index) => (
+                                    <Box
+                                      key={`${group.targetServer}:${group.dataType}:${index}`}
+                                    >
+                                      <Typography variant="body2">
+                                        {group.targetServer} / {group.targetRuntimeRole}{' '}
+                                        · {group.dataType} · {group.status}
+                                      </Typography>
+                                      {group.releases.map((receipt, index) => (
+                                        <Typography
+                                          key={index}
+                                          variant="caption"
+                                          sx={{ display: 'block' }}
+                                        >
+                                          {receipt.releaseCode} · {receipt.status} ·
+                                          Version {receipt.version ?? 'Unavailable'} ·
+                                          Installed{' '}
+                                          {receipt.installedVersion ?? 'Unavailable'}
+                                          {receipt.lastRunId
+                                            ? ` · Historical run reference: ${receipt.lastRunId} (not proof of this attempt)`
+                                            : ' · Current run evidence unavailable'}
+                                        </Typography>
+                                      ))}
+                                    </Box>
+                                  ),
+                                )}
+                                {status.preparation?.steps.length ? (
                                   <Box>
                                     <Typography
                                       color="text.secondary"
                                       variant="caption"
                                     >
-                                      Required runtime
+                                      Preparation evidence
+                                    </Typography>
+                                    <Stack spacing={0.75} sx={{ mt: 0.5 }}>
+                                      {status.preparation.steps.map((step) => (
+                                        <Box
+                                          key={`${step.code}:${step.targetServer}`}
+                                          sx={{
+                                            alignItems: 'center',
+                                            display: 'grid',
+                                            gap: 1,
+                                            gridTemplateColumns: {
+                                              xs: '1fr',
+                                              md: 'minmax(220px, 1fr) minmax(130px, auto) minmax(130px, auto)',
+                                            },
+                                          }}
+                                        >
+                                          <Typography
+                                            sx={{ overflowWrap: 'anywhere' }}
+                                            variant="body2"
+                                          >
+                                            {step.label ||
+                                              step.kind ||
+                                              friendlyPackageLabel(step.code)}
+                                            {step.operatorEnterpriseCode
+                                              ? ` · ${step.code} · ${step.operatorEnterpriseCode}`
+                                              : ''}
+                                          </Typography>
+                                          <Chip
+                                            label={`${step.targetRuntimeRole} · ${step.dataType}`}
+                                            size="small"
+                                            variant="outlined"
+                                          />
+                                          <Chip
+                                            color={preparationStatusColor(step.status)}
+                                            label={preparationStatusLabel(
+                                              step.status,
+                                              step.trigger,
+                                            )}
+                                            size="small"
+                                            variant={
+                                              step.status === 'CURRENT' ||
+                                              step.status === 'SOURCE_READY'
+                                                ? 'filled'
+                                                : 'outlined'
+                                            }
+                                          />
+                                          {step.message ? (
+                                            <Typography
+                                              color="text.secondary"
+                                              sx={{
+                                                gridColumn: { md: '1 / -1' },
+                                                overflowWrap: 'anywhere',
+                                              }}
+                                              variant="caption"
+                                            >
+                                              {step.message}
+                                            </Typography>
+                                          ) : null}
+                                        </Box>
+                                      ))}
+                                    </Stack>
+                                  </Box>
+                                ) : null}
+                                {status.preparationOperation ? (
+                                  <Box>
+                                    <Typography
+                                      color="text.secondary"
+                                      variant="caption"
+                                    >
+                                      Last preparation operation
                                     </Typography>
                                     <Stack
                                       direction="row"
                                       spacing={0.75}
-                                      sx={{ flexWrap: 'wrap' }}
+                                      sx={{ flexWrap: 'wrap', mt: 0.5 }}
                                     >
-                                      {profile.requiredServers.map((server) => (
-                                        <Chip
-                                          key={server}
-                                          label={server}
-                                          size="small"
-                                          variant="outlined"
-                                        />
-                                      ))}
+                                      <Chip
+                                        label={status.preparationOperation.operation}
+                                        size="small"
+                                        variant="outlined"
+                                      />
+                                      <Chip
+                                        color={
+                                          status.preparationOperation.changed
+                                            ? 'success'
+                                            : 'default'
+                                        }
+                                        label={
+                                          status.preparationOperation.changed
+                                            ? 'Changed readiness'
+                                            : 'No readiness change'
+                                        }
+                                        size="small"
+                                        variant="outlined"
+                                      />
+                                      <Chip
+                                        label={`${String(
+                                          status.preparationOperation.stepCount,
+                                        )} step(s)`}
+                                        size="small"
+                                        variant="outlined"
+                                      />
+                                      <Chip
+                                        label={`${status.preparationOperation.beforeStatus ?? 'UNKNOWN'} -> ${
+                                          status.preparationOperation.afterStatus ??
+                                          'UNKNOWN'
+                                        }`}
+                                        size="small"
+                                        variant="outlined"
+                                      />
                                     </Stack>
                                   </Box>
-                                  {status.preparation?.operationFailure ? (
-                                    <Alert severity="error">
-                                      {status.preparation.operationFailure.message} (
-                                      {status.preparation.operationFailure.failureCode})
-                                      ·{' '}
-                                      {status.preparation.operationFailure.targetServer}{' '}
-                                      /{' '}
-                                      {
-                                        status.preparation.operationFailure
-                                          .targetRuntimeRole
-                                      }
-                                    </Alert>
-                                  ) : null}
-                                  {status.preparation?.groupReceipts?.map(
-                                    (group, index) => (
-                                      <Box
-                                        key={`${group.targetServer}:${group.dataType}:${index}`}
-                                      >
-                                        <Typography variant="body2">
-                                          {group.targetServer} /{' '}
-                                          {group.targetRuntimeRole} · {group.dataType} ·{' '}
-                                          {group.status}
-                                        </Typography>
-                                        {group.releases.map((receipt, index) => (
-                                          <Typography
-                                            key={index}
-                                            variant="caption"
-                                            sx={{ display: 'block' }}
-                                          >
-                                            {receipt.releaseCode} · {receipt.status} ·
-                                            Version {receipt.version ?? 'Unavailable'} ·
-                                            Installed{' '}
-                                            {receipt.installedVersion ?? 'Unavailable'}
-                                            {receipt.lastRunId
-                                              ? ` · Historical run reference: ${receipt.lastRunId} (not proof of this attempt)`
-                                              : ' · Current run evidence unavailable'}
-                                          </Typography>
-                                        ))}
-                                      </Box>
-                                    ),
-                                  )}
-                                  {status.preparation?.steps.length ? (
-                                    <Box>
-                                      <Typography
-                                        color="text.secondary"
-                                        variant="caption"
-                                      >
-                                        Preparation evidence
-                                      </Typography>
-                                      <Stack spacing={0.75} sx={{ mt: 0.5 }}>
-                                        {status.preparation.steps.map((step) => (
-                                          <Box
-                                            key={`${step.code}:${step.targetServer}`}
-                                            sx={{
-                                              alignItems: 'center',
-                                              display: 'grid',
-                                              gap: 1,
-                                              gridTemplateColumns: {
-                                                xs: '1fr',
-                                                md: 'minmax(220px, 1fr) minmax(130px, auto) minmax(130px, auto)',
-                                              },
+                                ) : null}
+                                {status.capability?.blockers.length ? (
+                                  <CapabilityReadinessPanel
+                                    readiness={status.capability}
+                                    actionSlot={(blocker) =>
+                                      supportsReadinessRefresh(blocker) ? (
+                                        <Button
+                                          disabled={refreshDisabled}
+                                          onClick={() => {
+                                            statusQueue.prioritize(profile.code);
+                                            void query.refetch();
+                                          }}
+                                          startIcon={<ShellIcon name="refresh" />}
+                                          size="small"
+                                        >
+                                          {blocker.repair?.label}
+                                        </Button>
+                                      ) : blocker.repair?.action ===
+                                        'REVIEW_MEDIA_PUBLICATION' ? (
+                                        blocker.repair.available &&
+                                        resolveMediaPublicationHandoff(
+                                          props.bootstrap,
+                                          blocker.mediaDependency,
+                                        ) ? (
+                                          <Button
+                                            size="small"
+                                            startIcon={<ShellIcon name="media" />}
+                                            onClick={() => {
+                                              const route =
+                                                resolveMediaPublicationHandoff(
+                                                  props.bootstrap,
+                                                  blocker.mediaDependency,
+                                                );
+                                              if (route) void navigate(route);
                                             }}
                                           >
-                                            <Typography
-                                              sx={{ overflowWrap: 'anywhere' }}
-                                              variant="body2"
-                                            >
-                                              {step.label ||
-                                                step.kind ||
-                                                friendlyPackageLabel(step.code)}
-                                              {step.operatorEnterpriseCode
-                                                ? ` · ${step.code} · ${step.operatorEnterpriseCode}`
-                                                : ''}
-                                            </Typography>
-                                            <Chip
-                                              label={`${step.targetRuntimeRole} · ${step.dataType}`}
-                                              size="small"
-                                              variant="outlined"
-                                            />
-                                            <Chip
-                                              color={preparationStatusColor(
-                                                step.status,
-                                              )}
-                                              label={preparationStatusLabel(
-                                                step.status,
-                                                step.trigger,
-                                              )}
-                                              size="small"
-                                              variant={
-                                                step.status === 'CURRENT' ||
-                                                step.status === 'SOURCE_READY'
-                                                  ? 'filled'
-                                                  : 'outlined'
-                                              }
-                                            />
-                                            {step.message ? (
-                                              <Typography
-                                                color="text.secondary"
-                                                sx={{
-                                                  gridColumn: { md: '1 / -1' },
-                                                  overflowWrap: 'anywhere',
-                                                }}
-                                                variant="caption"
-                                              >
-                                                {step.message}
-                                              </Typography>
-                                            ) : null}
-                                          </Box>
-                                        ))}
-                                      </Stack>
-                                    </Box>
-                                  ) : null}
-                                  {status.preparationOperation ? (
-                                    <Box>
-                                      <Typography
-                                        color="text.secondary"
-                                        variant="caption"
-                                      >
-                                        Last preparation operation
-                                      </Typography>
-                                      <Stack
-                                        direction="row"
-                                        spacing={0.75}
-                                        sx={{ flexWrap: 'wrap', mt: 0.5 }}
-                                      >
-                                        <Chip
-                                          label={status.preparationOperation.operation}
-                                          size="small"
-                                          variant="outlined"
-                                        />
-                                        <Chip
-                                          color={
-                                            status.preparationOperation.changed
-                                              ? 'success'
-                                              : 'default'
-                                          }
-                                          label={
-                                            status.preparationOperation.changed
-                                              ? 'Changed readiness'
-                                              : 'No readiness change'
-                                          }
-                                          size="small"
-                                          variant="outlined"
-                                        />
-                                        <Chip
-                                          label={`${String(
-                                            status.preparationOperation.stepCount,
-                                          )} step(s)`}
-                                          size="small"
-                                          variant="outlined"
-                                        />
-                                        <Chip
-                                          label={`${status.preparationOperation.beforeStatus ?? 'UNKNOWN'} -> ${
-                                            status.preparationOperation.afterStatus ??
-                                            'UNKNOWN'
-                                          }`}
-                                          size="small"
-                                          variant="outlined"
-                                        />
-                                      </Stack>
-                                    </Box>
-                                  ) : null}
-                                  {status.capability?.blockers.length ? (
-                                    <CapabilityReadinessPanel
-                                      readiness={status.capability}
-                                      actionSlot={(blocker) =>
-                                        supportsReadinessRefresh(blocker) ? (
-                                          <Button
-                                            disabled={refreshDisabled}
-                                            onClick={() => void query.refetch()}
-                                            startIcon={<ShellIcon name="refresh" />}
-                                            size="small"
-                                          >
-                                            {blocker.repair?.label}
+                                            {blocker.mediaDependency?.handoff?.label}
                                           </Button>
-                                        ) : blocker.repair?.action ===
-                                          'REVIEW_MEDIA_PUBLICATION' ? (
-                                          blocker.repair.available &&
-                                          resolveMediaPublicationHandoff(
-                                            props.bootstrap,
-                                            blocker.mediaDependency,
-                                          ) ? (
-                                            <Button
-                                              size="small"
-                                              startIcon={<ShellIcon name="media" />}
-                                              onClick={() => {
-                                                const route =
-                                                  resolveMediaPublicationHandoff(
-                                                    props.bootstrap,
-                                                    blocker.mediaDependency,
-                                                  );
-                                                if (route) void navigate(route);
-                                              }}
-                                            >
-                                              {blocker.mediaDependency?.handoff?.label}
-                                            </Button>
-                                          ) : (
-                                            <Button size="small" disabled>
-                                              {blocker.repair.unavailableReason ??
-                                                blocker.repair.label}
-                                            </Button>
-                                          )
-                                        ) : supportedRepairOperation(blocker) ? (
-                                          <Box sx={{ mt: 1 }}>
-                                            <Button
-                                              color="warning"
-                                              disabled={commandsDisabled}
-                                              onClick={() => {
-                                                const operation =
-                                                  supportedRepairOperation(blocker);
-                                                if (!operation) return;
-                                                if (
-                                                  blocker.repair?.requiresConfirmation
-                                                ) {
-                                                  setRepairConfirmation({
-                                                    blocker,
-                                                    operation,
-                                                    profile,
-                                                    status,
-                                                  });
-                                                  return;
-                                                }
-                                                mutation.mutate({
+                                        ) : (
+                                          <Button size="small" disabled>
+                                            {blocker.repair.unavailableReason ??
+                                              blocker.repair.label}
+                                          </Button>
+                                        )
+                                      ) : supportedRepairOperation(blocker) ? (
+                                        <Box sx={{ mt: 1 }}>
+                                          <Button
+                                            color="warning"
+                                            disabled={commandsDisabled}
+                                            onClick={() => {
+                                              const operation =
+                                                supportedRepairOperation(blocker);
+                                              if (!operation) return;
+                                              if (
+                                                blocker.repair?.requiresConfirmation
+                                              ) {
+                                                setRepairConfirmation({
+                                                  blocker,
                                                   operation,
                                                   profile,
                                                   status,
                                                 });
-                                              }}
-                                              size="small"
-                                              startIcon={
-                                                <ShellIcon
-                                                  fontSize="small"
-                                                  name="operations"
-                                                />
+                                                return;
                                               }
-                                              variant="outlined"
-                                            >
-                                              {blocker.repair?.label ?? blocker.action}
-                                            </Button>
-                                          </Box>
-                                        ) : null
-                                      }
-                                    />
-                                  ) : null}
-                                  {status.publication ? (
-                                    <Box>
+                                              mutation.mutate({
+                                                operation,
+                                                profile,
+                                                status,
+                                              });
+                                            }}
+                                            size="small"
+                                            startIcon={
+                                              <ShellIcon
+                                                fontSize="small"
+                                                name="operations"
+                                              />
+                                            }
+                                            variant="outlined"
+                                          >
+                                            {blocker.repair?.label ?? blocker.action}
+                                          </Button>
+                                        </Box>
+                                      ) : null
+                                    }
+                                  />
+                                ) : null}
+                                {status.publication ? (
+                                  <Box>
+                                    <Typography
+                                      color="text.secondary"
+                                      variant="caption"
+                                    >
+                                      Publication evidence
+                                    </Typography>
+                                    <Typography sx={{ overflowWrap: 'anywhere' }}>
+                                      {status.publication.code} ·{' '}
+                                      {status.publication.state}
+                                    </Typography>
+                                    {status.publication.workflowRef ? (
                                       <Typography
                                         color="text.secondary"
+                                        sx={{ overflowWrap: 'anywhere' }}
                                         variant="caption"
                                       >
-                                        Publication evidence
+                                        Workflow {status.publication.workflowRef}
                                       </Typography>
-                                      <Typography sx={{ overflowWrap: 'anywhere' }}>
-                                        {status.publication.code} ·{' '}
-                                        {status.publication.state}
-                                      </Typography>
-                                      {status.publication.workflowRef ? (
-                                        <Typography
-                                          color="text.secondary"
-                                          sx={{ overflowWrap: 'anywhere' }}
-                                          variant="caption"
-                                        >
-                                          Workflow {status.publication.workflowRef}
-                                        </Typography>
-                                      ) : null}
-                                    </Box>
-                                  ) : null}
-                                </Stack>
-                              </Box>
-                            ) : null}
-                          </Box>
-                        );
-                      })}
-                    </Stack>
-                  </Box>
-                ))}
-              </Stack>
-            </CardContent>
-          </Card>
-        )}
+                                    ) : null}
+                                  </Box>
+                                ) : null}
+                              </Stack>
+                            </Box>
+                          ) : null}
+                        </Box>
+                      );
+                    })}
+                  </Stack>
+                </Box>
+              ))}
+            </Stack>
+          </CardContent>
+        </Card>
       </Stack>
       <Dialog
         fullWidth

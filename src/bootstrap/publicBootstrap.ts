@@ -1,5 +1,9 @@
 import { parseApplicationSetupPlan } from '../operations/setupAccelerators/api/applicationSetupPlan';
 import {
+  parseApplicationReadinessScheduling,
+  type ApplicationReadinessScheduling,
+} from '../operations/setupAccelerators/api/applicationStatusQueue';
+import {
   parseBusinessAccessContract,
   parseBusinessAccessEditorContract,
   type BusinessAccessContract,
@@ -493,6 +497,7 @@ export interface AxisOperationalReadinessReport {
 }
 
 export interface AxisAuthenticatedBootstrap {
+  readonly applicationReadinessScheduling?: ApplicationReadinessScheduling | undefined;
   readonly axisInitializationAdmission?:
     | 'READY'
     | 'NOT_READY'
@@ -2878,6 +2883,9 @@ export async function loadAuthenticatedBootstrap(
       moduleConnections: moduleContext.connections,
       applicationInitializationProfiles: parseApplicationInitializationProfiles(
         data.applicationInitializationProfiles,
+      ),
+      applicationReadinessScheduling: parseApplicationReadinessScheduling(
+        data.applicationReadinessScheduling,
       ),
       documentationSources: parseDocumentationSources(data.documentationSources),
       startupValidation: parseStartupValidationReport(data.startupValidation),

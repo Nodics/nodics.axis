@@ -63,7 +63,9 @@ import {
   type WorkbenchRouteSchemaSelection,
 } from './workbenchRouteModel';
 
-interface WorkbenchRoutePageProps {
+export interface WorkbenchRoutePageProps {
+  /** Local owner controls share the Workbench viewport; never CMS executable metadata. */
+  readonly ownerHeader?: import('react').ReactNode;
   readonly accessToken: string;
   readonly bootstrap: AxisAuthenticatedBootstrap;
   readonly channel: string;
@@ -74,6 +76,9 @@ interface WorkbenchRoutePageProps {
   readonly routeNavigation?: AxisNavigationItem | undefined;
   readonly routeSchema?: WorkbenchRouteSchemaSelection | undefined;
   readonly site: string;
+  readonly ownerTransport?:
+    | { readonly scopeKey: string; readonly fetch: typeof fetch }
+    | undefined;
 }
 
 function workbenchRecordKey(
@@ -167,8 +172,14 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
       accessToken: props.accessToken,
       enterpriseCode: props.runtime.enterpriseCode,
       timeoutMs: props.runtime.requestTimeoutMs,
+      ...(props.ownerTransport ? { ownerFetch: props.ownerTransport.fetch } : {}),
     }),
-    [props.accessToken, props.runtime.enterpriseCode, props.runtime.requestTimeoutMs],
+    [
+      props.accessToken,
+      props.runtime.enterpriseCode,
+      props.runtime.requestTimeoutMs,
+      props.ownerTransport,
+    ],
   );
   const connections = useMemo(() => {
     const allConnections = Object.values(props.bootstrap.moduleConnections).flatMap(
@@ -194,6 +205,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
     queryKey: [
       'schema-workbench',
       'schemas',
+      ...(props.ownerTransport ? [props.ownerTransport.scopeKey] : []),
       props.employeeId,
       props.runtime.enterpriseCode,
       connectionKey,
@@ -266,6 +278,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
   const recordQueryPrefix = [
     'schema-workbench',
     'records',
+    ...(props.ownerTransport ? [props.ownerTransport.scopeKey] : []),
     props.employeeId,
     props.runtime.enterpriseCode,
     recordConnection?.instanceId,
@@ -349,6 +362,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
       queryKey: [
         'schema-workbench',
         'related-records',
+        ...(props.ownerTransport ? [props.ownerTransport.scopeKey] : []),
         props.runtime.enterpriseCode,
         input.panel.id,
         input.connection?.instanceId,
@@ -540,12 +554,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({
-        queryKey: [
-          'workbench-records',
-          recordConnection?.endpoint,
-          normalizedSelectedSchema?.moduleName,
-          normalizedSelectedSchema?.schemaName,
-        ],
+        queryKey: recordQueryPrefix,
       });
     },
   });
@@ -809,6 +818,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
       accessToken={props.accessToken}
       actions={{
         workbench: {
+          ownerHeader: props.ownerHeader,
           accessToken: props.accessToken,
           bootstrap: props.bootstrap,
           runtime: props.runtime,

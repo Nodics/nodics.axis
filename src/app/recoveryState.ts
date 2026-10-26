@@ -1,4 +1,5 @@
 export type RecoveryKind =
+  | 'session'
   | 'configuration'
   | 'profile'
   | 'backoffice'
@@ -30,6 +31,13 @@ export interface RecoveryDetailContent {
 }
 
 const recoveryContent: Record<RecoveryKind, RecoveryContent> = {
+  session: {
+    eyebrow: 'Session recovery',
+    title: 'Your workspace could not be restored',
+    description:
+      'Axis could not load your authorized workspace. Retry when the service is available; Profile will validate your session again.',
+    action: 'Retry session',
+  },
   configuration: {
     eyebrow: 'Deployment configuration',
     title: 'Axis cannot start safely',
@@ -112,6 +120,17 @@ function isNetworkFetchFailure(detail: string): boolean {
 /** Both login renderers use the existing transport classification without changing auth decisions or retrying credentials. */
 export function getSignInErrorMessage(detail?: string): string | undefined {
   if (!detail) return undefined;
+  if (
+    [
+      'signal is aborted without reason',
+      'this operation was aborted',
+      'the operation was aborted.',
+      'the user aborted a request.',
+      'the operation was aborted due to timeout',
+      'signal timed out',
+    ].includes(detail.trim().toLowerCase())
+  )
+    return 'Sign-in took too long or was interrupted. Please try again.';
   return isNetworkFetchFailure(detail)
     ? 'Sign-in is temporarily unavailable. Check your connection and try again when the service is available.'
     : detail;

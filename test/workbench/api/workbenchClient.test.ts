@@ -31,6 +31,34 @@ const configuration = {
   enterpriseCode: 'default',
   timeoutMs: 10_000,
 };
+
+it('local owner transport reuses Workbench parsing while preserving original signed headers and no fallback', async () => {
+  const ownerFetch = vi
+    .fn<typeof fetch>()
+    .mockResolvedValue(
+      new Response(JSON.stringify({ data: { schemas: [] } }), { status: 200 }),
+    );
+  const fallback = vi.fn<typeof fetch>();
+  await loadWorkbenchSchemas([connection], { ...configuration, ownerFetch }, fallback);
+  expect(ownerFetch).toHaveBeenCalledTimes(1);
+  expect(fallback).not.toHaveBeenCalled();
+  const headers = new Headers(ownerFetch.mock.calls[0]?.[1]?.headers);
+  expect(headers.get('Authorization')).toBe('Bearer memory-only-token');
+  expect(headers.get('x-enterprise-code')).toBe('default');
+  ownerFetch.mockResolvedValue(
+    new Response(JSON.stringify({ message: 'Denied' }), { status: 403 }),
+  );
+  await expect(
+    createWorkbenchRecord(
+      connection,
+      address,
+      { code: 'new' },
+      { ...configuration, ownerFetch },
+      fallback,
+    ),
+  ).rejects.toThrow('Denied');
+  expect(fallback).not.toHaveBeenCalled();
+});
 const address: WorkbenchSchema = {
   moduleName: 'profile',
   schemaName: 'address',
@@ -1509,11 +1537,21 @@ describe('backend-published schema APIs', () => {
   });
   it('rejects unsupported methods, versions and operations', () => {
     for (const apiOperations of [
-      { create: { ...route, method: 'POST' } },
+      { create: { ...route, method: 'DELETE' } },
       { create: { ...route, apiVersion: '../v0' } },
       { runScript: route },
     ])
       expect(() => parseWorkbenchSchema({ ...address, apiOperations })).toThrow();
+  });
+  it('accepts explicitly advertised POST owner capability/create/update commands', () => {
+    for (const operation of ['capabilities', 'create', 'update']) {
+      expect(() =>
+        parseWorkbenchSchema({
+          ...address,
+          apiOperations: { [operation]: { ...route, method: 'POST' } },
+        }),
+      ).not.toThrow();
+    }
   });
 });
 

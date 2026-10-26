@@ -61,7 +61,10 @@ vi.mock('../../src/app/CmsRoutePage', () => ({
     ) : path === '/lock-screen' ? (
       <section>
         <h1>Locked session</h1>
-        <button onClick={() => actions?.onEmployeeUnlock?.('fixture-password')}>
+        <button
+          aria-busy={actions?.employeeUnlockPending === true}
+          onClick={() => actions?.onEmployeeUnlock?.('fixture-password')}
+        >
           Unlock
         </button>
         {authenticationError && <p>{authenticationError}</p>}
@@ -219,11 +222,21 @@ describe('App enterprise creation return after screen unlock', () => {
     await user.click(screen.getByRole('button', { name: 'Unlock' }));
     expect(window.location.pathname).toBe('/lock-screen');
     expect(screen.queryByLabelText(/^Enterprise code/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Unlock' })).toHaveAttribute(
+      'aria-busy',
+      'true',
+    );
+    await user.click(screen.getByRole('button', { name: 'Unlock' }));
+    expect(owners.authenticate).toHaveBeenCalledTimes(2);
     await act(async () => {
       rejectUnlock(new Error('Authentication denied'));
       await Promise.resolve();
     });
     expect(await screen.findByText('Authentication denied')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Unlock' })).toHaveAttribute(
+      'aria-busy',
+      'false',
+    );
     expect(window.location.pathname).toBe('/lock-screen');
     expect(screen.queryByLabelText(/^Enterprise code/)).not.toBeInTheDocument();
     expect(fetch).not.toHaveBeenCalled();

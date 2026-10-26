@@ -20,13 +20,20 @@ import {
   couponContent,
   createCoupon,
   inspectCoupon,
+  transitionCoupon,
+  type CouponLifecycleAction,
   type CouponContent,
   type CouponRecord,
   type CouponWorkspace,
 } from './couponOfferClient';
 import { useCouponWorkspace, type CouponWorkspaceProps } from './useCouponWorkspace';
+import { ProfileEnterpriseSelector } from '../shared/ProfileEnterpriseSelector';
+import type { ProfileEnterpriseOption } from '../shared/profileEnterpriseLookup';
+import type { CouponCreation } from './couponOfferClient';
+import { CouponAdministrativeReview } from './CouponAdministrativeReview';
 
 type Draft = {
+  budgetLimit: string;
   code: string;
   name: string;
   product: string;
@@ -52,6 +59,7 @@ type Draft = {
   terms: string;
 };
 const blank: Draft = {
+  budgetLimit: '',
   code: '',
   name: '',
   product: '',
@@ -194,6 +202,7 @@ function fromContent(c: CouponContent, code = ''): Draft {
     ...blank,
     code,
     name: c.name,
+    budgetLimit: c.budget?.limit || '',
     product: text(c.conditions.sourceProductCode),
     benefit:
       a.benefitType === 'ITEM'
@@ -235,7 +244,15 @@ export function CouponOfferWorkspace(props: CouponWorkspaceProps) {
         {owner.error || 'Loading owner workspace...'}
       </Alert>
     );
-  return <CouponForm owner={owner} workspace={owner.workspace} />;
+  return (
+    <Stack spacing={3}>
+      <CouponAdministrativeReview
+        configuration={owner.configuration}
+        labels={owner.workspace.labels}
+      />
+      <CouponForm owner={owner} workspace={owner.workspace} />
+    </Stack>
+  );
 }
 
 /** Only user commands issue writes. A lost result blocks further writes until exact original inspection. */
@@ -248,7 +265,10 @@ function CouponForm({
 }) {
   const [draft, setDraft] = useState<Draft>({ ...blank }),
     [saved, setSaved] = useState<CouponRecord>(),
-    [review, setReview] = useState<ReturnType<typeof couponInput>>(),
+    [review, setReview] = useState<CouponCreation>(),
+    [vendor, setVendor] = useState<ProfileEnterpriseOption | null>(null),
+    [actionReview, setActionReview] = useState<CouponLifecycleAction>(),
+    [reason, setReason] = useState(''),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [uncertain, setUncertain] = useState(false);
@@ -363,6 +383,14 @@ function CouponForm({
               const row = await inspectCoupon(owner.configuration, draft.code);
               if (active.current) {
                 setSaved(row);
+                setVendor(
+                  row.vendorEnterpriseRef
+                    ? {
+                        code: row.vendorEnterpriseRef.code,
+                        label: row.vendorEnterpriseRef.code,
+                      }
+                    : null,
+                );
                 setDraft(fromContent(row, row.code));
                 setUncertain(false);
               }
@@ -386,6 +414,14 @@ function CouponForm({
               );
               if (active.current) {
                 setSaved(undefined);
+                setVendor(
+                  value.vendorEnterpriseRef
+                    ? {
+                        code: value.vendorEnterpriseRef.code,
+                        label: value.vendorEnterpriseRef.code,
+                      }
+                    : null,
+                );
                 setDraft(fromContent(value));
               }
             })
@@ -402,7 +438,20 @@ function CouponForm({
         }}
       >
         {field('name')}
+        {field('budgetLimit')}
+        {saved?.vendorEnterpriseRef && (
+          <Typography>Vendor enterprise: {saved.vendorEnterpriseRef.code}</Typography>
+        )}
         {field('product')}
+        {!saved && (
+          <ProfileEnterpriseSelector
+            label="Vendor enterprise (optional)"
+            configuration={owner.configuration}
+            value={vendor}
+            onChange={setVendor}
+            disabled={locked || !!review}
+          />
+        )}
         {field('benefit', 'text', workspace.benefitOptions)}
         {draft.benefit === 'ITEM' ? (
           <Stack spacing={2}>
@@ -456,7 +505,21 @@ function CouponForm({
           disabled={locked}
           onClick={() => {
             try {
-              setReview(couponInput(draft, workspace.limits));
+              if (draft.budgetLimit && !/^\d+(?:\.\d+)?$/.test(draft.budgetLimit))
+                throw new Error('The budget limit must be a non-negative decimal.');
+              setReview({
+                ...couponInput(draft, workspace.limits),
+                ...(draft.budgetLimit ? { budget: { limit: draft.budgetLimit } } : {}),
+                ...(vendor
+                  ? {
+                      vendorEnterpriseRef: {
+                        moduleName: 'profile',
+                        schemaName: 'enterprise',
+                        code: vendor.code,
+                      },
+                    }
+                  : {}),
+              });
               setError('');
             } catch (e) {
               setError(e instanceof Error ? e.message : 'The offer input is invalid.');
@@ -504,6 +567,79 @@ function CouponForm({
           {l.saveName}
         </Button>
       )}
+      {saved?.lifecycleActions.map((action) => (
+        <Button
+          key={action.actionCode}
+          disabled={busy || owner.pending || uncertain}
+          onClick={() => {
+            setReason('');
+            setActionReview(action);
+          }}
+        >
+          {l[action.labelKey]}
+        </Button>
+      ))}
+      <Dialog
+        open={!!actionReview}
+        onClose={() => {
+          if (!busy) setActionReview(undefined);
+        }}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>{l.review}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2}>
+            <Typography>
+              {saved?.code}: {actionReview && l[actionReview.labelKey]}
+            </Typography>
+            {saved?.budget && (
+              <Typography>
+                {l.budgetLimit}: {saved.budget.limit}
+              </Typography>
+            )}
+            <TextField
+              label={l.reasonCode}
+              value={reason}
+              disabled={busy}
+              onChange={(event) => setReason(event.target.value)}
+              slotProps={{ htmlInput: { maxLength: 512 } }}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button disabled={busy} onClick={() => setActionReview(undefined)}>
+            {l.cancel}
+          </Button>
+          <Button
+            disabled={busy || owner.pending || uncertain || !reason.trim()}
+            onClick={() =>
+              void run(async () => {
+                if (!saved || !actionReview) return;
+                try {
+                  const row = await transitionCoupon(
+                    owner.configuration,
+                    saved,
+                    actionReview,
+                    reason,
+                  );
+                  if (active.current) {
+                    setSaved(row);
+                    setDraft(fromContent(row, row.code));
+                  }
+                } catch (e) {
+                  if (active.current) setUncertain(true);
+                  throw e;
+                } finally {
+                  if (active.current) setActionReview(undefined);
+                }
+              })
+            }
+          >
+            {l.confirm}
+          </Button>
+        </DialogActions>
+      </Dialog>
       <Dialog
         open={!!review}
         onClose={() => {
@@ -520,6 +656,16 @@ function CouponForm({
                 <Typography>
                   {review.code}: {review.name}
                 </Typography>
+                {review.vendorEnterpriseRef && (
+                  <Typography>
+                    Vendor enterprise: {review.vendorEnterpriseRef.code}
+                  </Typography>
+                )}
+                {review.budget && (
+                  <Typography>
+                    {l.budgetLimit}: {review.budget.limit}
+                  </Typography>
+                )}
                 <Typography>
                   {l.product}: {review.conditions.sourceProductCode as string}
                 </Typography>

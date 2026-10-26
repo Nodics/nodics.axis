@@ -117,6 +117,7 @@ export interface ProcessHumanTask {
         rootType: string;
         rootCode: string;
         sourceVersion: string;
+        requestedBy?: string;
       }>
     | undefined;
   readonly decisionContract?: ProcessTaskDecisionContract | undefined;
@@ -152,11 +153,26 @@ export interface ProcessInstanceDetail {
 }
 
 export interface ProcessOperationsSummary {
+  readonly taskPagination?: ProcessTaskPagination;
   readonly instances: readonly ProcessRuntimeInstance[];
   readonly tasks: readonly ProcessHumanTask[];
   readonly auditEvents: readonly ProcessAuditEvent[];
   readonly triggers: readonly ProcessTrigger[];
   readonly incidents: readonly ProcessIncident[];
+}
+
+/** Workflow-owned bounds and matching count for one task page. */
+export interface ProcessTaskPagination {
+  readonly page: number;
+  readonly pageSize: number;
+  readonly total: number;
+  readonly hasNext: boolean;
+  readonly hasPrevious: boolean;
+}
+
+export interface ProcessTaskPage {
+  readonly tasks: readonly ProcessHumanTask[];
+  readonly pagination: ProcessTaskPagination;
 }
 
 export interface CreateProcessDefinitionInput {
@@ -225,19 +241,6 @@ function listPayload(value: unknown): readonly unknown[] {
     if (Array.isArray(nestedData)) return nestedData;
   }
   return Object.freeze([]);
-}
-
-function mergeHumanTaskPayloads(
-  ...payloads: readonly unknown[]
-): readonly ProcessHumanTask[] {
-  const merged = new Map<string, ProcessHumanTask>();
-  for (const payload of payloads) {
-    for (const item of listPayload(payload)) {
-      const task = parseHumanTask(item);
-      if (!merged.has(task.code)) merged.set(task.code, task);
-    }
-  }
-  return Object.freeze([...merged.values()]);
 }
 
 function parseValidation(value: unknown): ProcessValidationResult | undefined {
@@ -424,8 +427,21 @@ function parseHumanTask(value: unknown): ProcessHumanTask {
     const context = record(data.reviewContext, 'Process publication review context');
     if (
       context.contractVersion !== 1 ||
-      Object.keys(context).sort().join() !==
+      Object.keys(context)
+        .filter((key) => key !== 'requestedBy')
+        .sort()
+        .join() !==
         'contractVersion,owner,publicationCode,rootCode,rootType,sourceVersion' ||
+      (context.requestedBy !== undefined &&
+        (context.owner !== 'cms' ||
+          typeof context.requestedBy !== 'string' ||
+          context.requestedBy.length === 0 ||
+          context.requestedBy.length > 128 ||
+          context.requestedBy.trim() !== context.requestedBy ||
+          Array.from(context.requestedBy).some(
+            (character) =>
+              character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+          ))) ||
       ['owner', 'publicationCode', 'rootType', 'rootCode', 'sourceVersion'].some(
         (key) =>
           typeof context[key] !== 'string' ||
@@ -440,6 +456,9 @@ function parseHumanTask(value: unknown): ProcessHumanTask {
       rootType: context.rootType as string,
       rootCode: context.rootCode as string,
       sourceVersion: context.sourceVersion as string,
+      ...(typeof context.requestedBy === 'string'
+        ? { requestedBy: context.requestedBy }
+        : {}),
     });
   }
   let decisionContract: ProcessTaskDecisionContract | undefined;
@@ -986,31 +1005,74 @@ export async function deleteOrArchiveProcessDefinition(
 export async function loadProcessOperationsSummary(
   connection: AxisModuleConnection,
   configuration: ProcessDefinitionClientConfiguration,
+  taskPage = 1,
 ): Promise<ProcessOperationsSummary> {
-  const [
-    instances,
-    openTasks,
-    claimedTasks,
-    escalatedTasks,
-    recentTasks,
-    auditEvents,
-    triggers,
-    incidents,
-  ] = await Promise.all([
+  const [instances, taskQueue, auditEvents, triggers, incidents] = await Promise.all([
     request(connection, '/instances?limit=25', configuration),
-    request(connection, '/tasks?status=OPEN&limit=25', configuration),
-    request(connection, '/tasks?status=CLAIMED&limit=25', configuration),
-    request(connection, '/tasks?status=ESCALATED&limit=25', configuration),
-    request(connection, '/tasks?limit=25', configuration),
+    loadProcessTaskPage(connection, configuration, {
+      page: taskPage,
+      queue: 'actionable',
+    }),
     request(connection, '/audit-events?limit=25', configuration),
     request(connection, '/triggers?limit=25', configuration),
     request(connection, '/incidents?limit=25', configuration),
   ]);
   return Object.freeze({
     instances: Object.freeze(listPayload(instances).map(parseRuntimeInstance)),
-    tasks: mergeHumanTaskPayloads(openTasks, claimedTasks, escalatedTasks, recentTasks),
+    tasks: taskQueue.tasks,
+    taskPagination: taskQueue.pagination,
     auditEvents: Object.freeze(listPayload(auditEvents).map(parseAuditEvent)),
     triggers: Object.freeze(listPayload(triggers).map(parseTrigger)),
     incidents: Object.freeze(listPayload(incidents).map(parseIncident)),
+  });
+}
+
+/** Reads one owner page. No client page-size or actionable-status policy is supplied. */
+export async function loadProcessTaskPage(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  filters: Readonly<{
+    page: number;
+    queue?: 'actionable';
+    status?: string;
+    assignee?: string;
+    instanceCode?: string;
+  }>,
+): Promise<ProcessTaskPage> {
+  const query = new URLSearchParams({ page: String(filters.page) });
+  for (const key of ['queue', 'status', 'assignee', 'instanceCode'] as const) {
+    if (filters[key] !== undefined) query.set(key, filters[key]);
+  }
+  const value = record(
+    await request(connection, `/tasks?${query.toString()}`, configuration),
+    'Process task page',
+  );
+  const pagination = record(value.pagination, 'Process task pagination');
+  const { page, pageSize, total, hasNext, hasPrevious } = pagination;
+  if (
+    typeof page !== 'number' ||
+    !Number.isSafeInteger(page) ||
+    page < 1 ||
+    page !== filters.page ||
+    typeof pageSize !== 'number' ||
+    !Number.isSafeInteger(pageSize) ||
+    pageSize < 1 ||
+    typeof total !== 'number' ||
+    !Number.isSafeInteger(total) ||
+    total < 0 ||
+    !Number.isSafeInteger(page * pageSize) ||
+    typeof hasNext !== 'boolean' ||
+    hasNext !== total > page * pageSize ||
+    typeof hasPrevious !== 'boolean' ||
+    hasPrevious !== page > 1 ||
+    !Array.isArray(value.data) ||
+    value.data.length > pageSize ||
+    value.data.length > total
+  ) {
+    throw new Error('Process task pagination is invalid');
+  }
+  return Object.freeze({
+    tasks: Object.freeze(value.data.map(parseHumanTask)),
+    pagination: Object.freeze({ page, pageSize, total, hasNext, hasPrevious }),
   });
 }

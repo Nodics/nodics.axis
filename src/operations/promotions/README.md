@@ -2,6 +2,19 @@
 
 ## Coupon Native Workspaces
 
+Admitted administrative review appears before creation. Audit captions come from
+Promotion's presentation contribution; date values render in the browser locale
+with the original timestamp retained in semantic `time` elements. Deploy that
+owner contribution together with this consumer. Missing labels fail closed.
+Customize captions in the owner contribution, not an Axis label map.
+
+Digital Core selects the reference caption for native basket, qualified ITEM or
+admitted ITEM simulation evidence. Axis renders `pricedSourceLabel` unchanged;
+neither the caption nor a typed SIM handle grants simulation authority. The owner
+defaults live in `digitalCore.merchantRedemption.presentation`. Focused coverage:
+`couponOfferWorkspace`, `couponAdministrativeReview`, `merchantItemEvidenceUi`
+and backend `merchantWorkspacePresentation.test.js`.
+
 `CouponOfferWorkspace` renders owner-authored presentation and exact inspected
 records. It creates through the existing Promotion PUT draft command only after
 review, permits name-only corrections, locks saved promises and uses unsaved
@@ -10,6 +23,47 @@ inspection. This bounded editor supports one ITEM line; multi-item prefill refus
 rather than silently dropping items. Canonical Product/Store/Pricing references are
 explicit input fields, not frontend-owned catalogue choices.
 
+New offers optionally select a vendor Enterprise through the existing discovered
+Profile Enterprise lookup. Only active returned records are selectable; lookup
+failure is visible and has no manual-code fallback. Review shows the selected
+reference and creation sends only `vendorEnterpriseRef`, preserving the signed
+issuer and request scope. Omission leaves defaulting to Promotion. Saved offers
+cannot edit the vendor. Owner prefill preserves budget and vendor only as unsaved
+selections, never approval or consent. This adds no permissions or
+scope override; Profile lookup and Promotion draft admission still apply.
+
+The shared `ProfileEnterpriseSelector` supplies controlled Profile references,
+not authorization or session switching. Its caller supplies the label and keeps
+signed configuration unchanged. Pending searches abort on configuration change;
+choices from a previous configuration cannot be selected. Target-review preparation
+tests demonstrate keying private inspection/confirmation state by selected target.
+No review grant is inferred from a selection. The administrative panel separately
+discovers Promotion's native capability, then uses Profile's bounded same-tenant
+`/participants/search` directory (not the generic vendor inventory lookup).
+Inspection and approval send `issuerEnterpriseCode` in the body only. The bearer,
+signed Enterprise header, tenant and original audit actor never change. Only the
+exact advertised administrative approval action is accepted, with version/revision
+and reviewed reason. Fresh target inspection must confirm the successor and audit;
+unknown writes are not retried. Target/offer/session changes clear private review
+and confirmation and abort pending requests. Existing own-scope review remains
+independent; unavailable native capability never grants cross-enterprise access.
+Equivalent bootstrap refreshes retain the target input, focus and review while
+capabilities revalidate. Authority identity includes only the signed scope,
+selected owner routing and effective navigation admission, not object identity,
+health timestamps or presentation metadata. UP/DEGRADED remain the same admitted
+owner; a missing owner, changed routing, changed authentication or revoked
+capability still retires private state.
+See Promotion's `llm/contracts/administrative-offer-review.md` for the owner contract.
+
+Financial budget is a separate decimal-string input from coupon supply. Blank
+creation omits it; Axis supplies no financial default. Inspection retains the
+owner budget, vendor and validated lifecycle actions. Only advertised actions
+are rendered, using owner labels and exact version/revision preconditions plus a
+reviewed reason. Commands are not retried, and fresh inspection must confirm an
+advanced version/revision. Uncertain outcomes lock further writes until inspection.
+Promotion chooses SCHEDULED or ACTIVE; Axis never submits a target status. Source
+activation is not Online publication or operational budget initialization.
+
 `CouponAcquisitionReportPanel` renders and exports the same protected aggregate
 response, preserving null cells and UTC coverage. No raw attribution endpoint,
 customer identifiers or unapproved filters exist here. Both accept
@@ -17,10 +71,20 @@ customer identifiers or unapproved filters exist here. Both accept
 owner and filter responses. Copy, limits and modes come from Promotion's
 `GET /promotions/coupon-offers/workspace`.
 
+Reporting selects offers by name through Promotion's existing advertised safe
+search and separately admitted Staged source connection; querying report data
+still uses COMMERCE/OPERATIONAL. Name search never broadens signed scope or grants
+authoring. Channel choices come from the workspace's validated `reportChannels`,
+defined by the owning framework policy and selected by a deployment where needed.
+No channel is invented in Axis. The visible watermark is localized with a
+semantic UTC `time` value; exported aggregate timestamps and privacy suppression
+are unchanged. Unavailable source lookup remains an explicit error, not a manual
+code bypass or fallback to another runtime.
+
 The shared Axis registry in `src/app/App.tsx` binds
 `promotion.couponOffers` / `authoring` to `CouponOfferWorkspace`
 (COMMERCE_STAGED/STAGED) and `promotion.couponAcquisition` / `reporting`
-to `CouponAcquisitionReportPanel` (COMMERCE/ONLINE). Dispatch requires the exact
+to `CouponAcquisitionReportPanel` (COMMERCE/OPERATIONAL). Dispatch requires the exact
 Promotion native workspace, declared role pair, admitted feature/availability
 and matching owner connection. It passes the original authenticated token,
 bootstrap, runtime and admission generation; a new admission remounts the renderer.
@@ -170,3 +234,9 @@ automatic retry. These are source-level UI tests, not live delivery qualificatio
 Live acceptance still covers store revisions/scope loss, expired validation, local and
 staff modes, lost acknowledgements, original-reference resume, customer readback,
 keyboard/dialog focus and narrow layouts. Static typechecking is not live acceptance.
+
+Offer report lookup consumes canonical Promotion names as owner-validated display
+strings. Browser validation retains nonempty/control-character checks without a
+copied business-name maximum. Existing Staged selection, schema discovery, safe
+search, owner page sizes and permission boundaries remain unchanged. The focused
+`reportOfferLookupBounds` regression covers long valid names and malformed shapes.

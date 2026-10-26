@@ -64,17 +64,21 @@ interface DataReleaseWorkbenchProps {
   readonly onValidateSelected: () => void;
 }
 
-type ReleaseGroupTone = 'action' | 'warning' | 'success';
+type ReleaseGroupTone = 'action' | 'warning' | 'success' | 'info';
 
-function releaseActionGroup(release: DataRelease): 'available' | 'current' | 'repair' {
+function releaseActionGroup(
+  release: DataRelease,
+): 'available' | 'current' | 'repair' | 'RUNNING' | 'DOWNGRADE_AVAILABLE' {
   if (isInstallableStatus(release.status)) return 'available';
   if (release.status === 'CURRENT') return 'current';
+  if (release.status === 'RUNNING' || release.status === 'DOWNGRADE_AVAILABLE')
+    return release.status;
   return 'repair';
 }
 
 function releaseGroupIcon(groupId: string): string {
   if (groupId === 'available') return 'import';
-  if (groupId === 'repair') return 'info';
+  if (groupId !== 'current') return 'info';
   return 'approve';
 }
 
@@ -86,6 +90,9 @@ function releaseStatusChipColor(release: DataRelease) {
 }
 
 function releaseGroupToneStyles(tone: ReleaseGroupTone) {
+  if (tone === 'info') {
+    return { palette: 'info' as const, severity: 'info' as const };
+  }
   if (tone === 'warning') {
     return {
       palette: 'warning' as const,
@@ -117,107 +124,15 @@ function releaseSelectionLabel(release: DataRelease): string {
   return `${release.displayName} cannot be selected`;
 }
 
-function releaseFallbackReadiness(release: DataRelease): DataReleaseReadiness {
-  const blockerCode =
-    release.status === 'NOT_INSTALLED'
-      ? 'IMPORT_NOT_STARTED'
-      : release.status === 'RUNNING'
-        ? 'IMPORT_IN_PROGRESS'
-        : release.status === 'FAILED'
-          ? 'IMPORT_FAILED'
-          : release.status === 'INVALID_RELEASE'
-            ? 'INVALID_MANIFEST'
-            : 'VERSION_MISMATCH';
-  const blocker =
-    release.status === 'CURRENT'
-      ? undefined
-      : {
-          blockerCode,
-          code: blockerCode,
-          severity:
-            release.status === 'RUNNING'
-              ? 'INFO'
-              : release.status === 'INVALID_RELEASE' || release.status === 'FAILED'
-                ? 'BLOCKED'
-                : 'REPAIR_REQUIRED',
-          owner: release.releaseCode ?? release.moduleName,
-          ownerType: 'DATA_RELEASE',
-          source: 'IMPORT_RELEASE_CATALOGUE',
-          message: releaseDisabledReason(release) ?? 'Data preparation is required.',
-          action:
-            release.status === 'NOT_INSTALLED'
-              ? 'Prepare capability'
-              : release.status === 'RUNNING'
-                ? 'Refresh readiness'
-                : release.status === 'FAILED'
-                  ? 'Retry failed import'
-                  : release.status === 'INVALID_RELEASE'
-                    ? 'Repair release manifest'
-                    : 'Update release',
-          disabledReason:
-            releaseDisabledReason(release) ?? 'Data release readiness requires review.',
-          technicalStatus: release.status,
-          repair:
-            release.status === 'INVALID_RELEASE'
-              ? {
-                  available: false,
-                  label: 'Repair release manifest source',
-                  operation: 'source.releaseManifest.repair',
-                  action: 'REPAIR_RELEASE_MANIFEST_SOURCE',
-                  idempotent: false,
-                  requiresConfirmation: true,
-                  unavailableReason:
-                    'Release manifest validation failed; repair the source descriptor in the owning module before importing.',
-                }
-              : isInstallableStatus(release.status)
-                ? {
-                    available: true,
-                    label:
-                      release.status === 'FAILED'
-                        ? 'Retry failed import'
-                        : release.status === 'UPDATE_AVAILABLE'
-                          ? 'Update release'
-                          : 'Prepare capability',
-                    operation: 'dataRelease.install',
-                    action:
-                      release.status === 'FAILED'
-                        ? 'RETRY_FAILED_IMPORT'
-                        : release.status === 'UPDATE_AVAILABLE'
-                          ? 'UPDATE_RELEASE'
-                          : 'PREPARE_CAPABILITY',
-                    idempotent: true,
-                    requiresConfirmation: false,
-                  }
-                : undefined,
-        };
-  return {
-    capabilityCode: release.sectionCode ?? release.releaseCode ?? release.moduleName,
-    displayName: release.displayName,
-    owningModule: release.moduleName,
-    capabilityType:
-      release.dataType === 'init'
-        ? 'INITIALIZATION_DATA'
-        : release.dataType === 'sample'
-          ? 'SAMPLE_DATA'
-          : 'CORE_DATA',
-    group: release.dataType === 'sample' ? 'APPLICATION_CONTENT' : 'FOUNDATION_DATA',
-    businessStatus:
-      release.status === 'CURRENT'
-        ? 'PREPARED_STAGED'
-        : release.status === 'RUNNING'
-          ? 'PREPARING'
-          : release.status === 'NOT_INSTALLED'
-            ? 'NOT_PREPARED'
-            : 'NEEDS_ATTENTION',
-    technicalStatus: release.status,
-    releaseStatus: release.status,
-    nextAction: blocker?.action ?? 'No import action required',
-    blockers: blocker ? [blocker] : [],
-  };
+type ReleaseWithReadiness = DataRelease & { readonly readiness: DataReleaseReadiness };
+
+/** Missing owner evidence never becomes a browser-authored readiness or repair claim. */
+function hasReadiness(release: DataRelease): release is ReleaseWithReadiness {
+  return release.readiness !== undefined;
 }
 
-function releaseReadiness(release: DataRelease): DataReleaseReadiness {
-  return release.readiness ?? releaseFallbackReadiness(release);
+function releaseReadiness(release: ReleaseWithReadiness): DataReleaseReadiness {
+  return release.readiness;
 }
 
 function readinessStatusLabel(status: string): string {
@@ -345,7 +260,7 @@ function DryRunSummaryPanel(props: { readonly dryRun: DataReleaseDryRunSummary }
         </Box>
         {props.dryRun.outcomes.length > 0 ? (
           <Stack spacing={0.75}>
-            {props.dryRun.outcomes.slice(0, 8).map((outcome) => (
+            {props.dryRun.outcomes.map((outcome) => (
               <Box
                 key={
                   outcome.releaseCode ?? `${outcome.moduleName}:${outcome.displayName}`
@@ -419,7 +334,7 @@ function DryRunSummaryPanel(props: { readonly dryRun: DataReleaseDryRunSummary }
                   variant="outlined"
                 />
               </Stack>
-              {props.dryRun.publicationFollowUps.slice(0, 6).map((followUp) => (
+              {props.dryRun.publicationFollowUps.map((followUp) => (
                 <Box
                   key={
                     followUp.releaseCode ??
@@ -515,7 +430,7 @@ function readinessGroupOrder(group: string): number {
   return 90;
 }
 
-function readinessGroupKey(release: DataRelease): string {
+function readinessGroupKey(release: ReleaseWithReadiness): string {
   const readiness = releaseReadiness(release);
   return [
     readiness.group,
@@ -545,7 +460,7 @@ function readinessGroupSort(
 interface CapabilityReadinessGroup {
   readonly key: string;
   readonly readiness: DataReleaseReadiness;
-  readonly releases: readonly DataRelease[];
+  readonly releases: readonly ReleaseWithReadiness[];
   readonly actionable: readonly DataRelease[];
   readonly current: number;
 }
@@ -581,11 +496,11 @@ function businessPackHelp(group: string): string {
 }
 
 function buildBusinessReleasePacks(
-  releases: readonly DataRelease[],
+  releases: readonly ReleaseWithReadiness[],
 ): readonly BusinessReleasePack[] {
   return Array.from(
     releases
-      .reduce<Map<string, DataRelease[]>>((groups, release) => {
+      .reduce<Map<string, ReleaseWithReadiness[]>>((groups, release) => {
         const group = releaseReadiness(release).group;
         groups.set(group, [...(groups.get(group) ?? []), release]);
         return groups;
@@ -620,6 +535,9 @@ function buildBusinessReleasePacks(
 }
 
 export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
+  const selectionDisabled =
+    props.operationIsPending || !props.catalogueIsSuccess || !props.connectionAvailable;
+  const ownerReadinessReleases = props.visibleReleases.filter(hasReadiness);
   const selectableReleaseCount = props.visibleReleases.filter((release) =>
     isInstallableStatus(release.status),
   ).length;
@@ -651,6 +569,15 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
         .sort(compareDataReleases),
       tone: 'warning' as const,
     },
+    ...(['RUNNING', 'DOWNGRADE_AVAILABLE'] as const).map((status) => ({
+      id: status,
+      heading: readinessStatusLabel(status),
+      help: undefined,
+      releases: props.visibleReleases
+        .filter((release) => releaseActionGroup(release) === status)
+        .sort(compareDataReleases),
+      tone: status === 'RUNNING' ? ('info' as const) : ('warning' as const),
+    })),
     {
       id: 'current',
       heading: 'Already current',
@@ -662,8 +589,8 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
     },
   ].filter((group) => group.releases.length > 0);
   const readinessGroups = Array.from(
-    props.visibleReleases
-      .reduce<Map<string, DataRelease[]>>((groups, release) => {
+    ownerReadinessReleases
+      .reduce<Map<string, ReleaseWithReadiness[]>>((groups, release) => {
         const key = readinessGroupKey(release);
         groups.set(key, [...(groups.get(key) ?? []), release]);
         return groups;
@@ -674,7 +601,14 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
       const sortedReleases = releases.sort(compareDataReleases);
       return {
         key,
-        readiness: releaseReadiness(sortedReleases[0]!),
+        readiness: {
+          ...releaseReadiness(
+            sortedReleases.find(
+              (release) => release.readiness.businessStatus !== 'PREPARED_STAGED',
+            ) ?? sortedReleases[0]!,
+          ),
+          blockers: sortedReleases.flatMap((release) => release.readiness.blockers),
+        },
         releases: sortedReleases,
         actionable: sortedReleases.filter((release) =>
           isInstallableStatus(release.status),
@@ -717,7 +651,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
         readinessGroupOrder(left.group) - readinessGroupOrder(right.group) ||
         left.label.localeCompare(right.label),
     );
-  const businessPacks = buildBusinessReleasePacks(props.visibleReleases);
+  const businessPacks = buildBusinessReleasePacks(ownerReadinessReleases);
   const toggleGroup = (groupKey: string) => {
     setCollapsedGroups((previousGroups) => {
       const nextGroups = new Set(previousGroups);
@@ -1061,6 +995,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                               : 'outlined'
                           }
                           onClick={() => props.onSelectReleases(pack.actionable)}
+                          disabled={selectionDisabled}
                         >
                           {selectedPackCount === pack.actionable.length
                             ? 'Pack selected'
@@ -1224,6 +1159,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                           startIcon={<ShellIcon fontSize="small" name="tasks" />}
                           variant={allActionableSelected ? 'contained' : 'outlined'}
                           onClick={() => props.onSelectReleases(group.actionable)}
+                          disabled={selectionDisabled}
                         >
                           {allActionableSelected
                             ? 'Selected'
@@ -1356,9 +1292,11 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                             variant={group.tone === 'action' ? 'filled' : 'outlined'}
                           />
                         </Stack>
-                        <Typography color="text.secondary" variant="body2">
-                          {group.help}
-                        </Typography>
+                        {group.help ? (
+                          <Typography color="text.secondary" variant="body2">
+                            {group.help}
+                          </Typography>
+                        ) : null}
                       </Box>
                     </Stack>
                     <Stack
@@ -1445,7 +1383,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                             <Box sx={{ flexShrink: 0 }}>
                               <Checkbox
                                 checked={checked}
-                                disabled={!selectable}
+                                disabled={selectionDisabled || !selectable}
                                 slotProps={{
                                   input: {
                                     'aria-label': releaseSelectionLabel(release),
@@ -1567,7 +1505,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                 control={
                   <Checkbox
                     checked={allVisibleSelected}
-                    disabled={props.operationIsPending || selectableReleaseCount === 0}
+                    disabled={selectionDisabled || selectableReleaseCount === 0}
                     indeterminate={someVisibleSelected}
                     slotProps={{
                       input: {
@@ -1597,7 +1535,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
             </Stack>
             <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ gap: 1.5 }}>
               <Button
-                disabled={props.operationIsPending || props.selectedReleaseCount === 0}
+                disabled={selectionDisabled || props.selectedReleaseCount === 0}
                 startIcon={<ShellIcon fontSize="small" name="visible" />}
                 onClick={props.onValidateSelected}
                 variant="outlined"
@@ -1605,9 +1543,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                 Validate selected
               </Button>
               <Button
-                disabled={
-                  props.operationIsPending || props.executableReleaseCount === 0
-                }
+                disabled={selectionDisabled || props.executableReleaseCount === 0}
                 startIcon={<ShellIcon fontSize="small" name="download" />}
                 onClick={props.onInstallSelected}
                 variant="contained"

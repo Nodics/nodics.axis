@@ -10,10 +10,12 @@ import {
   Button,
   Chip,
   Divider,
+  IconButton,
   MenuItem,
   Paper,
   Stack,
   TextField,
+  Tooltip,
   Typography,
   alpha,
 } from '@mui/material';
@@ -30,6 +32,7 @@ import {
   type AxisNavigationItem,
 } from '../../bootstrap/publicBootstrap';
 import { createDocumentationPublicationClient } from '../../documentation/api/documentationPublicationClient';
+import { createApplicationInitializationClient } from '../setupAccelerators/api/applicationInitializationClient';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
   archiveProcessTrigger,
@@ -58,6 +61,7 @@ import {
   type ProcessDefinition,
   type ProcessDefinitionClientConfiguration,
   type ProcessHumanTask,
+  type ProcessTaskPagination,
   type ProcessIncident,
   type ProcessRuntimeInstance,
   type ProcessOperationsSummary,
@@ -80,9 +84,11 @@ const versionsQueryKey = 'process-definition-versions';
 const instanceDetailQueryKey = 'process-instance-detail';
 type ProcessTaskDecision = Readonly<Record<string, unknown>>;
 type CmsPublicationTaskContext = Readonly<{
-  profileCode: string;
+  profileCode?: string;
   releaseStatus?: string;
-  releaseVersion: string;
+  releaseVersion?: string;
+  releaseCode?: string;
+  sourceVersion?: string;
   requestedBy?: string;
   siteCode: string;
   sourceLabel: string;
@@ -691,6 +697,8 @@ function TaskInbox({
   refreshDisabled,
   publicationContexts,
   tasks,
+  pagination,
+  onPageChange,
   title = 'Task inbox',
 }: {
   readonly assignee: string;
@@ -704,6 +712,8 @@ function TaskInbox({
   readonly refreshDisabled: boolean;
   readonly publicationContexts: ReadonlyMap<string, CmsPublicationTaskContext>;
   readonly tasks: readonly ProcessHumanTask[];
+  readonly pagination: ProcessTaskPagination | undefined;
+  readonly onPageChange: (page: number) => void;
   readonly title?: string;
 }) {
   const publicationTasks = tasks
@@ -760,18 +770,44 @@ function TaskInbox({
             />
           </Stack>
         </Stack>
+        {pagination ? (
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+          >
+            <Tooltip title="Previous task page">
+              <span>
+                <IconButton
+                  aria-label="Previous task page"
+                  disabled={refreshDisabled || !pagination.hasPrevious}
+                  onClick={() => onPageChange(pagination.page - 1)}
+                >
+                  <ShellIcon name="chevron-left" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Typography role="status">{`Page ${String(pagination.page)} · ${String(pagination.total)} matching tasks`}</Typography>
+            <Tooltip title="Next task page">
+              <span>
+                <IconButton
+                  aria-label="Next task page"
+                  disabled={refreshDisabled || !pagination.hasNext}
+                  onClick={() => onPageChange(pagination.page + 1)}
+                >
+                  <ShellIcon name="chevron-right" />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Stack>
+        ) : null}
         {tasks.length === 0 ? (
-          <Alert severity="info">
-            No human workflow tasks are waiting. Tasks appear here when a published
-            process reaches a TASK node.
-          </Alert>
+          <Alert severity="info">No tasks on this page.</Alert>
         ) : (
           <Stack spacing={1.5}>
             {publicationTasks.length ? (
               <Stack spacing={1}>
-                <Typography variant="subtitle1">
-                  Documentation publication approvals
-                </Typography>
+                <Typography variant="subtitle1">CMS publication approvals</Typography>
                 {publicationTasks.map((task) => {
                   const actionable = isActionableTask(task);
                   const context = publicationContexts.get(task.instanceCode ?? '');
@@ -808,18 +844,21 @@ function TaskInbox({
                               spacing={1}
                               sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 1 }}
                             >
-                              <Typography sx={{ fontWeight: 700 }} variant="h6">
-                                {context?.sourceLabel ?? 'Documentation publication'}
+                              <Typography
+                                sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}
+                                variant="h6"
+                              >
+                                {context?.sourceLabel ?? 'CMS publication'}
                               </Typography>
                               <Chip color="warning" label={task.status} size="small" />
                             </Stack>
                             <Typography color="text.secondary" variant="body2">
                               {context
-                                ? `${context.profileCode} -> ${context.siteCode} · release ${context.releaseVersion}`
+                                ? `${context.profileCode ?? 'Profile not available'} -> ${context.siteCode} · release ${context.releaseVersion ?? 'not available'}`
                                 : `Workflow ${shortCode(task.instanceCode)} · task ${shortCode(task.code)}`}
                             </Typography>
                             <Typography color="text.secondary" variant="body2">
-                              Requested by {context?.requestedBy ?? 'unknown'} ·
+                              Requested by {context?.requestedBy ?? 'not available'} ·
                               assigned to {task.assignee ?? 'unassigned'}
                             </Typography>
                           </Box>
@@ -915,8 +954,8 @@ function TaskInbox({
                                     Review before decision
                                   </Typography>
                                   <Typography color="text.secondary" variant="body2">
-                                    This is the staged documentation publication
-                                    evidence for the selected approval task.
+                                    This is the staged CMS publication evidence for the
+                                    selected approval task.
                                   </Typography>
                                 </Box>
                                 <Chip
@@ -944,11 +983,13 @@ function TaskInbox({
                                   ['Staged profile', context?.profileCode],
                                   ['Target site', context?.siteCode],
                                   ['Release version', context?.releaseVersion],
+                                  ['Release', context?.releaseCode],
                                   ['Release status', context?.releaseStatus],
+                                  ['Source version', context?.sourceVersion],
                                   ['Publication', context?.publicationCode],
                                   ['Workflow', task.instanceCode],
                                   ['Task', task.code],
-                                  ['Requester', context?.requestedBy ?? 'unknown'],
+                                  ['Requester', context?.requestedBy],
                                 ].map(([label, value]) => (
                                   <Box key={label}>
                                     <Typography
@@ -969,7 +1010,7 @@ function TaskInbox({
                               </Box>
                               <Alert severity={canDecide ? 'info' : 'warning'}>
                                 {canDecide
-                                  ? 'Approve publishes the staged documentation release to Online. Reject keeps the current Online documentation unchanged and records the decision in Process.'
+                                  ? 'Approve submits the publication decision to its owner. Reject records the decision in Process without publishing this change.'
                                   : 'This task is no longer waiting for a decision. Refresh the queue to load the latest Process state.'}
                               </Alert>
                             </Stack>
@@ -1781,6 +1822,7 @@ export function ProcessWorkflowRoutePage({
     string | undefined
   >();
   const [taskAssignee, setTaskAssignee] = useState('operationsQueue');
+  const [taskPage, setTaskPage] = useState(1);
   const [triggerDefinitionCode, setTriggerDefinitionCode] = useState('');
   const [triggerCronJobCode, setTriggerCronJobCode] = useState('');
   const [triggerScheduleExpression, setTriggerScheduleExpression] =
@@ -1810,18 +1852,38 @@ export function ProcessWorkflowRoutePage({
 
   const operations = useQuery({
     enabled: Boolean(processConnection),
-    queryKey: [operationsQueryKey, runtime.enterpriseCode, processConnection?.endpoint],
+    retry: false,
+    queryKey: [
+      operationsQueryKey,
+      runtime.enterpriseCode,
+      processConnection?.endpoint,
+      accessToken,
+      taskPage,
+    ],
     queryFn: () =>
       processConnection
-        ? loadProcessOperationsSummary(processConnection, configuration)
+        ? loadProcessOperationsSummary(processConnection, configuration, taskPage)
         : Promise.resolve(emptyOperationsSummary),
   });
+  const cmsTasks = operations.isSuccess
+    ? operations.data.tasks.filter(
+        (task) =>
+          task.reviewContext?.owner === 'cms' && task.reviewContext.rootType === 'site',
+      )
+    : [];
+  const reviewDocumentationSources = documentationSources.filter((source) =>
+    cmsTasks.some((task) => task.reviewContext?.rootCode === source.site),
+  );
   const documentationPublicationQueries = useQueries({
-    queries: documentationSources.map((source) => ({
+    queries: reviewDocumentationSources.map((source) => ({
       enabled: Boolean(documentationConnection && source.initializationProfile),
+      retry: false,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
       queryKey: [
         'process-task-documentation-publication-context',
         runtime.enterpriseCode,
+        documentationConnection?.endpoint,
         source.initializationProfile ?? '',
       ],
       queryFn: () => {
@@ -1834,6 +1896,48 @@ export function ProcessWorkflowRoutePage({
           accessToken,
           timeoutMs: runtime.requestTimeoutMs,
           profileCode: source.initializationProfile,
+        }).getStatus();
+      },
+    })),
+  });
+
+  // Read only uniquely identified authorized profiles needed by visible CMS tasks.
+  const applicationProfiles = (
+    bootstrap.applicationInitializationProfiles ?? []
+  ).filter(
+    (profile, index, all) =>
+      all.findIndex((candidate) => candidate.code === profile.code) === index &&
+      cmsTasks.some((task) => task.reviewContext?.rootCode === profile.siteCode) &&
+      new Set(
+        all
+          .filter((candidate) => candidate.siteCode === profile.siteCode)
+          .map((candidate) => candidate.code),
+      ).size === 1 &&
+      !documentationSources.some(
+        (source) => source.initializationProfile === profile.code,
+      ),
+  );
+  const applicationPublicationQueries = useQueries({
+    queries: applicationProfiles.map((profile) => ({
+      enabled: Boolean(documentationConnection),
+      queryKey: [
+        'process-task-application-publication-context',
+        runtime.enterpriseCode,
+        documentationConnection?.endpoint,
+        profile.code,
+      ],
+      retry: false,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      queryFn: () => {
+        if (!documentationConnection)
+          throw new Error('Publication context is unavailable');
+        return createApplicationInitializationClient({
+          connection: documentationConnection,
+          enterpriseCode: runtime.enterpriseCode,
+          accessToken,
+          timeoutMs: runtime.requestTimeoutMs,
+          profileCode: profile.code,
         }).getStatus();
       },
     })),
@@ -2071,7 +2175,21 @@ export function ProcessWorkflowRoutePage({
   });
   const refreshTaskEvidence = async () => {
     const result = await operations.refetch();
-    if (!result.isError && result.data) completeTask.reset();
+    if (!result.isError && result.data) {
+      completeTask.reset();
+      await queryClient.invalidateQueries({
+        queryKey: [
+          'process-task-application-publication-context',
+          runtime.enterpriseCode,
+        ],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: [
+          'process-task-documentation-publication-context',
+          runtime.enterpriseCode,
+        ],
+      });
+    }
   };
 
   const cancelInstance = useMutation({
@@ -2178,21 +2296,70 @@ export function ProcessWorkflowRoutePage({
     processWorkspaces.find((workspace) => currentPath.startsWith(workspace.route)) ??
     defaultProcessWorkspace;
   const documentationPublicationContexts = new Map<string, CmsPublicationTaskContext>();
-  documentationPublicationQueries.forEach((query, index) => {
-    const source = documentationSources[index];
-    const publication = query.data;
-    const workflowRef = publication?.publication?.workflowRef;
-    if (!source || !publication || !workflowRef) return;
+  cmsTasks.forEach((task) => {
+    const context = task.reviewContext!;
+    if (!task.instanceCode) return;
+    documentationPublicationContexts.set(task.instanceCode, {
+      sourceLabel: 'CMS publication',
+      siteCode: context.rootCode,
+      publicationCode: context.publicationCode,
+      sourceVersion: context.sourceVersion,
+      ...(context.requestedBy ? { requestedBy: context.requestedBy } : {}),
+    });
+  });
+  applicationPublicationQueries.forEach((query, index) => {
+    const profile = applicationProfiles[index];
+    const status = query.isSuccess ? query.data : undefined;
+    const workflowRef = status?.publication?.workflowRef;
+    const context = workflowRef
+      ? documentationPublicationContexts.get(workflowRef)
+      : undefined;
+    if (
+      !profile ||
+      !status ||
+      !workflowRef ||
+      !context ||
+      status.profileCode !== profile.code ||
+      status.siteCode !== profile.siteCode ||
+      context.siteCode !== status.siteCode ||
+      context.publicationCode !== status.publication?.code
+    )
+      return;
     documentationPublicationContexts.set(workflowRef, {
+      ...context,
+      sourceLabel: profile.title,
+      profileCode: status.profileCode,
+      releaseCode: status.releaseCode,
+      releaseVersion: status.releaseVersion,
+      ...(status.releaseStatus ? { releaseStatus: status.releaseStatus } : {}),
+    });
+  });
+  documentationPublicationQueries.forEach((query, index) => {
+    const source = reviewDocumentationSources[index];
+    const publication = query.isSuccess ? query.data : undefined;
+    const workflowRef = publication?.publication?.workflowRef;
+    const context = workflowRef
+      ? documentationPublicationContexts.get(workflowRef)
+      : undefined;
+    if (
+      !source ||
+      !publication ||
+      !workflowRef ||
+      !context ||
+      publication.profileCode !== source.initializationProfile ||
+      publication.siteCode !== source.site ||
+      context.siteCode !== publication.siteCode ||
+      context.publicationCode !== publication.publication?.code
+    )
+      return;
+    documentationPublicationContexts.set(workflowRef, {
+      ...context,
       profileCode: publication.profileCode,
       releaseVersion: publication.releaseVersion,
       siteCode: publication.siteCode,
       sourceLabel: source.label,
       ...(publication.releaseStatus
         ? { releaseStatus: publication.releaseStatus }
-        : {}),
-      ...(publication.publication?.requestedBy
-        ? { requestedBy: publication.publication.requestedBy }
         : {}),
       ...(publication.publication?.code
         ? { publicationCode: publication.publication.code }
@@ -2341,7 +2508,7 @@ export function ProcessWorkflowRoutePage({
                 }}
               >
                 <WorkspaceHeading
-                  description="Review workflow tasks that are waiting for a business decision. Documentation publication approvals are shown first with their source context."
+                  description="Review workflow tasks that are waiting for a business decision, with available owner-provided publication evidence."
                   help={navigation.help}
                   eyebrow="Process & Automation"
                   headingVariant="h3"
@@ -2368,7 +2535,16 @@ export function ProcessWorkflowRoutePage({
               {latestError instanceof Error ? (
                 <Alert severity="error">{latestError.message}</Alert>
               ) : operations.isError && operations.error instanceof Error ? (
-                <Alert severity="error">{operations.error.message}</Alert>
+                <Alert
+                  severity="error"
+                  action={
+                    taskPage > 1 ? (
+                      <Button onClick={() => setTaskPage(1)}>First page</Button>
+                    ) : undefined
+                  }
+                >
+                  {operations.error.message}
+                </Alert>
               ) : operations.isPending ? (
                 <Alert severity="info">Loading approval tasks from Process.</Alert>
               ) : publicationApprovalTasks.length ? (
@@ -2376,7 +2552,7 @@ export function ProcessWorkflowRoutePage({
                   {`${String(publicationTasksReadyForDecision)} approval task${publicationTasksReadyForDecision === 1 ? '' : 's'} awaiting review.`}
                 </Alert>
               ) : (
-                <Alert severity="success">No approval decisions are waiting.</Alert>
+                <Alert severity="info">No approval decisions on this page.</Alert>
               )}
             </Stack>
           </Paper>
@@ -2402,6 +2578,8 @@ export function ProcessWorkflowRoutePage({
             }
             publicationContexts={documentationPublicationContexts}
             tasks={operations.data?.tasks ?? []}
+            pagination={operations.data?.taskPagination}
+            onPageChange={setTaskPage}
             title="Approval task queue"
           />
 
@@ -2700,6 +2878,8 @@ export function ProcessWorkflowRoutePage({
             }
             publicationContexts={documentationPublicationContexts}
             tasks={operations.data?.tasks ?? []}
+            pagination={operations.data?.taskPagination}
+            onPageChange={setTaskPage}
           />
         </Box>
 

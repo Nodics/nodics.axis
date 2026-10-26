@@ -97,6 +97,37 @@ describe('employee authentication client', () => {
     expect(options?.body).toBe('{}');
   });
 
+  it('still asks Profile to acknowledge logout after another application removed the cookie', async () => {
+    document.cookie = 'nodics_axis_csrf=; Max-Age=0; Path=/';
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ result: true }), { status: 200 }),
+      );
+    await logoutEmployee(
+      'https://profile.example.com',
+      'enterprise-a',
+      'nodics_axis_csrf',
+      10000,
+      request,
+    );
+    expect(request).toHaveBeenCalledTimes(1);
+    const [, options] = request.mock.calls[0]!;
+    expect(new Headers(options?.headers).get('X-CSRF-Token')).toBe('');
+    expect(options?.credentials).toBe('include');
+    request.mockResolvedValue(new Response('{}', { status: 401 }));
+    await expect(
+      logoutEmployee(
+        'https://profile.example.com',
+        'enterprise-a',
+        'nodics_axis_csrf',
+        10000,
+        request,
+      ),
+    ).rejects.toThrow('secure logout');
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   it('does not misreport browser-session failures as invalid credentials', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(

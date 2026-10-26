@@ -75,6 +75,11 @@ const bootstrap = {
   },
   navigation: [],
   documentationSources: [],
+  applicationReadinessScheduling: {
+    contractVersion: 1,
+    concurrency: 4,
+    priorityBurst: 1,
+  },
   tenantCode: 'default',
   applicationInitializationProfiles: [
     {
@@ -163,11 +168,10 @@ function responseFor(profileCode: string) {
         technicalStatus: 'PENDING_APPROVAL',
         nextAction: 'Review the governed Process approval task.',
         approvalDiagnostic: {
-          status: 'NO_ACTIONABLE_TASK',
+          status: 'WAITING_REVIEWER',
           workflowRef: 'cmsPublicationApproval-circa-ewaste',
-          message:
-            'Publication approval is pending but no actionable Process task was found.',
-          suggestedAction: 'Open Process tasks and verify assignee permissions.',
+          message: 'Publication is waiting for reviewer decision.',
+          suggestedAction: 'Review approval queue',
         },
         blockers: [],
       },
@@ -185,24 +189,40 @@ function RouteEvidence() {
   );
 }
 
-function renderPage(path = '/setup-accelerators', selectedBootstrap = bootstrap) {
-  const queryClient = new QueryClient({
+function renderPage(
+  path = '/setup-accelerators',
+  selectedBootstrap = bootstrap,
+  queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
-  });
-  return render(
+  }),
+) {
+  const page = (
+    nextBootstrap: AxisAuthenticatedBootstrap,
+    accessToken = 'employee-token',
+    nextRuntime = runtime,
+  ) => (
     <AxisThemeProvider>
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={[path]}>
           <RouteEvidence />
           <SetupAcceleratorsRoutePage
-            accessToken="employee-token"
-            bootstrap={selectedBootstrap}
-            runtime={runtime}
+            accessToken={accessToken}
+            bootstrap={nextBootstrap}
+            runtime={nextRuntime}
           />
         </MemoryRouter>
       </QueryClientProvider>
-    </AxisThemeProvider>,
+    </AxisThemeProvider>
   );
+  const view = render(page(selectedBootstrap));
+  return {
+    ...view,
+    refreshBootstrap: (
+      nextBootstrap: AxisAuthenticatedBootstrap,
+      accessToken?: string,
+      nextRuntime?: AxisRuntimeConfig,
+    ) => view.rerender(page(nextBootstrap, accessToken, nextRuntime)),
+  };
 }
 
 const publicationBootstrap: AxisAuthenticatedBootstrap = {
@@ -639,6 +659,403 @@ describe('SetupAccelerators coordinated publication', () => {
 });
 
 describe('SetupAcceleratorsRoutePage', () => {
+  it.each([200, 500])(
+    'refreshes only the operated profile after command HTTP %s',
+    async (httpStatus) => {
+      const reads: string[] = [];
+      let commands = 0;
+      const status = {
+        ...responseFor('circa-ewaste').result,
+        readiness: 'NOT_IMPORTED',
+        allowedActions: ['INITIALIZE'],
+        publication: undefined,
+        capability: undefined,
+      };
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, request) => {
+        await Promise.resolve();
+        const url = input instanceof Request ? input.url : input.toString();
+        const code = url.includes('agora-apparel') ? 'agora-apparel' : 'circa-ewaste';
+        if (request?.method === 'POST') commands++;
+        else reads.push(code);
+        return new Response(
+          JSON.stringify({
+            result: code === 'circa-ewaste' ? status : responseFor(code).result,
+          }),
+          { status: request?.method === 'POST' ? httpStatus : 200 },
+        );
+      });
+      renderPage();
+      await waitFor(() => expect(reads).toHaveLength(2));
+      const initialize = await screen.findByRole('button', { name: 'Initialize' });
+      await waitFor(() => expect(initialize).toBeEnabled());
+      await userEvent.setup().click(initialize);
+      await waitFor(() =>
+        expect(reads.filter((code) => code === 'circa-ewaste')).toHaveLength(2),
+      );
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Initialize' })).toBeEnabled(),
+      );
+      expect(commands).toBe(1);
+      expect(reads.filter((code) => code === 'agora-apparel')).toHaveLength(1);
+    },
+  );
+
+  it('uses projected single-read scheduling, prioritizes expanded and counts queued profiles as loading', async () => {
+    const releases: (() => void)[] = [];
+    const calls: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      const code = url.includes('agora-apparel') ? 'agora-apparel' : 'circa-ewaste';
+      calls.push(code);
+      await new Promise<void>((resolve) => releases.push(resolve));
+      return new Response(JSON.stringify(responseFor(code)), { status: 200 });
+    });
+    const queueBootstrap: AxisAuthenticatedBootstrap = {
+      ...bootstrap,
+      applicationReadinessScheduling: {
+        contractVersion: 1,
+        concurrency: 1,
+        priorityBurst: 1,
+      },
+    };
+    const view = renderPage(
+      '/setup-accelerators?expanded=agora-apparel',
+      queueBootstrap,
+    );
+    await waitFor(() => expect(calls).toEqual(['agora-apparel']));
+    view.refreshBootstrap(structuredClone(queueBootstrap));
+    const summary = within(screen.getByLabelText('Setup profile summary'));
+    expect(summary.getByText('Loading status').parentElement).toHaveTextContent(
+      '2Loading status',
+    );
+    expect(summary.getByText('Pending approval').parentElement).toHaveTextContent(
+      '0Pending approval',
+    );
+    expect(
+      screen.getByRole('button', { name: 'Refresh Circa eWaste status' }),
+    ).toBeDisabled();
+    await act(() => {
+      releases.shift()!();
+      return Promise.resolve();
+    });
+    await waitFor(() => expect(calls).toEqual(['agora-apparel', 'circa-ewaste']));
+    await act(() => {
+      releases.shift()!();
+      return Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Refresh Circa eWaste status' }),
+      ).toBeEnabled(),
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Refresh Circa eWaste status' }),
+    );
+    await waitFor(() => expect(calls).toHaveLength(3));
+    await act(() => {
+      releases.shift()!();
+      return Promise.resolve();
+    });
+  });
+
+  it('preserves a manual status read across equivalent bootstrap object replacements', async () => {
+    let release!: () => void;
+    let slow = false;
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      if (slow)
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      return new Response(JSON.stringify(responseFor('circa-ewaste')), { status: 200 });
+    });
+    const view = renderPage(
+      '/setup-accelerators?profile=circa-ewaste',
+      publicationBootstrap,
+    );
+    const refresh = await screen.findByRole('button', {
+      name: 'Refresh Circa eWaste status',
+    });
+    await waitFor(() => expect(refresh).toBeEnabled());
+    slow = true;
+    fireEvent.click(refresh);
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+    view.refreshBootstrap(structuredClone(publicationBootstrap));
+    await act(() => {
+      release();
+      return Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled(),
+    );
+    expect(screen.queryByText('Status read canceled')).toBeNull();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    'endpoint',
+    'instanceId',
+    'environment',
+    'server',
+    'role',
+    'state',
+    'concurrency',
+    'priorityBurst',
+    'policyMissing',
+    'token',
+    'enterprise',
+  ])('retires in-flight status when effective %s changes', async (change) => {
+    let release!: () => void;
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return new Response(JSON.stringify(responseFor('circa-ewaste')), { status: 200 });
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const view = renderPage(
+      '/setup-accelerators?profile=circa-ewaste',
+      publicationBootstrap,
+      queryClient,
+    );
+    await waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+    const connection = publicationBootstrap.moduleConnections.backoffice![0]!;
+    const next = {
+      ...structuredClone(publicationBootstrap),
+      moduleConnections: {
+        ...publicationBootstrap.moduleConnections,
+        backoffice: [
+          {
+            ...connection,
+            ...(['endpoint', 'instanceId', 'environment', 'server'].includes(change)
+              ? {
+                  [change]:
+                    change === 'endpoint'
+                      ? 'http://localhost:4320/nodics/backoffice'
+                      : 'new-owner',
+                }
+              : {}),
+            ...(change === 'role'
+              ? { runtimeRole: { code: 'PLATFORM', publication: 'STAGED' } }
+              : {}),
+            ...(change === 'state' ? { state: 'DEGRADED' as const } : {}),
+          },
+        ],
+      },
+      applicationReadinessScheduling:
+        change === 'policyMissing'
+          ? undefined
+          : {
+              ...publicationBootstrap.applicationReadinessScheduling!,
+              ...(change === 'concurrency' ? { concurrency: 1 } : {}),
+              ...(change === 'priorityBurst' ? { priorityBurst: 2 } : {}),
+            },
+    };
+    view.refreshBootstrap(
+      next,
+      change === 'token' ? 'new-token' : 'employee-token',
+      change === 'enterprise'
+        ? { ...runtime, enterpriseCode: 'new-enterprise' }
+        : runtime,
+    );
+    await act(() => {
+      release();
+      return Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryState(['setup-accelerators', 'circa-ewaste'])?.error
+          ?.message,
+      ).toBe('Status read canceled'),
+    );
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+  });
+
+  it('does not dispatch status reads without the framework scheduling projection', async () => {
+    const fetcher = vi.spyOn(globalThis, 'fetch');
+    renderPage('/setup-accelerators', {
+      ...bootstrap,
+      applicationReadinessScheduling: undefined,
+    });
+    await waitFor(() =>
+      expect(
+        screen.getAllByText('BackOffice readiness scheduling is unavailable').length,
+      ).toBeGreaterThan(0),
+    );
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('renders settled and failed profiles while another profile is still loading', async () => {
+    let settleSlow!: (response: Response) => void;
+    const slow = new Promise<Response>((resolve) => {
+      settleSlow = resolve;
+    });
+    const selectedBootstrap = {
+      ...bootstrap,
+      applicationInitializationProfiles: [
+        ...bootstrap.applicationInitializationProfiles!,
+        {
+          ...bootstrap.applicationInitializationProfiles![0]!,
+          code: 'slow-profile',
+          title: 'Slow profile',
+        },
+      ],
+    };
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      if (url.includes('slow-profile')) return slow;
+      if (url.includes('agora-apparel'))
+        return new Response('Unavailable', { status: 503 });
+      return new Response(JSON.stringify(responseFor('circa-ewaste')), { status: 200 });
+    });
+    renderPage('/setup-accelerators', selectedBootstrap);
+    const summary = within(screen.getByLabelText('Setup profile summary'));
+    expect(summary.getByText('Need attention').parentElement).toHaveTextContent(
+      '0Need attention',
+    );
+    expect(summary.getByText('Loading status').parentElement).toHaveTextContent(
+      '3Loading status',
+    );
+    expect(screen.queryByText('Not prepared')).toBeNull();
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Refresh Circa eWaste status' }),
+      ).toBeEnabled(),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Refresh Agora Apparel status' }),
+      ).toBeEnabled(),
+    );
+    expect(screen.getByRole('heading', { name: 'Circa eWaste' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Agora Apparel' })).toBeVisible();
+    expect(
+      screen.getByRole('progressbar', { name: 'Loading Slow profile status' }),
+    ).toBeVisible();
+    expect(summary.getByText('Need attention').parentElement).toHaveTextContent(
+      '1Need attention',
+    );
+    expect(summary.getByText('Loading status').parentElement).toHaveTextContent(
+      '1Loading status',
+    );
+    expect(summary.getByText('Status unavailable').parentElement).toHaveTextContent(
+      '1Status unavailable',
+    );
+    expect(
+      screen.getByRole('button', { name: 'Refresh Slow profile status' }),
+    ).toBeDisabled();
+    expect(
+      screen.queryByRole('progressbar', { name: 'Loading setup accelerators' }),
+    ).toBeNull();
+    expect(
+      screen.getAllByRole('alert').some((alert) => alert.textContent?.includes('503')),
+    ).toBe(true);
+    await act(async () => {
+      settleSlow(
+        new Response(JSON.stringify(responseFor('slow-profile')), { status: 200 }),
+      );
+      await slow;
+    });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('progressbar', { name: 'Loading Slow profile status' }),
+      ).toBeNull(),
+    );
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(
+      fetcher.mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
+    ).toBe(true);
+  });
+
+  it('keeps cached cards on reentry and isolates pending and failed refresh controls', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    let settleRefresh!: (response: Response) => void;
+    const refresh = new Promise<Response>((resolve) => {
+      settleRefresh = resolve;
+    });
+    let refreshing = false;
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const profileCode = (input instanceof Request
+        ? input.url
+        : input.toString()
+      ).includes('agora-apparel')
+        ? 'agora-apparel'
+        : 'circa-ewaste';
+      if (refreshing && profileCode === 'circa-ewaste') return refresh;
+      return new Response(JSON.stringify(responseFor(profileCode)), { status: 200 });
+    });
+    const first = renderPage('/setup-accelerators', publicationBootstrap, queryClient);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled(),
+    );
+    first.unmount();
+    refreshing = true;
+    renderPage('/setup-accelerators', publicationBootstrap, queryClient);
+    const summary = within(screen.getByLabelText('Setup profile summary'));
+    expect(summary.getByText('Pending approval').parentElement).toHaveTextContent(
+      '0Pending approval',
+    );
+    expect(
+      await screen.findByRole('progressbar', {
+        name: 'Refreshing Circa eWaste status',
+      }),
+    ).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Circa eWaste' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Agora Apparel' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Refresh Circa eWaste status' }),
+    ).toBeDisabled();
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Refresh Agora Apparel status' }),
+      ).toBeEnabled(),
+    );
+    await act(async () => {
+      settleRefresh(new Response('Denied', { status: 403 }));
+      await refresh;
+    });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('progressbar', { name: 'Refreshing Circa eWaste status' }),
+      ).toBeNull(),
+    );
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Refresh Circa eWaste status' }),
+    ).toBeEnabled();
+    expect(summary.getByText('Pending approval').parentElement).toHaveTextContent(
+      '0Pending approval',
+    );
+    expect(summary.getByText('Status unavailable').parentElement).toHaveTextContent(
+      '1Status unavailable',
+    );
+    refreshing = false;
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Refresh Circa eWaste status' }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled(),
+    );
+    expect(fetcher).toHaveBeenCalledTimes(5);
+    expect(
+      fetcher.mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
+    ).toBe(true);
+  });
+
+  it('retains the global connection gate without issuing status reads', () => {
+    const fetcher = vi.spyOn(globalThis, 'fetch');
+    renderPage('/setup-accelerators', { ...bootstrap, moduleConnections: {} });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'BackOffice connection is unavailable.',
+    );
+    expect(screen.queryByRole('heading', { name: 'Circa eWaste' })).toBeNull();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   const ownStage = {
     order: 10,
     type: 'DATA_RELEASE',
@@ -684,6 +1101,62 @@ describe('SetupAcceleratorsRoutePage', () => {
       },
     };
   }
+
+  it('renders owner authority guidance without unknown-status recovery or foreign execution', async () => {
+    const action = 'Continue setup as the authorized enterprise operator';
+    const reason =
+      'An authorized human operator for merchant must sign in to that enterprise and select its required setup stage.';
+    const scoped = scopedStatus([]);
+    const result = {
+      ...scoped,
+      preparation: { ...scoped.preparation, steps: [foreignStage] },
+      capability: {
+        ...responseFor('circa-ewaste').result.capability,
+        businessStatus: 'NEEDS_ATTENTION',
+        technicalStatus: 'BLOCKED',
+        nextAction: action,
+        disabledReason: reason,
+        blockers: [
+          {
+            code: 'AUTHORITY_PENDING',
+            severity: 'BLOCKED',
+            owner: foreignStage.code,
+            source: 'APPLICATION_PREPARATION',
+            technicalStatus: 'AUTHORITY_PENDING',
+            message: 'Required merchant publications',
+            action,
+            disabledReason: reason,
+            repair: {
+              available: false,
+              label: 'Review enterprise setup authority',
+              action: 'REVIEW_SETUP_AUTHORITY',
+              idempotent: true,
+              requiresConfirmation: false,
+            },
+          },
+        ],
+      },
+    };
+    const fetcher = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(() =>
+        Promise.resolve(new Response(JSON.stringify({ result }), { status: 200 })),
+      );
+    renderPage('/setup-accelerators?profile=circa-ewaste');
+    expect((await screen.findAllByText(action)).length).toBeGreaterThan(0);
+    expect(screen.getByRole('combobox', { name: 'Setup stage' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: 'Initialize' })).toBeDisabled();
+    expect(
+      screen.queryByRole('button', { name: 'Refresh readiness' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/did not return a recognized readiness status/),
+    ).not.toBeInTheDocument();
+    expect(fetcher.mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true);
+  });
 
   function pendingScopedStatus(readiness: 'NOT_IMPORTED' | 'IMPORTED') {
     const baseline = scopedStatus([]);
@@ -1871,6 +2344,95 @@ describe('SetupAcceleratorsRoutePage', () => {
     },
   );
 
+  it.each([
+    'TASK_REFERENCE_MISSING',
+    'TASK_NOT_ACTIONABLE',
+    'TASK_ASSIGNEE_MISSING',
+    'PROVIDER_UNAVAILABLE',
+    'NO_ACTIONABLE_TASK',
+    undefined,
+  ])(
+    'does not offer decisions for owner approval diagnostic %s',
+    async (diagnostic) => {
+      const tasks = vi.spyOn(processClient, 'loadProcessTasks');
+      const complete = vi.spyOn(processClient, 'completeProcessTask');
+      const baseline = responseFor('circa-ewaste').result;
+      const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            result: {
+              ...baseline,
+              capability: {
+                ...baseline.capability,
+                approvalDiagnostic: diagnostic ? { status: diagnostic } : undefined,
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+      renderPage('/setup-accelerators?profile=circa-ewaste', publicationBootstrap);
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', {
+            name: 'Refresh Circa eWaste status',
+          }),
+        ).toBeEnabled(),
+      );
+      expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
+      expect(tasks).not.toHaveBeenCalled();
+      expect(complete).not.toHaveBeenCalled();
+      expect(
+        fetcher.mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
+      ).toBe(true);
+    },
+  );
+
+  it('revokes and restores decisions only as refreshed owner diagnostics permit', async () => {
+    const baseline = responseFor('circa-ewaste').result;
+    let diagnostic = 'WAITING_REVIEWER';
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            result: {
+              ...baseline,
+              capability: {
+                ...baseline.capability,
+                approvalDiagnostic: { status: diagnostic },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+    renderPage('/setup-accelerators?profile=circa-ewaste', publicationBootstrap);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled(),
+    );
+    diagnostic = 'TASK_REFERENCE_MISSING';
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Refresh Circa eWaste status' }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull(),
+    );
+    expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
+    diagnostic = 'WAITING_REVIEWER';
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Refresh Circa eWaste status' }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled(),
+    );
+    expect(screen.getByRole('button', { name: 'Reject' })).toBeEnabled();
+    expect(
+      fetcher.mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
+    ).toBe(true);
+  });
+
   it('does not run a hidden repair or initialization when approval has no actionable Process task', async () => {
     const user = userEvent.setup();
     const tasks = vi.spyOn(processClient, 'loadProcessTasks').mockResolvedValue([]);
@@ -1997,7 +2559,13 @@ describe('SetupAcceleratorsRoutePage', () => {
     await user.click(
       screen.getByRole('button', { name: 'Refresh Circa eWaste status' }),
     );
-    await screen.findByText('Status unavailable');
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByRole('alert')
+          .some((alert) => alert.textContent === 'Status unavailable'),
+      ).toBe(true),
+    );
     expect(initialize).toBeDisabled();
     expect(
       screen.getByRole('button', { name: 'Refresh Circa eWaste status' }),

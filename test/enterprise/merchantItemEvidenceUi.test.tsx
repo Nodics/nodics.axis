@@ -152,6 +152,53 @@ it.each(['SIMULATION', 'LOCAL_SIMULATION'])(
   },
 );
 
+it('accepts a newly issued revision-zero entitlement and preserves expectedRevision zero', async () => {
+  const user = await validate(simulatedBenefit, source.sourceReference, {
+    ...markers,
+    revision: 0,
+  });
+  const dialog = within(await screen.findByRole('dialog'));
+  expect(
+    dialog.getByRole('heading', { name: 'Confirm ITEM simulation' }),
+  ).toBeVisible();
+  expect(dialog.getByRole('alert')).toHaveTextContent('Goods delivery is not verified');
+  vi.mocked(invokeOperationalOwner)
+    .mockResolvedValueOnce({ ...completed, ...markers, revision: 1 })
+    .mockResolvedValueOnce({
+      redemptions: [{ ...completed, ...markers, revision: 1 }],
+    });
+  await user.click(dialog.getByRole('button', { name: 'Confirm simulation' }));
+  expect(vi.mocked(invokeOperationalOwner).mock.calls[2]?.[3]).toMatchObject({
+    expectedRevision: 0,
+    confirmed: true,
+  });
+  await screen.findByText('Merchant receipt: SIM:handle-1');
+});
+
+it.each([-1, 0.5, '0', null, undefined, Number.MAX_SAFE_INTEGER + 1])(
+  'rejects invalid entitlement revision %s without opening confirmation',
+  async (revision) => {
+    await validate(simulatedBenefit, source.sourceReference, { ...markers, revision });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Merchant request could not be confirmed.',
+    );
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(invokeOperationalOwner).toHaveBeenCalledTimes(2);
+  },
+);
+
+it('does not relax positive store revisions when entitlement revision is zero', async () => {
+  await validate(simulatedBenefit, source.sourceReference, {
+    ...markers,
+    revision: 0,
+    storeRevision: 0,
+  });
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Merchant request could not be confirmed.',
+  );
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});
+
 it('renders genuinely delivered ITEM evidence without monetary placeholders or simulation claims', async () => {
   const user = await validate(
     {

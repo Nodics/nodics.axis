@@ -118,10 +118,26 @@ const bootstrapWithDocumentationSource: AxisAuthenticatedBootstrap = {
 };
 
 function jsonResponse(data: unknown): Response {
-  return new Response(JSON.stringify({ data }), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  return new Response(
+    JSON.stringify({
+      data,
+      ...(Array.isArray(data)
+        ? {
+            pagination: {
+              page: 1,
+              pageSize: 25,
+              total: data.length,
+              hasNext: false,
+              hasPrevious: false,
+            },
+          }
+        : {}),
+    }),
+    {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    },
+  );
 }
 
 function requestUrl(input: RequestInfo | URL): string {
@@ -154,6 +170,73 @@ function renderPage(
 }
 
 describe('ProcessWorkflowRoutePage', () => {
+  it('navigates owner pages beyond 25 tasks, disables stale decisions on failure and recovers by GET', async () => {
+    const user = userEvent.setup();
+    let failSecondPage = false;
+    const fetcher = vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(requestUrl(input));
+      if (!url.pathname.endsWith('/tasks')) return Promise.resolve(jsonResponse([]));
+      const page = Number(url.searchParams.get('page'));
+      expect(url.searchParams.get('limit')).toBeNull();
+      expect(url.searchParams.get('queue')).toBe('actionable');
+      if (page === 2 && failSecondPage)
+        return Promise.resolve(
+          new Response(JSON.stringify({ message: 'Queue read denied' }), {
+            status: 403,
+          }),
+        );
+      const data =
+        page === 1
+          ? Array.from({ length: 25 }, (_, index) => ({
+              code: `task-${String(index + 1)}`,
+              instanceCode: 'instance-one',
+              nodeCode: 'review',
+              status: 'OPEN',
+            }))
+          : [
+              {
+                code: 'task-26',
+                instanceCode: 'instance-one',
+                nodeCode: 'review',
+                status: 'OPEN',
+              },
+            ];
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data,
+            pagination: {
+              page,
+              pageSize: 25,
+              total: 26,
+              hasNext: page === 1,
+              hasPrevious: page > 1,
+            },
+          }),
+        ),
+      );
+    });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetcher);
+    renderPage('/process/tasks');
+    expect(await screen.findByText('Page 1 · 26 matching tasks')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Previous task page' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Next task page' }));
+    expect(await screen.findByText('task-26')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Next task page' })).toBeDisabled();
+    expect(screen.queryByText('task-1')).not.toBeInTheDocument();
+    failSecondPage = true;
+    await user.click(screen.getByRole('button', { name: 'Refresh task evidence' }));
+    expect(await screen.findByText('Queue read denied')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Complete' })).toBeDisabled();
+    failSecondPage = false;
+    await user.click(screen.getByRole('button', { name: 'Refresh task evidence' }));
+    await waitFor(() =>
+      expect(screen.queryByText('Queue read denied')).not.toBeInTheDocument(),
+    );
+    await user.click(screen.getByRole('button', { name: 'Previous task page' }));
+    expect(await screen.findByText('Page 1 · 26 matching tasks')).toBeVisible();
+  });
+
   it.each([
     [
       'REVIEWER_NOT_AUTHORISED',
@@ -278,6 +361,17 @@ describe('ProcessWorkflowRoutePage', () => {
         sourceVersion: 4,
       },
     },
+    ...['x'.repeat(129), 'maker\nprivate', ' maker ', 42].map((requestedBy) => ({
+      reviewContext: {
+        contractVersion: 1,
+        owner: 'cms',
+        publicationCode: 'p',
+        rootType: 'site',
+        rootCode: 'site',
+        sourceVersion: '0',
+        requestedBy,
+      },
+    })),
   ])(
     'rejects malformed owner eligibility/context instead of offering completion %j',
     async (patch) => {
@@ -1134,6 +1228,143 @@ describe('ProcessWorkflowRoutePage', () => {
     );
   });
 
+  it.each([
+    'matched',
+    'wrong-publication',
+    'wrong-workflow',
+    'wrong-site',
+    'unavailable',
+    'no-requester',
+    'ambiguous-profile',
+  ])('shows only bound website publication evidence: %s', async (scenario) => {
+    const profile = {
+      code: 'circa',
+      title: 'Circa website',
+      kind: 'APPLICATION',
+      category: 'web',
+      summary: 'Website',
+      order: 1,
+      type: 'CMS_SITE',
+      owner: 'cms',
+      applicationCode: 'circa',
+      siteCode: 'circa',
+      baselineCode: 'circa',
+      requiredServers: [],
+      requiredFunctionalModules: [],
+      dataPackages: [],
+      activationPolicy: {
+        approvalRequiredForOnline: true,
+        requiredDataTrigger: 'MANUAL',
+        sampleDataTrigger: 'MANUAL',
+      },
+    };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = requestUrl(input);
+      if (url.includes('/applications/circa/initialization')) {
+        if (scenario === 'unavailable')
+          return Promise.resolve(new Response('{}', { status: 503 }));
+        return Promise.resolve(
+          jsonResponse({
+            profileCode: 'circa',
+            type: 'CMS_SITE',
+            owner: 'cms',
+            applicationCode: 'circa',
+            siteCode: scenario === 'wrong-site' ? 'other' : 'circa',
+            readiness: 'PUBLICATION_PENDING',
+            releaseCode: 'cms:circa',
+            releaseVersion: '0.0.2',
+            releaseStatus: 'CURRENT',
+            allowedActions: [],
+            publication: {
+              code:
+                scenario === 'wrong-publication' ? 'other' : 'cmsBaseline_circa_0_0_2',
+              state: 'PENDING_APPROVAL',
+              revision: 3,
+              workflowRef:
+                scenario === 'wrong-workflow'
+                  ? 'other'
+                  : 'cmsPublicationApproval-circa',
+            },
+          }),
+        );
+      }
+      return Promise.resolve(
+        jsonResponse(
+          url.includes('/tasks')
+            ? [
+                {
+                  code: 'circa-review',
+                  instanceCode: 'cmsPublicationApproval-circa',
+                  nodeCode: 'publicationReview',
+                  status: 'OPEN',
+                  assignee: 'review-queue',
+                  reviewContext: {
+                    contractVersion: 1,
+                    owner: 'cms',
+                    publicationCode: 'cmsBaseline_circa_0_0_2',
+                    rootType: 'site',
+                    rootCode: 'circa',
+                    sourceVersion: '0',
+                    ...(scenario === 'no-requester'
+                      ? {}
+                      : { requestedBy: 'maker@example.test' }),
+                  },
+                },
+              ]
+            : [],
+        ),
+      );
+    });
+    renderPage('/process/tasks', {
+      ...bootstrapWithDocumentationSource,
+      applicationInitializationProfiles: [
+        profile,
+        ...(scenario === 'ambiguous-profile' ? [{ ...profile, code: 'other' }] : []),
+        { ...profile, code: 'unrelated', siteCode: 'unrelated' },
+      ],
+    });
+    await screen.findByText('CMS publication approvals');
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'Review evidence' }));
+    expect(screen.getByText('cmsBaseline_circa_0_0_2')).toBeVisible();
+    expect(screen.getAllByText('circa', { selector: 'p' })[0]).toBeVisible();
+    expect(screen.getByText('0', { selector: 'p' })).toBeVisible();
+    if (['matched', 'no-requester'].includes(scenario)) {
+      expect(
+        await screen.findByRole('heading', { name: 'Circa website' }),
+      ).toBeVisible();
+      expect(screen.getByText('0.0.2', { selector: 'p' })).toBeVisible();
+      expect(screen.getByText('CURRENT', { selector: 'p' })).toBeVisible();
+    } else {
+      await waitFor(() =>
+        expect(
+          fetchMock.mock.calls.filter(([input]) =>
+            requestUrl(input).includes('/applications/'),
+          ).length,
+        ).toBe(scenario === 'ambiguous-profile' ? 0 : 1),
+      );
+      expect(screen.queryByText('0.0.2', { selector: 'p' })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('heading', { name: 'Circa website' }),
+      ).not.toBeInTheDocument();
+    }
+    expect(screen.queryByText('Documentation publication')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
+    if (scenario === 'no-requester')
+      expect(screen.getByText(/Requested by not available/)).toBeVisible();
+    else
+      expect(screen.getByText('maker@example.test', { selector: 'p' })).toBeVisible();
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        requestUrl(input).includes('/applications/unrelated/'),
+      ),
+    ).toBe(false);
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(
+      false,
+    );
+  });
+
   it('shows documentation approvals as a focused work queue on the tasks route', async () => {
     const user = userEvent.setup();
     const fetchMock = vi
@@ -1181,6 +1412,15 @@ describe('ProcessWorkflowRoutePage', () => {
                 nodeCode: 'publicationReview',
                 assignee: 'admin',
                 status: 'OPEN',
+                reviewContext: {
+                  contractVersion: 1,
+                  owner: 'cms',
+                  publicationCode: 'publication-1',
+                  rootType: 'site',
+                  rootCode: 'frameworkdocs',
+                  sourceVersion: '0',
+                  requestedBy: 'author',
+                },
               },
             ]),
           );
@@ -1201,9 +1441,7 @@ describe('ProcessWorkflowRoutePage', () => {
     expect(screen.getByText('Approval tasks')).toBeInTheDocument();
     expect(screen.queryByText('Process workspace focus')).not.toBeInTheDocument();
     expect(screen.getByText('Approval task queue')).toBeInTheDocument();
-    expect(
-      await screen.findByText('Documentation publication approvals'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('CMS publication approvals')).toBeInTheDocument();
     expect(
       await screen.findByRole('heading', { name: 'Framework' }),
     ).toBeInTheDocument();

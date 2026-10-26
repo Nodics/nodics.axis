@@ -1,5 +1,26 @@
 # Process Workflow
 
+The task queue reads one Process-owned actionable page, not a merged set of
+fixed per-status requests. The client omits page size and status-policy lists,
+validates `pagination` metadata, and renders previous/next controls and matching
+count. Missing or contradictory metadata fails closed; there is no older-server
+fallback. Adopt the Workflow backend contract before this client.
+
+Each page is part of the authenticated query identity. Loading or failed reads
+disable decisions; Refresh task evidence performs GETs only. Empty pages can be
+navigated backwards and a failed later page offers First page recovery. Counts
+of approval decisions within the inbox describe the displayed page. Concurrent
+task changes can shift offset pages; Refresh observes current owner state.
+
+Frontend contributors may customize presentation inside this feature while
+retaining `loadProcessTaskPage`, owner metadata and existing decision fences.
+Page size is customized through Workflow's `process.taskQueue` properties, never
+Axis or Kickoff defaults. The API client pagination test and route test cover
+later-page navigation, 26 tasks, invalid metadata, denied reads and GET recovery.
+The wrapping pager uses existing MUI controls and ShellIcon; browser responsive
+acceptance is a separate live gate. Business and operator semantics remain in
+the Workflow `llm/contracts/README.md` task queue pagination contract.
+
 Process owns task admission, published actor policies, claim/completion writes
 and callbacks to business owners. Axis displays the authenticated Process DTO
 and does not qualify reviewers or infer approval contracts from instance names.
@@ -22,13 +43,35 @@ contract and is never displayed as proof of eligibility.
 The same explicit denial applies to legacy CMS evidence tasks without a
 `decisionContract`; missing eligibility retains their existing decision behavior.
 
-Optional version-1 `reviewContext` carries only owner, publicationCode, rootType,
-rootCode and sourceVersion. Axis shows this bound context and retains the opaque
+Optional version-1 `reviewContext` carries owner, publicationCode, rootType,
+rootCode and sourceVersion, plus the bounded recorded requestedBy identifier for
+CMS only (1-128 characters, no control or surrounding whitespace). Axis shows this bound context and retains the opaque
 task code as a secondary reference. A Media retained manifest hash is displayed
 as sourceVersion, never converted to a numeric versionId or joined to another
 asset/instance. Approval is access-rights based, including for the requesting
 user. Axis never compares requester/reviewer identities or special-cases admin;
 Process's current eligibility and completion checks remain authoritative.
+
+CMS publication cards use a neutral CMS label, not a documentation assumption.
+Stored Process context supplies the site, publication, source version and optional
+requester even when application status is unavailable. The current CMS owner
+contract is adapted by Process without changing a pinned decision policy.
+Requester absence stays `not available`, never the reviewer or task assignee.
+Source version and release version remain separate values.
+
+Release/source labels are read from authorized bootstrap profiles only for sites
+in the current task projection. Application profiles must uniquely match the
+site; unrelated profiles are not scanned. Successful status must match profile,
+site, publication code and workflow reference before enrichment. Documentation
+sources follow the same identity binding. Failed/mismatched status omits enrichment
+without discarding stored task evidence. Reads do not retry or poll automatically;
+no enrichment grants authority or changes existing decision fences. Unknown
+context fields and malformed requester identifiers fail DTO parsing closed.
+Later layers customize owner profile titles and published task definitions,
+not a client source registry. The focused route tests cover website/documentation
+labels, exact matching, absent requester, status failure and ambiguous profiles.
+Source text uses wrapping evidence fields on narrow layouts; live visual and
+callback acceptance remains separate from isolated tests.
 
 Human tasks can carry a strict, inert `decisionContract`:
 

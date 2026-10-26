@@ -617,7 +617,7 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
         mode,
       );
     },
-    onSuccess: async (_data, mode) => {
+    onSettled: async (_data, _error, mode) => {
       if (mode === 'install') {
         setSelected(new Set());
       }
@@ -653,7 +653,7 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
         throw new Error(profileOperationErrorMessage(error, profile, request));
       }
     },
-    onSuccess: async () => {
+    onSettled: async () => {
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: ['initialization-profiles', props.runtime.enterpriseCode],
@@ -681,6 +681,7 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
       : successMessage;
 
   const changeArea = (next: ImportExportArea) => {
+    if (operation.isPending || profileOperation.isPending) return;
     const parameters = new URLSearchParams(historyParameters);
     if (next === 'guided') parameters.delete('area');
     else parameters.set('area', next);
@@ -742,6 +743,7 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
               {importExportAreas.map((tabArea) => (
                 <Tab
                   key={tabArea}
+                  disabled={operation.isPending || profileOperation.isPending}
                   label={
                     isDataReleaseArea(tabArea)
                       ? typeCopy[tabArea].label
@@ -755,6 +757,7 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
 
           {area === 'guided' ? (
             <GuidedInitializationWorkspace
+              operationIsPending={operation.isPending || profileOperation.isPending}
               errorMessage={profiles.error?.message}
               isLoading={profiles.isLoading}
               operationError={
@@ -789,14 +792,15 @@ export function ImportExportRoutePage(props: ImportExportRoutePageProps) {
                     }
                   : undefined
               }
-              onRun={(profile, mode) =>
+              onRun={(profile, mode) => {
+                if (operation.isPending || profileOperation.isPending) return;
                 profileOperation.mutate({
                   profileKey: initializationProfileKey(profile),
                   profileCode: profile.profileCode,
                   destinationRole: profile.destinationRole,
                   mode,
-                })
-              }
+                });
+              }}
               onOpenArea={changeArea}
             />
           ) : area === 'exports' ? (

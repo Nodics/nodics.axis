@@ -42,6 +42,7 @@ export interface AssistantRendererController {
 }
 
 export interface WorkbenchRendererController {
+  readonly ownerHeader?: ReactNode;
   readonly accessToken: string;
   readonly bootstrap: AxisAuthenticatedBootstrap;
   readonly runtime: AxisRuntimeConfig;
@@ -169,10 +170,16 @@ export interface CmsRendererActions {
       }
     | undefined;
   readonly dashboard?: MediaManagementRendererController | undefined;
-  readonly onEmployeeLogin?: (loginId: string, password: string) => void;
+  readonly employeeLoginEnterpriseCode?: string;
+  readonly onEmployeeLogin?: (
+    loginId: string,
+    password: string,
+    enterpriseCode?: string,
+  ) => void;
   readonly employeeLoginPending?: boolean;
   readonly onEmployeeRecovery?: (identifier: string) => void;
   readonly onEmployeeUnlock?: (password: string) => void;
+  readonly employeeUnlockPending?: boolean;
   readonly onEmployeeSignOut?: () => void;
   readonly currentEmployeeId?: string;
   readonly authenticationError?: string;

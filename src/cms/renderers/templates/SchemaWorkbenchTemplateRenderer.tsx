@@ -34,7 +34,7 @@ export function SchemaWorkbenchTemplateRenderer({
           overflow: { xs: 'visible', lg: 'hidden' },
         }}
       >
-        <Box>{slots.header}</Box>
+        <Box sx={{ flexShrink: 0 }}>{slots.header}</Box>
         <Box
           sx={{
             flex: 1,

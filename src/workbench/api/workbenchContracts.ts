@@ -187,13 +187,13 @@ export type WorkbenchApiOperations = Readonly<
 export function parseWorkbenchApiOperations(value: unknown): WorkbenchApiOperations {
   const source = record(value, 'Schema API operations');
   const methods = {
-    capabilities: 'GET',
-    search: 'POST',
-    create: 'PUT',
-    update: 'PATCH',
-    delete: 'DELETE',
-    deleteImpact: 'POST',
-    bulk: 'POST',
+    capabilities: ['GET', 'POST'],
+    search: ['POST'],
+    create: ['PUT', 'POST'],
+    update: ['PATCH', 'POST'],
+    delete: ['DELETE'],
+    deleteImpact: ['POST'],
+    bulk: ['POST'],
   };
   return Object.freeze(
     Object.fromEntries(
@@ -201,7 +201,8 @@ export function parseWorkbenchApiOperations(value: unknown): WorkbenchApiOperati
         const route = record(value, 'Schema API route');
         if (
           !Object.hasOwn(methods, name) ||
-          route.method !== methods[name as keyof typeof methods] ||
+          typeof route.method !== 'string' ||
+          !methods[name as keyof typeof methods]?.includes(route.method) ||
           typeof route.path !== 'string' ||
           !/^\/[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(route.path) ||
           typeof route.apiVersion !== 'string' ||

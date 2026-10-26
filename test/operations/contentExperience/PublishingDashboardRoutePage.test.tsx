@@ -87,9 +87,29 @@ function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
-  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-    new Response(JSON.stringify({ result: { items: [] } })),
-  );
+  vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+    const url = new URL(
+      typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+    );
+    return Promise.resolve(
+      new Response(
+        JSON.stringify(
+          url.pathname.endsWith('/tasks')
+            ? {
+                data: [],
+                pagination: {
+                  page: 1,
+                  pageSize: 25,
+                  total: 0,
+                  hasNext: false,
+                  hasPrevious: false,
+                },
+              }
+            : { result: { items: [] } },
+        ),
+      ),
+    );
+  });
   return render(
     <AxisThemeProvider>
       <QueryClientProvider client={queryClient}>
@@ -114,7 +134,7 @@ describe('PublishingDashboardRoutePage', () => {
     expect(screen.getByRole('heading', { name: 'Approval tasks' })).toBeTruthy();
     expect(await screen.findByText('0 pending')).toBeTruthy();
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      new URL('http://localhost:4330/nodics/process/v0/tasks?limit=25'),
+      new URL('http://localhost:4330/nodics/process/v0/tasks?page=1&queue=actionable'),
       expect.any(Object),
     );
     expect(screen.getByRole('link', { name: 'Review approval tasks' })).toHaveAttribute(

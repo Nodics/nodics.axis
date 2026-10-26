@@ -499,7 +499,14 @@ describe('Axis bootstrap clients', () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
         JSON.stringify({
-          data: authenticatedData,
+          data: {
+            ...authenticatedData,
+            applicationReadinessScheduling: {
+              contractVersion: 1,
+              concurrency: 2,
+              priorityBurst: 3,
+            },
+          },
         }),
         { status: 200 },
       ),
@@ -516,6 +523,11 @@ describe('Axis bootstrap clients', () => {
       'Bearer employee-access',
     );
     expect(result.axisPolicy.idleTimeoutSeconds).toBe(900);
+    expect(result.applicationReadinessScheduling).toEqual({
+      contractVersion: 1,
+      concurrency: 2,
+      priorityBurst: 3,
+    });
     expect(result.environments).toEqual(['kickoffLocal']);
     expect(result.tenantCode).toBe('default');
     expect(result.operationalReadiness?.state).toBe('NEEDS_ATTENTION');
@@ -1245,4 +1257,41 @@ describe('native workspace contribution', () => {
   ])('rejects invalid native metadata %j', (change) => {
     expect(() => parseBackendWorkspace({ ...native, ...change })).toThrow();
   });
+});
+
+it('parses operational report owner selectors and never selects an Online substitute', () => {
+  const workspace = parseBackendWorkspace({
+    contractVersion: 1,
+    renderer: 'axis.workspace.native',
+    workspaceCode: 'promotion.couponAcquisition',
+    viewCode: 'reporting',
+    title: 'Coupon Acquisition',
+    ownerSelector: { runtimeRoleCode: 'COMMERCE', publicationRole: 'OPERATIONAL' },
+  });
+  const operational = {
+    moduleName: 'promotion',
+    instanceId: 'operational',
+    endpoint: 'https://fixture.example/nodics/promotion',
+    environment: 'fixture',
+    state: 'UP' as const,
+    runtimeRole: { code: 'COMMERCE', publication: 'OPERATIONAL' },
+  };
+  const online = {
+    ...operational,
+    instanceId: 'online',
+    runtimeRole: { code: 'COMMERCE', publication: 'ONLINE' },
+  };
+  const bootstrap = {
+    moduleConnections: { promotion: [online, operational] },
+  } as unknown as import('../../src/bootstrap/publicBootstrap').AxisAuthenticatedBootstrap;
+  expect(selectModuleConnection(bootstrap, 'promotion', workspace.ownerSelector)).toBe(
+    operational,
+  );
+  expect(
+    selectModuleConnection(
+      { ...bootstrap, moduleConnections: { promotion: [online] } },
+      'promotion',
+      workspace.ownerSelector,
+    ),
+  ).toBeUndefined();
 });

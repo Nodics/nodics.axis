@@ -23,7 +23,12 @@ export function SchemaWorkbenchPageRenderer({
       actions,
     );
   const slots: SchemaWorkbenchTemplateSlots = {
-    header: slot('header'),
+    header: (
+      <>
+        {actions?.workbench?.ownerHeader}
+        {slot('header')}
+      </>
+    ),
     content: slot('content'),
   };
   return <SchemaWorkbenchTemplateRenderer page={page} slots={slots} />;

@@ -6,6 +6,66 @@ repair operations from local page logic.
 
 ## Setup Progress And Recovery
 
+Setup status GETs share a session/owner-scoped queue, including initial queries,
+progress polls, manual refresh, invalidation and post-operation observation.
+BackOffice projects `applicationReadinessScheduling` version 1 from its framework
+`backofficeApplicationInitialization.browserReadiness` policy. Axis supplies no
+default: absent policy fails status reads visibly without dispatch; malformed
+policy rejects bootstrap. Deploy the backend projection before this client.
+Manual refresh has priority, followed by the expanded profile; after the projected
+priority burst, the oldest waiting read runs. Background profiles are not dropped
+or starved, and catalogue totals stay complete. Queued queries count as Loading
+status, never business Pending approval. No cached status enables commands while
+its query is queued, fetching or failed. The queue retains no authority results.
+Query cancellation aborts active HTTP reads, skips canceled queued work, and
+unmount/principal changes reject old results. POSTs are never queued or retried.
+Equivalent bootstrap DTO replacements retain the queue: lifetime depends on
+effective connection identity/availability, employee token, enterprise and the
+owner's scheduling values, not object references. Actual changes retire old
+work; an absent scheduling contract still fails closed. Refresh cancellation
+never makes retained readiness actionable: commands remain disabled until a
+successful current status read. Route tests cover equivalent-bootstrap manual
+reads and changed owner, session and scheduling boundaries.
+After a command succeeds or fails, prioritize and invalidate only that profile's
+exact status query. Preserve bootstrap refresh, but do not restart unrelated
+profile reads or wait for a catalogue-wide sweep to settle the command.
+
+Customize only the owning BackOffice layered policy (validated integers 1–16 for
+`concurrency` and `priorityBurst`), not an Axis/customer default or timeout. This
+is a page-session read bound, not a server-global admission or latency promise;
+backend stages may still fan out within their own budget. Existing polling windows,
+throttle cooldowns, strict owner parsers and fresh mutation guards remain intact.
+Focused gates: `applicationStatusQueue.test.ts`, `SetupAcceleratorsRoutePage.test.tsx`,
+`applicationInitializationClient.test.ts` and `test/bootstrap/publicBootstrap.test.ts`.
+
+After a coordinated backend deployment, verify the authenticated bootstrap policy,
+then open `/setup-accelerators?expanded=circa` once. Record status GET start/end,
+peak in-flight count, expanded-profile completion time, full-catalogue completion,
+loading/unavailable/business totals, and registry lease health. Check manual
+refresh and an already-running profile's poll share the same limit; collapse or
+filter must not discard unknown profiles or manufacture readiness. Compare the
+same authenticated catalogue before/after without parallel diagnostic requests.
+Source tests prove bounded scheduling, not real runtime latency or heartbeat recovery.
+
+Profile rows render independently from their existing status queries. A slow or
+failed profile never hides settled siblings or the authorized profile catalogue.
+Initial reads show a named loading indicator on the affected row; background
+refresh and route reentry retain cached evidence with a row-specific refreshing
+indicator. Errors and explicit GET recovery stay on that row. Loading is query
+state, never a fabricated backend readiness value. Commands remain disabled for
+pending, fetching or failed owner reads, including when cached allowed actions
+exist. The global BackOffice connection gate and mutation guard remain intact.
+Summary business counters and the Needs action filter use only settled successful
+reads. Pending/background reads appear separately as Loading status; failed reads
+as Status unavailable. Neither missing data nor cached data under refresh/failure
+is counted as current Online, Pending approval or Need attention evidence.
+
+Customize loading/error presentation within the existing profile row, preserving
+its accessible profile-specific indicator and responsive layout. Keep query keys,
+owner status parsing, polling/cooldown and mutation policy unchanged. The route
+regressions cover mixed pending/success/error reads, cached reentry, failed refresh,
+manual recovery and absent connection admission; browser/live acceptance is separate.
+
 The owner status supplies the journey: planned/not imported, preparing/importing,
 awaiting reviewer decision, Online ready, or an unavailable prerequisite. Axis
 polls GET status only during importing, preparation RUNNING, capability PREPARING
@@ -27,6 +87,12 @@ for review rather than another import. While any mutation or that row's status
 read is pending, mutating controls are disabled. Approval reads the existing
 Process task once; a missing task never silently replays initialization or
 executes a repair. A changed publication identity/revision must be reviewed again.
+CMS Approve and Reject also require the owner's approval diagnostic to be
+`WAITING_REVIEWER`, both for presentation and the current-query command guard. A
+pending publication or workflow reference alone is not actionable evidence.
+Missing, unavailable or non-actionable diagnostics expose no decision buttons;
+existing owner repair guidance remains available. Media completion after CMS
+approval retains its separate readiness gate and never replays the CMS decision.
 
 After an uncertain mutation response, invalidate status through GET only. Clear
 the old operation error only when a newer owner response confirms that operation's
@@ -52,6 +118,11 @@ choice list never selects another enterprise or dispatches a bulk AFTER action.
 All required stages remain visible in preparation details, including their
 projected operator and `AUTHORITY_PENDING` status. Local success is not foreign
 proof or aggregate READY. Unscoped profiles retain their selector-free lifecycle.
+The owner maps pending foreign authority to an `AUTHORITY_PENDING` blocker with
+authorized-enterprise sign-in guidance. Its `REVIEW_SETUP_AUTHORITY` diagnostic
+has no operation and is unavailable for execution; it is not unknown readiness
+or a refresh repair. The route regression verifies this guidance with an empty,
+disabled stage selector and no write requests.
 
 BackOffice owns signed-operator eligibility, stage ordering, prerequisites and
 dispatch; nPublish/nImport retain their authorization. Axis neither interprets

@@ -16,7 +16,7 @@ export type CouponWorkspaceProps = {
 };
 const selectors = {
   authoring: { runtimeRoleCode: 'COMMERCE_STAGED', publicationRole: 'STAGED' },
-  reporting: { runtimeRoleCode: 'COMMERCE', publicationRole: 'ONLINE' },
+  reporting: { runtimeRoleCode: 'COMMERCE', publicationRole: 'OPERATIONAL' },
 } as const;
 
 /** No fallback runtime and no navigation inferred from a path; admission is the owner's exact native workspace. */
@@ -42,10 +42,13 @@ export function useCouponWorkspace(
   const ownerIdentity = JSON.stringify([
     connection?.endpoint,
     connection?.instanceId,
-    connection?.state,
+    connection?.environment,
+    connection?.server,
+    connection?.runtimeRole?.code,
+    connection?.runtimeRole?.publication,
     navigation?.route,
     navigation?.featureState,
-    navigation?.availability,
+    navigation && ['UP', 'DEGRADED'].includes(navigation.availability),
   ]);
   const authority = useMemo(
     () => ({
