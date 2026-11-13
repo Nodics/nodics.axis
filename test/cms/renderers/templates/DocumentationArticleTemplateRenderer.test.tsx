@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, useNavigate } from 'react-router';
 
 import type { CmsPageContract } from '../../../../src/cms/cmsContract';
@@ -23,9 +23,16 @@ const page: CmsPageContract = {
   components: [],
 };
 
+const mediaQuery = vi.hoisted(() => vi.fn(() => true));
+vi.mock('@mui/material', async (original) => ({
+  ...(await original<typeof import('@mui/material')>()),
+  useMediaQuery: mediaQuery,
+}));
+
 describe('DocumentationArticleTemplateRenderer', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    mediaQuery.mockReturnValue(true);
   });
 
   it('keeps documentation navigation on the left and lets readers hide it', async () => {
@@ -141,5 +148,36 @@ describe('DocumentationArticleTemplateRenderer', () => {
     await user.click(screen.getByRole('button', { name: 'Next topic' }));
 
     expect(article.scrollTop).toBe(0);
+  });
+
+  it('starts narrow readers at the article and closes the topic directory after navigation', async () => {
+    mediaQuery.mockReturnValue(false);
+    function Topics() {
+      const navigate = useNavigate();
+      return <button onClick={() => void navigate('/docs/next')}>Next topic</button>;
+    }
+    render(
+      <MemoryRouter initialEntries={['/docs/current']}>
+        <DocumentationArticleTemplateRenderer
+          readerLayout
+          page={page}
+          slots={{ navigation: <Topics />, article: <h1>Article content</h1> }}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('heading', { name: 'Article content' })).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Next topic' }),
+    ).not.toBeInTheDocument();
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'Show documentation navigation' }));
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Next topic' }));
+    expect(
+      screen.queryByRole('button', { name: 'Next topic' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Show documentation navigation' }),
+    ).toHaveTextContent('Browse topics');
   });
 });

@@ -97,7 +97,7 @@ const setupRequiredConfiguration: LocationMapConfiguration = Object.freeze({
   },
   code: 'AXIS_COLLECTION_CENTRE_MAPBOX_STREETS',
   providerCode: 'MAPBOX',
-  surfaceCode: 'AXIS',
+  surfaceCode: 'SHARED',
   usageCode: 'COLLECTION_CENTRE_MAP',
   stylePresetCode: 'MAPBOX_STREETS',
   styleUrl: 'mapbox://styles/mapbox/streets-v12',
@@ -157,6 +157,8 @@ const setupRequiredConfiguration: LocationMapConfiguration = Object.freeze({
     }),
     Object.freeze({
       code: 'OSM',
+      stylePresetCode: 'OSM_HOT',
+      styleUrl: 'https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
       name: Object.freeze({ en: 'OpenStreetMap' }),
       providerType: 'OSM',
       rendererCode: 'axis.location.tile',
@@ -355,6 +357,30 @@ describe('LocationMapConfigurationRoutePage', () => {
       setupStatus: 'ACTIVE',
       stylePresetCode: 'OSM_HOT',
       styleUrl: 'https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
+    });
+  });
+
+  it('loads and saves the Circa view independently of the project form', async () => {
+    const user = userEvent.setup();
+    mockedLoadEditableLocationMapConfiguration.mockImplementation((_, request) =>
+      Promise.resolve({
+        ...setupRequiredConfiguration,
+        surfaceCode: request.surfaceCode,
+        code: request.surfaceCode + '_COLLECTION_CENTRE_MAP',
+        configurationScope: 'PROJECT',
+      }),
+    );
+    renderPage(configurationNavigation);
+    await user.click(await screen.findByLabelText('Configuration scope'));
+    await user.click(screen.getByRole('option', { name: 'Circa' }));
+    expect(await screen.findByText('CIRCA collection-centre map')).toBeVisible();
+    expect(screen.getByText('Resolved from PROJECT')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: /Save configuration/i }));
+    expect(
+      mockedSaveLocationMapConfiguration.mock.calls[0]?.[1].configuration,
+    ).toMatchObject({
+      surfaceCode: 'CIRCA',
+      code: 'CIRCA_COLLECTION_CENTRE_MAP',
     });
   });
 

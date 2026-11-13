@@ -11,6 +11,7 @@ import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AxisThemeProvider } from '../../src/app/AxisThemeProvider';
 import { AxisDashboardRoutePage } from '../../src/dashboard/AxisDashboardRoutePage';
+import * as bootstrapApi from '../../src/bootstrap/publicBootstrap';
 import type { AxisAuthenticatedBootstrap } from '../../src/bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../src/runtime/runtimeConfig';
 
@@ -66,6 +67,11 @@ const profile = {
   },
 };
 const bootstrap: AxisAuthenticatedBootstrap = {
+  applicationReadinessScheduling: {
+    contractVersion: 1,
+    concurrency: 1,
+    priorityBurst: 1,
+  },
   axisPolicy: {
     contractVersion: 1,
     screenLockEnabled: true,
@@ -123,6 +129,7 @@ function renderPage(
       <QueryClientProvider client={client}>
         <MemoryRouter initialEntries={[path]}>
           <AxisDashboardRoutePage
+            employeeId="test-employee"
             composition={composition}
             accessToken="test-token"
             bootstrap={value}
@@ -160,7 +167,119 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
+describe('CMS-selected operational observation', () => {
+  it('does not sweep the optional report for an Applications view without operational sections', async () => {
+    const observe = vi.spyOn(bootstrapApi, 'loadOperationalReadiness');
+    const fetcher = mockStatus();
+    renderPage({
+      ...bootstrap,
+      operationalReadinessObservation: { contractVersion: 1, mode: 'ON_DEMAND' },
+    });
+    await waitFor(() => expect(fetcher).toHaveBeenCalled());
+    expect(observe).not.toHaveBeenCalled();
+  });
+  it('observes the existing owner report only when the opened CMS summary requests operational evidence', async () => {
+    const observe = vi
+      .spyOn(bootstrapApi, 'loadOperationalReadiness')
+      .mockResolvedValue({
+        contractVersion: 1,
+        state: 'NOT_READY',
+        checkedAt: '2026-11-04T11:00:00Z',
+        source: 'backoffice.operationalReadiness',
+        summary: { blockers: 0 },
+        sections: [],
+      });
+    mockStatus();
+    renderPage(
+      {
+        ...bootstrap,
+        operationalReadinessObservation: { contractVersion: 1, mode: 'ON_DEMAND' },
+      },
+      '/dashboard?view=applications',
+      fullMergedApplicationsFixture,
+    );
+    await waitFor(() => expect(observe).toHaveBeenCalledTimes(1));
+    expect(
+      screen.getByRole('region', { name: 'Operational pulse' }),
+    ).toBeInTheDocument();
+  });
+});
+
 describe('Application-first dashboard', () => {
+  it('holds status reads without owner scheduling instead of using a client default', async () => {
+    const fetcher = vi.spyOn(globalThis, 'fetch');
+    renderPage({ ...bootstrap, applicationReadinessScheduling: undefined });
+    expect(await screen.findByText('Status unavailable')).toBeVisible();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('queues visible application reads and omits documentation status from Applications', async () => {
+    const pending: { code: string; resolve: (response: Response) => void }[] = [];
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      const code =
+        /\/applications\/([^/]+)\/initialization/.exec(url)?.[1] ?? 'unexpected';
+      return new Promise<Response>((resolve) => pending.push({ code, resolve }));
+    });
+    const page = renderPage({
+      ...bootstrap,
+      applicationInitializationProfiles: [
+        profile,
+        { ...profile, code: 'secondservice', title: 'Second service', order: 2 },
+        {
+          ...profile,
+          code: 'documentation',
+          kind: 'DOCUMENTATION',
+          type: 'DOCUMENTATION_BUNDLE',
+          order: 3,
+        },
+      ],
+    });
+    const finish = (item: (typeof pending)[number]) =>
+      item.resolve(
+        new Response(
+          JSON.stringify({
+            data: {
+              profileCode: item.code,
+              type: profile.type,
+              owner: profile.owner,
+              applicationCode: profile.applicationCode,
+              siteCode: profile.siteCode,
+              readiness: 'BLOCKED',
+              releaseCode: 'release',
+              releaseVersion: '1',
+              allowedActions: [],
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+    try {
+      await waitFor(() => expect(pending.length).toBeGreaterThan(0));
+      expect(pending.map((item) => item.code)).toEqual(['newservice']);
+      await act(async () => {
+        finish(pending[0]!);
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(pending).toHaveLength(2));
+      expect(pending.map((item) => item.code)).toEqual(['newservice', 'secondservice']);
+      await act(async () => {
+        finish(pending[1]!);
+        await Promise.resolve();
+      });
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    } finally {
+      await act(async () => {
+        page.unmount();
+        pending.forEach(finish);
+        await Promise.resolve();
+      });
+    }
+  });
   it('observes active preparation and stops after the owner reports completion', async () => {
     vi.useFakeTimers();
     let state = 'IMPORTING';
@@ -180,7 +299,7 @@ describe('Application-first dashboard', () => {
     });
     expect(fetch).toHaveBeenCalledTimes(2);
   });
-  it('does not repeatedly poll stable application and documentation profiles', async () => {
+  it('does not poll stable applications or request hidden documentation profiles', async () => {
     vi.useFakeTimers();
     const fetch = mockStatus();
     renderPage({
@@ -198,11 +317,11 @@ describe('Application-first dashboard', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(50);
     });
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(1);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(60000);
     });
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
   it('keeps environment guidance reachable in the complete Applications journey', async () => {
     mockStatus();

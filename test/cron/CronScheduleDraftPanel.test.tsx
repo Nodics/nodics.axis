@@ -253,3 +253,28 @@ it('offline commands never dispatch or queue; missing owner contract has no fall
   expect(fetcher).toHaveBeenCalledOnce();
   expect(screen.queryByRole('button')).not.toBeInTheDocument();
 });
+
+it('preserves a reviewed draft across health and timeout-only metadata refreshes without rereading or saving', async () => {
+  const fixture = createDraftFixture();
+  vi.stubGlobal('fetch', vi.fn(fixture.fetcher));
+  const view = render(
+    <CronScheduleDraftPanel connection={connection} configuration={configuration} />,
+  );
+  const user = await fillDraft();
+  await user.click(screen.getByRole('checkbox', { name: presentation.confirm }));
+  view.rerender(
+    <CronScheduleDraftPanel
+      connection={{ ...connection, state: 'DEGRADED' }}
+      configuration={{ ...configuration, timeoutMs: 2000 }}
+    />,
+  );
+  expect(screen.getByRole('textbox', { name: presentation.code })).toHaveValue(
+    input.code,
+  );
+  expect(screen.getByRole('checkbox', { name: presentation.confirm })).toBeChecked();
+  expect(screen.getByRole('button', { name: presentation.save })).toBeEnabled();
+  expect(
+    fixture.calls.filter((call) => call.path.endsWith('/capabilities')),
+  ).toHaveLength(1);
+  expect(fixture.calls.filter((call) => call.path.endsWith('/drafts'))).toHaveLength(0);
+});

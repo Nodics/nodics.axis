@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
+  AlertTitle,
   Box,
   Button,
   Chip,
@@ -80,6 +81,7 @@ function updatePayload(
   return values;
 }
 
+/** Renders the selected owner schema; pending or failed reads never present cached values as current configuration. */
 export function RuntimeConfigurationRoutePage(
   props: RuntimeConfigurationRoutePageProps,
 ) {
@@ -239,7 +241,9 @@ export function RuntimeConfigurationRoutePage(
       setError(failure.message);
     },
   });
-  const configuredCount = Object.values(effective.data?.values ?? {}).filter(
+  const verifiedEffective = readBlocked ? undefined : effective.data;
+  const observationPending = schemas.isFetching || effective.isFetching;
+  const configuredCount = Object.values(verifiedEffective?.values ?? {}).filter(
     (value) => value.configured,
   ).length;
   const hasDraft = Object.keys(payload).length > 0;
@@ -307,6 +311,15 @@ export function RuntimeConfigurationRoutePage(
         </Button>
         {(schemas.isError || effective.isError || error) && (
           <Alert severity="error">
+            {(schemas.isError || effective.isError) && (
+              <>
+                <AlertTitle>Configuration cannot be verified</AlertTitle>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  Check the selected runtime's availability and your access, then choose
+                  Refresh readiness to try again.
+                </Typography>
+              </>
+            )}
             {error ||
               (schemas.error instanceof Error
                 ? schemas.error.message
@@ -404,16 +417,23 @@ export function RuntimeConfigurationRoutePage(
                     sx={{ flexWrap: 'wrap' }}
                   >
                     <Chip
-                      label={effective.data?.status || 'Loading'}
+                      label={
+                        verifiedEffective?.status ??
+                        (observationPending ? 'Checking configuration' : 'Not verified')
+                      }
                       color={
-                        effective.data?.status === 'CONFIGURED' ? 'success' : 'warning'
+                        verifiedEffective?.status === 'CONFIGURED'
+                          ? 'success'
+                          : 'warning'
                       }
                     />
-                    <Chip
-                      label={`${String(configuredCount)}/${String(
-                        selectedSchema.fields.length,
-                      )} configured`}
-                    />
+                    {verifiedEffective && (
+                      <Chip
+                        label={`${String(configuredCount)}/${String(
+                          selectedSchema.fields.length,
+                        )} configured`}
+                      />
+                    )}
                     {selectedSchema.refreshBehavior && (
                       <Chip label={selectedSchema.refreshBehavior} />
                     )}
@@ -427,7 +447,7 @@ export function RuntimeConfigurationRoutePage(
                 <Divider />
                 <Stack spacing={2}>
                   {selectedSchema.fields.map((field) => {
-                    const value = effective.data?.values[field.code];
+                    const value = verifiedEffective?.values[field.code];
                     return (
                       <Stack
                         key={field.code}
@@ -447,7 +467,13 @@ export function RuntimeConfigurationRoutePage(
                           >
                             <Chip
                               size="small"
-                              label={value?.configured ? 'Configured' : 'Missing'}
+                              label={
+                                verifiedEffective
+                                  ? value?.configured
+                                    ? 'Configured'
+                                    : 'Missing'
+                                  : 'Not verified'
+                              }
                               color={value?.configured ? 'success' : 'warning'}
                             />
                             {field.required && <Chip size="small" label="Required" />}
@@ -471,7 +497,12 @@ export function RuntimeConfigurationRoutePage(
                               color="text.secondary"
                               sx={{ mt: 0.5 }}
                             >
-                              Current: {value.value || 'Configured'}
+                              Current:{' '}
+                              {field.sensitive
+                                ? 'Configured securely'
+                                : value.value === undefined
+                                  ? 'Configured'
+                                  : String(value.value)}
                             </Typography>
                           )}
                         </Box>

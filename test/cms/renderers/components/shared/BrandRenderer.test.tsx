@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
+import type { WorkbenchRendererController } from '../../../../../src/cms/renderers/shared/rendererTypes';
 import type { CmsComponentContract } from '../../../../../src/cms/cmsContract';
 import { BrandRenderer } from '../../../../../src/cms/renderers/components/shared/BrandRenderer';
 
@@ -65,4 +66,31 @@ describe('BrandRenderer', () => {
       ),
     ).toThrow('axisBrandComponent.logoAsset');
   });
+});
+
+it('leaves the scoped business heading to Workbench and preserves global discovery branding', () => {
+  const component = {
+    ...brand,
+    properties: {
+      ...brand.properties,
+      displayMode: 'workspace',
+      productName: 'Schema Workbench',
+    },
+  };
+  const workbench = {
+    scope: { kind: 'navigation', label: 'Blogs' },
+  } as WorkbenchRendererController;
+  const rendered = render(
+    <BrandRenderer component={component} actions={{ workbench }} />,
+  );
+  expect(screen.queryByText('Schema Workbench')).not.toBeInTheDocument();
+  rendered.rerender(
+    <BrandRenderer
+      component={component}
+      actions={{ workbench: { ...workbench, scope: undefined } }}
+    />,
+  );
+  expect(
+    screen.getByRole('heading', { name: 'Schema Workbench', level: 1 }),
+  ).toBeVisible();
 });

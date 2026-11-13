@@ -47,7 +47,7 @@ import type {
 } from '../operations/enterprise/enterpriseCreationCheckpoint';
 import {
   isEnterpriseCreationAcknowledgement,
-  isDefiniteEnterpriseDuplicate,
+  isDefiniteEnterpriseCreationRefusal,
 } from '../operations/enterprise/enterpriseCreationCheckpoint';
 import type { EnterpriseSetupSnapshot } from '../operations/enterprise/api/enterpriseSetupClient';
 import { Link as RouterLink } from 'react-router';
@@ -64,7 +64,7 @@ import type {
 import { envelopeData, backendWorkspaceResponseError } from './backendWorkspaceClient';
 import type { AxisRuntimeConfig } from '../runtime/runtimeConfig';
 
-interface BackendOperationsWorkspaceRoutePageProps {
+export interface BackendOperationsWorkspaceRoutePageProps {
   readonly spendCms?:
     | import('../operations/enterprise/api/enterpriseSpendClient').EnterpriseSpendCmsContext
     | undefined;
@@ -110,6 +110,20 @@ function displayCellValue(value: unknown): string {
   return typeof value === 'string' ? value : (JSON.stringify(value) ?? '');
 }
 
+/** Uses only explicit owner-declared enum labels; the original record and command values stay unchanged. */
+function displayColumnValue(
+  value: unknown,
+  filter?: AxisBackendWorkspaceField,
+): string {
+  const label =
+    value !== '' &&
+    filter?.type === 'SELECT' &&
+    ['string', 'number', 'boolean'].includes(typeof value)
+      ? filter.options?.find((option) => option.value === String(value))?.label
+      : undefined;
+  return label ?? displayCellValue(value);
+}
+
 function initialValues(
   fields: readonly AxisBackendWorkspaceField[],
   sectionId: string,
@@ -149,6 +163,20 @@ function fieldValidationMessage(
     : typeof value !== 'boolean' && !String(value ?? '').trim();
   if (field.required && empty) return `${field.label} is required.`;
   if (
+    !empty &&
+    field.minimumLength !== undefined &&
+    String(value).trim().length < field.minimumLength
+  ) {
+    return `${field.label} needs at least ${String(field.minimumLength)} characters.`;
+  }
+  if (
+    typeof value === 'string' &&
+    field.maximumLength !== undefined &&
+    value.length > field.maximumLength
+  ) {
+    return `${field.label} must be ${String(field.maximumLength)} characters or fewer.`;
+  }
+  if (
     field.type === 'BUSINESS_ACCESS' &&
     !empty &&
     !field.businessAccess?.businessAreas.some((area) =>
@@ -173,6 +201,7 @@ async function executeEndpoint(
   accessToken?: string,
   connection?: AxisModuleConnection,
   sessionGeneration?: number,
+  readOnly = false,
 ): Promise<unknown> {
   let path = endpoint.path;
   const boundFields = new Set<string>();
@@ -245,11 +274,31 @@ async function executeEndpoint(
       init.body = JSON.stringify(values);
     }
   }
-  const response = await fetch(url, init);
-  if (observeEmployeeSessionResponse(response, accessToken, sessionGeneration))
-    throw new Error('Your session has expired. Sign in again.');
-  if (!response.ok) throw await backendWorkspaceResponseError(response);
-  return envelopeData(await response.json());
+  if (!Number.isSafeInteger(runtime.requestTimeoutMs) || runtime.requestTimeoutMs < 1) {
+    throw new Error('Workspace request timeout is invalid');
+  }
+  const controller = new AbortController();
+  const timer = globalThis.setTimeout(
+    () => controller.abort(),
+    runtime.requestTimeoutMs,
+  );
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    if (observeEmployeeSessionResponse(response, accessToken, sessionGeneration))
+      throw new Error('Your session has expired. Sign in again.');
+    if (!response.ok) throw await backendWorkspaceResponseError(response);
+    return envelopeData(await response.json());
+  } catch (error) {
+    if (controller.signal.aborted)
+      throw new Error(
+        readOnly || endpoint.method === 'GET'
+          ? 'Workspace read timed out. Try this read again.'
+          : 'Workspace request timed out. Inspect the owner state before repeating a submitted action.',
+      );
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timer);
+  }
 }
 
 function FieldControl({
@@ -375,11 +424,30 @@ function ListingSection({
     initialValues(filters, section.id),
   );
   const [items, setItems] = useState<readonly Record<string, unknown>[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [filterErrors, setFilterErrors] = useState<Readonly<Record<string, string>>>(
+    {},
+  );
   const [error, setError] = useState<string>();
   const readEpoch = useRef(0);
   const load = async () => {
     const attempt = ++readEpoch.current;
+    setError(undefined);
+    const nextErrors = Object.fromEntries(
+      filters.flatMap((field) => {
+        const message = fieldValidationMessage(field, values[field.name]);
+        return message ? [[field.name, message]] : [];
+      }),
+    );
+    setFilterErrors(nextErrors);
+    if (Object.keys(nextErrors).length) {
+      setItems([]);
+      setHasLoaded(false);
+      setLoading(false);
+      return;
+    }
+    setHasLoaded(true);
     setLoading(true);
     setError(undefined);
     try {
@@ -390,17 +458,21 @@ function ListingSection({
         accessToken,
         connection,
         sessionGeneration,
+        true,
       );
       if (attempt !== readEpoch.current) return;
       const rawItems = valueAtPath(data, section.endpoint.resultPath);
-      setItems(
-        Array.isArray(rawItems)
-          ? rawItems.filter(
-              (item): item is Record<string, unknown> =>
-                typeof item === 'object' && item !== null && !Array.isArray(item),
-            )
-          : [],
-      );
+      if (
+        !Array.isArray(rawItems) ||
+        rawItems.some(
+          (item) => !item || typeof item !== 'object' || Array.isArray(item),
+        )
+      ) {
+        throw new Error(
+          'The owner did not return a valid record list. Refresh the read before continuing.',
+        );
+      }
+      setItems(rawItems as Record<string, unknown>[]);
     } catch (requestError: unknown) {
       if (attempt !== readEpoch.current) return;
       setError(
@@ -415,9 +487,16 @@ function ListingSection({
   // Acknowledgement invalidates reads only; keep filter edits and ignore older replies.
   const currentLoad = useRef(load);
   currentLoad.current = load;
+  const currentReadReady = useRef(true);
+  currentReadReady.current = filters.every(
+    (field) => !fieldValidationMessage(field, values[field.name]),
+  );
   useEffect(() => {
     const epoch = readEpoch;
-    void currentLoad.current();
+    // Missing required filters are an input state, not an owner API failure.
+    if (currentReadReady.current) {
+      void currentLoad.current();
+    }
     return () => {
       epoch.current++;
     };
@@ -436,7 +515,11 @@ function ListingSection({
           <Typography component="h2" variant="h6">
             {section.title}
           </Typography>
-          <Button disabled={loading} onClick={() => void load()} variant="outlined">
+          <Button
+            disabled={loading || !hasLoaded}
+            onClick={() => void load()}
+            variant="outlined"
+          >
             Refresh
           </Button>
         </Stack>
@@ -447,17 +530,21 @@ function ListingSection({
                 key={field.name}
                 field={field}
                 value={values[field.name]}
+                error={filterErrors[field.name]}
                 onChange={(next) =>
                   setValues((current) => ({ ...current, [field.name]: next }))
                 }
               />
             ))}
-            <Button onClick={() => void load()} variant="contained">
-              Apply
+            <Button disabled={loading} onClick={() => void load()} variant="contained">
+              {section.submitLabel ?? 'Apply'}
             </Button>
           </Stack>
         ) : null}
         {error ? <Alert severity="error">{error}</Alert> : null}
+        {!hasLoaded && !loading ? (
+          <Alert severity="info">Complete the required filters to view records.</Alert>
+        ) : null}
         {loading ? (
           <Box sx={{ alignItems: 'center', display: 'flex', minHeight: 120 }}>
             <CircularProgress size={24} />
@@ -501,7 +588,10 @@ function ListingSection({
                         component="td"
                         sx={{ borderBottom: 1, borderColor: 'divider', p: 1 }}
                       >
-                        {displayCellValue(item[column.field])}
+                        {displayColumnValue(
+                          item[column.field],
+                          filters.find((field) => field.name === column.field),
+                        )}
                       </Box>
                     ))}
                     {section.rowNavigation &&
@@ -539,7 +629,7 @@ function ListingSection({
                 ))}
               </Box>
             </Box>
-            {!items.length ? (
+            {hasLoaded && !loading && !error && !items.length ? (
               <Typography color="text.secondary" sx={{ py: 3 }} variant="body2">
                 No records returned.
               </Typography>
@@ -551,6 +641,76 @@ function ListingSection({
   );
 }
 
+/** Projects only declared own scalar receipt fields; navigation remains an authorized local read. */
+function FormResultPresentation({
+  section,
+  result,
+  authorizedRoutes,
+}: {
+  readonly section: AxisBackendWorkspaceSection;
+  readonly result: unknown;
+  readonly authorizedRoutes: readonly string[];
+}) {
+  const scalar = (field: string): string | undefined => {
+    if (!result || typeof result !== 'object' || Array.isArray(result))
+      return undefined;
+    const value: unknown = Object.getOwnPropertyDescriptor(result, field)?.value;
+    if (typeof value === 'string' && value.length <= 2048) return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    return undefined;
+  };
+  const rows = (section.resultSummary ?? []).flatMap((field) => {
+    const value = scalar(field.field);
+    return value === undefined
+      ? []
+      : [{ field: field.field, label: field.label, value }];
+  });
+  const action = section.resultNavigation;
+  const parameters = new URLSearchParams();
+  let complete = Boolean(action && authorizedRoutes.includes(action.route));
+  for (const [parameter, field] of Object.entries(action?.parameters ?? {})) {
+    const value = scalar(field);
+    if (!value || value.length > 512) complete = false;
+    else parameters.set(parameter, value);
+  }
+  return (
+    <Stack spacing={1.5}>
+      {rows.length ? (
+        <Box
+          component="dl"
+          sx={{
+            m: 0,
+            display: 'grid',
+            gap: 1.5,
+            gridTemplateColumns: { xs: '1fr', md: 'repeat(2,minmax(0,1fr))' },
+          }}
+        >
+          {rows.map((row) => (
+            <Box key={row.field} sx={{ minWidth: 0 }}>
+              <Typography component="dt" color="text.secondary" variant="body2">
+                {row.label}
+              </Typography>
+              <Typography component="dd" sx={{ m: 0, overflowWrap: 'anywhere' }}>
+                {row.value}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+      ) : null}
+      {complete && action ? (
+        <Button
+          component={RouterLink}
+          to={`${action.route}?${parameters.toString()}`}
+          variant="outlined"
+        >
+          {action.label}
+        </Button>
+      ) : null}
+    </Stack>
+  );
+}
+
 function FormSection({
   runtime,
   section,
@@ -559,7 +719,9 @@ function FormSection({
   connection,
   creationCheckpoint,
   onAcknowledged,
+  authorizedRoutes = [],
 }: {
+  readonly authorizedRoutes?: readonly string[] | undefined;
   readonly runtime: AxisRuntimeConfig;
   readonly section: AxisBackendWorkspaceSection;
   readonly connection?: AxisModuleConnection | undefined;
@@ -615,13 +777,56 @@ function FormSection({
   const [readAttempt, setReadAttempt] = useState(0);
   const previousSourceContext = useRef<string | undefined>(undefined);
   const acknowledgedSourceCommand = useRef(false);
+  const sourceCommandHold = useRef<
+    | {
+        binding: string;
+        accessToken: string | undefined;
+        generation: number | undefined;
+        readAttempt: number;
+      }
+    | undefined
+  >(undefined);
   const contextValue = section.readSource
     ? new URLSearchParams(window.location.search).get(section.readSource.parameter)
     : null;
+  const sourceBinding = JSON.stringify([
+    connection?.endpoint ?? runtime.backofficeBaseUrl,
+    connection?.instanceId,
+    connection?.environment,
+    runtime.projectCode,
+    runtime.enterpriseCode,
+    section.id,
+    section.endpoint,
+    section.fields,
+    contextValue,
+    section.readSource?.endpoint,
+    section.readSource?.commandId,
+    section.readSource?.fields,
+  ]);
+  const acknowledgementIsCurrent =
+    !section.readSource ||
+    Boolean(
+      sourceCommandHold.current &&
+      sourceCommandHold.current.binding === sourceBinding &&
+      sourceCommandHold.current.accessToken === accessToken &&
+      sourceCommandHold.current.generation === sessionGeneration &&
+      sourceCommandHold.current.readAttempt === readAttempt,
+    );
   useEffect(() => {
     const read = section.readSource;
     if (!read) return;
     let active = true;
+    const acknowledged = sourceCommandHold.current;
+    if (
+      acknowledged &&
+      acknowledged.binding === sourceBinding &&
+      acknowledged.accessToken === accessToken &&
+      acknowledged.generation === sessionGeneration &&
+      acknowledged.readAttempt === readAttempt
+    ) {
+      setSource({ ready: false, loading: false });
+      return;
+    }
     setSource({ ready: false, loading: true });
     const context = `${connection?.endpoint ?? runtime.backofficeBaseUrl}:${section.id}:${contextValue ?? ''}`;
     const preserveReference =
@@ -757,6 +962,7 @@ function FormSection({
     sessionGeneration,
     connection,
     contextValue,
+    sourceBinding,
     readAttempt,
   ]);
   const submit = async () => {
@@ -786,6 +992,14 @@ function FormSection({
       setBusy(false);
       return;
     }
+    // Hold this dispatched intent even when its acknowledgement is lost. Metadata refresh is not a retry.
+    if (section.readSource)
+      sourceCommandHold.current = {
+        binding: sourceBinding,
+        accessToken,
+        generation: sessionGeneration,
+        readAttempt,
+      };
     try {
       const response = await executeEndpoint(
         runtime,
@@ -802,6 +1016,12 @@ function FormSection({
       setResult(response);
       if (section.endpoint.method !== 'GET') onAcknowledged?.();
       if (section.readSource) {
+        sourceCommandHold.current = {
+          binding: sourceBinding,
+          accessToken,
+          generation: sessionGeneration,
+          readAttempt,
+        };
         acknowledgedSourceCommand.current = true;
         setSource({ ready: false, loading: false });
       } else {
@@ -810,7 +1030,7 @@ function FormSection({
       }
     } catch (requestError: unknown) {
       if (checkpointTicket) {
-        if (isDefiniteEnterpriseDuplicate(requestError))
+        if (isDefiniteEnterpriseCreationRefusal(requestError))
           creationCheckpoint?.refuse(checkpointTicket);
         else creationCheckpoint?.settle(checkpointTicket, false);
       }
@@ -841,61 +1061,85 @@ function FormSection({
           useFlexGap
           sx={{ flexWrap: 'wrap' }}
         >
-          {fields.map((field) => (
-            <Box
-              key={field.name}
-              ref={(node: HTMLDivElement | null) => {
-                if (node) fieldContainers.current.set(field.name, node);
-                else fieldContainers.current.delete(field.name);
-              }}
-              sx={{
-                minWidth: { xs: 0, md: 240 },
-                maxWidth: '100%',
-                width: { xs: '100%', md: 'auto' },
-                flex: { xs: '0 1 auto', md: '1 1 240px' },
-              }}
-            >
+          {fields
+            .filter((field) => field.type !== 'IDEMPOTENCY')
+            .map((field) => (
               <Box
-                component="fieldset"
-                disabled={
-                  busy ||
-                  held ||
-                  (Boolean(section.readSource) &&
-                    (!source.ready ||
-                      source.loading ||
-                      Boolean(section.readSource?.fields[field.name])))
-                }
+                key={field.name}
+                ref={(node: HTMLDivElement | null) => {
+                  if (node) fieldContainers.current.set(field.name, node);
+                  else fieldContainers.current.delete(field.name);
+                }}
                 sx={{
-                  border: 0,
-                  m: 0,
-                  p: 0,
-                  minWidth: 0,
-                  width: '100%',
-                  boxSizing: 'border-box',
+                  minWidth: { xs: 0, md: 240 },
+                  maxWidth: '100%',
+                  width: { xs: '100%', md: 'auto' },
+                  flex: { xs: '0 1 auto', md: '1 1 240px' },
                 }}
               >
-                <FieldControl
-                  field={field}
-                  value={values[field.name]}
-                  error={fieldErrors[field.name]}
-                  onChange={(next) => {
-                    const updatedValues = { ...values, [field.name]: next };
-                    creationCheckpoint?.save(updatedValues);
-                    setValues(updatedValues);
-                    setFieldErrors((current) => {
-                      if (!current[field.name]) return current;
-                      const updated = { ...current };
-                      const message = fieldValidationMessage(field, next);
-                      if (message) updated[field.name] = message;
-                      else delete updated[field.name];
-                      return updated;
-                    });
+                <Box
+                  component="fieldset"
+                  disabled={
+                    busy ||
+                    held ||
+                    (Boolean(section.readSource) &&
+                      (!source.ready ||
+                        source.loading ||
+                        Boolean(section.readSource?.fields[field.name])))
+                  }
+                  sx={{
+                    border: 0,
+                    m: 0,
+                    p: 0,
+                    minWidth: 0,
+                    width: '100%',
+                    boxSizing: 'border-box',
                   }}
-                />
+                >
+                  <FieldControl
+                    field={field}
+                    value={values[field.name]}
+                    error={fieldErrors[field.name]}
+                    onChange={(next) => {
+                      const updatedValues = { ...values, [field.name]: next };
+                      creationCheckpoint?.save(updatedValues);
+                      setValues(updatedValues);
+                      setFieldErrors((current) => {
+                        if (!current[field.name]) return current;
+                        const updated = { ...current };
+                        const message = fieldValidationMessage(field, next);
+                        if (message) updated[field.name] = message;
+                        else delete updated[field.name];
+                        return updated;
+                      });
+                    }}
+                  />
+                </Box>
               </Box>
-            </Box>
-          ))}
+            ))}
         </Stack>
+        {fields.some((field) => field.type === 'IDEMPOTENCY') ? (
+          <Box component="details" aria-label="Command technical details">
+            <Box
+              component="summary"
+              sx={{ cursor: 'pointer', color: 'text.secondary' }}
+            >
+              Command technical details
+            </Box>
+            <Stack spacing={2} sx={{ pt: 2 }}>
+              {fields
+                .filter((field) => field.type === 'IDEMPOTENCY')
+                .map((field) => (
+                  <FieldControl
+                    key={field.name}
+                    field={field}
+                    value={values[field.name]}
+                    onChange={() => undefined}
+                  />
+                ))}
+            </Stack>
+          </Box>
+        ) : null}
         {error ? <Alert severity="error">{error}</Alert> : null}
         {source.error ? <Alert severity="error">{source.error}</Alert> : null}
         {section.readSource ? (
@@ -906,12 +1150,19 @@ function FormSection({
             Refresh inspection
           </Button>
         ) : null}
-        {result !== undefined ? (
-          <Alert severity="success">
-            {typeof result === 'object' && result !== null
-              ? (section.successMessage ?? 'Request completed.')
-              : displayCellValue(result)}
-          </Alert>
+        {result !== undefined && acknowledgementIsCurrent ? (
+          <Stack spacing={1.5}>
+            <Alert severity="success">
+              {typeof result === 'object' && result !== null
+                ? (section.successMessage ?? 'Request completed.')
+                : displayCellValue(result)}
+            </Alert>
+            <FormResultPresentation
+              section={section}
+              result={result}
+              authorizedRoutes={authorizedRoutes}
+            />
+          </Stack>
         ) : null}
         <Box>
           <Button
@@ -1031,6 +1282,21 @@ export function BackendOperationsWorkspaceRoutePage({
   enterpriseCreationCheckpoint,
   spendCms,
 }: BackendOperationsWorkspaceRoutePageProps) {
+  const listingActor = useMemo(
+    () => (accessToken ? crypto.randomUUID() : 'public'),
+    [accessToken],
+  );
+  const listingScope = JSON.stringify([
+    listingActor,
+    sessionGeneration,
+    bootstrap?.tenantCode,
+    runtime.enterpriseCode,
+    runtime.projectCode,
+    connection?.endpoint,
+    connection?.instanceId,
+    connection?.server,
+    connection?.environment,
+  ]);
   const businessAccessConfiguration = useMemo(() => {
     if (
       mode !== 'authenticated' ||
@@ -1098,6 +1364,13 @@ export function BackendOperationsWorkspaceRoutePage({
   const requestedTab = new URLSearchParams(window.location.search).get('tab');
   const initialTab =
     tabs.find((tab) => tab.id === requestedTab)?.id ??
+    tabs.find((tab) =>
+      tab.sections.some(
+        (section) =>
+          section.readSource &&
+          new URLSearchParams(window.location.search).has(section.readSource.parameter),
+      ),
+    )?.id ??
     (retainedCreation
       ? tabs.find((tab) =>
           tab.sections.some((section) => section.id === 'create-enterprise'),
@@ -1176,7 +1449,10 @@ export function BackendOperationsWorkspaceRoutePage({
               : workspace.setupContinuation.presentation.uncertainMessage}
           </Alert>
         ) : null}
-        {mode === 'authenticated' && workspace.setupContinuation ? (
+        {mode === 'authenticated' &&
+        workspace.setupContinuation &&
+        (workspace.setupContinuation.available ||
+          (retainedCreation && retainedCreation.phase !== 'DRAFT')) ? (
           <EnterpriseSetupSection
             descriptor={workspace.setupContinuation}
             connection={connection}
@@ -1220,7 +1496,7 @@ export function BackendOperationsWorkspaceRoutePage({
             {selected.sections.map((section) =>
               section.type === 'listing' ? (
                 <ListingSection
-                  key={section.id}
+                  key={`${listingScope}:${JSON.stringify(section)}`}
                   accessToken={accessToken}
                   sessionGeneration={sessionGeneration}
                   connection={connection}
@@ -1244,6 +1520,7 @@ export function BackendOperationsWorkspaceRoutePage({
                   runtime={runtime}
                   section={section}
                   onAcknowledged={invalidateListings}
+                  authorizedRoutes={authorizedRoutes}
                   creationCheckpoint={
                     section.id === 'create-enterprise' ? creationCheckpoint : undefined
                   }

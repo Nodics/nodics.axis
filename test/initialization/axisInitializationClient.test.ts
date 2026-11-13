@@ -99,6 +99,40 @@ describe('Axis initialization client', () => {
     );
   });
 
+  it.each([2, 3])(
+    'keeps Process diagnostics only for the exact pending revision (%i)',
+    async (revision) => {
+      const publication = status.data.publication;
+      const approvalDiagnostic = {
+        source: 'PUBLICATION_APPROVAL',
+        owner: 'PROCESS',
+        status: 'TASK_REFERENCE_MISSING',
+        message: 'Task missing.',
+        suggestedAction: 'Reconcile approval.',
+        publicationRevision: revision,
+        publicationCode: publication.code,
+        workflowRef: publication.workflowRef,
+      };
+      const body = {
+        data: { ...status.data, publication: { ...publication, approvalDiagnostic } },
+      };
+      const transport = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(JSON.stringify(body)));
+      const result = await loadAxisInitializationStatus(
+        'http://platform.local',
+        'token',
+        1000,
+        transport,
+      );
+      if (revision === publication.revision)
+        expect(result.publication?.approvalDiagnostic?.status).toBe(
+          'TASK_REFERENCE_MISSING',
+        );
+      else expect(result.publication?.approvalDiagnostic).toBeUndefined();
+    },
+  );
+
   it('initiates through Platform without accepting a release, runtime, or approval choice', async () => {
     const fetchImplementation = vi
       .fn<typeof fetch>()

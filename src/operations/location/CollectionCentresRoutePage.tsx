@@ -160,7 +160,7 @@ async function reverseGeocodeUserLocation(
       locationBaseUrl: request.locationBaseUrl,
       locale: request.locale,
       timeoutMs: request.timeoutMs,
-      surfaceCode: 'SHARED',
+      surfaceCode: 'AXIS',
       usageCode: 'COLLECTION_CENTRE_MAP',
       latitude: coordinate.latitude,
       longitude: coordinate.longitude,
@@ -1942,7 +1942,7 @@ export function CollectionCentresRoutePage(props: CollectionCentresRoutePageProp
     queryKey: [
       'location-map-configuration',
       props.runtime.enterpriseCode,
-      'SHARED',
+      'AXIS',
       'COLLECTION_CENTRE_MAP',
     ],
     queryFn: () =>
@@ -1950,7 +1950,7 @@ export function CollectionCentresRoutePage(props: CollectionCentresRoutePageProp
         accessToken: props.accessToken,
         enterpriseCode: props.runtime.enterpriseCode,
         locationBaseUrl: props.runtime.locationBaseUrl,
-        surfaceCode: 'SHARED',
+        surfaceCode: 'AXIS',
         timeoutMs: props.runtime.requestTimeoutMs,
         usageCode: 'COLLECTION_CENTRE_MAP',
       }),

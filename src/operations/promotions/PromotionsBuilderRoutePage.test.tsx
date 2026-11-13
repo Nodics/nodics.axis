@@ -147,6 +147,6 @@ describe('Promotions Builder presentation', () => {
     expect(screen.getByText('Approval checklist')).toBeTruthy();
     expect(screen.getByText('idempotency key')).toBeTruthy();
     expect(screen.getByText('Owner: Promotion API')).toBeTruthy();
-    expect(screen.getByLabelText('Loading Axis configuration')).toBeTruthy();
+    expect(screen.getByLabelText('Loading page content')).toBeTruthy();
   });
 });

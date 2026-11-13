@@ -1,3 +1,9 @@
+import { useAxisLocalization } from '../../localization/AxisLocalizationContext';
+import { RulesPolicyReviewPanel } from '../rulesManagement/RulesPolicyReviewPanel';
+import { loadRulesReview } from '../rulesManagement/api/rulesReviewClient';
+import { MediaPublicationReviewPanel } from '../mediaManagement/components/MediaPublicationReviewPanel';
+import { CmsPublicationReviewPanel } from '../contentExperience/components/CmsPublicationReviewPanel';
+import type { ReactNode } from 'react';
 import {
   useMutation,
   useQueries,
@@ -19,7 +25,8 @@ import {
   Typography,
   alpha,
 } from '@mui/material';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link as RouterLink, useLocation, useNavigate } from 'react-router';
 
 import { axisTokens } from '../../app/axisTheme';
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
@@ -35,12 +42,9 @@ import { createDocumentationPublicationClient } from '../../documentation/api/do
 import { createApplicationInitializationClient } from '../setupAccelerators/api/applicationInitializationClient';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
-  archiveProcessTrigger,
   assignProcessTask,
   createProcessDefinition,
-  createProcessTrigger,
   createSampleGraph,
-  executeProcessTrigger,
   cancelProcessInstance,
   cancelProcessTask,
   claimProcessTask,
@@ -49,13 +53,14 @@ import {
   deleteOrArchiveProcessDefinition,
   loadProcessInstanceDetail,
   loadProcessDefinitionVersions,
+  loadPublishedProcessScheduleVersions,
   loadProcessOperationsSummary,
   loadProcessDefinitions,
   prepareNextProcessDraft,
+  ProcessHttpError,
   publishProcessDraft,
   retryProcessInstance,
   startProcessInstance,
-  updateProcessTrigger,
   updateProcessDraft,
   validateProcessDraft,
   type ProcessDefinition,
@@ -71,8 +76,27 @@ import {
   type ProcessGraphNode,
 } from './api/processDefinitionClient';
 
+import { WorkflowGraphConnections } from './WorkflowGraphConnections';
+import {
+  canSubmitProcessTriggerCommand,
+  loadProcessCommandCapabilities,
+  type ProcessCommandCapabilities,
+  type ProcessTriggerCommandKind,
+} from './api/processCommandCapabilitiesClient';
+import {
+  createProcessTriggerCommandIntent,
+  executeProcessTriggerCommand,
+  inspectProcessTriggerCommandReceipt,
+  type ProcessTriggerCommandIntent,
+} from './api/processTriggerCommandClient';
+import {
+  TriggerCommandFeedback,
+  type TriggerCommandOutcome,
+} from './TriggerCommandFeedback';
+
 interface ProcessWorkflowRoutePageProps {
   readonly accessToken: string;
+  readonly sessionGeneration?: number | undefined;
   readonly bootstrap: AxisAuthenticatedBootstrap;
   readonly navigation: AxisNavigationItem;
   readonly runtime: AxisRuntimeConfig;
@@ -83,6 +107,7 @@ const operationsQueryKey = 'process-operations-summary';
 const versionsQueryKey = 'process-definition-versions';
 const instanceDetailQueryKey = 'process-instance-detail';
 type ProcessTaskDecision = Readonly<Record<string, unknown>>;
+type ProcessStartIntent = Readonly<{ definitionCode: string; instanceCode: string }>;
 type CmsPublicationTaskContext = Readonly<{
   profileCode?: string;
   releaseStatus?: string;
@@ -130,11 +155,11 @@ function createCmsPublicationApprovalDecision(): ProcessTaskDecision {
   });
 }
 
-function createCmsPublicationRejectionDecision(): ProcessTaskDecision {
+function createCmsPublicationRejectionDecision(reason: string): ProcessTaskDecision {
   return Object.freeze({
     approved: false,
     outcome: 'rejected-from-axis',
-    reason: 'Publication rejected from Axis; Online must remain unchanged',
+    reason,
   });
 }
 
@@ -203,6 +228,7 @@ function ProcessJourneyStep({
   readonly label: string;
   readonly state: 'available' | 'preview' | 'planned';
 }) {
+  const { format: workflowText } = useAxisLocalization();
   const tone =
     state === 'available' ? 'success' : state === 'preview' ? 'warning' : 'default';
   return (
@@ -240,7 +266,12 @@ function ProcessJourneyStep({
           </Box>
           <Box sx={{ minWidth: 0 }}>
             <Typography variant="h6">{label}</Typography>
-            <Chip color={tone} label={state} size="small" variant="outlined" />
+            <Chip
+              color={tone}
+              label={workflowText(`process.state.${state.toLowerCase()}`, state)}
+              size="small"
+              variant="outlined"
+            />
           </Box>
         </Stack>
         <Typography color="text.secondary">{detail}</Typography>
@@ -295,11 +326,12 @@ function ProcessWorkspaceCard({
   readonly label: string;
   readonly route: string;
 }) {
+  const { format: workflowText } = useAxisLocalization();
   return (
     <Paper
-      component="a"
+      component={RouterLink}
       elevation={0}
-      href={route}
+      to={route}
       sx={{
         bgcolor: active
           ? alpha(axisTokens.color.signatureGold, 0.12)
@@ -337,7 +369,11 @@ function ProcessWorkspaceCard({
             <Typography variant="h6">{label}</Typography>
             <Chip
               color={active ? 'warning' : 'default'}
-              label={active ? 'Current focus' : 'Open'}
+              label={
+                active
+                  ? workflowText('process.ui.current-focus', 'Current focus')
+                  : workflowText('process.ui.open', 'Open')
+              }
               size="small"
               variant="outlined"
             />
@@ -352,6 +388,7 @@ function ProcessWorkspaceCard({
 }
 
 function GraphPreview({ graph }: { readonly graph: ProcessGraph | undefined }) {
+  const { format: workflowText } = useAxisLocalization();
   const nodes = graph?.nodes ?? [];
   const transitions = graph?.transitions ?? [];
   return (
@@ -368,11 +405,16 @@ function GraphPreview({ graph }: { readonly graph: ProcessGraph | undefined }) {
       <Stack spacing={2}>
         <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
           <ShellIcon name="workflow" />
-          <Typography variant="h6">Visual graph preview</Typography>
+          <Typography variant="h6">
+            {workflowText('process.ui.visual-graph-preview', 'Visual graph preview')}
+          </Typography>
         </Stack>
         {nodes.length === 0 ? (
           <Typography color="text.secondary">
-            Select or create a draft definition to preview the backend-owned graph.
+            {workflowText(
+              'process.ui.select-or-create-a-draft-definition-to-preview-the-backend-owned-graph',
+              'Select or create a draft definition to preview the backend-owned graph.',
+            )}
           </Typography>
         ) : (
           <Box
@@ -383,7 +425,7 @@ function GraphPreview({ graph }: { readonly graph: ProcessGraph | undefined }) {
               py: 1,
             }}
           >
-            {nodes.map((node, index) => (
+            {nodes.map((node) => (
               <Box
                 key={node.code}
                 sx={{
@@ -403,17 +445,18 @@ function GraphPreview({ graph }: { readonly graph: ProcessGraph | undefined }) {
                   label={`${node.name ?? node.code} · ${node.type}`}
                   variant={node.type === 'END' ? 'outlined' : 'filled'}
                 />
-                {index < nodes.length - 1 ? (
-                  <Typography color="text.secondary">→</Typography>
-                ) : null}
               </Box>
             ))}
           </Box>
         )}
+        {graph ? <WorkflowGraphConnections graph={graph} /> : null}
         <Typography color="text.secondary" variant="body2">
-          {String(nodes.length)} nodes · {String(transitions.length)} transitions. Axis
-          stores layout intent only; validation and runtime truth stay in
-          nodics.process.
+          {String(nodes.length)} {workflowText('process.ui.nodes', 'nodes ·')}{' '}
+          {String(transitions.length)}{' '}
+          {workflowText(
+            'process.ui.transitions-axis-stores-layout-intent-only-validation-and-runtime-truth-',
+            'transitions. Axis stores layout intent only; validation and runtime truth stay in nodics.process.',
+          )}
         </Typography>
       </Stack>
     </Paper>
@@ -427,6 +470,7 @@ function VersionHistory({
   readonly loading: boolean;
   readonly versions: readonly ProcessDefinitionVersion[];
 }) {
+  const { format: workflowText } = useAxisLocalization();
   return (
     <Paper
       component="section"
@@ -436,16 +480,24 @@ function VersionHistory({
       <Stack spacing={2}>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           <ShellIcon name="publish" />
-          <Typography variant="h5">Version history</Typography>
+          <Typography component="h2" variant="h5">
+            {workflowText('process.ui.version-history', 'Version history')}
+          </Typography>
           <Chip
-            label={loading ? 'Loading' : `${String(versions.length)} versions`}
+            label={
+              loading
+                ? workflowText('process.ui.loading', 'Loading')
+                : `${String(versions.length)} versions`
+            }
             variant="outlined"
           />
         </Stack>
         {versions.length === 0 ? (
           <Alert severity="info">
-            No immutable versions exist yet. Validate and publish a draft to create the
-            first auditable process version.
+            {workflowText(
+              'process.ui.no-immutable-versions-exist-yet-validate-and-publish-a-draft-to-create-t',
+              'No immutable versions exist yet. Validate and publish a draft to create the first auditable process version.',
+            )}
           </Alert>
         ) : (
           <Stack spacing={1.5}>
@@ -467,15 +519,21 @@ function VersionHistory({
                     spacing={1}
                     sx={{ alignItems: 'center', justifyContent: 'space-between' }}
                   >
-                    <Typography variant="h6">Version {version.version}</Typography>
+                    <Typography variant="h6">
+                      {workflowText('process.ui.version', 'Version')} {version.version}
+                    </Typography>
                     <Chip
                       color={version.status === 'PUBLISHED' ? 'success' : 'default'}
-                      label={version.status}
+                      label={workflowText(
+                        `process.state.${version.status.toLowerCase()}`,
+                        version.status,
+                      )}
                       size="small"
                     />
                   </Stack>
                   <Typography color="text.secondary" variant="body2">
-                    Published by {version.publishedBy ?? 'unknown'} ·{' '}
+                    {workflowText('process.ui.published-by', 'Published by')}{' '}
+                    {version.publishedBy ?? 'unknown'} ·{' '}
                     {version.publishedAt ?? 'date unavailable'}
                   </Typography>
                   <Typography
@@ -483,7 +541,8 @@ function VersionHistory({
                     sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}
                     variant="caption"
                   >
-                    checksum {version.checksum.slice(0, 24)}
+                    {workflowText('process.ui.checksum', 'checksum')}{' '}
+                    {version.checksum.slice(0, 24)}
                     {version.checksum.length > 24 ? '…' : ''}
                   </Typography>
                 </Stack>
@@ -498,17 +557,26 @@ function VersionHistory({
 
 function RuntimeInstanceList({
   disabled,
+  hasEvidence = true,
   instances,
   onCancel,
   onSelect,
   selectedCode,
 }: {
   readonly disabled: boolean;
+  readonly hasEvidence?: boolean;
   readonly instances: readonly ProcessRuntimeInstance[];
   readonly onCancel: (instanceCode: string) => void;
   readonly onSelect: (instanceCode: string) => void;
   readonly selectedCode: string | undefined;
 }) {
+  const { format: workflowText } = useAxisLocalization();
+  const [search, setSearch] = useState('');
+  const visible = instances.filter((instance) =>
+    `${instance.code} ${instance.definitionCode ?? ''} ${instance.status}`
+      .toLocaleLowerCase()
+      .includes(search.trim().toLocaleLowerCase()),
+  );
   return (
     <Paper
       component="section"
@@ -518,17 +586,61 @@ function RuntimeInstanceList({
       <Stack spacing={2}>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           <ShellIcon name="workflow" />
-          <Typography variant="h5">Process instances</Typography>
-          <Chip label={`${String(instances.length)} visible`} variant="outlined" />
+          <Typography component="h2" variant="h5">
+            {workflowText('process.ui.process-instances', 'Process instances')}
+          </Typography>
+          {hasEvidence ? (
+            <Chip
+              label={workflowText(
+                'process.ui.retrieved-count',
+                '{count, number} retrieved',
+                { count: instances.length },
+              )}
+              variant="outlined"
+            />
+          ) : null}
         </Stack>
+        <TextField
+          disabled={!hasEvidence}
+          label={workflowText('process.ui.find-an-instance', 'Find an instance')}
+          size="small"
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          helperText={workflowText(
+            'process.ui.search-the-recently-retrieved-workflow-instances',
+            'Search the recently retrieved workflow instances.',
+          )}
+        />
         {instances.length === 0 ? (
-          <Alert severity="info">
-            No process instances are running yet. Start a published process from a
-            definition card to create a real backend-owned runtime instance.
+          hasEvidence ? (
+            <Alert severity="info">
+              {workflowText(
+                'process.ui.no-workflow-instances-were-returned-start-a-published-workflow-from-defi',
+                'No workflow instances were returned. Start a published workflow from Definitions to create one.',
+              )}
+            </Alert>
+          ) : null
+        ) : !visible.length ? (
+          <Alert
+            severity="info"
+            action={
+              <Button onClick={() => setSearch('')}>
+                {workflowText('process.ui.clear-search', 'Clear search')}
+              </Button>
+            }
+          >
+            {workflowText(
+              'process.ui.no-matching-instances-in-these-results',
+              'No matching instances in these results.',
+            )}
           </Alert>
         ) : (
-          <Stack spacing={1.5}>
-            {instances.map((instance) => (
+          <Stack
+            spacing={1.5}
+            sx={{ maxHeight: 560, overflowY: 'auto', minWidth: 0, pr: 0.5 }}
+          >
+            {visible.map((instance) => (
               <Paper
                 component="article"
                 elevation={0}
@@ -547,10 +659,20 @@ function RuntimeInstanceList({
                     sx={{ justifyContent: 'space-between' }}
                   >
                     <Box>
-                      <Typography variant="h6">{instance.code}</Typography>
-                      <Typography color="text.secondary">
+                      <Typography
+                        component="h3"
+                        variant="h6"
+                        sx={{ overflowWrap: 'anywhere' }}
+                      >
+                        {instance.code}
+                      </Typography>
+                      <Typography
+                        color="text.secondary"
+                        sx={{ overflowWrap: 'anywhere' }}
+                      >
                         {instance.definitionCode ?? 'unknown definition'} · v
-                        {String(instance.version)} · node{' '}
+                        {String(instance.version)}{' '}
+                        {workflowText('process.ui.node', '· node')}{' '}
                         {instance.currentNode ?? 'unknown'}
                       </Typography>
                     </Box>
@@ -562,7 +684,10 @@ function RuntimeInstanceList({
                             ? 'default'
                             : 'warning'
                       }
-                      label={instance.status}
+                      label={workflowText(
+                        `process.state.${instance.status.toLowerCase()}`,
+                        instance.status,
+                      )}
                     />
                   </Stack>
                   <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
@@ -573,7 +698,7 @@ function RuntimeInstanceList({
                         selectedCode === instance.code ? 'contained' : 'outlined'
                       }
                     >
-                      View timeline
+                      {workflowText('process.ui.view-timeline', 'View timeline')}
                     </Button>
                     <Button
                       color="error"
@@ -584,7 +709,7 @@ function RuntimeInstanceList({
                       onClick={() => onCancel(instance.code)}
                       variant="outlined"
                     >
-                      Cancel instance
+                      {workflowText('process.ui.cancel-instance', 'Cancel instance')}
                     </Button>
                   </Stack>
                 </Stack>
@@ -599,15 +724,18 @@ function RuntimeInstanceList({
 
 function RecoveryIncidentQueue({
   disabled,
+  hasEvidence = true,
   incidents,
   onCompensate,
   onRetry,
 }: {
   readonly disabled: boolean;
+  readonly hasEvidence?: boolean;
   readonly incidents: readonly ProcessIncident[];
   readonly onCompensate: (instanceCode: string) => void;
   readonly onRetry: (incident: ProcessIncident) => void;
 }) {
+  const { format: workflowText } = useAxisLocalization();
   const actionable = incidents.filter((incident) =>
     ['OPEN', 'DEAD_LETTER'].includes(incident.status),
   );
@@ -620,15 +748,35 @@ function RecoveryIncidentQueue({
       <Stack spacing={2}>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           <ShellIcon name="activity" />
-          <Typography variant="h5">Recovery incidents</Typography>
-          <Chip label={`${String(actionable.length)} actionable`} variant="outlined" />
+          <Typography component="h2" variant="h5">
+            {workflowText('process.ui.recovery-incidents', 'Recovery incidents')}
+          </Typography>
+          {hasEvidence ? (
+            <Chip
+              label={workflowText(
+                'process.ui.actionable-count',
+                '{count, number} actionable',
+                { count: actionable.length },
+              )}
+              variant="outlined"
+            />
+          ) : null}
         </Stack>
         <Typography color="text.secondary">
-          Retry failed workflow actions or invoke their registered domain compensation.
-          Process records the recovery; the business module owns state reversal.
+          {workflowText(
+            'process.ui.retry-failed-workflow-actions-or-invoke-their-registered-domain-compensa',
+            'Retry failed workflow actions or invoke their registered domain compensation. Process records the recovery; the business module owns state reversal.',
+          )}
         </Typography>
         {actionable.length === 0 ? (
-          <Alert severity="success">No workflow recovery incidents need action.</Alert>
+          hasEvidence ? (
+            <Alert severity="success">
+              {workflowText(
+                'process.ui.no-workflow-recovery-incidents-need-action',
+                'No workflow recovery incidents need action.',
+              )}
+            </Alert>
+          ) : null
         ) : (
           <Stack spacing={1.5}>
             {actionable.map((incident) => (
@@ -645,15 +793,26 @@ function RecoveryIncidentQueue({
                     sx={{ justifyContent: 'space-between' }}
                   >
                     <Box>
-                      <Typography variant="h6">{incident.instanceCode}</Typography>
+                      <Typography
+                        component="h3"
+                        variant="h6"
+                        sx={{ overflowWrap: 'anywhere' }}
+                      >
+                        {incident.instanceCode}
+                      </Typography>
                       <Typography color="text.secondary">
-                        {incident.nodeCode} · {incident.errorCode} · attempt{' '}
-                        {String(incident.attempt)} of {String(incident.maximumAttempts)}
+                        {incident.nodeCode} · {incident.errorCode}{' '}
+                        {workflowText('process.ui.attempt', '· attempt')}{' '}
+                        {String(incident.attempt)} {workflowText('process.ui.of', 'of')}{' '}
+                        {String(incident.maximumAttempts)}
                       </Typography>
                     </Box>
                     <Chip
                       color={incident.status === 'DEAD_LETTER' ? 'error' : 'warning'}
-                      label={incident.status}
+                      label={workflowText(
+                        `process.state.${incident.status.toLowerCase()}`,
+                        incident.status,
+                      )}
                     />
                   </Stack>
                   <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
@@ -664,7 +823,7 @@ function RecoveryIncidentQueue({
                       onClick={() => onRetry(incident)}
                       variant="contained"
                     >
-                      Retry action
+                      {workflowText('process.ui.retry-action', 'Retry action')}
                     </Button>
                     <Button
                       color="warning"
@@ -672,7 +831,7 @@ function RecoveryIncidentQueue({
                       onClick={() => onCompensate(incident.instanceCode)}
                       variant="outlined"
                     >
-                      Run compensation
+                      {workflowText('process.ui.run-compensation', 'Run compensation')}
                     </Button>
                   </Stack>
                 </Stack>
@@ -688,6 +847,7 @@ function RecoveryIncidentQueue({
 function TaskInbox({
   assignee,
   disabled,
+  hasEvidence = true,
   onAssigneeChange,
   onAssign,
   onCancel,
@@ -700,9 +860,11 @@ function TaskInbox({
   pagination,
   onPageChange,
   title = 'Task inbox',
+  reviewEvidence,
 }: {
   readonly assignee: string;
   readonly disabled: boolean;
+  readonly hasEvidence?: boolean;
   readonly onAssigneeChange: (assignee: string) => void;
   readonly onAssign: (taskCode: string) => void;
   readonly onCancel: (taskCode: string) => void;
@@ -715,7 +877,9 @@ function TaskInbox({
   readonly pagination: ProcessTaskPagination | undefined;
   readonly onPageChange: (page: number) => void;
   readonly title?: string;
+  readonly reviewEvidence?: (task: ProcessHumanTask) => ReactNode;
 }) {
+  const { format: workflowText } = useAxisLocalization();
   const publicationTasks = tasks
     .filter(
       (task) => isCmsPublicationApprovalTask(task) && !isDeclaredApprovalTask(task),
@@ -749,25 +913,46 @@ function TaskInbox({
         >
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
             <ShellIcon name="task" />
-            <Typography variant="h5">{title}</Typography>
+            <Typography component="h2" variant="h5">
+              {title}
+            </Typography>
           </Stack>
           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
             <Button disabled={refreshDisabled} onClick={onRefresh}>
-              Refresh task evidence
+              {workflowText(
+                'process.ui.refresh-task-evidence',
+                'Refresh task evidence',
+              )}
             </Button>
-            <Chip
-              color={
-                publicationTasks.length + approvalTasks.length ? 'warning' : 'default'
-              }
-              label={`${String(publicationTasks.length + approvalTasks.length)} approval decisions`}
-              variant={
-                publicationTasks.length + approvalTasks.length ? 'filled' : 'outlined'
-              }
-            />
-            <Chip
-              label={`${String(ordinaryTasks.length)} other tasks`}
-              variant="outlined"
-            />
+            {hasEvidence ? (
+              <>
+                <Chip
+                  color={
+                    publicationTasks.length + approvalTasks.length
+                      ? 'warning'
+                      : 'default'
+                  }
+                  label={workflowText(
+                    'process.ui.approval-decisions-count',
+                    '{count, number} approval decisions',
+                    { count: publicationTasks.length + approvalTasks.length },
+                  )}
+                  variant={
+                    publicationTasks.length + approvalTasks.length
+                      ? 'filled'
+                      : 'outlined'
+                  }
+                />
+                <Chip
+                  label={workflowText(
+                    'process.ui.other-tasks-count',
+                    '{count, number} other tasks',
+                    { count: ordinaryTasks.length },
+                  )}
+                  variant="outlined"
+                />
+              </>
+            ) : null}
           </Stack>
         </Stack>
         {pagination ? (
@@ -776,10 +961,18 @@ function TaskInbox({
             spacing={1}
             sx={{ alignItems: 'center', flexWrap: 'wrap' }}
           >
-            <Tooltip title="Previous task page">
+            <Tooltip
+              title={workflowText(
+                'process.ui.previous-task-page',
+                'Previous task page',
+              )}
+            >
               <span>
                 <IconButton
-                  aria-label="Previous task page"
+                  aria-label={workflowText(
+                    'process.ui.previous-task-page',
+                    'Previous task page',
+                  )}
                   disabled={refreshDisabled || !pagination.hasPrevious}
                   onClick={() => onPageChange(pagination.page - 1)}
                 >
@@ -787,11 +980,22 @@ function TaskInbox({
                 </IconButton>
               </span>
             </Tooltip>
-            <Typography role="status">{`Page ${String(pagination.page)} · ${String(pagination.total)} matching tasks`}</Typography>
-            <Tooltip title="Next task page">
+            <Typography role="status">
+              {workflowText(
+                'process.ui.task-page-count',
+                'Page {page, number} · {total, number} matching tasks',
+                { page: pagination.page, total: pagination.total },
+              )}
+            </Typography>
+            <Tooltip
+              title={workflowText('process.ui.next-task-page', 'Next task page')}
+            >
               <span>
                 <IconButton
-                  aria-label="Next task page"
+                  aria-label={workflowText(
+                    'process.ui.next-task-page',
+                    'Next task page',
+                  )}
                   disabled={refreshDisabled || !pagination.hasNext}
                   onClick={() => onPageChange(pagination.page + 1)}
                 >
@@ -802,17 +1006,30 @@ function TaskInbox({
           </Stack>
         ) : null}
         {tasks.length === 0 ? (
-          <Alert severity="info">No tasks on this page.</Alert>
+          hasEvidence ? (
+            <Alert severity="info">
+              {workflowText(
+                'process.ui.no-tasks-on-this-page',
+                'No tasks on this page.',
+              )}
+            </Alert>
+          ) : null
         ) : (
           <Stack spacing={1.5}>
             {publicationTasks.length ? (
               <Stack spacing={1}>
-                <Typography variant="subtitle1">CMS publication approvals</Typography>
+                <Typography component="h3" variant="subtitle1">
+                  {workflowText(
+                    'process.ui.cms-publication-approvals',
+                    'CMS publication approvals',
+                  )}
+                </Typography>
                 {publicationTasks.map((task) => {
                   const actionable = isActionableTask(task);
                   const context = publicationContexts.get(task.instanceCode ?? '');
                   const canDecide =
                     actionable && task.reviewerEligibility?.eligible !== false;
+                  const reason = (decisionReasons[task.code] ?? '').trim();
                   return (
                     <Paper
                       component="article"
@@ -833,7 +1050,7 @@ function TaskInbox({
                             display: 'grid',
                             gap: 1.25,
                             gridTemplateColumns: {
-                              xs: '1fr',
+                              xs: 'minmax(0, 1fr)',
                               lg: 'minmax(0, 1fr) auto',
                             },
                           }}
@@ -845,21 +1062,33 @@ function TaskInbox({
                               sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 1 }}
                             >
                               <Typography
+                                component="h4"
                                 sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}
                                 variant="h6"
                               >
                                 {context?.sourceLabel ?? 'CMS publication'}
                               </Typography>
-                              <Chip color="warning" label={task.status} size="small" />
+                              <Chip
+                                color="warning"
+                                label={workflowText(
+                                  `process.state.${task.status.toLowerCase()}`,
+                                  task.status,
+                                )}
+                                size="small"
+                              />
                             </Stack>
                             <Typography color="text.secondary" variant="body2">
                               {context
-                                ? `${context.profileCode ?? 'Profile not available'} -> ${context.siteCode} · release ${context.releaseVersion ?? 'not available'}`
+                                ? context.profileCode
+                                  ? `${context.profileCode} -> ${context.siteCode} · release ${context.releaseVersion ?? 'not available'}`
+                                  : `${context.siteCode} · Source version ${context.sourceVersion ?? 'not available'}`
                                 : `Workflow ${shortCode(task.instanceCode)} · task ${shortCode(task.code)}`}
                             </Typography>
                             <Typography color="text.secondary" variant="body2">
-                              Requested by {context?.requestedBy ?? 'not available'} ·
-                              assigned to {task.assignee ?? 'unassigned'}
+                              {workflowText('process.ui.requested-by', 'Requested by')}{' '}
+                              {context?.requestedBy ?? 'not available'}{' '}
+                              {workflowText('process.ui.assigned-to', '· assigned to')}{' '}
+                              {task.assignee ?? 'unassigned'}
                             </Typography>
                           </Box>
                           <Stack
@@ -885,8 +1114,11 @@ function TaskInbox({
                               }
                             >
                               {reviewingPublicationTaskCode === task.code
-                                ? 'Hide review'
-                                : 'Review evidence'}
+                                ? workflowText('process.ui.hide-review', 'Hide review')
+                                : workflowText(
+                                    'process.ui.review-evidence',
+                                    'Review evidence',
+                                  )}
                             </Button>
                             <Button
                               disabled={disabled || !canDecide}
@@ -900,21 +1132,26 @@ function TaskInbox({
                               startIcon={<ShellIcon fontSize="small" name="approve" />}
                               variant="contained"
                             >
-                              Approve
+                              {workflowText('process.ui.approve', 'Approve')}
                             </Button>
                             <Button
                               color="warning"
-                              disabled={disabled || !canDecide}
+                              disabled={
+                                disabled ||
+                                !canDecide ||
+                                reviewingPublicationTaskCode !== task.code ||
+                                !reason
+                              }
                               onClick={() =>
                                 onComplete(
                                   task.code,
-                                  createCmsPublicationRejectionDecision(),
+                                  createCmsPublicationRejectionDecision(reason),
                                 )
                               }
                               size="small"
                               variant="outlined"
                             >
-                              Reject
+                              {workflowText('process.ui.reject', 'Reject')}
                             </Button>
                           </Stack>
                         </Box>
@@ -951,18 +1188,29 @@ function TaskInbox({
                                     sx={{ fontWeight: 700 }}
                                     variant="subtitle1"
                                   >
-                                    Review before decision
+                                    {workflowText(
+                                      'process.ui.review-before-decision',
+                                      'Review before decision',
+                                    )}
                                   </Typography>
                                   <Typography color="text.secondary" variant="body2">
-                                    This is the staged CMS publication evidence for the
-                                    selected approval task.
+                                    {workflowText(
+                                      'process.ui.this-is-the-staged-cms-publication-evidence-for-the-selected-approval-ta',
+                                      'This is the staged CMS publication evidence for the selected approval task.',
+                                    )}
                                   </Typography>
                                 </Box>
                                 <Chip
                                   label={
                                     canDecide
-                                      ? 'Decision available'
-                                      : 'Task is not actionable'
+                                      ? workflowText(
+                                          'process.ui.decision-available',
+                                          'Decision available',
+                                        )
+                                      : workflowText(
+                                          'process.ui.task-is-not-actionable',
+                                          'Task is not actionable',
+                                        )
                                   }
                                   size="small"
                                   variant="outlined"
@@ -973,18 +1221,22 @@ function TaskInbox({
                                   display: 'grid',
                                   gap: 1,
                                   gridTemplateColumns: {
-                                    xs: '1fr',
+                                    xs: 'minmax(0, 1fr)',
                                     md: 'repeat(3, minmax(0, 1fr))',
                                   },
                                 }}
                               >
                                 {[
                                   ['Source', context?.sourceLabel],
-                                  ['Staged profile', context?.profileCode],
                                   ['Target site', context?.siteCode],
-                                  ['Release version', context?.releaseVersion],
-                                  ['Release', context?.releaseCode],
-                                  ['Release status', context?.releaseStatus],
+                                  ...(context?.profileCode
+                                    ? [
+                                        ['Staged profile', context.profileCode],
+                                        ['Release version', context.releaseVersion],
+                                        ['Release', context.releaseCode],
+                                        ['Release status', context.releaseStatus],
+                                      ]
+                                    : []),
                                   ['Source version', context?.sourceVersion],
                                   ['Publication', context?.publicationCode],
                                   ['Workflow', task.instanceCode],
@@ -1008,10 +1260,39 @@ function TaskInbox({
                                   </Box>
                                 ))}
                               </Box>
+                              {reviewEvidence?.(task)}
+                              <TextField
+                                label={workflowText(
+                                  'process.ui.reason-for-rejection',
+                                  'Reason for rejection',
+                                )}
+                                helperText={workflowText(
+                                  'process.ui.tell-the-author-what-needs-to-change-before-resubmitting',
+                                  'Tell the author what needs to change before resubmitting.',
+                                )}
+                                value={decisionReasons[task.code] ?? ''}
+                                onChange={(event) =>
+                                  setDecisionReasons((current) => ({
+                                    ...current,
+                                    [task.code]: event.target.value,
+                                  }))
+                                }
+                                disabled={disabled || !canDecide}
+                                slotProps={{ htmlInput: { maxLength: 1000 } }}
+                                size="small"
+                                multiline
+                                minRows={2}
+                              />
                               <Alert severity={canDecide ? 'info' : 'warning'}>
                                 {canDecide
-                                  ? 'Approve submits the publication decision to its owner. Reject records the decision in Process without publishing this change.'
-                                  : 'This task is no longer waiting for a decision. Refresh the queue to load the latest Process state.'}
+                                  ? workflowText(
+                                      'process.ui.approve-submits-the-publication-decision-to-its-owner-reject-records-the',
+                                      'Approve submits the publication decision to its owner. Reject records the decision in Process without publishing this change.',
+                                    )
+                                  : workflowText(
+                                      'process.ui.this-task-is-no-longer-waiting-for-a-decision-refresh-the-queue-to-load-',
+                                      'This task is no longer waiting for a decision. Refresh the queue to load the latest Process state.',
+                                    )}
                               </Alert>
                             </Stack>
                           </Box>
@@ -1024,8 +1305,20 @@ function TaskInbox({
             ) : null}
 
             {[
-              { title: 'Approval decisions', tasks: approvalTasks },
-              { title: 'Other workflow tasks', tasks: ordinaryTasks },
+              {
+                title: workflowText(
+                  'process.ui.approval-decisions-title',
+                  'Approval decisions',
+                ),
+                tasks: approvalTasks,
+              },
+              {
+                title: workflowText(
+                  'process.ui.other-workflow-tasks',
+                  'Other workflow tasks',
+                ),
+                tasks: ordinaryTasks,
+              },
             ]
               .filter((group) => group.tasks.length)
               .map((group) => (
@@ -1035,14 +1328,24 @@ function TaskInbox({
                     spacing={1.5}
                     sx={{ alignItems: { xs: 'stretch', md: 'center' } }}
                   >
-                    <Typography sx={{ flex: '1 1 auto' }} variant="subtitle1">
+                    <Typography
+                      component="h3"
+                      sx={{ flex: '1 1 auto' }}
+                      variant="subtitle1"
+                    >
                       {group.title}
                     </Typography>
                     <TextField
                       disabled={disabled}
-                      label="Assign selected task to"
+                      label={workflowText(
+                        'process.ui.assign-selected-task-to',
+                        'Assign selected task to',
+                      )}
                       onChange={(event) => onAssigneeChange(event.target.value)}
-                      placeholder="user, group, or queue code"
+                      placeholder={workflowText(
+                        'process.ui.user-group-or-queue-code',
+                        'user, group, or queue code',
+                      )}
                       size="small"
                       sx={{ minWidth: { xs: '100%', md: 280 } }}
                       value={assignee}
@@ -1067,6 +1370,7 @@ function TaskInbox({
                           >
                             <Box>
                               <Typography
+                                component="h4"
                                 variant="h6"
                                 sx={{ overflowWrap: 'anywhere' }}
                               >
@@ -1078,8 +1382,10 @@ function TaskInbox({
                                 </Typography>
                               )}
                               <Typography color="text.secondary">
-                                {task.instanceCode ?? 'unknown instance'} · node{' '}
-                                {task.nodeCode ?? 'unknown'} · assignee{' '}
+                                {task.instanceCode ?? 'unknown instance'}{' '}
+                                {workflowText('process.ui.node', '· node')}{' '}
+                                {task.nodeCode ?? 'unknown'}{' '}
+                                {workflowText('process.ui.assignee', '· assignee')}{' '}
                                 {task.assignee ?? 'unassigned'}
                               </Typography>
                               {task.reviewContext ? (
@@ -1096,13 +1402,20 @@ function TaskInbox({
                                     variant="caption"
                                     sx={{ overflowWrap: 'anywhere' }}
                                   >
-                                    Publication: {task.reviewContext.publicationCode}
+                                    {workflowText(
+                                      'process.ui.publication',
+                                      'Publication:',
+                                    )}{' '}
+                                    {task.reviewContext.publicationCode}
                                   </Typography>
                                   <Typography
                                     variant="caption"
                                     sx={{ overflowWrap: 'anywhere' }}
                                   >
-                                    Retained source version:{' '}
+                                    {workflowText(
+                                      'process.ui.retained-source-version',
+                                      'Retained source version:',
+                                    )}{' '}
                                     {task.reviewContext.sourceVersion}
                                   </Typography>
                                 </Stack>
@@ -1112,9 +1425,13 @@ function TaskInbox({
                               color={
                                 task.status === 'COMPLETED' ? 'success' : 'warning'
                               }
-                              label={task.status}
+                              label={workflowText(
+                                `process.state.${task.status.toLowerCase()}`,
+                                task.status,
+                              )}
                             />
                           </Stack>
+                          {reviewEvidence?.(task)}
                           {task.reviewerEligibility ? (
                             <Alert
                               severity={
@@ -1130,14 +1447,14 @@ function TaskInbox({
                               onClick={() => onAssign(task.code)}
                               variant="outlined"
                             >
-                              Assign
+                              {workflowText('process.ui.assign', 'Assign')}
                             </Button>
                             <Button
                               disabled={disabled || task.status !== 'OPEN'}
                               onClick={() => onClaim(task.code)}
                               variant="outlined"
                             >
-                              Claim
+                              {workflowText('process.ui.claim', 'Claim')}
                             </Button>
                             {contract ? (
                               <>
@@ -1207,7 +1524,7 @@ function TaskInbox({
                                 onClick={() => onComplete(task.code)}
                                 variant="contained"
                               >
-                                Complete
+                                {workflowText('process.ui.complete', 'Complete')}
                               </Button>
                             )}
                             <Button
@@ -1216,7 +1533,7 @@ function TaskInbox({
                               onClick={() => onCancel(task.code)}
                               variant="outlined"
                             >
-                              Cancel task
+                              {workflowText('process.ui.cancel-task', 'Cancel task')}
                             </Button>
                           </Stack>
                         </Stack>
@@ -1233,91 +1550,251 @@ function TaskInbox({
 }
 
 function TriggerRelationshipView({
+  commandAvailability,
+  commandCapabilities,
+  commandFeedback,
+  definitions,
   disabled,
   onArchive,
   onCreate,
   onExecute,
   onFieldChange,
   onUpdate,
+  onPin,
+  onSelectRelationship,
+  onRefresh,
+  pinUnconfirmed,
   triggerCronJobCode,
   triggerDefinitionCode,
   triggerScheduleExpression,
+  triggerVersion,
+  versions,
+  versionsUnavailable,
   triggers,
 }: {
+  readonly commandAvailability: 'CHECKING' | 'UNAVAILABLE' | 'VERIFIED';
+  readonly commandCapabilities: ProcessCommandCapabilities | undefined;
+  readonly commandFeedback: ReactNode;
+  readonly definitions: readonly ProcessDefinition[];
   readonly disabled: boolean;
   readonly onArchive: (triggerCode: string) => void;
   readonly onCreate: () => void;
   readonly onExecute: (triggerCode: string) => void;
   readonly onFieldChange: (
-    field: 'definitionCode' | 'cronJobCode' | 'scheduleExpression',
+    field: 'definitionCode' | 'cronJobCode' | 'scheduleExpression' | 'version',
     value: string,
   ) => void;
   readonly onUpdate: (trigger: ProcessTrigger) => void;
+  readonly onPin: (trigger: ProcessTrigger) => void;
+  readonly onSelectRelationship: (trigger: ProcessTrigger) => void;
+  readonly onRefresh: () => void;
+  readonly pinUnconfirmed: boolean;
   readonly triggerCronJobCode: string;
   readonly triggerDefinitionCode: string;
   readonly triggerScheduleExpression: string;
+  readonly triggerVersion: string;
+  readonly versions: readonly ProcessDefinitionVersion[];
+  readonly versionsUnavailable: boolean;
   readonly triggers: readonly ProcessTrigger[];
 }) {
+  const { format: workflowText } = useAxisLocalization();
+  const proposedCode = normalizeCode(
+    `${normalizeCode(triggerDefinitionCode)}-${normalizeCode(triggerCronJobCode)}`,
+  ).toLowerCase();
+  const existing = triggers.find((trigger) => trigger.code === proposedCode);
+  const alreadyListed = Boolean(existing);
+  const versionSelected = versions.some(
+    (version) => String(version.version) === triggerVersion,
+  );
   return (
     <Paper
       component="section"
       elevation={0}
-      sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
+      sx={{
+        border: 1,
+        borderColor: 'divider',
+        p: { xs: 3, md: 4 },
+        minWidth: 0,
+        overflowWrap: 'anywhere',
+      }}
     >
       <Stack spacing={2}>
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}
+        >
           <ShellIcon name="cronjob" />
-          <Typography variant="h5">Scheduled triggers</Typography>
-          <Chip label={`${String(triggers.length)} relationships`} variant="outlined" />
+          <Typography component="h2" variant="h5">
+            {workflowText('process.ui.scheduled-triggers', 'Scheduled triggers')}
+          </Typography>
+          <Chip
+            label={workflowText(
+              'process.ui.relationships-retrieved',
+              '{count, plural, one {# relationship retrieved} other {# relationships retrieved}}',
+              { count: triggers.length },
+            )}
+            variant="outlined"
+          />
+          <Button onClick={onRefresh}>
+            {workflowText('process.ui.refresh-relationships', 'Refresh relationships')}
+          </Button>
         </Stack>
+        {commandAvailability !== 'VERIFIED' ? (
+          <Alert severity={commandAvailability === 'UNAVAILABLE' ? 'warning' : 'info'}>
+            {commandAvailability === 'UNAVAILABLE'
+              ? workflowText(
+                  'process.ui.command-availability-could-not-be-verified-refresh-to-check-again',
+                  'Command availability could not be verified. Refresh to check again.',
+                )
+              : workflowText(
+                  'process.ui.checking-command-availability',
+                  'Checking command availability.',
+                )}
+          </Alert>
+        ) : (['create', 'update', 'archive', 'execute'] as const).some(
+            (kind) => !canSubmitProcessTriggerCommand(commandCapabilities, kind),
+          ) ? (
+          <Alert severity="info">
+            {workflowText(
+              'process.ui.some-actions-are-unavailable-for-this-session',
+              'Some actions are unavailable for this session.',
+            )}
+          </Alert>
+        ) : null}
+        {commandFeedback}
+        {pinUnconfirmed ? (
+          <Alert severity="warning">
+            {workflowText(
+              'process.ui.the-version-update-is-unconfirmed-refresh-to-inspect-current-relationshi',
+              'The version update is unconfirmed. Refresh to inspect current relationship evidence without repeating the command.',
+            )}
+          </Alert>
+        ) : null}
         <Alert severity="info">
-          Process owns the trigger relationship. Cron owns actual job scheduling,
-          firing, retries, and job lifecycle. This keeps shared processServer topology
-          useful without mixing module responsibilities. When a Cron job declares a
-          processTrigger target, Cron calls the Process trigger executor and Process
-          creates the audited workflow instance.
+          {workflowText(
+            'process.ui.choose-the-published-workflow-and-version-this-schedule-should-run-activ',
+            'Choose the published workflow and version this schedule should run. Activate the relationship here, then review and activate its schedule in Cron.',
+          )}
         </Alert>
         <Box
           sx={{
             display: 'grid',
             gap: 2,
-            gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr auto' },
+            gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: '1fr 1fr' },
           }}
         >
           <TextField
             disabled={disabled}
-            label="Process definition code"
+            select
+            label={workflowText('process.ui.published-workflow', 'Published workflow')}
             onChange={(event) => onFieldChange('definitionCode', event.target.value)}
             value={triggerDefinitionCode}
-          />
+          >
+            {definitions
+              .filter((definition) => definition.status === 'PUBLISHED')
+              .map((definition) => (
+                <MenuItem key={definition.code} value={definition.code}>
+                  {definition.name} · {definition.code}
+                </MenuItem>
+              ))}
+          </TextField>
+          <TextField
+            disabled={disabled || !versions.length}
+            select
+            label={workflowText(
+              'process.ui.published-workflow-version',
+              'Published workflow version',
+            )}
+            value={triggerVersion}
+            onChange={(event) => onFieldChange('version', event.target.value)}
+            helperText={
+              versionsUnavailable
+                ? workflowText(
+                    'process.ui.published-versions-are-unavailable-refresh-the-relationship-evidence-bef',
+                    'Published versions are unavailable. Refresh the relationship evidence before continuing.',
+                  )
+                : workflowText(
+                    'process.ui.choose-an-immutable-published-version-it-will-remain-pinned-until-explic',
+                    'Choose an immutable published version. It will remain pinned until explicitly changed.',
+                  )
+            }
+          >
+            {versions.map((version) => (
+              <MenuItem key={version.code} value={String(version.version)}>
+                {workflowText('process.ui.version', 'Version')}{' '}
+                {String(version.version)}
+              </MenuItem>
+            ))}
+          </TextField>
           <TextField
             disabled={disabled}
-            label="Cron job code"
+            label={workflowText('process.ui.cron-job-code', 'Cron job code')}
             onChange={(event) => onFieldChange('cronJobCode', event.target.value)}
             value={triggerCronJobCode}
           />
           <TextField
             disabled={disabled}
-            label="Schedule expression"
+            label={workflowText(
+              'process.ui.schedule-expression',
+              'Schedule expression',
+            )}
             onChange={(event) =>
               onFieldChange('scheduleExpression', event.target.value)
             }
-            placeholder="0 0 * * *"
+            helperText={workflowText(
+              'process.ui.use-the-timing-approved-for-this-job-in-cron',
+              'Use the timing approved for this job in Cron.',
+            )}
             value={triggerScheduleExpression}
           />
           <Button
             disabled={
-              disabled || !triggerDefinitionCode.trim() || !triggerCronJobCode.trim()
+              disabled ||
+              !canSubmitProcessTriggerCommand(commandCapabilities, 'create') ||
+              alreadyListed ||
+              !triggerDefinitionCode.trim() ||
+              !triggerCronJobCode.trim() ||
+              !triggerScheduleExpression.trim() ||
+              !versionSelected
             }
             onClick={onCreate}
             variant="contained"
           >
-            Add trigger
+            {workflowText('process.ui.add-trigger', 'Add trigger')}
           </Button>
         </Box>
+        {alreadyListed ? (
+          <Stack spacing={1}>
+            <Alert severity="info">
+              {workflowText(
+                'process.ui.this-relationship-is-already-listed-below-select-its-published-version-h',
+                'This relationship is already listed below. Select its published version here to update the existing relationship.',
+              )}
+            </Alert>
+            <Button
+              disabled={
+                disabled ||
+                !canSubmitProcessTriggerCommand(commandCapabilities, 'update') ||
+                !versionSelected ||
+                existing?.version === Number(triggerVersion) ||
+                existing?.status === 'ARCHIVED'
+              }
+              onClick={() => existing && onPin(existing)}
+            >
+              {workflowText(
+                'process.ui.set-published-version',
+                'Set published version',
+              )}
+            </Button>
+          </Stack>
+        ) : null}
         {triggers.length === 0 ? (
           <Typography color="text.secondary">
-            No trigger metadata has been registered yet.
+            {workflowText(
+              'process.ui.no-trigger-metadata-has-been-registered-yet',
+              'No trigger metadata has been registered yet.',
+            )}
           </Typography>
         ) : (
           <Stack spacing={1}>
@@ -1334,41 +1811,88 @@ function TriggerRelationshipView({
                   sx={{ justifyContent: 'space-between' }}
                 >
                   <Box>
-                    <Typography variant="h6">{trigger.code}</Typography>
+                    <Typography
+                      component="h3"
+                      variant="h6"
+                      sx={{ overflowWrap: 'anywhere' }}
+                    >
+                      {trigger.name ?? trigger.code}
+                    </Typography>
                     <Typography color="text.secondary">
                       {trigger.definitionCode ?? 'unknown process'} ·{' '}
                       {trigger.triggerType}
                       {trigger.cronJobCode ? ` · cron job ${trigger.cronJobCode}` : ''}
                     </Typography>
+                    {trigger.version ? (
+                      <Typography>
+                        {workflowText(
+                          'process.ui.published-workflow-version',
+                          'Published workflow version',
+                        )}{' '}
+                        {String(trigger.version)}
+                      </Typography>
+                    ) : (
+                      <Alert severity="warning">
+                        {workflowText(
+                          'process.ui.choose-a-published-workflow-version-before-using-this-relationship-for-a',
+                          'Choose a published workflow version before using this relationship for a schedule.',
+                        )}
+                      </Alert>
+                    )}
                   </Box>
-                  <Chip label={trigger.status} />
+                  <Chip
+                    label={workflowText(
+                      `process.state.${trigger.status.toLowerCase()}`,
+                      trigger.status,
+                    )}
+                  />
                 </Stack>
                 <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap' }}>
                   <Button
-                    disabled={disabled || trigger.status !== 'ACTIVE'}
+                    disabled={
+                      disabled ||
+                      !canSubmitProcessTriggerCommand(commandCapabilities, 'execute') ||
+                      trigger.status !== 'ACTIVE' ||
+                      (trigger.triggerType === 'CRON' && !trigger.version)
+                    }
                     onClick={() => onExecute(trigger.code)}
                     variant="contained"
                   >
-                    Execute now
+                    {workflowText('process.ui.execute-now', 'Execute now')}
                   </Button>
                   <Button
                     disabled={
                       disabled ||
+                      !canSubmitProcessTriggerCommand(commandCapabilities, 'update') ||
+                      (trigger.triggerType === 'CRON' && !trigger.version) ||
                       trigger.status === 'ACTIVE' ||
                       trigger.status === 'ARCHIVED'
                     }
                     onClick={() => onUpdate(trigger)}
                     variant="outlined"
                   >
-                    Activate
+                    {workflowText('process.ui.activate', 'Activate')}
+                  </Button>
+                  <Button
+                    disabled={disabled || trigger.status === 'ARCHIVED'}
+                    onClick={() => onSelectRelationship(trigger)}
+                  >
+                    {workflowText(
+                      'process.ui.choose-workflow-version',
+                      'Choose workflow version',
+                    )}
                   </Button>
                   <Button
                     color="error"
-                    disabled={disabled || trigger.status === 'ARCHIVED'}
+                    disabled={
+                      disabled ||
+                      !canSubmitProcessTriggerCommand(commandCapabilities, 'archive') ||
+                      trigger.status === 'ARCHIVED'
+                    }
                     onClick={() => onArchive(trigger.code)}
                     variant="outlined"
                   >
-                    Archive trigger
+                    {workflowText('process.ui.archive-trigger', 'Archive trigger')}
                   </Button>
                 </Stack>
               </Paper>
@@ -1391,6 +1915,7 @@ function VisualDesignerSkeleton({
   readonly onChange: (graph: ProcessGraph) => void;
   readonly onSave: () => void;
 }) {
+  const { format: workflowText } = useAxisLocalization();
   const nodes = graph?.nodes ?? [];
   const transitions = graph?.transitions ?? [];
   const [nodeCode, setNodeCode] = useState('');
@@ -1466,39 +1991,47 @@ function VisualDesignerSkeleton({
       <Stack spacing={2}>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           <ShellIcon name="schema" />
-          <Typography variant="h5">Visual workflow designer foundation</Typography>
-          <Chip label="Nodics-native first" variant="outlined" />
+          <Typography component="h2" variant="h5">
+            {workflowText('process.ui.workflow-designer', 'Workflow designer')}
+          </Typography>
         </Stack>
         <Typography color="text.secondary">
-          Add a step, connect it, save the draft, and then let nodics.process validate
-          and publish. This MVP intentionally keeps the canvas simple while proving the
-          backend-owned graph contract.
+          {workflowText(
+            'process.ui.add-and-connect-steps-save-the-draft-then-validate-before-publishing-pub',
+            'Add and connect steps, save the draft, then validate before publishing. Published versions are read-only; prepare a new draft to make changes.',
+          )}
         </Typography>
         <Box
           sx={{
             display: 'grid',
             gap: 2,
-            gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
+            gridTemplateColumns: {
+              xs: 'minmax(0, 1fr)',
+              md: 'repeat(3, minmax(0, 1fr))',
+            },
           }}
         >
           <SummaryCard
-            detail="Nodes are browser layout projections until backend validation accepts them."
-            label="Designer nodes"
+            detail="Steps in the selected workflow."
+            label={workflowText('process.ui.steps', 'Steps')}
             value={nodes.length}
           />
           <SummaryCard
-            detail="Edges define intended handoffs; backend rejects broken transitions."
-            label="Designer edges"
+            detail="Handoffs between workflow steps."
+            label={workflowText('process.ui.connections', 'Connections')}
             value={transitions.length}
           />
           <SummaryCard
-            detail="Graph JSON and layout metadata remain draft data owned by Process."
-            label="Authority"
-            value="Backend"
+            detail="Changes are saved to a draft before validation and publication."
+            label={workflowText('process.ui.editing', 'Editing')}
+            value="Draft only"
           />
         </Box>
         <Box
-          aria-label="Visual workflow designer MVP canvas"
+          aria-label={workflowText(
+            'process.ui.workflow-designer-canvas',
+            'Workflow designer canvas',
+          )}
           sx={{
             bgcolor: 'action.hover',
             border: 1,
@@ -1507,7 +2040,7 @@ function VisualDesignerSkeleton({
             display: 'grid',
             gap: 2,
             gridTemplateColumns: {
-              xs: '1fr',
+              xs: 'minmax(0, 1fr)',
               md:
                 nodes.length > 0
                   ? `repeat(${String(Math.min(nodes.length, 4))}, minmax(0, 1fr))`
@@ -1521,12 +2054,16 @@ function VisualDesignerSkeleton({
             <Stack spacing={1} sx={{ justifyContent: 'center', textAlign: 'center' }}>
               <ShellIcon name="workflow" />
               <Typography variant="h6">
-                Create or select a draft to see the canvas
+                {workflowText(
+                  'process.ui.create-or-select-a-draft-to-see-the-canvas',
+                  'Create or select a draft to see the canvas',
+                )}
               </Typography>
               <Typography color="text.secondary">
-                The MVP designer starts as a safe read/write projection over backend
-                graph JSON. Axis can later add drag/drop while nodics.process remains
-                the validation authority.
+                {workflowText(
+                  'process.ui.choose-an-existing-workflow-or-create-a-draft-then-add-and-connect-its-s',
+                  'Choose an existing workflow or create a draft, then add and connect its steps.',
+                )}
               </Typography>
             </Stack>
           ) : (
@@ -1552,40 +2089,64 @@ function VisualDesignerSkeleton({
                   <Chip label={node.type} size="small" variant="outlined" />
                   <Typography variant="h6">{node.name ?? node.code}</Typography>
                   <Typography color="text.secondary" variant="caption">
-                    Node code: {node.code}
+                    {workflowText('process.ui.node-code', 'Node code:')} {node.code}
                   </Typography>
                 </Stack>
               </Paper>
             ))
           )}
         </Box>
+        {graph ? (
+          <WorkflowGraphConnections
+            graph={graph}
+            onRemove={
+              disabled
+                ? undefined
+                : (code) =>
+                    updateGraph({
+                      nodes,
+                      transitions: transitions.filter(
+                        (transition) => transition.code !== code,
+                      ),
+                    })
+            }
+          />
+        ) : null}
         <Box
           sx={{
             display: 'grid',
             gap: 2,
-            gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' },
+            gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: '1fr 1fr' },
           }}
         >
           <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', p: 2 }}>
             <Stack spacing={2}>
-              <Typography variant="h6">Add workflow step</Typography>
+              <Typography variant="h6">
+                {workflowText('process.ui.add-workflow-step', 'Add workflow step')}
+              </Typography>
               <TextField
                 disabled={disabled}
-                label="Step code"
+                label={workflowText('process.ui.step-code', 'Step code')}
                 onChange={(event) => setNodeCode(event.target.value)}
-                placeholder="approvalDecision"
+                placeholder={workflowText(
+                  'process.ui.approvaldecision',
+                  'approvalDecision',
+                )}
                 value={nodeCode}
               />
               <TextField
                 disabled={disabled}
-                label="Step name"
+                label={workflowText('process.ui.step-name', 'Step name')}
                 onChange={(event) => setNodeName(event.target.value)}
-                placeholder="Approval decision"
+                placeholder={workflowText(
+                  'process.ui.approval-decision',
+                  'Approval decision',
+                )}
                 value={nodeName}
               />
               <TextField
                 disabled={disabled}
-                label="Step type"
+                label={workflowText('process.ui.step-type', 'Step type')}
                 onChange={(event) =>
                   setNodeType(event.target.value as (typeof designerNodeTypes)[number])
                 }
@@ -1599,16 +2160,21 @@ function VisualDesignerSkeleton({
                 ))}
               </TextField>
               <Button disabled={disabled || !normalizeCode(nodeCode)} onClick={addNode}>
-                Add step
+                {workflowText('process.ui.add-step', 'Add step')}
               </Button>
             </Stack>
           </Paper>
           <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', p: 2 }}>
             <Stack spacing={2}>
-              <Typography variant="h6">Connect workflow steps</Typography>
+              <Typography variant="h6">
+                {workflowText(
+                  'process.ui.connect-workflow-steps',
+                  'Connect workflow steps',
+                )}
+              </Typography>
               <TextField
                 disabled={disabled}
-                label="From step"
+                label={workflowText('process.ui.from-step', 'From step')}
                 onChange={(event) => setSourceCode(event.target.value)}
                 select
                 value={sourceCode}
@@ -1621,7 +2187,7 @@ function VisualDesignerSkeleton({
               </TextField>
               <TextField
                 disabled={disabled}
-                label="To step"
+                label={workflowText('process.ui.to-step', 'To step')}
                 onChange={(event) => setTargetCode(event.target.value)}
                 select
                 value={targetCode}
@@ -1636,14 +2202,16 @@ function VisualDesignerSkeleton({
                 disabled={disabled || !sourceCode || !targetCode}
                 onClick={connectNodes}
               >
-                Connect steps
+                {workflowText('process.ui.connect-steps', 'Connect steps')}
               </Button>
             </Stack>
           </Paper>
         </Box>
         {nodes.length > 0 ? (
           <Stack spacing={1}>
-            <Typography variant="h6">Step controls</Typography>
+            <Typography variant="h6">
+              {workflowText('process.ui.step-controls', 'Step controls')}
+            </Typography>
             <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
               {nodes.map((node) => (
                 <Button
@@ -1653,7 +2221,7 @@ function VisualDesignerSkeleton({
                   onClick={() => deleteNode(node.code)}
                   variant="outlined"
                 >
-                  Delete {node.name ?? node.code}
+                  {workflowText('process.ui.delete', 'Delete')} {node.name ?? node.code}
                 </Button>
               ))}
             </Stack>
@@ -1663,8 +2231,10 @@ function VisualDesignerSkeleton({
           <Alert severity="warning">{designerIssues.join(' ')}</Alert>
         ) : (
           <Alert severity="success">
-            The local graph shape is ready for backend validation. Save the draft, then
-            use Validate draft before publishing.
+            {workflowText(
+              'process.ui.save-the-draft-then-validate-its-connections-and-step-settings-before-pu',
+              'Save the draft, then validate its connections and step settings before publishing.',
+            )}
           </Alert>
         )}
         <Stack direction="row" spacing={1}>
@@ -1673,11 +2243,13 @@ function VisualDesignerSkeleton({
             onClick={onSave}
             variant="contained"
           >
-            Save designer draft
+            {workflowText('process.ui.save-designer-draft', 'Save designer draft')}
           </Button>
           <Typography color="text.secondary" sx={{ alignSelf: 'center' }}>
-            Axis edits graph JSON only; nodics.process remains validation and runtime
-            authority.
+            {workflowText(
+              'process.ui.axis-edits-graph-json-only-nodics-process-remains-validation-and-runtime',
+              'Axis edits graph JSON only; nodics.process remains validation and runtime authority.',
+            )}
           </Typography>
         </Stack>
       </Stack>
@@ -1694,6 +2266,7 @@ function DefinitionCard({
   onPublish,
   onSelect,
   onStart,
+  startBlocked,
   onValidate,
   selected,
 }: {
@@ -1705,9 +2278,11 @@ function DefinitionCard({
   readonly onPublish: () => void;
   readonly onSelect: () => void;
   readonly onStart: () => void;
+  readonly startBlocked: boolean;
   readonly onValidate: () => void;
   readonly selected: boolean;
 }) {
+  const { format: workflowText } = useAxisLocalization();
   const isDraft = definition.status === 'DRAFT';
   const isPublished = definition.status === 'PUBLISHED';
   return (
@@ -1725,14 +2300,18 @@ function DefinitionCard({
           <Box sx={{ flex: 1 }}>
             <Typography variant="h6">{definition.name}</Typography>
             <Typography color="text.secondary">
-              {definition.code} · v{String(definition.currentVersion)} · draft{' '}
+              {definition.code} · v{String(definition.currentVersion)}{' '}
+              {workflowText('process.ui.draft', '· draft')}{' '}
               {String(definition.draftRevision)}
             </Typography>
           </Box>
           <Stack direction="row" spacing={1}>
             <Chip
               color={definition.status === 'PUBLISHED' ? 'success' : 'warning'}
-              label={definition.status}
+              label={workflowText(
+                `process.state.${definition.status.toLowerCase()}`,
+                definition.status,
+              )}
             />
             <Chip label={definition.category ?? 'general'} variant="outlined" />
           </Stack>
@@ -1748,38 +2327,38 @@ function DefinitionCard({
             onClick={onSelect}
             variant={selected ? 'contained' : 'outlined'}
           >
-            Preview
+            {workflowText('process.ui.preview', 'Preview')}
           </Button>
           <Button disabled={disabled || !isDraft} onClick={onEdit} variant="outlined">
-            Edit draft
+            {workflowText('process.ui.edit-draft', 'Edit draft')}
           </Button>
           <Button
             disabled={disabled || !isDraft}
             onClick={onValidate}
             variant="outlined"
           >
-            Validate draft
+            {workflowText('process.ui.validate-draft', 'Validate draft')}
           </Button>
           <Button
             disabled={disabled || !isDraft}
             onClick={onPublish}
             variant="outlined"
           >
-            Publish
+            {workflowText('process.ui.publish', 'Publish')}
           </Button>
           <Button
             disabled={disabled || !isPublished}
             onClick={onPrepare}
             variant="outlined"
           >
-            Prepare next draft
+            {workflowText('process.ui.prepare-next-draft', 'Prepare next draft')}
           </Button>
           <Button
-            disabled={disabled || !isPublished}
+            disabled={startBlocked || disabled || !isPublished}
             onClick={onStart}
             variant="contained"
           >
-            Start process
+            {workflowText('process.ui.start-process', 'Start process')}
           </Button>
           <Button
             color="error"
@@ -1787,7 +2366,9 @@ function DefinitionCard({
             onClick={onDelete}
             variant="outlined"
           >
-            {isDraft ? 'Delete draft' : 'Archive'}
+            {isDraft
+              ? workflowText('process.ui.delete-draft', 'Delete draft')
+              : workflowText('process.ui.archive', 'Archive')}
           </Button>
         </Stack>
       </Stack>
@@ -1795,38 +2376,137 @@ function DefinitionCard({
   );
 }
 
-export function ProcessWorkflowRoutePage({
+/** Retires private Process forms, receipts and observers when the employee or effective Workflow/BackOffice owner identity changes. Equivalent metadata and in-context navigation retain the workspace. */
+export function ProcessWorkflowRoutePage(props: ProcessWorkflowRoutePageProps) {
+  const actor = useMemo(
+    () =>
+      props.accessToken
+        ? crypto.getRandomValues(new Uint32Array(4)).join('-')
+        : 'anonymous',
+    [props.accessToken],
+  );
+  const identity = (connection: ReturnType<typeof selectModuleConnection>) =>
+    connection
+      ? [
+          connection.moduleName,
+          connection.instanceId,
+          connection.endpoint,
+          connection.environment,
+          connection.server,
+          connection.runtimeRole?.code,
+          connection.runtimeRole?.publication,
+        ]
+      : null;
+  const privateScope = JSON.stringify([
+    actor,
+    props.sessionGeneration,
+    props.bootstrap.tenantCode,
+    props.runtime.projectCode,
+    props.runtime.enterpriseCode,
+    identity(selectModuleConnection(props.bootstrap, 'workflow')),
+    identity(selectModuleConnection(props.bootstrap, 'backoffice')),
+  ]);
+  return (
+    <ProcessWorkflowWorkspace
+      key={privateScope}
+      {...props}
+      privateScope={privateScope}
+    />
+  );
+}
+
+function ProcessWorkflowWorkspace({
   accessToken,
+  sessionGeneration,
   bootstrap,
   navigation,
   runtime,
-}: ProcessWorkflowRoutePageProps) {
+  privateScope,
+}: ProcessWorkflowRoutePageProps & { readonly privateScope: string }) {
+  const { format: workflowText } = useAxisLocalization();
   const queryClient = useQueryClient();
-  const processConnection = selectModuleConnection(bootstrap, 'workflow', {
-    server: 'processServer',
-  });
+  const processConnection = selectModuleConnection(bootstrap, 'workflow');
   const documentationConnection = selectModuleConnection(bootstrap, 'backoffice');
   const documentationSources = bootstrap.documentationSources
     .filter(isCmsDocumentationSource)
     .filter((source) => source.initializationProfile);
-  const currentPath =
-    typeof window !== 'undefined' && window.location.pathname.startsWith('/process')
-      ? window.location.pathname
-      : navigation.route;
+  const location = useLocation();
+  const navigate = useNavigate();
+  const currentPath = location.pathname.startsWith('/process')
+    ? location.pathname
+    : navigation.route;
+  const focusedAuthoring = ['/process/definitions', '/process/designer'].includes(
+    currentPath,
+  );
+  const focusedTriggers = currentPath === '/process/triggers';
+  const focusedTasks = currentPath.startsWith('/process/tasks');
+  const triggerCommandsVisible = !focusedAuthoring && !focusedTasks;
+  const triggerScope = privateScope;
   const [draftName, setDraftName] = useState('Sample approval process');
   const [selectedCode, setSelectedCode] = useState<string | undefined>();
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editCategory, setEditCategory] = useState('');
-  const [selectedInstanceCode, setSelectedInstanceCode] = useState<
-    string | undefined
-  >();
+  const instanceReference = new URLSearchParams(location.search).get('instanceCode');
+  const selectedInstanceCode =
+    instanceReference && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/.test(instanceReference)
+      ? instanceReference
+      : undefined;
+  /** Explicit record inspection uses router history; the URI grants no Process authority. */
+  const selectInstance = (code: string) => {
+    if (
+      selectedInstanceCode === code ||
+      !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/.test(code)
+    )
+      return;
+    const search = new URLSearchParams(location.search);
+    search.set('instanceCode', code);
+    void navigate({
+      pathname: location.pathname,
+      search: `?${search}`,
+      hash: location.hash,
+    });
+  };
   const [taskAssignee, setTaskAssignee] = useState('operationsQueue');
   const [taskPage, setTaskPage] = useState(1);
-  const [triggerDefinitionCode, setTriggerDefinitionCode] = useState('');
-  const [triggerCronJobCode, setTriggerCronJobCode] = useState('');
-  const [triggerScheduleExpression, setTriggerScheduleExpression] =
-    useState('0 0 * * *');
+  const [triggerForm, setTriggerForm] = useState({
+    scope: triggerScope,
+    definitionCode: '',
+    cronJobCode: '',
+    scheduleExpression: '',
+    version: '',
+  });
+  const currentTriggerForm =
+    triggerForm.scope === triggerScope
+      ? triggerForm
+      : {
+          scope: triggerScope,
+          definitionCode: '',
+          cronJobCode: '',
+          scheduleExpression: '',
+          version: '',
+        };
+  const {
+    definitionCode: triggerDefinitionCode,
+    cronJobCode: triggerCronJobCode,
+    scheduleExpression: triggerScheduleExpression,
+    version: triggerVersion,
+  } = currentTriggerForm;
+  const pinDispatch = useRef<string | undefined>(undefined);
+  const triggerDispatch = useRef<ProcessTriggerCommandIntent | undefined>(undefined);
+  const triggerEventDispatch = useRef(false);
+  const [triggerOutcome, setTriggerOutcome] = useState<TriggerCommandOutcome>();
+  const receiptInspectionAbort = useRef<AbortController | undefined>(undefined);
+  useEffect(() => () => receiptInspectionAbort.current?.abort(), []);
+  /** Rejects repeated UI dispatch synchronously rather than queuing another mutation before React updates disabled controls. */
+  const dispatchTriggerAction = (action: () => void) => {
+    if (triggerEventDispatch.current || triggerDispatch.current) return;
+    triggerEventDispatch.current = true;
+    action();
+  };
+  const releaseTriggerAction = () => {
+    triggerEventDispatch.current = false;
+  };
   const [designerGraphOverlay, setDesignerGraphOverlay] = useState<
     | { readonly definitionCode: string | undefined; readonly graph: ProcessGraph }
     | undefined
@@ -1836,28 +2516,80 @@ export function ProcessWorkflowRoutePage({
     () => ({
       accessToken,
       enterpriseCode: runtime.enterpriseCode,
+      sessionGeneration,
       timeoutMs: runtime.requestTimeoutMs,
     }),
-    [accessToken, runtime.enterpriseCode, runtime.requestTimeoutMs],
+    [accessToken, runtime.enterpriseCode, runtime.requestTimeoutMs, sessionGeneration],
   );
 
   const definitions = useQuery({
-    enabled: Boolean(processConnection),
-    queryKey: [queryKey, runtime.enterpriseCode, processConnection?.endpoint],
+    enabled: Boolean(processConnection && !focusedTasks),
+    queryKey: [queryKey, triggerScope],
     queryFn: () =>
       processConnection
         ? loadProcessDefinitions(processConnection, configuration)
         : Promise.resolve(Object.freeze([])),
   });
 
+  const commandCapabilities = useQuery({
+    enabled: Boolean(processConnection && triggerCommandsVisible),
+    queryKey: ['process-command-capabilities', privateScope],
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    queryFn: ({ signal }) => {
+      if (!processConnection) throw new Error('Process API is unavailable');
+      return loadProcessCommandCapabilities(processConnection, configuration, signal);
+    },
+  });
+  /** Advisory metadata never replaces current native API authorization. Pending, failed or obsolete evidence cannot enable a command. */
+  const requireTriggerCommand = (kind: ProcessTriggerCommandKind) => {
+    if (!commandCapabilities.isSuccess || commandCapabilities.fetchStatus !== 'idle')
+      throw new Error('Process command availability could not be verified');
+    if (!canSubmitProcessTriggerCommand(commandCapabilities.data, kind))
+      throw new Error('This action is unavailable for this session');
+  };
+
+  const selectedTriggerDefinition = definitions.isSuccess
+    ? definitions.data.find(
+        (definition) =>
+          definition.code === triggerDefinitionCode &&
+          definition.status === 'PUBLISHED',
+      )
+    : undefined;
+  const triggerVersions = useQuery({
+    enabled: Boolean(processConnection && selectedTriggerDefinition),
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    queryKey: [
+      versionsQueryKey,
+      privateScope,
+      'schedule-selection',
+      triggerDefinitionCode,
+    ],
+    queryFn: async () => {
+      if (!processConnection) throw new Error('Process API is unavailable');
+      return loadPublishedProcessScheduleVersions(
+        processConnection,
+        configuration,
+        triggerDefinitionCode,
+      );
+    },
+  });
+  const selectedTriggerVersion =
+    selectedTriggerDefinition && triggerVersions.isSuccess
+      ? triggerVersions.data.find((row) => String(row.version) === triggerVersion)
+      : undefined;
+
   const operations = useQuery({
     enabled: Boolean(processConnection),
     retry: false,
     queryKey: [
       operationsQueryKey,
+      privateScope,
       runtime.enterpriseCode,
       processConnection?.endpoint,
-      accessToken,
       taskPage,
     ],
     queryFn: () =>
@@ -1865,6 +2597,22 @@ export function ProcessWorkflowRoutePage({
         ? loadProcessOperationsSummary(processConnection, configuration, taskPage)
         : Promise.resolve(emptyOperationsSummary),
   });
+  const apiObservation = focusedAuthoring || focusedTriggers ? definitions : operations;
+  const apiUnavailable = !processConnection || apiObservation.isError;
+  const apiConfirmed =
+    Boolean(processConnection) &&
+    apiObservation.isSuccess &&
+    !apiObservation.isFetching;
+  const apiObservationLabel = apiUnavailable
+    ? workflowText('process.state.api-unavailable', 'API unavailable')
+    : apiObservation.isFetching
+      ? workflowText('process.state.checking-api', 'Checking API')
+      : apiConfirmed
+        ? workflowText(
+            `process.state.${processConnection?.state.toLowerCase() ?? 'unknown'}`,
+            processConnection?.state ?? 'API unconfirmed',
+          )
+        : workflowText('process.state.api-unconfirmed', 'API unconfirmed');
   const cmsTasks = operations.isSuccess
     ? operations.data.tasks.filter(
         (task) =>
@@ -1882,6 +2630,7 @@ export function ProcessWorkflowRoutePage({
       refetchOnReconnect: false,
       queryKey: [
         'process-task-documentation-publication-context',
+        privateScope,
         runtime.enterpriseCode,
         documentationConnection?.endpoint,
         source.initializationProfile ?? '',
@@ -1922,6 +2671,7 @@ export function ProcessWorkflowRoutePage({
       enabled: Boolean(documentationConnection),
       queryKey: [
         'process-task-application-publication-context',
+        privateScope,
         runtime.enterpriseCode,
         documentationConnection?.endpoint,
         profile.code,
@@ -1945,10 +2695,12 @@ export function ProcessWorkflowRoutePage({
 
   const invalidate = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: [queryKey] }),
-      queryClient.invalidateQueries({ queryKey: [versionsQueryKey] }),
-      queryClient.invalidateQueries({ queryKey: [operationsQueryKey] }),
-      queryClient.invalidateQueries({ queryKey: [instanceDetailQueryKey] }),
+      queryClient.invalidateQueries({ queryKey: [queryKey, privateScope] }),
+      queryClient.invalidateQueries({ queryKey: [versionsQueryKey, privateScope] }),
+      queryClient.invalidateQueries({ queryKey: [operationsQueryKey, privateScope] }),
+      queryClient.invalidateQueries({
+        queryKey: [instanceDetailQueryKey, privateScope],
+      }),
     ]);
   };
 
@@ -2039,6 +2791,7 @@ export function ProcessWorkflowRoutePage({
     enabled: Boolean(processConnection && selectedDefinition),
     queryKey: [
       versionsQueryKey,
+      privateScope,
       runtime.enterpriseCode,
       processConnection?.endpoint,
       selectedDefinition?.code,
@@ -2058,6 +2811,7 @@ export function ProcessWorkflowRoutePage({
     enabled: Boolean(processConnection && selectedInstanceCode),
     queryKey: [
       instanceDetailQueryKey,
+      privateScope,
       runtime.enterpriseCode,
       processConnection?.endpoint,
       selectedInstanceCode,
@@ -2101,17 +2855,63 @@ export function ProcessWorkflowRoutePage({
     onSuccess: invalidate,
   });
 
+  const [uncertainStart, setUncertainStart] = useState<ProcessStartIntent>();
+  const startLock = useRef(false);
   const startInstance = useMutation({
-    mutationFn: async (definitionCode: string) => {
+    retry: false,
+    mutationFn: async (intent: ProcessStartIntent) => {
       if (!processConnection) throw new Error('Process API is unavailable');
-      return startProcessInstance(processConnection, configuration, definitionCode);
+      return startProcessInstance(
+        processConnection,
+        configuration,
+        intent.definitionCode,
+        intent.instanceCode,
+      );
     },
-    onSuccess: async () => {
-      await invalidate();
+    onSuccess: invalidate,
+    onError: (error, intent) => {
+      if (
+        !(error instanceof ProcessHttpError) ||
+        ![400, 401, 403, 404, 422].includes(error.status)
+      )
+        setUncertainStart(intent);
+    },
+    onSettled: () => {
+      startLock.current = false;
     },
   });
+  const inspectStart = useMutation({
+    retry: false,
+    mutationFn: async (intent: ProcessStartIntent) => {
+      if (!processConnection) throw new Error('Process API is unavailable');
+      const detail = await loadProcessInstanceDetail(
+        processConnection,
+        configuration,
+        intent.instanceCode,
+      );
+      if (detail.instance.definitionCode !== intent.definitionCode)
+        throw new Error('Process instance does not match the inspected definition');
+      return detail.instance;
+    },
+    onSuccess: () => {
+      setUncertainStart(undefined);
+      startInstance.reset();
+      void invalidate();
+    },
+  });
+  const startWorkflow = (definitionCode: string) => {
+    if (!processConnection || startLock.current || uncertainStart) return;
+    startLock.current = true;
+    inspectStart.reset();
+    startInstance.mutate({
+      definitionCode,
+      instanceCode: `axis-start-${crypto.randomUUID()}`,
+    });
+  };
+  const acknowledgedStart = startInstance.data ?? inspectStart.data;
 
   const claimTask = useMutation({
+    retry: false,
     mutationFn: async (taskCode: string) => {
       if (!processConnection) throw new Error('Process API is unavailable');
       return claimProcessTask(processConnection, configuration, taskCode);
@@ -2161,6 +2961,19 @@ export function ProcessWorkflowRoutePage({
         )
           throw new Error('Process approval decision is invalid');
       }
+      if (task.rulesReviewContext && task.instanceCode)
+        await loadRulesReview(
+          {
+            bootstrap,
+            accessToken,
+            enterpriseCode: runtime.enterpriseCode,
+            timeoutMs: runtime.requestTimeoutMs,
+          },
+          {
+            ...task.rulesReviewContext,
+            instanceCode: task.instanceCode,
+          },
+        );
       return completeProcessTask(processConnection, configuration, taskCode, decision);
     },
     onSuccess: invalidate,
@@ -2174,18 +2987,24 @@ export function ProcessWorkflowRoutePage({
     onSuccess: invalidate,
   });
   const refreshTaskEvidence = async () => {
+    if (!processConnection) return;
     const result = await operations.refetch();
     if (!result.isError && result.data) {
+      await queryClient.invalidateQueries({
+        queryKey: [instanceDetailQueryKey, privateScope],
+      });
       completeTask.reset();
       await queryClient.invalidateQueries({
         queryKey: [
           'process-task-application-publication-context',
+          privateScope,
           runtime.enterpriseCode,
         ],
       });
       await queryClient.invalidateQueries({
         queryKey: [
           'process-task-documentation-publication-context',
+          privateScope,
           runtime.enterpriseCode,
         ],
       });
@@ -2221,56 +3040,224 @@ export function ProcessWorkflowRoutePage({
     onSuccess: invalidate,
   });
 
+  /** Keeps one exact private request until a native acknowledgement or explicit original receipt resolves it. A failed command is never replayed by refresh or inspection. */
+  const submitTriggerCommand = async (
+    kind: ProcessTriggerCommandKind,
+    triggerCode: string,
+    body: Readonly<Record<string, unknown>>,
+    versionPin = false,
+  ) => {
+    requireTriggerCommand(kind);
+    if (!processConnection) throw new Error('Process API is unavailable');
+    if (triggerDispatch.current)
+      throw new Error('Another trigger request is pending or unconfirmed');
+    const capabilities =
+      commandCapabilities.isSuccess && commandCapabilities.fetchStatus === 'idle'
+        ? commandCapabilities.data
+        : undefined;
+    if (!capabilities || capabilities.newRecording === 'UNAVAILABLE')
+      throw new Error('Process command availability could not be verified');
+    const intent = createProcessTriggerCommandIntent(
+      kind,
+      triggerCode,
+      body,
+      capabilities.newRecording,
+    );
+    triggerDispatch.current = intent;
+    setTriggerOutcome({ state: 'PENDING', intent, versionPin });
+    try {
+      const acknowledgement = await executeProcessTriggerCommand(
+        processConnection,
+        configuration,
+        intent,
+      );
+      setTriggerOutcome({ state: 'ACKNOWLEDGED', intent, versionPin, acknowledgement });
+      triggerDispatch.current = undefined;
+      return acknowledgement;
+    } catch (error: unknown) {
+      setTriggerOutcome({ state: 'UNKNOWN', intent, versionPin });
+      throw error;
+    }
+  };
+
   const createTrigger = useMutation({
     mutationFn: async () => {
+      requireTriggerCommand('create');
       if (!processConnection) throw new Error('Process API is unavailable');
+      if (!operations.isSuccess || operations.isFetching)
+        throw new Error('Refresh relationships to verify current evidence');
       const definitionCode = normalizeCode(triggerDefinitionCode);
       const cronJobCode = normalizeCode(triggerCronJobCode);
       if (!definitionCode || !cronJobCode)
         throw new Error('Provide both process definition and Cron job codes');
-      return createProcessTrigger(processConnection, configuration, {
-        code: normalizeCode(`${definitionCode}-${cronJobCode}`).toLowerCase(),
+      if (
+        !selectedTriggerDefinition ||
+        !selectedTriggerVersion ||
+        !triggerScheduleExpression.trim()
+      )
+        throw new Error(
+          'Select the published workflow, its exact version and schedule timing',
+        );
+      const code = normalizeCode(`${definitionCode}-${cronJobCode}`).toLowerCase();
+      if (operations.data?.triggers.some((trigger) => trigger.code === code))
+        throw new Error(
+          'This Process trigger relationship already exists. Inspect its current state.',
+        );
+      return submitTriggerCommand('create', code, {
+        code,
         definitionCode,
+        version: selectedTriggerVersion.version,
         triggerType: 'CRON',
         cronJobCode,
         status: 'DRAFT',
-        schedule: { expression: triggerScheduleExpression.trim() || '0 0 * * *' },
+        schedule: { expression: triggerScheduleExpression.trim() },
       });
     },
     onSuccess: invalidate,
+    onSettled: releaseTriggerAction,
+  });
+
+  const pinTrigger = useMutation({
+    mutationFn: async ({
+      trigger,
+      scope,
+    }: {
+      trigger: ProcessTrigger;
+      scope: string;
+    }) => {
+      requireTriggerCommand('update');
+      if (
+        !processConnection ||
+        !selectedTriggerVersion ||
+        !selectedTriggerDefinition ||
+        scope !== triggerScope ||
+        trigger.definitionCode !== selectedTriggerDefinition.code ||
+        trigger.status === 'ARCHIVED'
+      )
+        throw new Error('Select the published version for this existing relationship');
+      if (pinDispatch.current === scope)
+        throw new Error('Workflow version update is already in progress');
+      pinDispatch.current = scope;
+      await submitTriggerCommand(
+        'update',
+        trigger.code,
+        { version: selectedTriggerVersion.version },
+        true,
+      );
+    },
+    onSuccess: async () => {
+      await invalidate();
+      pinDispatch.current = undefined;
+    },
+    onSettled: releaseTriggerAction,
   });
 
   const activateTrigger = useMutation({
     mutationFn: async (trigger: ProcessTrigger) => {
+      requireTriggerCommand('update');
       if (!processConnection) throw new Error('Process API is unavailable');
-      const currentSchedule = trigger.schedule?.expression;
-      const nextScheduleExpression =
-        typeof currentSchedule === 'string' && currentSchedule.trim()
-          ? currentSchedule.trim()
-          : '0 0 * * *';
-      return updateProcessTrigger(processConnection, configuration, trigger.code, {
+      if (trigger.triggerType === 'CRON' && !trigger.version)
+        throw new Error(
+          'Select a published workflow version before activating this schedule relationship',
+        );
+      // Activation changes only Process relationship status. Preserve all saved
+      // schedule metadata and leave actual timer admission/execution with Cron.
+      return submitTriggerCommand('update', trigger.code, {
         status: 'ACTIVE',
-        ...(trigger.cronJobCode ? { cronJobCode: trigger.cronJobCode } : {}),
-        schedule: { expression: nextScheduleExpression },
       });
     },
     onSuccess: invalidate,
+    onSettled: releaseTriggerAction,
   });
 
   const archiveTrigger = useMutation({
     mutationFn: async (triggerCode: string) => {
+      requireTriggerCommand('archive');
       if (!processConnection) throw new Error('Process API is unavailable');
-      return archiveProcessTrigger(processConnection, configuration, triggerCode);
+      return submitTriggerCommand('archive', triggerCode, {});
     },
     onSuccess: invalidate,
+    onSettled: releaseTriggerAction,
   });
 
   const executeTrigger = useMutation({
     mutationFn: async (triggerCode: string) => {
+      requireTriggerCommand('execute');
       if (!processConnection) throw new Error('Process API is unavailable');
-      return executeProcessTrigger(processConnection, configuration, triggerCode);
+      const trigger =
+        operations.isSuccess && !operations.isFetching
+          ? operations.data.triggers.find((row) => row.code === triggerCode)
+          : undefined;
+      if (
+        !trigger ||
+        trigger.status !== 'ACTIVE' ||
+        (trigger.triggerType === 'CRON' && !trigger.version)
+      )
+        throw new Error(
+          'Refresh relationships to verify the active published workflow',
+        );
+      const reference = crypto.randomUUID();
+      return submitTriggerCommand('execute', triggerCode, {
+        instanceCode: `axis-trigger-${reference}`,
+        correlationId: `axis-${reference}`,
+        context: { source: 'axis-trigger-console' },
+        ...(trigger.version ? { version: trigger.version } : {}),
+      });
     },
     onSuccess: invalidate,
+    onSettled: releaseTriggerAction,
+  });
+
+  const inspectTriggerReceipt = useMutation({
+    mutationFn: async (intent: ProcessTriggerCommandIntent) => {
+      if (
+        !processConnection ||
+        triggerDispatch.current !== intent ||
+        !commandCapabilities.isSuccess ||
+        commandCapabilities.fetchStatus !== 'idle' ||
+        commandCapabilities.data.triggerCommands[intent.kind].receiptInspection !==
+          'AUTHORIZED'
+      )
+        throw new Error('Original trigger command evidence is unavailable');
+      if (receiptInspectionAbort.current)
+        throw new Error('Original receipt inspection is already in progress');
+      const controller = new AbortController();
+      receiptInspectionAbort.current = controller;
+      try {
+        return await inspectProcessTriggerCommandReceipt(
+          processConnection,
+          configuration,
+          intent,
+          bootstrap.tenantCode,
+          controller.signal,
+        );
+      } finally {
+        if (receiptInspectionAbort.current === controller)
+          receiptInspectionAbort.current = undefined;
+      }
+    },
+    onSuccess: async (receipt, intent) => {
+      if (triggerDispatch.current !== intent) return;
+      if (receipt.state === 'OUTCOME_UNKNOWN') {
+        setTriggerOutcome((current) =>
+          current?.intent === intent ? { ...current, receiptUnknown: true } : current,
+        );
+        return;
+      }
+      setTriggerOutcome((current) =>
+        current?.intent === intent
+          ? { ...current, state: 'ACKNOWLEDGED', acknowledgement: receipt }
+          : current,
+      );
+      triggerDispatch.current = undefined;
+      pinDispatch.current = undefined;
+      createTrigger.reset();
+      pinTrigger.reset();
+      activateTrigger.reset();
+      archiveTrigger.reset();
+      executeTrigger.reset();
+      await invalidate();
+    },
   });
 
   const definitionCount = definitions.data?.length ?? 0;
@@ -2389,6 +3376,7 @@ export function ProcessWorkflowRoutePage({
     retryInstance.isPending ||
     compensateInstance.isPending ||
     createTrigger.isPending ||
+    pinTrigger.isPending ||
     activateTrigger.isPending ||
     executeTrigger.isPending ||
     archiveTrigger.isPending;
@@ -2399,7 +3387,7 @@ export function ProcessWorkflowRoutePage({
     publishDraft.error ??
     prepareNextDraft.error ??
     deleteDefinition.error ??
-    startInstance.error ??
+    (uncertainStart ? undefined : startInstance.error) ??
     claimTask.error ??
     assignTask.error ??
     completeTask.error ??
@@ -2408,35 +3396,113 @@ export function ProcessWorkflowRoutePage({
     retryInstance.error ??
     compensateInstance.error ??
     createTrigger.error ??
+    pinTrigger.error ??
     activateTrigger.error ??
+    executeTrigger.error ??
     archiveTrigger.error;
 
+  const renderReviewEvidence = (
+    task: ProcessHumanTask,
+    placement: 'queue' | 'timeline',
+  ) => {
+    if (task.rulesReviewContext && task.instanceCode && placement === 'queue')
+      return (
+        <RulesPolicyReviewPanel
+          key={privateScope + task.code + task.rulesReviewContext.draftRevision}
+          privateScope={privateScope}
+          configuration={{
+            bootstrap,
+            accessToken,
+            enterpriseCode: runtime.enterpriseCode,
+            timeoutMs: runtime.requestTimeoutMs,
+          }}
+          identity={{ ...task.rulesReviewContext, instanceCode: task.instanceCode }}
+        />
+      );
+    const context = task.reviewContext;
+    const cmsReview =
+      context?.owner === 'cms' &&
+      context.rootType === 'site' &&
+      ['OPEN', 'CLAIMED', 'ESCALATED'].includes(task.status);
+    const mediaReview = context?.owner === 'media' && context.rootType === 'media';
+    if (!context || (!cmsReview && !mediaReview)) return null;
+    if (cmsReview && placement === 'timeline') return null;
+    if (
+      mediaReview &&
+      placement === 'queue' &&
+      task.instanceCode === selectedInstanceCode &&
+      instanceDetail.isSuccess &&
+      instanceDetail.data.instance.code === selectedInstanceCode &&
+      instanceDetail.data.tasks.some(
+        (item) =>
+          item.code === task.code &&
+          item.reviewContext?.publicationCode === context.publicationCode &&
+          item.reviewContext.sourceVersion === context.sourceVersion &&
+          item.reviewContext.rootCode === context.rootCode,
+      )
+    )
+      return null;
+    if (cmsReview && (!task.instanceCode || !processConnection)) return null;
+    if (cmsReview && task.instanceCode && processConnection)
+      return (
+        <CmsPublicationReviewPanel
+          connection={processConnection}
+          configuration={configuration}
+          privateScope={privateScope}
+          identity={{
+            instanceCode: task.instanceCode,
+            taskCode: task.code,
+            publicationCode: context.publicationCode,
+            sourceVersion: context.sourceVersion,
+            siteCode: context.rootCode,
+          }}
+        />
+      );
+    return (
+      <MediaPublicationReviewPanel
+        accessToken={accessToken}
+        bootstrap={bootstrap}
+        runtime={runtime}
+        identity={{
+          owner: 'media',
+          rootType: 'media',
+          rootCode: context.rootCode,
+          publicationCode: context.publicationCode,
+          sourceVersion: context.sourceVersion,
+        }}
+      />
+    );
+  };
   const instanceTimeline = (
     <Paper
       component="section"
-      aria-label="Instance timeline"
+      aria-label={workflowText('process.ui.instance-timeline', 'Instance timeline')}
       elevation={0}
       sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
     >
       <Stack spacing={2}>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           <ShellIcon name="activity" />
-          <Typography variant="h5">Instance timeline</Typography>
+          <Typography component="h2" variant="h5">
+            {workflowText('process.ui.instance-timeline', 'Instance timeline')}
+          </Typography>
           <Chip
             label={
               selectedInstanceCode
                 ? instanceDetail.isFetching
-                  ? 'Loading'
-                  : 'Selected'
-                : 'Select instance'
+                  ? workflowText('process.ui.loading', 'Loading')
+                  : workflowText('process.ui.selected', 'Selected')
+                : workflowText('process.ui.select-instance', 'Select instance')
             }
             variant="outlined"
           />
         </Stack>
         {!selectedInstanceCode ? (
           <Alert severity="info">
-            Select a process instance to inspect its current state, human tasks, and
-            audit events in one operator-friendly view.
+            {workflowText(
+              'process.ui.select-a-process-instance-to-inspect-its-current-state-human-tasks-and-a',
+              'Select a process instance to inspect its current state, human tasks, and audit events in one operator-friendly view.',
+            )}
           </Alert>
         ) : instanceDetail.isError && instanceDetail.error instanceof Error ? (
           <Alert severity="warning">{instanceDetail.error.message}</Alert>
@@ -2452,26 +3518,89 @@ export function ProcessWorkflowRoutePage({
                 p: 2,
               }}
             >
-              <Typography variant="h6">{instanceDetail.data.instance.code}</Typography>
+              <Typography component="h3" variant="h6" sx={{ overflowWrap: 'anywhere' }}>
+                {instanceDetail.data.instance.code}
+              </Typography>
               <Typography color="text.secondary">
-                {instanceDetail.data.instance.definitionCode} · status{' '}
-                {instanceDetail.data.instance.status} · node{' '}
+                {instanceDetail.data.instance.definitionCode}{' '}
+                {workflowText('process.ui.status', '· status')}{' '}
+                {workflowText(
+                  `process.state.${instanceDetail.data.instance.status.toLowerCase()}`,
+                  instanceDetail.data.instance.status,
+                )}{' '}
+                {workflowText('process.ui.node', '· node')}{' '}
                 {instanceDetail.data.instance.currentNode ?? 'unknown'}
               </Typography>
             </Paper>
-            <Typography variant="h6">Tasks</Typography>
+            <Typography component="h3" variant="h6">
+              {workflowText('process.ui.tasks', 'Tasks')}
+            </Typography>
             {instanceDetail.data.tasks.length === 0 ? (
-              <Typography color="text.secondary">No tasks recorded.</Typography>
+              <Typography color="text.secondary">
+                {workflowText('process.ui.no-tasks-recorded', 'No tasks recorded.')}
+              </Typography>
             ) : (
               instanceDetail.data.tasks.map((task) => (
-                <Typography color="text.secondary" key={task.code}>
-                  {task.code}: {task.status} at {task.nodeCode ?? 'unknown node'}
-                </Typography>
+                <Stack key={task.code} spacing={1.5}>
+                  {task.name ? (
+                    <Typography
+                      component="h4"
+                      variant="subtitle1"
+                      sx={{ overflowWrap: 'anywhere' }}
+                    >
+                      {task.name}
+                    </Typography>
+                  ) : null}
+                  {task.recordedDecision && task.decisionContract ? (
+                    <Stack spacing={1} sx={{ alignItems: 'flex-start', minWidth: 0 }}>
+                      <Chip
+                        color={task.recordedDecision.approved ? 'success' : 'warning'}
+                        label={
+                          task.recordedDecision.approved
+                            ? task.decisionContract.approveLabel
+                            : task.decisionContract.rejectLabel
+                        }
+                        sx={{
+                          height: 'auto',
+                          '& .MuiChip-label': {
+                            whiteSpace: 'normal',
+                            overflowWrap: 'anywhere',
+                          },
+                        }}
+                      />
+                      {task.recordedDecision.reason ? (
+                        <Typography
+                          sx={{ overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}
+                        >
+                          {task.decisionContract.reasonLabel}:{' '}
+                          {task.recordedDecision.reason}
+                        </Typography>
+                      ) : null}
+                    </Stack>
+                  ) : null}
+                  <Typography color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+                    {task.code}:{' '}
+                    {workflowText(
+                      `process.state.${task.status.toLowerCase()}`,
+                      task.status,
+                    )}{' '}
+                    {workflowText('process.ui.at', 'at')}{' '}
+                    {task.nodeCode ?? 'unknown node'}
+                  </Typography>
+                  {renderReviewEvidence(task, 'timeline')}
+                </Stack>
               ))
             )}
-            <Typography variant="h6">Audit timeline</Typography>
+            <Typography component="h3" variant="h6">
+              {workflowText('process.ui.audit-timeline', 'Audit timeline')}
+            </Typography>
             {instanceDetail.data.auditEvents.length === 0 ? (
-              <Typography color="text.secondary">No audit events recorded.</Typography>
+              <Typography color="text.secondary">
+                {workflowText(
+                  'process.ui.no-audit-events-recorded',
+                  'No audit events recorded.',
+                )}
+              </Typography>
             ) : (
               instanceDetail.data.auditEvents.map((event, index) => (
                 <Typography color="text.secondary" key={`${event.eventType}-${index}`}>
@@ -2482,7 +3611,7 @@ export function ProcessWorkflowRoutePage({
           </Stack>
         ) : (
           <Typography color="text.secondary" role="status">
-            Loading timeline...
+            {workflowText('process.ui.loading-timeline', 'Loading timeline...')}
           </Typography>
         )}
       </Stack>
@@ -2492,7 +3621,7 @@ export function ProcessWorkflowRoutePage({
   if (activeWorkspace.route === '/process/tasks') {
     return (
       <WorkspaceContainer>
-        <Stack spacing={3}>
+        <Stack spacing={3} sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
           <Paper
             component="section"
             elevation={0}
@@ -2508,56 +3637,114 @@ export function ProcessWorkflowRoutePage({
                 }}
               >
                 <WorkspaceHeading
-                  description="Review workflow tasks that are waiting for a business decision, with available owner-provided publication evidence."
+                  description={workflowText(
+                    'process.ui.review-workflow-tasks-that-are-waiting-for-a-business-decision-with-avai',
+                    'Review workflow tasks that are waiting for a business decision, with available owner-provided publication evidence.',
+                  )}
                   help={navigation.help}
-                  eyebrow="Process & Automation"
+                  eyebrow={workflowText(
+                    'process.ui.process-and-automation',
+                    'Process & Automation',
+                  )}
                   headingVariant="h3"
-                  title="Approval tasks"
+                  title={workflowText('process.ui.approval-tasks', 'Approval tasks')}
                 />
                 <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+                  {operations.data !== undefined ? (
+                    <Chip
+                      color={
+                        publicationTasksReadyForDecision > 0 ? 'warning' : 'default'
+                      }
+                      label={workflowText(
+                        'process.ui.awaiting-review-count',
+                        '{count, number} awaiting review',
+                        { count: publicationTasksReadyForDecision },
+                      )}
+                      variant={
+                        publicationTasksReadyForDecision > 0 ? 'filled' : 'outlined'
+                      }
+                    />
+                  ) : null}
                   <Chip
-                    color={publicationTasksReadyForDecision > 0 ? 'warning' : 'default'}
-                    label={`${String(publicationTasksReadyForDecision)} awaiting review`}
-                    variant={
-                      publicationTasksReadyForDecision > 0 ? 'filled' : 'outlined'
+                    color={
+                      apiUnavailable ? 'warning' : apiConfirmed ? 'success' : 'default'
                     }
-                  />
-                  <Chip
-                    color={processConnection ? 'success' : 'warning'}
-                    label={
-                      processConnection ? processConnection.state : 'API unavailable'
-                    }
-                    variant={processConnection ? 'filled' : 'outlined'}
+                    label={apiObservationLabel}
+                    variant={apiConfirmed ? 'filled' : 'outlined'}
                   />
                 </Stack>
               </Stack>
 
-              {latestError instanceof Error ? (
-                <Alert severity="error">{latestError.message}</Alert>
+              {!processConnection ? (
+                <Alert severity="warning">
+                  {workflowText(
+                    'process.ui.the-work-queue-is-unavailable-in-the-current-workspace',
+                    'The work queue is unavailable in the current workspace.',
+                  )}
+                </Alert>
+              ) : latestError instanceof Error ? (
+                <Alert severity="error">
+                  {latestError.message}
+                  {completeTask.isError && (
+                    <Typography variant="body2">
+                      {workflowText(
+                        'process.ui.refresh-task-evidence-to-verify-whether-process-recorded-the-decision',
+                        'Refresh task evidence to verify whether Process recorded the decision.',
+                      )}
+                    </Typography>
+                  )}
+                </Alert>
               ) : operations.isError && operations.error instanceof Error ? (
                 <Alert
                   severity="error"
                   action={
                     taskPage > 1 ? (
-                      <Button onClick={() => setTaskPage(1)}>First page</Button>
+                      <Button onClick={() => setTaskPage(1)}>
+                        {workflowText('process.ui.first-page', 'First page')}
+                      </Button>
                     ) : undefined
                   }
                 >
                   {operations.error.message}
                 </Alert>
               ) : operations.isPending ? (
-                <Alert severity="info">Loading approval tasks from Process.</Alert>
+                <Alert severity="info">
+                  {workflowText(
+                    'process.ui.loading-approval-tasks-from-process',
+                    'Loading approval tasks from Process.',
+                  )}
+                </Alert>
+              ) : operations.isFetching ? (
+                <Alert severity="info">
+                  {workflowText(
+                    'process.ui.refreshing-task-evidence-showing-the-last-retrieved-records',
+                    'Refreshing task evidence. Showing the last retrieved records.',
+                  )}
+                </Alert>
               ) : publicationApprovalTasks.length ? (
                 <Alert severity="warning">
-                  {`${String(publicationTasksReadyForDecision)} approval task${publicationTasksReadyForDecision === 1 ? '' : 's'} awaiting review.`}
+                  {workflowText(
+                    'process.ui.approval-review-count',
+                    '{count, plural, one {# approval task awaiting review.} other {# approval tasks awaiting review.}}',
+                    { count: publicationTasksReadyForDecision },
+                  )}
                 </Alert>
               ) : (
-                <Alert severity="info">No approval decisions on this page.</Alert>
+                <Alert severity="info">
+                  {workflowText(
+                    'process.ui.no-approval-decisions-on-this-page',
+                    'No approval decisions on this page.',
+                  )}
+                </Alert>
               )}
             </Stack>
           </Paper>
 
+          {selectedInstanceCode ? instanceTimeline : null}
+
           <TaskInbox
+            hasEvidence={operations.data !== undefined}
+            reviewEvidence={(task) => renderReviewEvidence(task, 'queue')}
             assignee={taskAssignee}
             disabled={
               busy ||
@@ -2568,7 +3755,7 @@ export function ProcessWorkflowRoutePage({
             onRefresh={() => {
               void refreshTaskEvidence();
             }}
-            refreshDisabled={busy || operations.isFetching}
+            refreshDisabled={busy || operations.isFetching || !processConnection}
             onAssigneeChange={setTaskAssignee}
             onAssign={(taskCode) => assignTask.mutate(taskCode)}
             onCancel={(taskCode) => cancelTask.mutate(taskCode)}
@@ -2580,7 +3767,10 @@ export function ProcessWorkflowRoutePage({
             tasks={operations.data?.tasks ?? []}
             pagination={operations.data?.taskPagination}
             onPageChange={setTaskPage}
-            title="Approval task queue"
+            title={workflowText(
+              'process.ui.approval-task-queue',
+              'Approval task queue',
+            )}
           />
 
           <Box
@@ -2588,25 +3778,38 @@ export function ProcessWorkflowRoutePage({
               display: 'grid',
               gap: 3,
               gridTemplateColumns: {
-                xs: '1fr',
+                xs: 'minmax(0, 1fr)',
                 xl: 'minmax(0, 1fr) minmax(0, 1fr)',
               },
             }}
           >
             <RuntimeInstanceList
-              disabled={busy}
+              hasEvidence={operations.data !== undefined}
+              disabled={
+                busy ||
+                operations.isFetching ||
+                operations.isError ||
+                !processConnection
+              }
               instances={operations.data?.instances ?? []}
               onCancel={(instanceCode) => cancelInstance.mutate(instanceCode)}
-              onSelect={(instanceCode) => setSelectedInstanceCode(instanceCode)}
+              onSelect={selectInstance}
               selectedCode={selectedInstanceCode}
             />
-            {selectedInstanceCode ? instanceTimeline : null}
-            <RecoveryIncidentQueue
-              disabled={busy}
-              incidents={operations.data?.incidents ?? []}
-              onCompensate={(instanceCode) => compensateInstance.mutate(instanceCode)}
-              onRetry={(incident) => retryInstance.mutate(incident)}
-            />
+            {!operations.data?.incidentsAccessDenied && (
+              <RecoveryIncidentQueue
+                hasEvidence={operations.data !== undefined}
+                disabled={
+                  busy ||
+                  operations.isFetching ||
+                  operations.isError ||
+                  !processConnection
+                }
+                incidents={operations.data?.incidents ?? []}
+                onCompensate={(instanceCode) => compensateInstance.mutate(instanceCode)}
+                onRetry={(incident) => retryInstance.mutate(incident)}
+              />
+            )}
           </Box>
         </Stack>
       </WorkspaceContainer>
@@ -2615,7 +3818,7 @@ export function ProcessWorkflowRoutePage({
 
   return (
     <WorkspaceContainer>
-      <Stack spacing={3}>
+      <Stack spacing={3} sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
         <Paper
           component="section"
           elevation={0}
@@ -2633,59 +3836,63 @@ export function ProcessWorkflowRoutePage({
                   'Model business processes, validate workflow rules, publish governed definitions, and connect automation without hiding backend control.'
                 }
                 help={navigation.help}
-                eyebrow="Process & Automation"
+                eyebrow={workflowText(
+                  'process.ui.process-and-automation',
+                  'Process & Automation',
+                )}
                 headingVariant="h3"
                 title={navigation.label}
               />
               <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
                 <Chip label={runtime.enterpriseCode} />
                 <Chip
-                  color={processConnection ? 'success' : 'warning'}
-                  label={
-                    processConnection ? processConnection.state : 'API unavailable'
+                  color={
+                    apiUnavailable ? 'warning' : apiConfirmed ? 'success' : 'default'
                   }
-                  variant={processConnection ? 'filled' : 'outlined'}
+                  label={apiObservationLabel}
+                  variant={apiConfirmed ? 'filled' : 'outlined'}
                 />
                 <Chip label={navigation.featureState ?? 'LIVE'} variant="outlined" />
               </Stack>
             </Stack>
 
-            <Box
-              sx={{
-                display: 'grid',
-                gap: 2,
-                gridTemplateColumns: {
-                  xs: '1fr',
-                  lg: 'repeat(4, minmax(0, 1fr))',
-                },
-              }}
-            >
-              <ProcessJourneyStep
-                detail="Capture the business flow in language a business owner can review before runtime execution exists."
-                icon="workflow"
-                label="Model"
-                state="available"
-              />
-              <ProcessJourneyStep
-                detail="Run backend graph validation so invalid handoffs, missing starts, and broken transitions are caught early."
-                icon="schema"
-                label="Validate"
-                state="available"
-              />
-              <ProcessJourneyStep
-                detail="Publish only validated definitions as immutable versions that operators can audit and promote safely."
-                icon="publish"
-                label="Publish"
-                state="preview"
-              />
-              <ProcessJourneyStep
-                detail="Connect scheduled triggers and cron jobs through module-owned APIs without moving scheduler ownership into Axis."
-                icon="cronjob"
-                label="Automate"
-                state="preview"
-              />
-            </Box>
-
+            {!focusedAuthoring && !focusedTriggers && (
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 2,
+                  gridTemplateColumns: {
+                    xs: 'minmax(0, 1fr)',
+                    lg: 'repeat(4, minmax(0, 1fr))',
+                  },
+                }}
+              >
+                <ProcessJourneyStep
+                  detail="Capture the business flow in language a business owner can review before runtime execution exists."
+                  icon="workflow"
+                  label={workflowText('process.ui.model', 'Model')}
+                  state="available"
+                />
+                <ProcessJourneyStep
+                  detail="Run backend graph validation so invalid handoffs, missing starts, and broken transitions are caught early."
+                  icon="schema"
+                  label={workflowText('process.ui.validate', 'Validate')}
+                  state="available"
+                />
+                <ProcessJourneyStep
+                  detail="Publish only validated definitions as immutable versions that operators can audit and promote safely."
+                  icon="publish"
+                  label={workflowText('process.ui.publish', 'Publish')}
+                  state="preview"
+                />
+                <ProcessJourneyStep
+                  detail="Connect scheduled triggers and cron jobs through module-owned APIs without moving scheduler ownership into Axis."
+                  icon="cronjob"
+                  label={workflowText('process.ui.automate', 'Automate')}
+                  state="preview"
+                />
+              </Box>
+            )}
             <Alert
               severity={
                 latestError ? 'error' : definitions.isError ? 'warning' : 'info'
@@ -2695,413 +3902,679 @@ export function ProcessWorkflowRoutePage({
                 ? latestError.message
                 : definitions.isError && definitions.error instanceof Error
                   ? definitions.error.message
-                  : 'Axis is connected to nodics.process. This workspace is intentionally guided: business users can model and review; backend services validate, version, audit, and execute.'}
+                  : workflowText(
+                      'process.ui.axis-is-connected-to-nodics-process-this-workspace-is-intentionally-guid',
+                      'Axis is connected to nodics.process. This workspace is intentionally guided: business users can model and review; backend services validate, version, audit, and execute.',
+                    )}
             </Alert>
           </Stack>
         </Paper>
 
-        <Paper
-          component="section"
-          elevation={0}
-          sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
-        >
-          <Stack spacing={2.5}>
-            <Box>
-              <Typography variant="h5">Process workspace focus</Typography>
-              <Typography color="text.secondary">
-                Business users can move through the Process console by intent:
-                definitions, operations, scheduled triggers, or designer. Each card
-                opens the same backend-owned capability family without creating a second
-                workflow authority in Axis.
-              </Typography>
-            </Box>
-            <Box
-              sx={{
-                display: 'grid',
-                gap: 2,
-                gridTemplateColumns: {
-                  xs: '1fr',
-                  md: 'repeat(2, minmax(0, 1fr))',
-                  xl: 'repeat(4, minmax(0, 1fr))',
-                },
-              }}
-            >
-              {processWorkspaces.map((workspace) => (
-                <ProcessWorkspaceCard
-                  active={activeWorkspace.route === workspace.route}
-                  detail={workspace.detail}
-                  icon={workspace.icon}
-                  key={workspace.route}
-                  label={workspace.label}
-                  route={workspace.route}
-                />
-              ))}
-            </Box>
-          </Stack>
-        </Paper>
-
-        <Box
-          sx={{
-            display: 'grid',
-            gap: 3,
-            gridTemplateColumns: {
-              xs: '1fr',
-              md: 'repeat(4, minmax(0, 1fr))',
-            },
-          }}
-        >
-          <SummaryCard
-            detail="Total governed definitions visible to this enterprise."
-            label="Definitions"
-            value={definitions.isPending ? '—' : definitionCount}
-          />
-          <SummaryCard
-            detail="Editable definitions waiting for validation and publish."
-            label="Drafts"
-            value={definitions.isPending ? '—' : draftCount}
-          />
-          <SummaryCard
-            detail="Versioned definitions ready for controlled runtime use."
-            label="Published"
-            value={definitions.isPending ? '—' : publishedCount}
-          />
-          <SummaryCard
-            detail="Validation findings on the selected process preview."
-            label="Selected issues"
-            value={selectedIssueCount}
-          />
-        </Box>
-
-        <Paper
-          component="section"
-          elevation={0}
-          sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
-        >
-          <Stack spacing={2.5}>
-            <Stack
-              direction={{ xs: 'column', md: 'row' }}
-              spacing={2}
-              sx={{ justifyContent: 'space-between' }}
-            >
-              <Box>
-                <Typography variant="h5">Runtime operations overview</Typography>
-                <Typography color="text.secondary">
-                  Operations teams need to see whether published processes are producing
-                  running instances, human work, and audit evidence. These numbers come
-                  from nodics.process read APIs, not from frontend-only assumptions.
-                </Typography>
-              </Box>
-              <Chip
-                color={operations.isError ? 'warning' : 'success'}
-                label={operations.isError ? 'Inspection limited' : 'Inspection ready'}
-                variant={operations.isError ? 'outlined' : 'filled'}
-              />
-            </Stack>
-            <Box
-              sx={{
-                display: 'grid',
-                gap: 2,
-                gridTemplateColumns: {
-                  xs: '1fr',
-                  md: 'repeat(4, minmax(0, 1fr))',
-                },
-              }}
-            >
-              <SummaryCard
-                detail="Active runtime instances currently visible to Axis."
-                label="Running instances"
-                value={operations.isPending ? '—' : runningInstanceCount}
-              />
-              <SummaryCard
-                detail="Human tasks waiting for action, ownership, or escalation."
-                label="Open tasks"
-                value={operations.isPending ? '—' : openTaskCount}
-              />
-              <SummaryCard
-                detail="Failed automated actions requiring retry, compensation, or escalation."
-                label="Recovery incidents"
-                value={operations.isPending ? '—' : incidentCount}
-              />
-              <SummaryCard
-                detail="Process-owned schedule relationships referencing Cron where applicable."
-                label="Triggers"
-                value={operations.isPending ? '—' : triggerCount}
-              />
-            </Box>
-            {operations.isError && operations.error instanceof Error ? (
-              <Alert severity="warning">{operations.error.message}</Alert>
-            ) : (
-              <Alert severity="info">
-                Start a published definition to create an instance and first task.
-                Claim, complete, cancel, and timeline views call nodics.process APIs;
-                Axis does not calculate runtime state locally.
-              </Alert>
+        {uncertainStart && (
+          <Alert
+            severity="warning"
+            action={
+              <Button
+                disabled={!processConnection || inspectStart.isPending}
+                onClick={() => inspectStart.mutate(uncertainStart)}
+              >
+                {workflowText(
+                  'process.ui.inspect-original-start',
+                  'Inspect original start',
+                )}
+              </Button>
+            }
+          >
+            {inspectStart.isError
+              ? workflowText(
+                  'process.ui.process-could-not-confirm-the-original-start-starting-another-workflow-i',
+                  'Process could not confirm the original start. Starting another workflow is on hold.',
+                )
+              : workflowText(
+                  'process.ui.the-start-outcome-is-uncertain-inspect-the-original-workflow-before-star',
+                  'The start outcome is uncertain. Inspect the original workflow before starting another.',
+                )}{' '}
+            {workflowText('process.ui.reference', 'Reference')}{' '}
+            {uncertainStart.instanceCode}.
+          </Alert>
+        )}
+        {acknowledgedStart && (
+          <Alert
+            severity="success"
+            action={
+              <Button
+                component={RouterLink}
+                to={`/process/tasks?instanceCode=${encodeURIComponent(acknowledgedStart.code)}`}
+              >
+                {workflowText(
+                  'process.ui.open-started-workflow',
+                  'Open started workflow',
+                )}
+              </Button>
+            }
+          >
+            {workflowText(
+              'process.ui.workflow-started-reference',
+              'Workflow started. Reference:',
+            )}{' '}
+            {acknowledgedStart.code}
+          </Alert>
+        )}
+        {focusedAuthoring || focusedTriggers ? (
+          <Stack
+            component="nav"
+            aria-label={workflowText(
+              'process.ui.process-workspaces',
+              'Process workspaces',
             )}
-          </Stack>
-        </Paper>
-
-        <Box
-          sx={{
-            display: 'grid',
-            gap: 3,
-            gridTemplateColumns: {
-              xs: '1fr',
-              xl: 'minmax(0, 1fr) minmax(0, 1fr)',
-            },
-          }}
-        >
-          <RuntimeInstanceList
-            disabled={busy}
-            instances={operations.data?.instances ?? []}
-            onCancel={(instanceCode) => cancelInstance.mutate(instanceCode)}
-            onSelect={(instanceCode) => setSelectedInstanceCode(instanceCode)}
-            selectedCode={selectedInstanceCode}
-          />
-          <TaskInbox
-            assignee={taskAssignee}
-            disabled={
-              busy ||
-              operations.isFetching ||
-              operations.isError ||
-              completeTask.isError
-            }
-            onRefresh={() => {
-              void refreshTaskEvidence();
-            }}
-            refreshDisabled={busy || operations.isFetching}
-            onAssigneeChange={setTaskAssignee}
-            onAssign={(taskCode) => assignTask.mutate(taskCode)}
-            onCancel={(taskCode) => cancelTask.mutate(taskCode)}
-            onClaim={(taskCode) => claimTask.mutate(taskCode)}
-            onComplete={(taskCode, decision) =>
-              completeTask.mutate(decision ? { decision, taskCode } : { taskCode })
-            }
-            publicationContexts={documentationPublicationContexts}
-            tasks={operations.data?.tasks ?? []}
-            pagination={operations.data?.taskPagination}
-            onPageChange={setTaskPage}
-          />
-        </Box>
-
-        <RecoveryIncidentQueue
-          disabled={busy}
-          incidents={operations.data?.incidents ?? []}
-          onCompensate={(instanceCode) => compensateInstance.mutate(instanceCode)}
-          onRetry={(incident) => retryInstance.mutate(incident)}
-        />
-
-        <Box
-          sx={{
-            display: 'grid',
-            gap: 3,
-            gridTemplateColumns: {
-              xs: '1fr',
-              xl: 'minmax(0, 1fr) minmax(0, 1fr)',
-            },
-          }}
-        >
-          {instanceTimeline}
-          <TriggerRelationshipView
-            disabled={busy}
-            onArchive={(triggerCode) => archiveTrigger.mutate(triggerCode)}
-            onCreate={() => createTrigger.mutate()}
-            onExecute={(triggerCode) => executeTrigger.mutate(triggerCode)}
-            onFieldChange={(field, value) => {
-              if (field === 'definitionCode') setTriggerDefinitionCode(value);
-              if (field === 'cronJobCode') setTriggerCronJobCode(value);
-              if (field === 'scheduleExpression') setTriggerScheduleExpression(value);
-            }}
-            onUpdate={(trigger) => activateTrigger.mutate(trigger)}
-            triggerCronJobCode={triggerCronJobCode}
-            triggerDefinitionCode={triggerDefinitionCode}
-            triggerScheduleExpression={triggerScheduleExpression}
-            triggers={operations.data?.triggers ?? []}
-          />
-        </Box>
-
-        <Paper
-          component="section"
-          elevation={0}
-          sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
-        >
-          <Stack spacing={2}>
-            <Typography variant="h5">Create a beginner-safe process draft</Typography>
-            <Typography color="text.secondary">
-              Start with a small approval flow that a business user can understand:
-              request starts, review task happens, and the process ends. Advanced
-              designer features can come later, after the backend contract is proven.
-            </Typography>
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-              <TextField
-                fullWidth
-                label="Draft name"
-                onChange={(event) => setDraftName(event.target.value)}
-                value={draftName}
-              />
+            direction="row"
+            spacing={1}
+            useFlexGap
+            sx={{ flexWrap: 'wrap' }}
+          >
+            {processWorkspaces.map((workspace) => (
               <Button
-                disabled={!processConnection || busy}
-                onClick={() => createDraft.mutate()}
-                sx={{ minWidth: 190 }}
-                variant="contained"
-              >
-                Create sample draft
-              </Button>
-            </Stack>
-          </Stack>
-        </Paper>
-
-        <Paper
-          component="section"
-          elevation={0}
-          sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
-        >
-          <Stack spacing={2}>
-            <Stack
-              direction={{ xs: 'column', md: 'row' }}
-              spacing={1.5}
-              sx={{ justifyContent: 'space-between' }}
-            >
-              <Box>
-                <Typography variant="h5">Edit selected draft</Typography>
-                <Typography color="text.secondary">
-                  Refine the business-facing name, category, and description before
-                  validation. Axis sends these updates to nodics.process; backend
-                  validation, versioning, and audit remain the authority.
-                </Typography>
-              </Box>
-              <Chip
-                color={selectedIsDraft ? 'warning' : 'default'}
-                label={
-                  selectedDefinition
-                    ? selectedIsDraft
-                      ? 'Draft editable'
-                      : 'Published read-only'
-                    : 'No selection'
+                component={RouterLink}
+                to={workspace.route}
+                key={workspace.route}
+                variant={
+                  activeWorkspace.route === workspace.route ? 'contained' : 'outlined'
                 }
-                variant="outlined"
-              />
-            </Stack>
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-              <TextField
-                disabled={!selectedIsDraft || busy}
-                fullWidth
-                label="Process name"
-                onChange={(event) => setEditName(event.target.value)}
-                value={editName}
-              />
-              <TextField
-                disabled={!selectedIsDraft || busy}
-                label="Category"
-                onChange={(event) => setEditCategory(event.target.value)}
-                sx={{ minWidth: { md: 220 } }}
-                value={editCategory}
-              />
-            </Stack>
-            <TextField
-              disabled={!selectedIsDraft || busy}
-              fullWidth
-              label="Business description"
-              minRows={3}
-              multiline
-              onChange={(event) => setEditDescription(event.target.value)}
-              value={editDescription}
-            />
-            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-              <Button
-                disabled={!processConnection || !selectedIsDraft || busy}
-                onClick={() => updateDraft.mutate()}
-                variant="contained"
-              >
-                Save draft changes
-              </Button>
-              <Button
-                disabled={!selectedIsDraft || busy}
-                onClick={() =>
-                  selectedDefinition && selectDefinitionForEditing(selectedDefinition)
+                aria-current={
+                  activeWorkspace.route === workspace.route ? 'page' : undefined
                 }
-                variant="outlined"
               >
-                Reset fields
+                {workspace.label}
               </Button>
-            </Stack>
+            ))}
           </Stack>
-        </Paper>
-
-        <Box
-          sx={{
-            display: 'grid',
-            gap: 3,
-            gridTemplateColumns: {
-              xs: '1fr',
-              xl: 'minmax(0, 1.25fr) minmax(360px, 0.75fr)',
-            },
-          }}
-        >
+        ) : (
           <Paper
             component="section"
             elevation={0}
             sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
           >
             <Stack spacing={2.5}>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                <Typography variant="h5">Process definitions</Typography>
-                <Chip
-                  label={
-                    definitions.isPending
-                      ? 'Loading'
-                      : `${String(definitions.data?.length ?? 0)} definitions`
-                  }
-                  variant="outlined"
-                />
-              </Stack>
-              <Divider />
-              {(definitions.data ?? []).length === 0 ? (
-                <Alert severity="info">
-                  No process definitions are available yet. Create the sample draft
-                  above to see the complete model → validate → publish flow without
-                  connecting any domain action or scheduler.
-                </Alert>
-              ) : (
-                <Stack spacing={2}>
-                  {(definitions.data ?? []).map((definition) => (
-                    <DefinitionCard
-                      definition={definition}
-                      disabled={busy}
-                      key={definition.code}
-                      onDelete={() => deleteDefinition.mutate(definition.code)}
-                      onEdit={() => selectDefinitionForEditing(definition)}
-                      onPrepare={() => prepareNextDraft.mutate(definition.code)}
-                      onPublish={() => publishDraft.mutate(definition.code)}
-                      onSelect={() => selectDefinitionForEditing(definition)}
-                      onStart={() => startInstance.mutate(definition.code)}
-                      onValidate={() => validateDraft.mutate(definition.code)}
-                      selected={selectedDefinition?.code === definition.code}
-                    />
-                  ))}
-                </Stack>
-              )}
+              <Box>
+                <Typography component="h2" variant="h5">
+                  {workflowText(
+                    'process.ui.process-workspace-focus',
+                    'Process workspace focus',
+                  )}
+                </Typography>
+                <Typography color="text.secondary">
+                  {workflowText(
+                    'process.ui.business-users-can-move-through-the-process-console-by-intent-definition',
+                    'Business users can move through the Process console by intent: definitions, operations, scheduled triggers, or designer. Each card opens the same backend-owned capability family without creating a second workflow authority in Axis.',
+                  )}
+                </Typography>
+              </Box>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 2,
+                  gridTemplateColumns: {
+                    xs: 'minmax(0, 1fr)',
+                    md: 'repeat(2, minmax(0, 1fr))',
+                    xl: 'repeat(4, minmax(0, 1fr))',
+                  },
+                }}
+              >
+                {processWorkspaces.map((workspace) => (
+                  <ProcessWorkspaceCard
+                    active={activeWorkspace.route === workspace.route}
+                    detail={workspace.detail}
+                    icon={workspace.icon}
+                    key={workspace.route}
+                    label={workspace.label}
+                    route={workspace.route}
+                  />
+                ))}
+              </Box>
             </Stack>
           </Paper>
+        )}
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 3,
+            gridTemplateColumns: {
+              xs: 'minmax(0, 1fr)',
+              md: 'repeat(4, minmax(0, 1fr))',
+            },
+          }}
+        >
+          <SummaryCard
+            detail="Total governed definitions visible to this enterprise."
+            label={workflowText('process.ui.definitions', 'Definitions')}
+            value={definitions.isPending ? '—' : definitionCount}
+          />
+          <SummaryCard
+            detail="Editable definitions waiting for validation and publish."
+            label={workflowText('process.ui.drafts', 'Drafts')}
+            value={definitions.isPending ? '—' : draftCount}
+          />
+          <SummaryCard
+            detail="Versioned definitions ready for controlled runtime use."
+            label={workflowText('process.ui.published', 'Published')}
+            value={definitions.isPending ? '—' : publishedCount}
+          />
+          <SummaryCard
+            detail="Validation findings on the selected process preview."
+            label={workflowText('process.ui.selected-issues', 'Selected issues')}
+            value={selectedIssueCount}
+          />
+        </Box>
 
-          <Stack spacing={3}>
-            <GraphPreview graph={selectedDefinition?.graph} />
-            <VersionHistory
-              loading={versions.isPending}
-              versions={versions.data ?? []}
-            />
-            <VisualDesignerSkeleton
-              disabled={busy || !selectedIsDraft}
-              graph={designerGraph}
-              onChange={(graph) =>
-                setDesignerGraphOverlay({
-                  definitionCode: selectedDefinition?.code,
-                  graph,
+        {!focusedAuthoring && !focusedTriggers && (
+          <>
+            <Paper
+              component="section"
+              elevation={0}
+              sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
+            >
+              <Stack spacing={2.5}>
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  spacing={2}
+                  sx={{ justifyContent: 'space-between' }}
+                >
+                  <Box>
+                    <Typography component="h2" variant="h5">
+                      {workflowText(
+                        'process.ui.runtime-operations-overview',
+                        'Runtime operations overview',
+                      )}
+                    </Typography>
+                    <Typography color="text.secondary">
+                      {workflowText(
+                        'process.ui.operations-teams-need-to-see-whether-published-processes-are-producing-r',
+                        'Operations teams need to see whether published processes are producing running instances, human work, and audit evidence. These numbers come from nodics.process read APIs, not from frontend-only assumptions.',
+                      )}
+                    </Typography>
+                  </Box>
+                  <Chip
+                    color={operations.isError ? 'warning' : 'success'}
+                    label={
+                      operations.isError
+                        ? workflowText(
+                            'process.ui.inspection-limited',
+                            'Inspection limited',
+                          )
+                        : workflowText(
+                            'process.ui.inspection-ready',
+                            'Inspection ready',
+                          )
+                    }
+                    variant={operations.isError ? 'outlined' : 'filled'}
+                  />
+                </Stack>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gap: 2,
+                    gridTemplateColumns: {
+                      xs: 'minmax(0, 1fr)',
+                      md: 'repeat(4, minmax(0, 1fr))',
+                    },
+                  }}
+                >
+                  <SummaryCard
+                    detail="Active runtime instances currently visible to Axis."
+                    label={workflowText(
+                      'process.ui.running-instances',
+                      'Running instances',
+                    )}
+                    value={operations.isPending ? '—' : runningInstanceCount}
+                  />
+                  <SummaryCard
+                    detail="Human tasks waiting for action, ownership, or escalation."
+                    label={workflowText('process.ui.open-tasks', 'Open tasks')}
+                    value={operations.isPending ? '—' : openTaskCount}
+                  />
+                  <SummaryCard
+                    detail="Failed automated actions requiring retry, compensation, or escalation."
+                    label={workflowText(
+                      'process.ui.recovery-incidents',
+                      'Recovery incidents',
+                    )}
+                    value={operations.isPending ? '—' : incidentCount}
+                  />
+                  <SummaryCard
+                    detail="Process-owned schedule relationships referencing Cron where applicable."
+                    label={workflowText('process.ui.triggers', 'Triggers')}
+                    value={operations.isPending ? '—' : triggerCount}
+                  />
+                </Box>
+                {operations.isError && operations.error instanceof Error ? (
+                  <Alert severity="warning">{operations.error.message}</Alert>
+                ) : (
+                  <Alert severity="info">
+                    {workflowText(
+                      'process.ui.start-a-published-definition-to-create-an-instance-and-first-task-claim-',
+                      'Start a published definition to create an instance and first task. Claim, complete, cancel, and timeline views call nodics.process APIs; Axis does not calculate runtime state locally.',
+                    )}
+                  </Alert>
+                )}
+              </Stack>
+            </Paper>
+
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 3,
+                gridTemplateColumns: {
+                  xs: 'minmax(0, 1fr)',
+                  xl: 'minmax(0, 1fr) minmax(0, 1fr)',
+                },
+              }}
+            >
+              <RuntimeInstanceList
+                hasEvidence={operations.data !== undefined}
+                disabled={
+                  busy ||
+                  operations.isFetching ||
+                  operations.isError ||
+                  !processConnection
+                }
+                instances={operations.data?.instances ?? []}
+                onCancel={(instanceCode) => cancelInstance.mutate(instanceCode)}
+                onSelect={selectInstance}
+                selectedCode={selectedInstanceCode}
+              />
+              <TaskInbox
+                hasEvidence={operations.data !== undefined}
+                reviewEvidence={(task) => renderReviewEvidence(task, 'queue')}
+                assignee={taskAssignee}
+                disabled={
+                  busy ||
+                  operations.isFetching ||
+                  operations.isError ||
+                  completeTask.isError
+                }
+                onRefresh={() => {
+                  void refreshTaskEvidence();
+                }}
+                refreshDisabled={busy || operations.isFetching || !processConnection}
+                onAssigneeChange={setTaskAssignee}
+                onAssign={(taskCode) => assignTask.mutate(taskCode)}
+                onCancel={(taskCode) => cancelTask.mutate(taskCode)}
+                onClaim={(taskCode) => claimTask.mutate(taskCode)}
+                onComplete={(taskCode, decision) =>
+                  completeTask.mutate(decision ? { decision, taskCode } : { taskCode })
+                }
+                publicationContexts={documentationPublicationContexts}
+                tasks={operations.data?.tasks ?? []}
+                pagination={operations.data?.taskPagination}
+                onPageChange={setTaskPage}
+              />
+            </Box>
+
+            {!operations.data?.incidentsAccessDenied && (
+              <RecoveryIncidentQueue
+                hasEvidence={operations.data !== undefined}
+                disabled={
+                  busy ||
+                  operations.isFetching ||
+                  operations.isError ||
+                  !processConnection
+                }
+                incidents={operations.data?.incidents ?? []}
+                onCompensate={(instanceCode) => compensateInstance.mutate(instanceCode)}
+                onRetry={(incident) => retryInstance.mutate(incident)}
+              />
+            )}
+          </>
+        )}
+        {!focusedAuthoring && (
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 3,
+              gridTemplateColumns: {
+                xs: 'minmax(0, 1fr)',
+                xl: 'minmax(0, 1fr) minmax(0, 1fr)',
+              },
+            }}
+          >
+            {!focusedTriggers && instanceTimeline}
+            <TriggerRelationshipView
+              commandAvailability={
+                commandCapabilities.isError
+                  ? 'UNAVAILABLE'
+                  : !commandCapabilities.isSuccess ||
+                      commandCapabilities.fetchStatus !== 'idle'
+                    ? 'CHECKING'
+                    : commandCapabilities.data.newRecording === 'UNAVAILABLE'
+                      ? 'UNAVAILABLE'
+                      : 'VERIFIED'
+              }
+              commandCapabilities={
+                commandCapabilities.isSuccess &&
+                commandCapabilities.fetchStatus === 'idle'
+                  ? commandCapabilities.data
+                  : undefined
+              }
+              commandFeedback={
+                <TriggerCommandFeedback
+                  outcome={triggerOutcome}
+                  inspecting={inspectTriggerReceipt.isPending}
+                  inspectionError={inspectTriggerReceipt.error}
+                  canInspect={Boolean(
+                    triggerOutcome?.intent.idempotencyKey &&
+                    commandCapabilities.isSuccess &&
+                    commandCapabilities.fetchStatus === 'idle' &&
+                    commandCapabilities.data.triggerCommands[triggerOutcome.intent.kind]
+                      .receiptInspection === 'AUTHORIZED',
+                  )}
+                  onInspect={() => {
+                    if (triggerOutcome?.state === 'UNKNOWN')
+                      inspectTriggerReceipt.mutate(triggerOutcome.intent);
+                  }}
+                />
+              }
+              definitions={definitions.isSuccess ? definitions.data : []}
+              disabled={
+                busy ||
+                triggerOutcome?.state === 'PENDING' ||
+                triggerOutcome?.state === 'UNKNOWN' ||
+                (pinTrigger.isError && pinTrigger.variables.scope === triggerScope) ||
+                operations.isError ||
+                operations.isFetching ||
+                !operations.isSuccess ||
+                !commandCapabilities.isSuccess ||
+                commandCapabilities.fetchStatus !== 'idle' ||
+                commandCapabilities.data?.newRecording === 'UNAVAILABLE'
+              }
+              pinUnconfirmed={
+                pinTrigger.isError &&
+                pinTrigger.variables.scope === triggerScope &&
+                triggerOutcome?.state !== 'UNKNOWN'
+              }
+              onRefresh={() => {
+                void operations.refetch();
+                void commandCapabilities.refetch();
+              }}
+              onArchive={(triggerCode) =>
+                dispatchTriggerAction(() => archiveTrigger.mutate(triggerCode))
+              }
+              onCreate={() => dispatchTriggerAction(() => createTrigger.mutate())}
+              onExecute={(triggerCode) =>
+                dispatchTriggerAction(() => executeTrigger.mutate(triggerCode))
+              }
+              onFieldChange={(field, value) => {
+                setTriggerForm({
+                  ...currentTriggerForm,
+                  [field]: value,
+                  ...(field === 'definitionCode' ? { version: '' } : {}),
+                });
+              }}
+              onUpdate={(trigger) =>
+                dispatchTriggerAction(() => activateTrigger.mutate(trigger))
+              }
+              onPin={(trigger) =>
+                dispatchTriggerAction(() =>
+                  pinTrigger.mutate({ trigger, scope: triggerScope }),
+                )
+              }
+              onSelectRelationship={(trigger) =>
+                setTriggerForm({
+                  scope: triggerScope,
+                  definitionCode: trigger.definitionCode ?? '',
+                  cronJobCode: trigger.cronJobCode ?? '',
+                  scheduleExpression:
+                    typeof trigger.schedule?.expression === 'string'
+                      ? trigger.schedule.expression
+                      : '',
+                  version: '',
                 })
               }
-              onSave={() => updateDraft.mutate()}
+              triggerCronJobCode={triggerCronJobCode}
+              triggerDefinitionCode={triggerDefinitionCode}
+              triggerScheduleExpression={triggerScheduleExpression}
+              triggerVersion={triggerVersion}
+              versions={
+                selectedTriggerDefinition && triggerVersions.isSuccess
+                  ? triggerVersions.data
+                  : []
+              }
+              versionsUnavailable={triggerVersions.isError}
+              triggers={operations.data?.triggers ?? []}
             />
-          </Stack>
-        </Box>
+          </Box>
+        )}
+        {!focusedTriggers && (
+          <>
+            <Paper
+              component="section"
+              elevation={0}
+              sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
+            >
+              <Stack spacing={2}>
+                <Typography component="h2" variant="h5">
+                  {workflowText(
+                    'process.ui.create-a-workflow-draft',
+                    'Create a workflow draft',
+                  )}
+                </Typography>
+                <Typography color="text.secondary">
+                  {workflowText(
+                    'process.ui.start-with-a-request-a-review-task-and-an-end-step-edit-the-steps-valida',
+                    'Start with a request, a review task, and an end step. Edit the steps, validate the flow, and publish when it is ready.',
+                  )}
+                </Typography>
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+                  <TextField
+                    fullWidth
+                    label={workflowText('process.ui.draft-name', 'Draft name')}
+                    onChange={(event) => setDraftName(event.target.value)}
+                    value={draftName}
+                  />
+                  <Button
+                    disabled={!processConnection || busy}
+                    onClick={() => createDraft.mutate()}
+                    sx={{ minWidth: 190 }}
+                    variant="contained"
+                  >
+                    {workflowText(
+                      'process.ui.create-workflow-draft',
+                      'Create workflow draft',
+                    )}
+                  </Button>
+                </Stack>
+              </Stack>
+            </Paper>
+
+            <Paper
+              component="section"
+              elevation={0}
+              sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
+            >
+              <Stack spacing={2}>
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  spacing={1.5}
+                  sx={{ justifyContent: 'space-between' }}
+                >
+                  <Box>
+                    <Typography component="h2" variant="h5">
+                      {workflowText(
+                        'process.ui.edit-selected-draft',
+                        'Edit selected draft',
+                      )}
+                    </Typography>
+                    <Typography color="text.secondary">
+                      {workflowText(
+                        'process.ui.update-the-name-category-and-business-description-save-changes-then-vali',
+                        'Update the name, category, and business description. Save changes, then validate the draft before publishing.',
+                      )}
+                    </Typography>
+                  </Box>
+                  <Chip
+                    color={selectedIsDraft ? 'warning' : 'default'}
+                    label={
+                      selectedDefinition
+                        ? selectedIsDraft
+                          ? workflowText('process.ui.draft-editable', 'Draft editable')
+                          : workflowText(
+                              'process.ui.published-read-only',
+                              'Published read-only',
+                            )
+                        : workflowText('process.ui.no-selection', 'No selection')
+                    }
+                    variant="outlined"
+                  />
+                </Stack>
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+                  <TextField
+                    disabled={!selectedIsDraft || busy}
+                    fullWidth
+                    label={workflowText('process.ui.process-name', 'Process name')}
+                    onChange={(event) => setEditName(event.target.value)}
+                    value={editName}
+                  />
+                  <TextField
+                    disabled={!selectedIsDraft || busy}
+                    label={workflowText('process.ui.category', 'Category')}
+                    onChange={(event) => setEditCategory(event.target.value)}
+                    sx={{ minWidth: { md: 220 } }}
+                    value={editCategory}
+                  />
+                </Stack>
+                <TextField
+                  disabled={!selectedIsDraft || busy}
+                  fullWidth
+                  label={workflowText(
+                    'process.ui.business-description',
+                    'Business description',
+                  )}
+                  minRows={3}
+                  multiline
+                  onChange={(event) => setEditDescription(event.target.value)}
+                  value={editDescription}
+                />
+                <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                  <Button
+                    disabled={!processConnection || !selectedIsDraft || busy}
+                    onClick={() => updateDraft.mutate()}
+                    variant="contained"
+                  >
+                    {workflowText(
+                      'process.ui.save-draft-changes',
+                      'Save draft changes',
+                    )}
+                  </Button>
+                  <Button
+                    disabled={!selectedIsDraft || busy}
+                    onClick={() =>
+                      selectedDefinition &&
+                      selectDefinitionForEditing(selectedDefinition)
+                    }
+                    variant="outlined"
+                  >
+                    {workflowText('process.ui.reset-fields', 'Reset fields')}
+                  </Button>
+                </Stack>
+              </Stack>
+            </Paper>
+
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 3,
+                gridTemplateColumns: {
+                  xs: 'minmax(0, 1fr)',
+                  xl: 'minmax(0, 1.25fr) minmax(360px, 0.75fr)',
+                },
+              }}
+            >
+              <Paper
+                component="section"
+                elevation={0}
+                sx={{ border: 1, borderColor: 'divider', p: { xs: 3, md: 4 } }}
+              >
+                <Stack spacing={2.5}>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                    <Typography component="h2" variant="h5">
+                      {workflowText(
+                        'process.ui.process-definitions',
+                        'Process definitions',
+                      )}
+                    </Typography>
+                    <Chip
+                      label={
+                        definitions.isPending
+                          ? workflowText('process.ui.loading', 'Loading')
+                          : `${String(definitions.data?.length ?? 0)} definitions`
+                      }
+                      variant="outlined"
+                    />
+                  </Stack>
+                  <Divider />
+                  {(definitions.data ?? []).length === 0 ? (
+                    <Alert severity="info">
+                      {workflowText(
+                        'process.ui.no-process-definitions-are-available-yet-create-the-sample-draft-above-t',
+                        'No process definitions are available yet. Create the sample draft above to see the complete model → validate → publish flow without connecting any domain action or scheduler.',
+                      )}
+                    </Alert>
+                  ) : (
+                    <Stack spacing={2}>
+                      {(definitions.data ?? []).map((definition) => (
+                        <DefinitionCard
+                          definition={definition}
+                          disabled={busy}
+                          key={definition.code}
+                          onDelete={() => deleteDefinition.mutate(definition.code)}
+                          onEdit={() => selectDefinitionForEditing(definition)}
+                          onPrepare={() => prepareNextDraft.mutate(definition.code)}
+                          onPublish={() => publishDraft.mutate(definition.code)}
+                          onSelect={() => selectDefinitionForEditing(definition)}
+                          onStart={() => startWorkflow(definition.code)}
+                          startBlocked={Boolean(uncertainStart)}
+                          onValidate={() => validateDraft.mutate(definition.code)}
+                          selected={selectedDefinition?.code === definition.code}
+                        />
+                      ))}
+                    </Stack>
+                  )}
+                </Stack>
+              </Paper>
+
+              <Stack spacing={3}>
+                <GraphPreview graph={selectedDefinition?.graph} />
+                <VersionHistory
+                  loading={versions.isPending}
+                  versions={versions.data ?? []}
+                />
+                {currentPath === '/process/definitions' ? (
+                  <Button
+                    component={RouterLink}
+                    to="/process/designer"
+                    variant="outlined"
+                  >
+                    {workflowText(
+                      'process.ui.open-workflow-designer',
+                      'Open workflow designer',
+                    )}
+                  </Button>
+                ) : (
+                  <VisualDesignerSkeleton
+                    disabled={busy || !selectedIsDraft}
+                    graph={designerGraph}
+                    onChange={(graph) =>
+                      setDesignerGraphOverlay({
+                        definitionCode: selectedDefinition?.code,
+                        graph,
+                      })
+                    }
+                    onSave={() => updateDraft.mutate()}
+                  />
+                )}
+              </Stack>
+            </Box>
+          </>
+        )}
       </Stack>
     </WorkspaceContainer>
   );

@@ -16,6 +16,10 @@ import { useState } from 'react';
 
 import { ShellIcon } from '../../../app/shell/ShellIcon';
 import { CapabilityReadinessPanel } from '../../readiness/CapabilityReadinessPanel';
+import {
+  dataCatalogueRuntimeLabel,
+  dataCatalogueSourceKey,
+} from '../api/dataCatalogueSources';
 import type {
   DataRelease,
   DataReleaseDryRunOperation,
@@ -43,13 +47,18 @@ interface DataReleaseWorkbenchProps {
   readonly catalogueIsError: boolean;
   readonly catalogueIsLoading: boolean;
   readonly catalogueIsSuccess: boolean;
+  readonly catalogueIsPartial?: boolean;
+  readonly filterActive?: boolean;
   readonly connectionAvailable: boolean;
   readonly dryRun?: DataReleaseDryRunSummary | undefined;
   readonly executableReleaseCount: number;
+  readonly canValidateSelected?: boolean;
+  readonly canInstallSelected?: boolean;
   readonly operationErrorMessage: string | undefined;
   readonly operationIsError: boolean;
   readonly operationIsPending: boolean;
   readonly operationIsSuccess: boolean;
+  readonly operationSuccessSeverity?: 'success' | 'warning' | undefined;
   readonly releaseType: DataReleaseType;
   readonly selectedReleaseCount: number;
   readonly selectedReleaseKeys: ReadonlySet<string>;
@@ -434,8 +443,11 @@ function readinessGroupKey(release: ReleaseWithReadiness): string {
   const readiness = releaseReadiness(release);
   return [
     readiness.group,
+    readiness.owningModule,
     readiness.capabilityCode,
-    release.destinationRole ?? 'default',
+    release.catalogueSource
+      ? dataCatalogueSourceKey(release.catalogueSource)
+      : (release.destinationRole ?? 'default'),
   ].join(':');
 }
 
@@ -517,7 +529,10 @@ function buildBusinessReleasePacks(
         label: readinessGroupLabel(key),
         help: businessPackHelp(key),
         releases: sorted,
-        actionable: sorted.filter((release) => isInstallableStatus(release.status)),
+        actionable: sorted.filter(
+          (release) =>
+            isInstallableStatus(release.status) && !!release.allowedActions?.length,
+        ),
         current: sorted.filter((release) => release.status === 'CURRENT').length,
         blockerCount: sorted.reduce(
           (total, release) => total + releaseReadiness(release).blockers.length,
@@ -538,12 +553,14 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
   const selectionDisabled =
     props.operationIsPending || !props.catalogueIsSuccess || !props.connectionAvailable;
   const ownerReadinessReleases = props.visibleReleases.filter(hasReadiness);
-  const selectableReleaseCount = props.visibleReleases.filter((release) =>
-    isInstallableStatus(release.status),
+  const selectableReleaseCount = props.visibleReleases.filter(
+    (release) =>
+      isInstallableStatus(release.status) && !!release.allowedActions?.length,
   ).length;
   const selectedVisibleCount = props.visibleReleases.filter(
     (release) =>
       isInstallableStatus(release.status) &&
+      !!release.allowedActions?.length &&
       props.selectedReleaseKeys.has(releaseKey(release)),
   ).length;
   const allVisibleSelected =
@@ -553,8 +570,8 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
   const groupedReleases = [
     {
       id: 'available',
-      heading: 'Needs action',
-      help: 'Install or update these releases before dependent business journeys run.',
+      heading: 'Available to review',
+      help: 'Review and select releases needed for this installation. Availability does not mean every release must be installed.',
       releases: props.visibleReleases
         .filter((release) => releaseActionGroup(release) === 'available')
         .sort(compareDataReleases),
@@ -597,6 +614,14 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
       }, new Map())
       .entries(),
   )
+    .filter(([, releases]) =>
+      releases.some(
+        (release) =>
+          props.selectedReleaseKeys.has(releaseKey(release)) ||
+          releaseActionGroup(release) === 'repair' ||
+          release.status === 'FAILED',
+      ),
+    )
     .map<CapabilityReadinessGroup>(([key, releases]) => {
       const sortedReleases = releases.sort(compareDataReleases);
       return {
@@ -610,8 +635,9 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
           blockers: sortedReleases.flatMap((release) => release.readiness.blockers),
         },
         releases: sortedReleases,
-        actionable: sortedReleases.filter((release) =>
-          isInstallableStatus(release.status),
+        actionable: sortedReleases.filter(
+          (release) =>
+            isInstallableStatus(release.status) && !!release.allowedActions?.length,
         ),
         current: sortedReleases.filter((release) => release.status === 'CURRENT')
           .length,
@@ -719,21 +745,46 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
               </Box>
             </Stack>
             <Chip
-              label={`${readinessPercent.toString()}% current`}
-              color={readinessPercent === 100 ? 'success' : 'default'}
-              variant={readinessPercent === 100 ? 'filled' : 'outlined'}
+              label={
+                props.catalogueIsPartial
+                  ? 'Incomplete catalogue'
+                  : props.summary.total === 0
+                    ? props.filterActive
+                      ? 'No matching releases'
+                      : 'No releases returned'
+                    : `${readinessPercent.toString()}% current`
+              }
+              color={
+                props.catalogueIsPartial
+                  ? 'warning'
+                  : readinessPercent === 100
+                    ? 'success'
+                    : 'default'
+              }
+              sx={
+                props.catalogueIsPartial
+                  ? { color: 'text.primary', borderColor: 'warning.main' }
+                  : undefined
+              }
+              variant={
+                !props.catalogueIsPartial && readinessPercent === 100
+                  ? 'filled'
+                  : 'outlined'
+              }
             />
           </Stack>
-          <LinearProgress
-            aria-label={`${typeCopy[props.releaseType].label} readiness`}
-            value={readinessPercent}
-            variant="determinate"
-            sx={(theme) => ({
-              bgcolor: alpha(theme.palette.primary.main, 0.12),
-              borderRadius: 999,
-              height: 6,
-            })}
-          />
+          {!props.catalogueIsPartial && props.summary.total > 0 ? (
+            <LinearProgress
+              aria-label={`${typeCopy[props.releaseType].label} readiness`}
+              value={readinessPercent}
+              variant="determinate"
+              sx={(theme) => ({
+                bgcolor: alpha(theme.palette.primary.main, 0.12),
+                borderRadius: 999,
+                height: 6,
+              })}
+            />
+          ) : null}
           <Box
             aria-label="Data release summary"
             sx={{
@@ -750,7 +801,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
               [
                 ['Releases', props.summary.total, 'folder'],
                 ['Current', props.summary.current, 'approve'],
-                ['Needs action', props.summary.installable, 'import'],
+                ['Available', props.summary.installable, 'import'],
                 ['Selected', props.summary.selected, 'tasks'],
               ] satisfies ReadonlyArray<readonly [string, number, string]>
             ).map(([label, value, icon]) => (
@@ -844,7 +895,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
         </Stack>
       </Paper>
 
-      {businessPacks.length > 0 ? (
+      {!props.catalogueIsPartial && businessPacks.length > 0 ? (
         <Paper
           aria-label="Business release packs"
           component="section"
@@ -983,7 +1034,18 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                       <Typography color="text.secondary" variant="caption">
                         {pack.actionable.length > 0
                           ? `${selectedPackCount.toString()} of ${pack.actionable.length.toString()} actionable selected`
-                          : 'No import action required for this pack'}
+                          : pack.releases.every(
+                                (release) => release.status === 'CURRENT',
+                              )
+                            ? 'No import action required for this pack'
+                            : pack.releases.some((release) =>
+                                  isInstallableStatus(release.status),
+                                ) &&
+                                pack.releases.every(
+                                  (release) => !release.allowedActions?.length,
+                                )
+                              ? 'Read-only access. Review the release details for this pack.'
+                              : 'Review release details for the next required action.'}
                       </Typography>
                       {pack.actionable.length > 0 ? (
                         <Button
@@ -1192,7 +1254,11 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
       ) : null}
       {props.catalogueIsSuccess && props.visibleReleases.length === 0 ? (
         <Alert severity="info">
-          No active module publishes this data release type.
+          {props.catalogueIsPartial
+            ? 'No releases could be verified for this view yet. Some source reads are incomplete; refresh to check their current state.'
+            : props.filterActive
+              ? 'No releases match this search. Clear the search or use another name, owner or description.'
+              : 'No releases of this type were returned by the available source workspaces.'}
         </Alert>
       ) : null}
 
@@ -1340,7 +1406,9 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                       const disabledReason = releaseDisabledReason(release);
                       const installedMatchesAvailable =
                         release.installedVersion === release.version;
-                      const selectable = isInstallableStatus(release.status);
+                      const selectable =
+                        isInstallableStatus(release.status) &&
+                        !!release.allowedActions?.length;
                       const checked =
                         selectable &&
                         props.selectedReleaseKeys.has(releaseKey(release));
@@ -1387,6 +1455,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                                 slotProps={{
                                   input: {
                                     'aria-label': releaseSelectionLabel(release),
+                                    title: dataCatalogueRuntimeLabel(release),
                                   },
                                 }}
                                 sx={{ p: 0.5 }}
@@ -1426,9 +1495,13 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                                   size="small"
                                   variant="outlined"
                                 />
-                                {release.destinationRole ? (
+                                {dataCatalogueRuntimeLabel(release) ||
+                                release.destinationRole ? (
                                   <Chip
-                                    label={`Target ${release.destinationRole}`}
+                                    label={
+                                      dataCatalogueRuntimeLabel(release) ??
+                                      `Target ${release.destinationRole}`
+                                    }
                                     size="small"
                                     variant="outlined"
                                   />
@@ -1476,7 +1549,7 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
           bottom: 0,
           boxShadow: `0 -10px 32px ${alpha(theme.palette.common.black, 0.08)}`,
           mt: 2,
-          position: 'sticky',
+          position: { xs: 'static', md: 'sticky' },
           px: { xs: 1.25, md: 1.75 },
           py: 1.35,
           zIndex: theme.zIndex.appBar - 1,
@@ -1487,7 +1560,9 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
             <Alert severity="error">{props.operationErrorMessage}</Alert>
           ) : null}
           {props.operationIsSuccess ? (
-            <Alert severity="success">{props.successMessage}</Alert>
+            <Alert severity={props.operationSuccessSeverity ?? 'success'}>
+              {props.successMessage}
+            </Alert>
           ) : null}
           <Stack
             direction={{ xs: 'column', md: 'row' }}
@@ -1526,16 +1601,32 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
               <Chip
                 label={
                   selectableReleaseCount === 0
-                    ? 'No action required'
+                    ? props.catalogueIsPartial
+                      ? 'Action availability unverified'
+                      : 'No actionable releases shown'
                     : `${selectableReleaseCount.toString()} actionable`
                 }
-                color={selectableReleaseCount === 0 ? 'success' : 'default'}
+                color={props.catalogueIsPartial ? 'warning' : 'default'}
+                sx={
+                  props.catalogueIsPartial
+                    ? { color: 'text.primary', borderColor: 'warning.main' }
+                    : undefined
+                }
                 variant="outlined"
               />
             </Stack>
             <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ gap: 1.5 }}>
               <Button
-                disabled={selectionDisabled || props.selectedReleaseCount === 0}
+                disabled={
+                  selectionDisabled ||
+                  props.selectedReleaseCount === 0 ||
+                  props.canValidateSelected !== true ||
+                  !props.visibleReleases
+                    .filter((release) =>
+                      props.selectedReleaseKeys.has(releaseKey(release)),
+                    )
+                    .every((release) => release.allowedActions?.includes('validate'))
+                }
                 startIcon={<ShellIcon fontSize="small" name="visible" />}
                 onClick={props.onValidateSelected}
                 variant="outlined"
@@ -1543,7 +1634,16 @@ export function DataReleaseWorkbench(props: DataReleaseWorkbenchProps) {
                 Validate selected
               </Button>
               <Button
-                disabled={selectionDisabled || props.executableReleaseCount === 0}
+                disabled={
+                  selectionDisabled ||
+                  props.executableReleaseCount === 0 ||
+                  props.canInstallSelected !== true ||
+                  !props.visibleReleases
+                    .filter((release) =>
+                      props.selectedReleaseKeys.has(releaseKey(release)),
+                    )
+                    .every((release) => release.allowedActions?.includes('install'))
+                }
                 startIcon={<ShellIcon fontSize="small" name="download" />}
                 onClick={props.onInstallSelected}
                 variant="contained"

@@ -26,5 +26,7 @@ export function DocumentationArticlePageRenderer({
     navigation: slot('navigation'),
     article: slot('article'),
   };
-  return <DocumentationArticleTemplateRenderer page={page} slots={slots} />;
+  return (
+    <DocumentationArticleTemplateRenderer readerLayout page={page} slots={slots} />
+  );
 }

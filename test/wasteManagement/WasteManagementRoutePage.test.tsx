@@ -2078,7 +2078,7 @@ describe('module-owned view behavior', () => {
   it('overview does not expose a review editor and sends its explicit view key', async () => {
     await configureView('OVERVIEW');
     renderPage('partner.view');
-    await screen.findByRole('heading', { name: 'Partner waste view', level: 4 });
+    await screen.findByRole('heading', { name: 'Partner waste view', level: 1 });
     expect(
       screen.queryByRole('button', { name: 'Review approval' }),
     ).not.toBeInTheDocument();
@@ -2094,7 +2094,7 @@ describe('module-owned view behavior', () => {
   it('review queue starts with pending work and excludes approved status', async () => {
     await configureView('REVIEW_QUEUE');
     renderPage('partner.view');
-    await screen.findByRole('heading', { name: 'Partner waste view', level: 4 });
+    await screen.findByRole('heading', { name: 'Partner waste view', level: 1 });
     expect(loadWasteReviewPage).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ viewCode: 'partner.view', status: 'OPEN' }),
@@ -2261,15 +2261,17 @@ it('keeps the list visible until requested, expands a summary, and guards dirty 
   await user.click(screen.getByRole('button', { name: 'Close details' }));
   await user.click(await screen.findByRole('button', { name: 'Discard changes' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  await waitFor(() => expect(row).toHaveFocus());
   expect(
     screen.getByRole('region', { name: 'Summary: Customer tablet' }),
   ).toBeVisible();
-  await user.click(row);
+  await user.keyboard('{Enter}');
   expect(await screen.findByRole('textbox', { name: 'Review feedback' })).toHaveValue(
     '',
   );
   await user.click(screen.getByRole('button', { name: 'Close details' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  await waitFor(() => expect(row).toHaveFocus());
 });
 
 it('uses a contributed clothing view in the same listing without assuming electronics', async () => {

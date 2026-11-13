@@ -27,6 +27,8 @@ interface MediaPreviewBaseProps {
   readonly accessToken?: string | undefined;
   readonly deliveryUrl?: string | undefined;
   readonly downloadUrl?: string | undefined;
+  readonly enterpriseCode?: string | undefined;
+  readonly requireAuthenticatedDelivery?: boolean | undefined;
   readonly extension?: string | undefined;
   readonly fileName: string;
   readonly formatBytes: (value: number | undefined) => string;
@@ -196,17 +198,26 @@ function loadLocalImageSummary(url: string): Promise<string> {
   });
 }
 
-function authorizationHeaders(accessToken: string | undefined): HeadersInit {
-  return accessToken?.trim() ? { Authorization: `Bearer ${accessToken.trim()}` } : {};
+function authorizationHeaders(
+  accessToken: string | undefined,
+  enterpriseCode: string | undefined,
+): HeadersInit {
+  return {
+    ...(accessToken?.trim() ? { Authorization: `Bearer ${accessToken.trim()}` } : {}),
+    ...(enterpriseCode ? { 'x-enterprise-code': enterpriseCode } : {}),
+  };
 }
 
 async function loadRemoteTextMediaPreview(
   url: string,
   accessToken: string | undefined,
+  enterpriseCode: string | undefined,
 ): Promise<string> {
   const response = await fetch(url, {
-    headers: authorizationHeaders(accessToken),
+    headers: authorizationHeaders(accessToken, enterpriseCode),
     method: 'GET',
+    redirect: 'error',
+    cache: 'no-store',
   });
   if (!response.ok) {
     throw new Error('Media preview could not be loaded through governed delivery.');
@@ -217,10 +228,13 @@ async function loadRemoteTextMediaPreview(
 async function loadRemoteBlobMediaPreview(
   url: string,
   accessToken: string | undefined,
+  enterpriseCode: string | undefined,
 ): Promise<Blob> {
   const response = await fetch(url, {
-    headers: authorizationHeaders(accessToken),
+    headers: authorizationHeaders(accessToken, enterpriseCode),
     method: 'GET',
+    redirect: 'error',
+    cache: 'no-store',
   });
   if (!response.ok) {
     throw new Error('Media preview could not be loaded through governed delivery.');
@@ -300,12 +314,15 @@ export function MediaPreview(props: MediaPreviewProps) {
   const status = props.status ?? (props.source === 'file' ? 'PENDING' : undefined);
   const accessToken = props.accessToken;
   const authenticatedPreview = Boolean(accessToken?.trim());
+  const directPublicPreview =
+    access === 'PUBLIC' && !props.requireAuthenticatedDelivery;
   const remotePreviewUrl = props.deliveryUrl;
   const deliverable =
     props.source === 'file' ||
     (Boolean(remotePreviewUrl) &&
       ['READY', 'CONSUMED'].includes(status ?? '') &&
-      (access === 'PUBLIC' || (access === 'PRIVATE' && authenticatedPreview)));
+      (directPublicPreview ||
+        (['PUBLIC', 'PRIVATE'].includes(access ?? '') && authenticatedPreview)));
   const previewableImage = mimeType.startsWith('image/') && deliverable;
   const previewablePdf = isPdfPreviewType(mimeType, extension) && deliverable;
   const textPreviewAllowed =
@@ -317,8 +334,17 @@ export function MediaPreview(props: MediaPreviewProps) {
     (sizeBytes ?? 0) > textPreviewMaximumBytes;
   const remoteTextPreview = useQuery({
     enabled: props.source === 'record' && textPreviewAllowed,
-    queryKey: ['axis', 'media', 'preview', 'text', remotePreviewUrl, accessToken],
-    queryFn: () => loadRemoteTextMediaPreview(remotePreviewUrl!, accessToken),
+    queryKey: [
+      'axis',
+      'media',
+      'preview',
+      'text',
+      remotePreviewUrl,
+      accessToken,
+      props.enterpriseCode,
+    ],
+    queryFn: () =>
+      loadRemoteTextMediaPreview(remotePreviewUrl!, accessToken, props.enterpriseCode),
     staleTime: 60_000,
   });
   const remoteBlobPreview = useQuery({
@@ -326,9 +352,18 @@ export function MediaPreview(props: MediaPreviewProps) {
       props.source === 'record' &&
       Boolean(remotePreviewUrl) &&
       (previewableImage || previewablePdf) &&
-      access !== 'PUBLIC',
-    queryKey: ['axis', 'media', 'preview', 'blob', remotePreviewUrl, accessToken],
-    queryFn: () => loadRemoteBlobMediaPreview(remotePreviewUrl!, accessToken),
+      !directPublicPreview,
+    queryKey: [
+      'axis',
+      'media',
+      'preview',
+      'blob',
+      remotePreviewUrl,
+      accessToken,
+      props.enterpriseCode,
+    ],
+    queryFn: () =>
+      loadRemoteBlobMediaPreview(remotePreviewUrl!, accessToken, props.enterpriseCode),
     staleTime: 60_000,
   });
   const localTextPreview = useQuery({
@@ -404,12 +439,12 @@ export function MediaPreview(props: MediaPreviewProps) {
     props.source === 'file'
       ? localObjectUrl
       : (remoteBlobPreviewUrl ?? '') ||
-        (access === 'PUBLIC' ? props.deliveryUrl : undefined);
+        (directPublicPreview ? props.deliveryUrl : undefined);
   const pdfUrl =
     props.source === 'file'
       ? localObjectUrl
       : (remoteBlobPreviewUrl ?? '') ||
-        (access === 'PUBLIC' ? props.deliveryUrl : undefined);
+        (directPublicPreview ? props.deliveryUrl : undefined);
   const textContent =
     props.source === 'file'
       ? (localTextPreview.data?.content ?? '')

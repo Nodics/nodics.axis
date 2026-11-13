@@ -1,15 +1,76 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
 
 import { DocumentationRoutePage } from '../../src/documentation/DocumentationRoutePage';
 import type {
   AxisDocumentationSource,
   AxisApplicationInitializationProfile,
+  AxisNavigationItem,
 } from '../../src/bootstrap/publicBootstrap';
-import * as productClient from '../../src/documentation/api/documentationProductClient';
+import type { OnlineDocumentationGuideCatalogue } from '../../src/bootstrap/onlineDocumentationGuides';
+
+import { validResolvedPage } from '../cms/fixtures/resolvedPage';
+
+const readCatalogue = vi.hoisted(() => vi.fn());
+vi.mock('../../src/bootstrap/onlineDocumentationGuides', () => ({
+  useOnlineDocumentationGuides: readCatalogue,
+}));
+const article = {
+  id: 'published',
+  label: 'Published topic',
+  route: '/docs/framework/published',
+  locale: 'en',
+  channel: 'web',
+  site: 'onlineSite',
+  accessMode: 'PUBLIC' as const,
+};
+const catalogue: OnlineDocumentationGuideCatalogue = {
+  contractVersion: 1,
+  navigation: [
+    { id: 'framework', label: 'Framework', route: '/docs?guide=framework', order: 1 },
+    { id: 'project', label: 'Projects', route: '/docs?guide=project', order: 2 },
+  ],
+  guides: [
+    {
+      guide: 'framework',
+      label: 'Framework',
+      route: '/docs?guide=framework',
+      topics: [article],
+    },
+    {
+      guide: 'project',
+      projectId: 'kickoff',
+      label: 'Kickoff',
+      route: '/docs?guide=project&project=kickoff',
+      topics: [
+        { ...article, channelId: 'agora', channelLabel: 'Agora' },
+        {
+          ...article,
+          id: 'telco',
+          label: 'Telco',
+          route: '/docs/telco',
+          channelId: 'agora',
+          channelLabel: 'Agora',
+          accessMode: 'AUTHENTICATED',
+        },
+      ],
+    },
+  ],
+};
+const management: AxisNavigationItem = {
+  id: 'documentation',
+  route: '/docs',
+  label: 'Publication center',
+  order: 1,
+  moduleName: 'backoffice',
+  category: 'platform',
+  icon: 'cms',
+  availability: 'UP',
+  featureState: 'ACTIVE',
+};
 
 const runtime = {
   backofficeBaseUrl: 'http://localhost:3000',
@@ -66,6 +127,7 @@ const bootstrap = {
       {
         ...connection,
         moduleName: 'cms',
+        endpoint: 'http://localhost:3002/nodics/cms',
         runtimeRole: { code: 'WCMS_ONLINE', publication: 'ONLINE' },
       },
     ],
@@ -90,6 +152,7 @@ const bootstrap = {
   documentationSources: [
     {
       id: 'framework',
+      guide: 'framework' as const,
       label: 'Framework',
       type: 'CMS' as const,
       route: '/docs/framework',
@@ -116,6 +179,7 @@ const bootstrap = {
     },
     {
       id: 'swaggers',
+      guide: 'framework' as const,
       label: 'Swaggers',
       type: 'OPENAPI' as const,
       route: '/docs/swaggers',
@@ -177,6 +241,7 @@ function renderPage(
   path = '/docs',
   sources: readonly AxisDocumentationSource[] = bootstrap.documentationSources,
   profiles: readonly AxisApplicationInitializationProfile[] = [],
+  navigation: readonly AxisNavigationItem[] = [management],
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -188,6 +253,7 @@ function renderPage(
           accessToken="token"
           bootstrap={{
             ...bootstrap,
+            navigation,
             documentationSources: sources,
             applicationInitializationProfiles: profiles,
           }}
@@ -195,7 +261,7 @@ function renderPage(
           cmsBaseUrl="http://localhost:3000"
           employeeId="admin"
           locale="en"
-          path={path}
+          path={path.split('?')[0]!}
           runtime={runtime}
         />
       </QueryClientProvider>
@@ -210,106 +276,131 @@ function requestPathname(request: URL | RequestInfo): string {
 }
 
 describe('DocumentationRoutePage', () => {
-  it.each(['/docs/unregistered-project', '/docs/framework-other'])(
-    'does not request another Site for an undeclared route %s',
-    (path) => {
-      const fetchMock = vi.spyOn(globalThis, 'fetch');
-      renderPage(path);
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'No authorized documentation source is available for this route.',
-      );
-      expect(fetchMock).not.toHaveBeenCalled();
-      fetchMock.mockRestore();
-    },
-  );
+  beforeEach(() => {
+    readCatalogue.mockReturnValue({ data: catalogue, isError: false });
+  });
 
-  it('uses the declared project Site and profile for a nested project route', async () => {
-    const source: AxisDocumentationSource = {
-      ...bootstrap.documentationSources[0]!,
-      type: 'CMS',
-      id: 'acme',
-      label: 'Acme Handbook',
-      route: '/docs/acme',
-      connectionModule: 'cms',
-      ownerModule: 'cms',
-      order: 400,
-      site: 'acmeDocsSite',
-      catalog: 'acmeDocsCatalog',
-      defaultPage: '/docs/acme',
-      packCode: 'acmeDocs',
-      initializationProfile: 'acmedocs',
-    };
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((request) => {
-      const pathname = requestPathname(request);
-      if (pathname.includes('/applications/acmedocs/initialization')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              data: {
-                ...response.data,
-                profileCode: 'acmedocs',
-                readiness: 'READY',
-                allowedActions: [],
-              },
-            }),
-            { status: 200 },
-          ),
-        );
-      }
-      return Promise.resolve(new Response('{}', { status: 404 }));
-    });
-    const profile: AxisApplicationInitializationProfile = {
-      code: 'acmedocs',
-      title: 'Acme',
-      kind: 'DOCUMENTATION',
-      category: 'documentation',
-      summary: '',
-      order: 400,
-      type: 'DOCUMENTATION_BUNDLE',
-      owner: 'acme',
-      applicationCode: 'acme',
-      siteCode: 'acmeDocsSite',
-      baselineCode: 'acme',
-      contentPackCode: 'acmeDocs',
-      requiredServers: [],
-      dataPackages: [],
-      activationPolicy: {
-        approvalRequiredForOnline: true,
-        requiredDataTrigger: 'USER',
-        sampleDataTrigger: 'USER',
-      },
-    };
-    const discovery = vi
-      .spyOn(productClient, 'loadDocumentationProductSources')
-      .mockResolvedValue([source]);
-    renderPage('/docs/acme/setup', bootstrap.documentationSources, [profile]);
-    await waitFor(() =>
-      expect(
-        fetchMock.mock.calls.some(([request]) =>
-          requestPathname(request).includes('/delivery/pages/resolve'),
-        ),
-      ).toBe(true),
-    );
-    const request = fetchMock.mock.calls.find(([value]) =>
-      requestPathname(value).includes('/delivery/pages/resolve'),
-    )![0];
-    const url = new URL(request instanceof Request ? request.url : String(request));
-    expect(url.searchParams.get('site')).toBe('acmeDocsSite');
-    expect(url.searchParams.get('path')).toBe('/docs/acme/setup');
+  it('uses the employee’s WCMS Online catalogue even when bootstrap has no documentation packs', async () => {
+    const { useOnlineDocumentationGuides } = await vi.importActual<
+      typeof import('../../src/bootstrap/onlineDocumentationGuides')
+    >('../../src/bootstrap/onlineDocumentationGuides');
+    readCatalogue.mockImplementation(useOnlineDocumentationGuides);
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ result: catalogue })));
+    renderPage('/docs?guide=framework', [], [], []);
     expect(
-      fetchMock.mock.calls.some(([value]) =>
-        requestPathname(value).includes('/applications/frameworkdocs/'),
-      ),
-    ).toBe(false);
-    expect(discovery).toHaveBeenCalledWith(
-      expect.objectContaining({
-        runtimeRole: { code: 'WCMS_STAGED', publication: 'STAGED' },
-      }),
-      expect.objectContaining({ accessToken: 'token' }),
-      [profile],
+      await screen.findByRole('link', { name: 'Published topic' }),
+    ).toHaveAttribute('href', article.route);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url instanceof URL ? url.href : undefined).toBe(
+      'http://localhost:3002/nodics/cms/v0/delivery/documentation/guides',
     );
-    discovery.mockRestore();
+    expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer token');
     fetchMock.mockRestore();
+  });
+
+  it('lists only Online topics and uses the delivered project channel headings', async () => {
+    renderPage('/docs?guide=project');
+    const picker = screen.getByRole('link', { name: 'Kickoff' });
+    expect(picker).toHaveAttribute('href', '/docs?guide=project&project=kickoff');
+    await userEvent.click(picker);
+    expect(screen.getAllByRole('heading', { name: 'Agora' })).toHaveLength(1);
+    const channel = within(screen.getByRole('region', { name: 'Agora' }));
+    expect(channel.getByRole('link', { name: 'Telco' })).toHaveAttribute(
+      'href',
+      '/docs/telco?guide=project&project=kickoff',
+    );
+    expect(channel.getAllByRole('link')).toHaveLength(2);
+    expect(screen.queryByRole('link', { name: 'Swaggers' })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    '/docs/framework',
+    '/docs/framework/published/child',
+    '/docs/swaggers',
+    '/docs?guide=axis',
+    '/docs?guide=project&project=unpublished',
+    '/docs?guide=axis&guide=framework',
+  ])('refuses unlisted routes and guides without discovery or delivery: %s', (path) => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    renderPage(path);
+    expect(screen.getByRole('alert')).toHaveTextContent('No Online documentation');
+    expect(
+      screen.getByRole('link', { name: 'Open publication center' }),
+    ).toHaveAttribute('href', '/docs');
+    expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockRestore();
+  });
+
+  it.each([
+    [],
+    [{ ...management, featureState: 'HIDDEN' as const }],
+    [{ ...management, availability: 'UNAVAILABLE' as const }],
+  ])('only offers management to employees with an available grant', (...items) => {
+    renderPage('/docs?guide=axis', [], [], items);
+    expect(
+      screen.queryByRole('link', { name: 'Open publication center' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Ask your documentation administrator',
+    );
+  });
+
+  it('does not open managed source details without the publication-center grant', () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    renderPage('/docs?manage=framework', bootstrap.documentationSources, [], []);
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Ask your documentation administrator',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockRestore();
+  });
+
+  it('hides stale topics after a catalogue error and offers retry', async () => {
+    const refetch = vi.fn();
+    readCatalogue.mockReturnValue({ data: catalogue, isError: true, refetch });
+    renderPage('/docs?guide=framework');
+    expect(
+      screen.queryByRole('link', { name: 'Published topic' }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Retry Online catalogue' }),
+    );
+    expect(refetch).toHaveBeenCalledOnce();
+  });
+
+  it('refuses an ambiguous unscoped topic without selecting a different Site', () => {
+    readCatalogue.mockReturnValue({
+      data: {
+        ...catalogue,
+        guides: [
+          ...catalogue.guides,
+          {
+            ...catalogue.guides[0],
+            guide: 'axis',
+            topics: [{ ...article, site: 'differentSite' }],
+          },
+        ],
+      },
+      isError: false,
+    });
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    renderPage(article.route);
+    expect(screen.getByRole('alert')).toHaveTextContent('No Online documentation');
+    expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockRestore();
+  });
+
+  it('hides project setup records when the Online catalogue is empty', () => {
+    readCatalogue.mockReturnValue({
+      data: { navigation: [], guides: [] },
+      isError: false,
+    });
+    renderPage('/docs?guide=project');
+    expect(screen.getByRole('alert')).toHaveTextContent('No Online documentation');
+    expect(screen.queryByRole('link', { name: 'Kickoff' })).not.toBeInTheDocument();
   });
 
   it('renders the documentation dashboard from registered documentation sources once published', async () => {
@@ -351,24 +442,48 @@ describe('DocumentationRoutePage', () => {
     expect(
       screen.getByRole('heading', { name: 'Documentation publication center' }),
     ).toBeVisible();
-    expect(await screen.findByRole('link', { name: 'Open Framework' })).toBeVisible();
+    expect(await screen.findByRole('link', { name: 'Manage Framework' })).toBeVisible();
     expect(screen.queryByText('Core framework documentation.')).not.toBeInTheDocument();
     expect(screen.getByText('100% documented')).toBeVisible();
     expect(screen.queryByRole('tab', { name: 'Framework' })).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Swaggers' })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Open Framework' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Manage Framework' })).toHaveAttribute(
       'href',
-      '/docs/framework',
+      '/docs?manage=framework',
     );
     expect(screen.getByRole('link', { name: 'Open Swaggers' })).toHaveAttribute(
       'href',
-      '/docs/swaggers',
+      '/docs?manage=swaggers',
     );
     await userEvent.click(
       screen.getByRole('button', { name: 'Show Framework overview details' }),
     );
     expect(await screen.findByText('Core framework documentation.')).toBeVisible();
     expect(screen.getAllByText('85% documented').length).toBeGreaterThan(0);
+    fetchMock.mockRestore();
+  });
+
+  it('loads publication profiles only for the current management page', async () => {
+    const framework = bootstrap.documentationSources[0];
+    if (framework?.type !== 'CMS') throw new Error('Expected Framework CMS fixture');
+    const sources = Array.from({ length: 6 }, (_, i) => ({
+      ...framework,
+      id: `source-${String(i)}`,
+      route: `/docs/source-${String(i)}`,
+      initializationProfile: `docs${String(i)}`,
+    }));
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(() => Promise.resolve(new Response('{}', { status: 403 })));
+    renderPage('/docs', sources);
+    const requested = (profile: string) =>
+      fetchMock.mock.calls.some(([request]) =>
+        requestPathname(request).includes(`/applications/${profile}/`),
+      );
+    await waitFor(() => expect(requested('docs0')).toBe(true));
+    expect(requested('docs5')).toBe(false);
+    await userEvent.click(screen.getByRole('button', { name: 'Go to page 2' }));
+    await waitFor(() => expect(requested('docs5')).toBe(true));
     fetchMock.mockRestore();
   });
 
@@ -394,15 +509,26 @@ describe('DocumentationRoutePage', () => {
     expect(
       screen.getByText(/Axis is checking documentation publication state/iu),
     ).toBeVisible();
-    expect(await screen.findByText('Locked documentation sources')).toBeVisible();
-    expect(screen.getByText('Online is not initialized.')).toBeVisible();
+    expect(
+      await screen.findByRole('heading', { name: 'Publication candidates', level: 2 }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        'The selected candidate has not been imported. Published guides are checked separately by the Online reader.',
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText('Pending', { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 6 })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(
+      false,
+    );
     expect(screen.getByText('Publication flow')).toBeVisible();
     expect(
-      screen.queryByRole('link', { name: 'Open Framework' }),
+      screen.queryByRole('link', { name: 'Manage Framework' }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open Swaggers' })).toHaveAttribute(
       'href',
-      '/docs/swaggers',
+      '/docs?manage=swaggers',
     );
     expect(screen.queryByText('Release code')).not.toBeInTheDocument();
     const detailsToggle = screen.getByRole('button', {
@@ -443,13 +569,11 @@ describe('DocumentationRoutePage', () => {
         ),
       );
     const user = userEvent.setup();
-    renderPage('/docs/framework');
+    renderPage('/docs?manage=framework');
 
     expect(
       await screen.findByText(/Install the verified bundle to Staged/),
     ).toBeVisible();
-    expect(screen.getByRole('tab', { name: 'Framework' })).toBeVisible();
-    expect(screen.getByRole('tab', { name: 'Swaggers' })).toBeVisible();
     await user.click(await screen.findByRole('button', { name: 'Install staged' }));
     expect(fetchMock.mock.calls).toEqual(
       expect.arrayContaining([
@@ -465,98 +589,97 @@ describe('DocumentationRoutePage', () => {
     fetchMock.mockRestore();
   });
 
-  it('renders current CMS documentation through public Online delivery after source authorization', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((request) => {
-      const url = new URL(requestPathname(request), 'http://localhost:3000');
-      if (url.pathname.includes('/applications/frameworkdocs/initialization')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              code: 'SUC_IMP_00000',
-              data: {
-                ...response.data,
-                readiness: 'READY',
-                allowedActions: [],
-              },
-            }),
-            {
-              status: 200,
-              headers: { 'Content-Type': 'application/json' },
-            },
-          ),
-        );
-      }
-      if (url.pathname.includes('/content-pack')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              ...packResponse,
-              data: {
-                ...packResponse.data,
-                state: 'CURRENT',
-                installedVersion: '1.0.0',
-                allowedOperations: [],
-              },
-            }),
-            { status: 200, headers: { 'Content-Type': 'application/json' } },
-          ),
-        );
-      }
-      if (url.pathname.includes('/delivery/pages/resolve')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              result: {
-                contractVersion: 0,
-                site: 'axisCmsSite',
-                path: '/docs',
-                locale: 'en',
-                channel: 'web',
-                page: {
-                  code: 'docsPage',
-                  name: 'Framework documentation',
-                  typeCode: 'documentationArticlePageType',
-                  template: 'documentationArticleTemplate',
-                  renderer: 'documentation.page.article',
-                  templateContract: {
-                    code: 'documentationArticleTemplate',
-                    renderer: 'documentation.template.article',
-                    contractVersion: 0,
-                  },
-                  components: [],
-                },
-              },
-            }),
-            {
-              status: 200,
-              headers: { 'Content-Type': 'application/json' },
-            },
-          ),
-        );
-      }
-      return Promise.resolve(new Response('{}', { status: 404 }));
-    });
+  it.each([
+    ['/docs/framework/published', '/nodics/cms/v0/delivery/pages/resolve', null],
+    [
+      '/docs/telco?guide=project&project=kickoff',
+      '/nodics/cms/v0/delivery/pages/resolve/authenticated',
+      'Bearer token',
+    ],
+  ])(
+    'resolves the exact Online topic using its declared access mode: %s',
+    async (path, endpoint, token) => {
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response('{}', { status: 404 }));
+      renderPage(path);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const [request, init] = fetchMock.mock.calls[0]!;
+      const url = new URL(request instanceof Request ? request.url : String(request));
+      expect(url.pathname).toBe(endpoint);
+      expect(url.searchParams.get('path')).toBe(path.split('?')[0]);
+      expect(url.searchParams.get('site')).toBe('onlineSite');
+      expect(new Headers(init?.headers).get('Authorization')).toBe(token);
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'Online documentation',
+      );
+      fetchMock.mockRestore();
+    },
+  );
 
-    renderPage('/docs/framework');
-
-    await waitFor(() =>
-      expect(
-        fetchMock.mock.calls.some(([request]) =>
-          requestPathname(request).includes('/delivery/pages/resolve'),
-        ),
-      ).toBe(true),
-    );
-    const cmsRequest = fetchMock.mock.calls
-      .map(([request]) => requestPathname(request))
-      .find((pathname) => pathname.includes('/delivery/pages/resolve'));
-    expect(cmsRequest).toBe('/nodics/cms/v0/delivery/pages/resolve');
-    const cmsCall = fetchMock.mock.calls.find(([request]) =>
-      requestPathname(request).includes('/delivery/pages/resolve'),
-    );
-    expect(cmsCall?.[1]?.headers).toBeInstanceOf(Headers);
-    expect((cmsCall?.[1]?.headers as Headers).get('Authorization')).toBeNull();
-    fetchMock.mockRestore();
-  });
+  it.each([true, false])(
+    'verifies the returned Online article identity before displaying its content (matching %s)',
+    async (matching) => {
+      const renderer = {
+        rendererContractVersion: 1,
+        rendererDeprecated: false,
+        rendererChannels: ['web'],
+      };
+      const page = {
+        ...validResolvedPage,
+        site: matching ? article.site : 'otherSite',
+        path: article.route,
+        locale: article.locale,
+        channel: article.channel,
+        page: {
+          ...validResolvedPage.page,
+          ...renderer,
+          typeCode: 'documentationArticlePageType',
+          renderer: 'documentation.page.article',
+          template: 'documentationArticleTemplate',
+          templateContract: {
+            code: 'documentationArticleTemplate',
+            renderer: 'documentation.template.article',
+            contractVersion: 0,
+          },
+          components: [
+            {
+              ...renderer,
+              code: 'article',
+              typeCode: 'documentationArticleComponentType',
+              renderer: 'documentation.component.article',
+              properties: {
+                title: 'Delivered article',
+                blocks: [{ kind: 'paragraph', text: 'Published article content.' }],
+              },
+              slot: 'article',
+              index: 0,
+              components: [],
+            },
+          ],
+        },
+      };
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify({ result: page })));
+      renderPage(article.route);
+      if (matching) {
+        expect(await screen.findByText('Published article content.')).toBeVisible();
+        expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+        expect(
+          screen.queryByRole('navigation', { name: 'Documentation topics' }),
+        ).not.toBeInTheDocument();
+      } else {
+        expect(await screen.findByRole('alert')).toHaveTextContent(
+          'No Online documentation',
+        );
+        expect(
+          screen.queryByText('Published article content.'),
+        ).not.toBeInTheDocument();
+      }
+      fetchMock.mockRestore();
+    },
+  );
 
   it('keeps Staged validation separate from the governed publication request', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((request) => {
@@ -593,7 +716,7 @@ describe('DocumentationRoutePage', () => {
       );
     });
     const user = userEvent.setup();
-    renderPage('/docs/framework');
+    renderPage('/docs?manage=framework');
 
     expect((await screen.findAllByText('Staged: CURRENT'))[0]).toBeVisible();
     expect(screen.getAllByText('Online readiness: Approval needed')[0]).toBeVisible();
@@ -940,7 +1063,7 @@ describe('DocumentationRoutePage', () => {
       ),
     );
     const user = userEvent.setup();
-    renderPage('/docs/swaggers');
+    renderPage('/docs?manage=swaggers');
 
     expect(await screen.findByText('Nodics APIs')).toBeVisible();
     expect(screen.getByText('1 runtime groups')).toBeVisible();

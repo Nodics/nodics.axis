@@ -1,4 +1,10 @@
-import { useMemo, useState } from 'react';
+import {
+  localizeNavigationItem,
+  localizeNavigationGroup,
+} from '../app/shell/navigationLocalization';
+import { useAxisLocalization } from '../localization/AxisLocalizationContext';
+import { useContext, useMemo, useState } from 'react';
+import { EnterpriseDisplayContext } from '../app/EnterpriseDisplayContext';
 import { useQuery } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router';
 import {
@@ -44,6 +50,8 @@ interface Props {
   readonly bootstrap: AxisAuthenticatedBootstrap;
   readonly runtime: AxisRuntimeConfig;
   readonly sections: readonly CmsComponentContract[];
+  readonly site?: string | undefined;
+  readonly catalog?: string | undefined;
 }
 const accents = ['#286a85', '#33765b', '#8b5b94', '#aa652c', '#387b79', '#596cb0'];
 const cardSx = {
@@ -60,7 +68,14 @@ export function AxisFrameworkOverview({
   bootstrap,
   runtime,
   sections,
+  site,
+  catalog,
 }: Props) {
+  const enterpriseDisplay = useContext(EnterpriseDisplayContext);
+  const { locale, format } = useAxisLocalization();
+  const navigation = bootstrap.navigation.map((item) =>
+    localizeNavigationItem(item, format),
+  );
   const [search, setSearch] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const section = (kind: string) =>
@@ -68,25 +83,46 @@ export function AxisFrameworkOverview({
   const context = section('context');
   if (!context) throw new Error('Framework Overview requires its CMS context');
   const text = (key: string) => dashboardText(context, key);
+  const availableContexts = [
+    'tenant',
+    'enterprise',
+    'environment',
+    ...(site?.trim() ? ['site'] : []),
+    ...(catalog?.trim() ? ['catalog'] : []),
+  ];
   const directory = section('domains');
   const domains = overviewDomains(
-    bootstrap.navigation,
+    navigation,
     overviewReferences(directory, 'excludedGroups'),
+    availableContexts,
   );
-  const visibleDomains = domains.filter((domain) =>
-    `${domain.label} ${domain.items.map((item) => item.label).join(' ')}`
-      .toLocaleLowerCase()
-      .includes(search.trim().toLocaleLowerCase()),
-  );
+  const visibleDomains = domains
+    .map((domain) => ({
+      ...domain,
+      label: localizeNavigationGroup(domain.id, domain.label, format),
+    }))
+    .filter((domain) =>
+      `${domain.label} ${domain.items.map((item) => item.label).join(' ')}`
+        .toLocaleLowerCase()
+        .includes(search.trim().toLocaleLowerCase()),
+    );
   const selected = domains.find((domain) => domain.id === selectedDomain);
   const definitions = overviewMetricDefinitions(
-    bootstrap.navigation,
+    navigation,
     overviewReferences(section('pulse'), 'navigationRefs'),
+    availableContexts,
   );
-  const authorized = overviewNavigation(bootstrap.navigation);
+  const authorized = overviewNavigation(navigation, availableContexts);
   const taskReference = dashboardText(context, 'taskNavigationRef');
   const taskRoute = authorized.find(
     (item) => `${item.moduleName}:${item.id}` === taskReference,
+  );
+  // CMS selects composition; fresh owner navigation decides whether the work
+  // sections are admitted. Missing access is not a retryable source outage.
+  const admittedSections = sections.filter(
+    (item) =>
+      taskRoute ||
+      !['work', 'activity', 'exceptions'].includes(String(item.properties.kind)),
   );
   const processConnection = selectModuleConnection(bootstrap, 'workflow', {
     runtimeRoleCode: 'PROCESS',
@@ -99,7 +135,17 @@ export function AxisFrameworkOverview({
     enterpriseCode: runtime.enterpriseCode,
     timeoutMs: runtime.requestTimeoutMs,
   };
-  const scope = [bootstrap.tenantCode, runtime.enterpriseCode, accessToken];
+  const actorScope = useMemo(
+    () => (accessToken ? crypto.randomUUID() : 'anonymous'),
+    [accessToken],
+  );
+  const scope = [
+    bootstrap.tenantCode,
+    runtime.enterpriseCode,
+    actorScope,
+    site,
+    catalog,
+  ];
   const metrics = useQuery({
     queryKey: [
       'framework-overview-records',
@@ -135,7 +181,9 @@ export function AxisFrameworkOverview({
     retry: false,
     staleTime: 60_000,
   });
-  const data = process.isError ? undefined : process.data;
+  const metricsChecking = metrics.isPending || metrics.isFetching;
+  const processChecking = process.isPending || process.isFetching;
+  const data = process.isError || processChecking ? undefined : process.data;
   const tasks = overviewOpenTasks(data?.tasks ?? [], process.dataUpdatedAt);
   const states = useMemo(() => {
     const counts = new Map<string, number>();
@@ -148,7 +196,7 @@ export function AxisFrameworkOverview({
   const processNotice = () =>
     processUnavailable ? (
       <Alert severity="info">{text('workUnavailable')}</Alert>
-    ) : process.isPending ? (
+    ) : processChecking ? (
       <Skeleton height={100} />
     ) : null;
   const heading = (component: CmsComponentContract, icon: string, count?: number) => (
@@ -181,7 +229,7 @@ export function AxisFrameworkOverview({
         '& p, & h2, & h3, & a': { overflowWrap: 'anywhere' },
       }}
     >
-      {renderDashboardSections(sections, {
+      {renderDashboardSections(admittedSections, {
         context: (component) => (
           <Box
             sx={{
@@ -194,21 +242,28 @@ export function AxisFrameworkOverview({
           >
             <Box
               component="img"
-              src="/brand/application-fallback-v1.png"
+              src="/brand/favicon.svg"
+              loading="lazy"
+              decoding="async"
               alt=""
               sx={{
                 width: 104,
                 height: 64,
-                objectFit: 'cover',
+                objectFit: 'contain',
                 borderRadius: '6px',
                 display: { xs: 'none', sm: 'block' },
               }}
             />
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Typography variant="overline" sx={{ color: 'text.secondary' }}>
-                {runtime.projectCode} · {runtime.enterpriseCode}
+                {enterpriseDisplay?.code === runtime.enterpriseCode &&
+                enterpriseDisplay.displayName
+                  ? enterpriseDisplay.displayName
+                  : runtime.enterpriseCode}
               </Typography>
-              <Typography variant="h6">{dashboardText(component, 'title')}</Typography>
+              <Typography component="p" variant="h6">
+                {dashboardText(component, 'title')}
+              </Typography>
               <Typography variant="body2" color="text.secondary">
                 {text('scope')}
               </Typography>
@@ -258,6 +313,7 @@ export function AxisFrameworkOverview({
                     key={definition.id}
                     component={RouterLink}
                     to={definition.route}
+                    aria-busy={metricsChecking}
                     sx={{
                       ...cardSx,
                       p: 2,
@@ -284,7 +340,7 @@ export function AxisFrameworkOverview({
                         <ShellIcon name={definition.icon} />
                       </Box>
                     </Stack>
-                    {metrics.isPending ? (
+                    {metricsChecking ? (
                       <Skeleton width={70} height={52} />
                     ) : (
                       <Typography
@@ -295,7 +351,7 @@ export function AxisFrameworkOverview({
                           my: 1,
                         }}
                       >
-                        {value === undefined ? '—' : value.toLocaleString()}
+                        {value === undefined ? '—' : value.toLocaleString(locale)}
                       </Typography>
                     )}
                     <Stack
@@ -303,7 +359,13 @@ export function AxisFrameworkOverview({
                       sx={{ alignItems: 'center', justifyContent: 'space-between' }}
                     >
                       <Typography variant="caption" color="text.secondary">
-                        {value === undefined ? text('unavailable') : text('records')}
+                        {metricsChecking ? (
+                          <Skeleton width={110} />
+                        ) : value === undefined ? (
+                          text('unavailable')
+                        ) : (
+                          text('records')
+                        )}
                       </Typography>
                       <ShellIcon name="chevron-right" />
                     </Stack>
@@ -318,8 +380,11 @@ export function AxisFrameworkOverview({
               sx={{ display: 'block', mt: 1 }}
             >
               {dashboardText(component, 'description')}
-              {metrics.dataUpdatedAt > 0
-                ? ` · ${text('updated')} ${new Date(metrics.dataUpdatedAt).toLocaleTimeString()}`
+              {!metricsChecking &&
+              !metrics.isError &&
+              metrics.data?.some((metric) => metric.status === 'ready') &&
+              metrics.dataUpdatedAt > 0
+                ? ` · ${text('updated')} ${new Date(metrics.dataUpdatedAt).toLocaleTimeString(locale)}`
                 : ''}
             </Typography>
           </Box>
@@ -403,7 +468,8 @@ export function AxisFrameworkOverview({
                           {domain.label}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          {domain.items.length} {text('destinations')}
+                          {text('destinations')} ·{' '}
+                          {new Intl.NumberFormat(locale).format(domain.items.length)}
                         </Typography>
                       </Box>
                     </Stack>
@@ -509,7 +575,8 @@ export function AxisFrameworkOverview({
                       <Chip label={task.status} size="small" variant="outlined" />
                       {task.dueAt && (
                         <Typography variant="caption">
-                          {text('due')} {new Date(task.dueAt).toLocaleDateString()}
+                          {text('due')}{' '}
+                          {new Date(task.dueAt).toLocaleDateString(locale)}
                         </Typography>
                       )}
                     </Stack>
@@ -591,7 +658,7 @@ export function AxisFrameworkOverview({
                   sx={{ display: 'block', mt: 2 }}
                 >
                   {text('bounded')} · {text('updated')}{' '}
-                  {new Date(process.dataUpdatedAt).toLocaleTimeString()}
+                  {new Date(process.dataUpdatedAt).toLocaleTimeString(locale)}
                 </Typography>
               </>
             )}
@@ -624,7 +691,7 @@ export function AxisFrameworkOverview({
                         direction="row"
                         sx={{ justifyContent: 'space-between', gap: 1 }}
                       >
-                        <Typography variant="subtitle2">
+                        <Typography component="h3" variant="subtitle2">
                           {incident.errorCode}
                         </Typography>
                         <Chip label={incident.status} size="small" variant="outlined" />

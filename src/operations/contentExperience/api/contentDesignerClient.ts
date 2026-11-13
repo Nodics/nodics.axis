@@ -1,3 +1,5 @@
+import { AxisApiError, parseAxisApiError } from '../../../localization/axisApiError';
+import type { AxisLocalizedErrorContract } from '../../../localization/localizationContracts';
 import type { AxisModuleConnection } from '../../../bootstrap/publicBootstrap';
 
 export interface ContentDesignerClientConfiguration {
@@ -7,6 +9,7 @@ export interface ContentDesignerClientConfiguration {
 }
 
 export interface ContentDesignerDraftComponentMedia {
+  readonly code?: string | undefined;
   readonly altText?: string | undefined;
   readonly caption?: string | undefined;
   readonly componentMediaCode?: string | undefined;
@@ -20,6 +23,7 @@ export interface ContentDesignerDraftComponentMedia {
 }
 
 export interface ContentDesignerDraftLocalization {
+  readonly code?: string | undefined;
   readonly locale: string;
   readonly properties: Readonly<Record<string, unknown>>;
   readonly seo?: Readonly<Record<string, unknown>> | undefined;
@@ -27,6 +31,7 @@ export interface ContentDesignerDraftLocalization {
 }
 
 export interface ContentDesignerDraftComponent {
+  readonly sections?: readonly ContentDesignerDraftSection[] | undefined;
   readonly accessMode?: string | undefined;
   readonly code: string;
   readonly media?: readonly ContentDesignerDraftComponentMedia[] | undefined;
@@ -44,6 +49,7 @@ export interface ContentDesignerDraftSection {
 }
 
 export interface ContentDesignerDraft {
+  readonly sourceVersion?: string | undefined;
   readonly catalogCode: string;
   readonly navigation?: Readonly<Record<string, unknown>> | undefined;
   readonly page: {
@@ -58,10 +64,185 @@ export interface ContentDesignerDraft {
   readonly templateCode: string;
 }
 
+export interface ContentDesignerSavedPage {
+  readonly draft: ContentDesignerDraft;
+  readonly sourceVersion: string;
+  readonly editable: boolean;
+  readonly issues: readonly string[];
+}
+
+/** Reads a bounded owner-scoped library; a failed or oversized library is never treated as empty. */
+export async function listContentDesignerPages(
+  connection: AxisModuleConnection,
+  configuration: ContentDesignerClientConfiguration,
+  scope: { readonly catalogCode: string; readonly siteCode: string },
+): Promise<readonly { readonly code: string; readonly name: string }[]> {
+  const query = new URLSearchParams(scope);
+  const result = asRecord(
+    await designerRequest(
+      connection,
+      configuration,
+      `/designer/composition/pages?${query}`,
+      { method: 'GET' },
+    ),
+    'CMS saved pages',
+  );
+  if (!Array.isArray(result.pages) || result.pages.length > 100)
+    throw new Error('CMS saved page choices are incomplete');
+  const seen = new Set<string>();
+  return result.pages.map((value) => {
+    const page = asRecord(value, 'CMS saved page');
+    if (
+      typeof page.code !== 'string' ||
+      !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(page.code) ||
+      seen.has(page.code) ||
+      typeof page.name !== 'string' ||
+      !page.name.trim()
+    )
+      throw new Error('CMS saved page choices are invalid');
+    seen.add(page.code);
+    return { code: page.code, name: page.name };
+  });
+}
+
+/** Reopens only the exact requested owner scope and saved identity, retaining inert unexposed properties. */
+export async function loadContentDesignerPage(
+  connection: AxisModuleConnection,
+  configuration: ContentDesignerClientConfiguration,
+  selection: {
+    readonly catalogCode: string;
+    readonly siteCode: string;
+    readonly pageCode: string;
+  },
+  fetchImplementation: typeof fetch = fetch,
+): Promise<ContentDesignerSavedPage> {
+  const query = new URLSearchParams(selection);
+  const result = asRecord(
+    await designerRequest(
+      connection,
+      configuration,
+      `/designer/composition/draft?${query}`,
+      { method: 'GET' },
+      fetchImplementation,
+    ),
+    'CMS saved composition',
+  );
+  const draft = asRecord(result.draft, 'CMS saved draft');
+  const page = asRecord(draft.page, 'CMS saved page');
+  const code = (value: unknown): value is string =>
+    typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
+  if (
+    typeof result.sourceVersion !== 'string' ||
+    !/^[a-f0-9]{64}$/.test(result.sourceVersion) ||
+    draft.sourceVersion !== result.sourceVersion ||
+    typeof result.editable !== 'boolean' ||
+    !Array.isArray(result.issues) ||
+    result.issues.length > 100 ||
+    result.issues.some(
+      (item: unknown) => typeof item !== 'string' || !item.trim() || item.length > 1024,
+    ) ||
+    draft.catalogCode !== selection.catalogCode ||
+    draft.siteCode !== selection.siteCode ||
+    page.code !== selection.pageCode ||
+    !code(draft.templateCode) ||
+    !code(page.typeCode) ||
+    typeof page.name !== 'string' ||
+    !page.name.trim() ||
+    !Array.isArray(draft.sections) ||
+    draft.sections.length > 100
+  )
+    throw new Error('CMS saved composition is invalid or belongs to another selection');
+  const placements = new Set<string>();
+  const components = new Set<string>([selection.pageCode]);
+  let count = 0;
+  const inspectSections = (sections: unknown[], depth: number) => {
+    if (depth > 12 || sections.length > 100)
+      throw new Error('CMS saved composition exceeds the supported bounds');
+    for (const value of sections) {
+      const section = asRecord(value, 'CMS saved section');
+      if (
+        !code(section.code) ||
+        placements.has(section.code) ||
+        !code(section.slot) ||
+        !Number.isSafeInteger(section.index) ||
+        !Array.isArray(section.components) ||
+        section.components.length !== 1
+      )
+        throw new Error('CMS saved placements are invalid');
+      placements.add(section.code);
+      const component = asRecord(section.components[0], 'CMS saved block');
+      if (
+        !code(component.code) ||
+        !code(component.typeCode) ||
+        components.has(component.code) ||
+        ++count > 100
+      )
+        throw new Error('CMS saved block identity is invalid');
+      components.add(component.code);
+      if (component.sections !== undefined) {
+        if (!Array.isArray(component.sections))
+          throw new Error('CMS nested sections are invalid');
+        inspectSections(component.sections, depth + 1);
+      }
+      if (component.properties !== undefined)
+        asRecord(component.properties, 'CMS saved properties');
+      if (
+        !Array.isArray(component.localizations) ||
+        component.localizations.length > 100 ||
+        !Array.isArray(component.media) ||
+        component.media.length > 100
+      )
+        throw new Error('CMS saved block references are invalid');
+      const locales = new Set<string>();
+      for (const value of component.localizations) {
+        const localization = asRecord(value, 'CMS saved translation');
+        if (
+          !code(localization.code) ||
+          typeof localization.locale !== 'string' ||
+          !localization.locale.trim() ||
+          locales.has(localization.locale)
+        )
+          throw new Error('CMS saved translations are ambiguous');
+        locales.add(localization.locale);
+        asRecord(localization.properties, 'CMS saved translation content');
+        if (localization.seo !== undefined)
+          asRecord(localization.seo, 'CMS saved translation metadata');
+      }
+      for (const value of component.media) {
+        const media = asRecord(value, 'CMS saved Media association');
+        if (!code(media.code)) throw new Error('CMS saved Media identity is invalid');
+      }
+    }
+  };
+  inspectSections(draft.sections, 0);
+  if (draft.route !== undefined) asRecord(draft.route, 'CMS saved route');
+  return {
+    draft: draft as unknown as ContentDesignerDraft,
+    sourceVersion: result.sourceVersion,
+    editable: result.editable,
+    issues: result.issues as string[],
+  };
+}
+
+export interface ContentDesignerContentField {
+  readonly labelKey?: string | undefined;
+  readonly itemLabelKey?: string | undefined;
+  readonly property: string;
+  readonly label: string;
+  readonly control: 'text' | 'multiline' | 'items';
+  readonly required?: boolean | undefined;
+  readonly maxLength?: number | undefined;
+  readonly maximumItems?: number | undefined;
+  readonly itemLabel?: string | undefined;
+  readonly itemFields?: readonly ContentDesignerContentField[] | undefined;
+}
+
 export interface ContentDesignerComponentKind {
+  readonly compatibleRenderers?: readonly string[] | undefined;
   readonly label: string;
   readonly renderer: string;
   readonly typeCode: string;
+  readonly fields?: readonly ContentDesignerContentField[] | undefined;
 }
 
 export interface ContentDesignerDraftDefaults {
@@ -100,6 +281,7 @@ export interface ContentDesignerReference {
 }
 
 export interface ContentDesignerLocalizationPolicy {
+  readonly routeLocale?: string | undefined;
   readonly defaultLocale: string;
   readonly fallbackLocales: readonly string[];
   readonly supportedLocales: readonly string[];
@@ -127,8 +309,16 @@ export interface ContentDesignerAuthoringMetadata {
 }
 
 export interface ContentDesignerAuthoringModel {
+  readonly presentation?: ContentDesignerFormPresentation | undefined;
   readonly retirement?: ContentDesignerRetirementPresentation | undefined;
   readonly defaults: {
+    readonly nesting?:
+      | {
+          readonly maximumDepth: number;
+          readonly maximumComponents: number;
+          readonly defaultSlot: string;
+        }
+      | undefined;
     readonly componentKinds: readonly ContentDesignerComponentKind[];
     readonly draftDefaults: ContentDesignerDraftDefaults;
     readonly maximumReferenceLookupItems?: number | undefined;
@@ -143,6 +333,48 @@ export interface ContentDesignerAuthoringModel {
     readonly frontendPersistence: boolean;
     readonly pixelPerfectRendering: boolean;
   };
+}
+
+/** Inert owner-defined form copy; operation admission is independent of presentation. */
+export interface ContentDesignerFormPresentation {
+  readonly newPageTitle: string;
+  readonly pageNameLabel: string;
+  readonly pageNameHelp: string;
+  readonly createdMessage: string;
+  readonly continueLabel: string;
+  readonly knownSavedMessage: string;
+  readonly changedAfterCreationMessage: string;
+  readonly publicationUnconfirmedMessage: string;
+}
+
+function parseFormPresentation(
+  value: unknown,
+): ContentDesignerFormPresentation | undefined {
+  if (value === undefined) return undefined;
+  const source = asRecord(value, 'CMS Designer form presentation');
+  const copy = (key: keyof ContentDesignerFormPresentation): string => {
+    const text = source[key];
+    if (
+      typeof text !== 'string' ||
+      !text.trim() ||
+      text.length > 1024 ||
+      [...text].some(
+        (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+      )
+    )
+      throw new Error('CMS Designer form presentation is invalid');
+    return text;
+  };
+  return Object.freeze({
+    newPageTitle: copy('newPageTitle'),
+    pageNameLabel: copy('pageNameLabel'),
+    pageNameHelp: copy('pageNameHelp'),
+    createdMessage: copy('createdMessage'),
+    continueLabel: copy('continueLabel'),
+    knownSavedMessage: copy('knownSavedMessage'),
+    changedAfterCreationMessage: copy('changedAfterCreationMessage'),
+    publicationUnconfirmedMessage: copy('publicationUnconfirmedMessage'),
+  });
 }
 
 /** Existing CMS retirement commands, not generic CRUD or permission identifiers. */
@@ -250,19 +482,28 @@ function parseRetirementPresentation(
 }
 
 export interface ContentDesignerOperationResult {
+  readonly publication?:
+    | Readonly<{ code: string; workflowRef?: string | undefined }>
+    | undefined;
   readonly evidence?: unknown;
   readonly saved?: unknown;
   readonly status?: string | undefined;
   readonly valid?: boolean | undefined;
 }
 
-class ContentDesignerRequestError extends Error {
+export class ContentDesignerRequestError extends AxisApiError {
   readonly status: number;
+  readonly ownerCode: string | undefined;
 
-  constructor(status: number, message: string) {
-    super(message);
+  constructor(
+    status: number,
+    message: string | AxisLocalizedErrorContract,
+    ownerCode?: string,
+  ) {
+    super(typeof message === 'string' ? { message } : message);
     this.name = 'ContentDesignerRequestError';
     this.status = status;
+    this.ownerCode = ownerCode;
   }
 }
 
@@ -275,21 +516,11 @@ function cmsEndpoint(connection: AxisModuleConnection, path: string): URL {
 }
 
 async function responseError(response: Response): Promise<Error> {
-  let message = `CMS Designer request returned HTTP ${String(response.status)}`;
-  try {
-    const body: unknown = await response.json();
-    if (
-      typeof body === 'object' &&
-      body !== null &&
-      !Array.isArray(body) &&
-      typeof (body as Record<string, unknown>).message === 'string'
-    ) {
-      message = (body as { readonly message: string }).message;
-    }
-  } catch {
-    // Keep the bounded HTTP fallback when the backend did not return JSON.
-  }
-  return new ContentDesignerRequestError(response.status, message);
+  const error = await parseAxisApiError(
+    response,
+    'The content request could not be confirmed. Inspect the saved state before another change.',
+  );
+  return new ContentDesignerRequestError(response.status, error, error.code);
 }
 
 /** Rejects owner failure envelopes even when transport succeeded; writes are never replayed. */
@@ -391,6 +622,12 @@ function parseAuthoringMetadata(value: unknown): ContentDesignerAuthoringMetadat
     !Array.isArray(source.localization)
       ? (source.localization as Record<string, unknown>)
       : {};
+  if (
+    localization.routeLocale !== undefined &&
+    (typeof localization.routeLocale !== 'string' ||
+      !/^[A-Za-z][A-Za-z0-9_-]{0,34}$/.test(localization.routeLocale))
+  )
+    throw new Error('CMS route locale is incompatible');
   return Object.freeze({
     componentTypeGroups: parseReferenceArray(source.componentTypeGroups),
     componentTypes: parseReferenceArray(source.componentTypes),
@@ -401,6 +638,10 @@ function parseAuthoringMetadata(value: unknown): ContentDesignerAuthoringMetadat
       ? Object.freeze(source.mediaTypes.map(String).filter(Boolean))
       : Object.freeze([]),
     localization: Object.freeze({
+      ...(typeof localization.routeLocale === 'string' &&
+      /^[A-Za-z][A-Za-z0-9_-]{0,34}$/.test(localization.routeLocale)
+        ? { routeLocale: localization.routeLocale }
+        : {}),
       defaultLocale:
         typeof localization.defaultLocale === 'string'
           ? localization.defaultLocale
@@ -424,6 +665,75 @@ function parseAuthoringMetadata(value: unknown): ContentDesignerAuthoringMetadat
     sites: parseReferenceArray(source.sites),
     slotDefinitions: parseReferenceArray(source.slotDefinitions),
   });
+}
+
+/** Accepts inert bounded content controls only; no paths, expressions or executable widgets. */
+function parseContentFields(
+  value: unknown,
+  nested = false,
+): readonly ContentDesignerContentField[] {
+  if (!Array.isArray(value) || value.length > 16)
+    throw new Error('CMS content fields are incompatible');
+  const names = new Set<string>();
+  return Object.freeze(
+    value.map((entry) => {
+      const field = asRecord(entry, 'CMS content field');
+      const property = field.property;
+      if (
+        typeof property !== 'string' ||
+        !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(property) ||
+        ['constructor', 'prototype', '__proto__'].includes(property) ||
+        names.has(property) ||
+        typeof field.label !== 'string' ||
+        !field.label.trim() ||
+        field.label.length > 160 ||
+        !['text', 'multiline', 'items'].includes(String(field.control)) ||
+        (nested && field.control === 'items') ||
+        (field.required !== undefined && typeof field.required !== 'boolean') ||
+        (field.maxLength !== undefined &&
+          (!Number.isSafeInteger(field.maxLength) ||
+            Number(field.maxLength) < 1 ||
+            Number(field.maxLength) > 100_000)) ||
+        (field.maximumItems !== undefined &&
+          (!Number.isSafeInteger(field.maximumItems) ||
+            Number(field.maximumItems) < 1 ||
+            Number(field.maximumItems) > 32)) ||
+        (field.itemLabel !== undefined &&
+          (typeof field.itemLabel !== 'string' ||
+            !field.itemLabel.trim() ||
+            field.itemLabel.length > 80))
+      ) {
+        throw new Error('CMS content fields are incompatible');
+      }
+      names.add(property);
+      const itemFields =
+        field.control === 'items'
+          ? parseContentFields(field.itemFields, true)
+          : undefined;
+      if (itemFields?.length === 0)
+        throw new Error('CMS content fields are incompatible');
+      return Object.freeze({
+        property,
+        label: field.label,
+        ...(typeof field.labelKey === 'string' &&
+        /^[a-z][a-z0-9.-]{1,239}$/.test(field.labelKey)
+          ? { labelKey: field.labelKey }
+          : {}),
+        ...(typeof field.itemLabelKey === 'string' &&
+        /^[a-z][a-z0-9.-]{1,239}$/.test(field.itemLabelKey)
+          ? { itemLabelKey: field.itemLabelKey }
+          : {}),
+        control: field.control as ContentDesignerContentField['control'],
+        ...(typeof field.required === 'boolean' ? { required: field.required } : {}),
+        ...(typeof field.maxLength === 'number' ? { maxLength: field.maxLength } : {}),
+        ...(typeof field.maximumItems === 'number'
+          ? { maximumItems: field.maximumItems }
+          : {}),
+        ...(typeof field.itemLabel === 'string' ? { itemLabel: field.itemLabel } : {}),
+        ...(itemFields ? { itemFields } : {}),
+      });
+    }),
+  );
 }
 
 function parseAuthoringModel(value: unknown): ContentDesignerAuthoringModel {
@@ -452,7 +762,9 @@ function parseAuthoringModel(value: unknown): ContentDesignerAuthoringModel {
       ? (defaults.draftDefaults as Record<string, unknown>)
       : {};
   return Object.freeze({
+    presentation: parseFormPresentation(source.presentation),
     defaults: Object.freeze({
+      nesting: parseNesting(defaults.nesting),
       componentKinds: Object.freeze(
         Array.isArray(defaults.componentKinds)
           ? defaults.componentKinds.flatMap(
@@ -470,9 +782,21 @@ function parseAuthoringModel(value: unknown): ContentDesignerAuthoringModel {
                 }
                 return [
                   Object.freeze({
+                    compatibleRenderers:
+                      Array.isArray(candidate.compatibleRenderers) &&
+                      candidate.compatibleRenderers.every(
+                        (value) =>
+                          typeof value === 'string' &&
+                          /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value),
+                      )
+                        ? (candidate.compatibleRenderers as string[])
+                        : undefined,
                     label: candidate.label,
                     renderer: candidate.renderer,
                     typeCode: candidate.typeCode,
+                    ...(candidate.fields !== undefined
+                      ? { fields: parseContentFields(candidate.fields) }
+                      : {}),
                   }),
                 ];
               },
@@ -537,7 +861,30 @@ function parseAuthoringModel(value: unknown): ContentDesignerAuthoringModel {
 
 function parseOperationResult(value: unknown): ContentDesignerOperationResult {
   const source = asRecord(value, 'CMS Designer operation result');
+  const publication =
+    source.publication === undefined
+      ? undefined
+      : asRecord(source.publication, 'CMS publication');
+  if (
+    publication &&
+    (typeof publication.code !== 'string' ||
+      !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,511}$/.test(publication.code) ||
+      (publication.workflowRef !== undefined &&
+        (typeof publication.workflowRef !== 'string' ||
+          !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/.test(publication.workflowRef))))
+  )
+    throw new Error('CMS publication reference is incompatible');
   return Object.freeze({
+    ...(publication
+      ? {
+          publication: Object.freeze({
+            code: publication.code as string,
+            ...(typeof publication.workflowRef === 'string'
+              ? { workflowRef: publication.workflowRef }
+              : {}),
+          }),
+        }
+      : {}),
     evidence: source.evidence,
     saved: source.saved,
     status: typeof source.status === 'string' ? source.status : undefined,
@@ -581,6 +928,86 @@ async function designerRequest(
   }
 }
 
+async function draftMediaRequest(
+  connection: AxisModuleConnection,
+  configuration: ContentDesignerClientConfiguration,
+  path: string,
+  signal: AbortSignal,
+): Promise<Response> {
+  const response = await fetch(cmsEndpoint(connection, path), {
+    cache: 'no-store',
+    credentials: 'omit',
+    headers: {
+      Authorization: `Bearer ${configuration.accessToken}`,
+      'x-enterprise-code': configuration.enterpriseCode,
+    },
+    redirect: 'error',
+    signal: AbortSignal.any([signal, AbortSignal.timeout(configuration.timeoutMs)]),
+  });
+  if (!response.ok) {
+    throw new Error(
+      response.status === 401 || response.status === 403
+        ? 'You do not have access to Staged images.'
+        : 'Staged Media could not load the requested images.',
+    );
+  }
+  return response;
+}
+
+/** Loads a bounded raster through the Staged Media owner's authenticated route. */
+export async function loadContentDesignerDraftImage(
+  connection: AxisModuleConnection,
+  configuration: ContentDesignerClientConfiguration,
+  mediaCode: string,
+  signal: AbortSignal,
+): Promise<Blob> {
+  const response = await draftMediaRequest(
+    connection,
+    configuration,
+    '/library/' + encodeURIComponent(mediaCode) + '/draft-image',
+    signal,
+  );
+  const type = response.headers.get('Content-Type')?.split(';')[0]?.trim();
+  if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(type ?? '')) {
+    throw new Error('This attachment is not available as an image preview.');
+  }
+  return response.blob();
+}
+
+/** Lists path-free, ready choices owned by the Staged Media library. */
+export async function listContentDesignerDraftImages(
+  connection: AxisModuleConnection,
+  configuration: ContentDesignerClientConfiguration,
+  page: number,
+  signal: AbortSignal,
+): Promise<{ items: readonly { code: string; fileName: string }[]; hasMore: boolean }> {
+  const response = await draftMediaRequest(
+    connection,
+    configuration,
+    '/library/draft-images?pageNumber=' + String(page),
+    signal,
+  );
+  const envelope = asRecord(await response.json(), 'Staged Media response');
+  const value = asRecord(envelope.data, 'Staged Media choices');
+  if (
+    envelope.code !== 'SUC_MED_00032' ||
+    !Array.isArray(value.items) ||
+    typeof value.hasMore !== 'boolean' ||
+    !value.items.every(
+      (item: unknown) =>
+        item &&
+        typeof item === 'object' &&
+        'code' in item &&
+        'fileName' in item &&
+        typeof item.code === 'string' &&
+        typeof item.fileName === 'string',
+    )
+  ) {
+    throw new Error('Staged Media returned an invalid list of images.');
+  }
+  return { items: value.items, hasMore: value.hasMore };
+}
+
 /** Loads the CMS-owned model only; failure never falls back to generic schema discovery. */
 export async function loadContentDesignerAuthoringModel(
   connection: AxisModuleConnection,
@@ -596,6 +1023,65 @@ export async function loadContentDesignerAuthoringModel(
       fetchImplementation,
     ),
   );
+}
+
+export interface DocumentationDraftModel {
+  readonly siteCode: string;
+  readonly catalogCode: string;
+  readonly rootPath: string;
+  readonly templateCode: string;
+  readonly typeCode: string;
+  readonly renderer: string;
+  readonly articleTypeCode: string;
+  readonly navigationTypeCode: string;
+  readonly accessMode: string;
+  readonly locale: string;
+}
+
+/** Resolves the selected documentation Site's admitted article model from CMS. */
+export async function loadDocumentationDraftModel(
+  connection: AxisModuleConnection,
+  configuration: ContentDesignerClientConfiguration,
+  scope: { readonly siteCode: string; readonly catalogCode: string },
+  fetchImplementation: typeof fetch = fetch,
+): Promise<DocumentationDraftModel> {
+  const row = asRecord(
+    await designerRequest(
+      connection,
+      configuration,
+      `/designer/composition/documentation-model?${new URLSearchParams(scope)}`,
+      { method: 'GET' },
+      fetchImplementation,
+    ),
+    'CMS documentation draft model',
+  );
+  const read = (key: string): string => {
+    const value = row[key];
+    if (typeof value !== 'string' || !value.trim() || value.length > 512)
+      throw new Error('CMS documentation draft model is invalid');
+    return value;
+  };
+  const model = {
+    siteCode: read('siteCode'),
+    catalogCode: read('catalogCode'),
+    rootPath: read('rootPath'),
+    templateCode: read('templateCode'),
+    typeCode: read('typeCode'),
+    renderer: read('renderer'),
+    articleTypeCode: read('articleTypeCode'),
+    navigationTypeCode: read('navigationTypeCode'),
+    accessMode: read('accessMode'),
+    locale: read('locale'),
+  };
+  if (
+    model.siteCode !== scope.siteCode ||
+    model.catalogCode !== scope.catalogCode ||
+    !/^\/docs\/[A-Za-z0-9][A-Za-z0-9/_-]*$/.test(model.rootPath) ||
+    model.renderer !== 'documentation.page.article' ||
+    !['PUBLIC', 'AUTHENTICATED'].includes(model.accessMode)
+  )
+    throw new Error('CMS documentation draft scope is invalid');
+  return model;
 }
 
 /** Validates a draft through its CMS command with the original enterprise context. */
@@ -696,4 +1182,28 @@ export async function retireContentDesignerRecord(
     );
   }
   return Object.freeze({ code: result.code, versionId: result.versionId });
+}
+
+/** Missing nesting metadata leaves nested creation unavailable; malformed limits fail closed. */
+function parseNesting(
+  value: unknown,
+): ContentDesignerAuthoringModel['defaults']['nesting'] {
+  if (value === undefined) return undefined;
+  const data = asRecord(value, 'CMS nesting contract');
+  if (
+    !Number.isSafeInteger(data.maximumDepth) ||
+    Number(data.maximumDepth) < 1 ||
+    Number(data.maximumDepth) > 12 ||
+    !Number.isSafeInteger(data.maximumComponents) ||
+    Number(data.maximumComponents) < 1 ||
+    Number(data.maximumComponents) > 100 ||
+    typeof data.defaultSlot !== 'string' ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(data.defaultSlot)
+  )
+    throw new Error('CMS nesting contract is invalid');
+  return {
+    maximumDepth: Number(data.maximumDepth),
+    maximumComponents: Number(data.maximumComponents),
+    defaultSlot: data.defaultSlot,
+  };
 }

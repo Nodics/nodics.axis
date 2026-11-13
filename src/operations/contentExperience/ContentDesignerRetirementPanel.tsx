@@ -1,3 +1,4 @@
+import { useContentDesignerCopy } from './contentDesignerCopy';
 import {
   Alert,
   Box,
@@ -57,6 +58,7 @@ export function ContentDesignerRetirementPanel({
   onRetired,
   onPendingChange,
 }: ContentDesignerRetirementPanelProps) {
+  const { text: designerText } = useContentDesignerCopy();
   const [selectedOperation, setSelectedOperation] = useState('');
   const [code, setCode] = useState('');
   const [review, setReview] = useState<RetirementReview>();
@@ -126,19 +128,19 @@ export function ContentDesignerRetirementPanel({
   const scope = (candidate: RetirementReview) => (
     <Stack spacing={0.5} sx={{ overflowWrap: 'anywhere' }}>
       <Typography>
-        {copy.targetLabel}: {candidate.action.label}
+        {designerText(copy.targetLabel)}: {designerText(candidate.action.label)}
       </Typography>
       <Typography>
-        {copy.codeLabel}: {candidate.intent.code}
+        {designerText(copy.codeLabel)}: {candidate.intent.code}
       </Typography>
       <Typography>
-        {copy.enterpriseLabel}: {candidate.configuration.enterpriseCode}
+        {designerText(copy.enterpriseLabel)}: {candidate.configuration.enterpriseCode}
       </Typography>
       <Typography>
-        {copy.catalogLabel}: {candidate.intent.catalogCode}
+        {designerText(copy.catalogLabel)}: {candidate.intent.catalogCode}
       </Typography>
       <Typography>
-        {copy.siteLabel}: {candidate.intent.siteCode}
+        {designerText(copy.siteLabel)}: {candidate.intent.siteCode}
       </Typography>
     </Stack>
   );
@@ -146,23 +148,25 @@ export function ContentDesignerRetirementPanel({
   return (
     <Box
       component="section"
-      aria-label={copy.title}
+      aria-label={designerText(copy.title)}
       sx={{ borderTop: 1, borderColor: 'divider', pt: 2 }}
     >
       <Stack spacing={2}>
-        <Typography variant="h6">{copy.title}</Typography>
+        <Typography component="h4" variant="h6">
+          {designerText(copy.title)}
+        </Typography>
         {outcome && (
           <Alert severity="success">
-            {copy.successMessage} {outcome.review.intent.code} (v{outcome.versionId})
-            {scope(outcome.review)}
+            {designerText(copy.successMessage)} {outcome.review.intent.code} (v
+            {outcome.versionId}){scope(outcome.review)}
           </Alert>
         )}
         {uncertain && (
           <Alert severity="warning">
-            {copy.uncertainMessage}
+            {designerText(copy.uncertainMessage)}
             {scope(uncertain)}
             <FormControlLabel
-              label={copy.inspectionLabel}
+              label={designerText(copy.inspectionLabel)}
               control={
                 <Checkbox
                   checked={inspected}
@@ -180,7 +184,7 @@ export function ContentDesignerRetirementPanel({
         >
           <TextField
             select
-            label={copy.targetLabel}
+            label={designerText(copy.targetLabel)}
             value={action?.operation ?? ''}
             disabled={busy || Boolean(review) || !actions.length}
             sx={{ minWidth: { sm: 200 } }}
@@ -188,19 +192,19 @@ export function ContentDesignerRetirementPanel({
           >
             {actions.map((item) => (
               <MenuItem key={item.operation} value={item.operation}>
-                {item.label}
+                {designerText(item.label)}
               </MenuItem>
             ))}
           </TextField>
           <TextField
-            label={copy.codeLabel}
+            label={designerText(copy.codeLabel)}
             value={code}
             fullWidth
             disabled={busy || Boolean(review)}
             slotProps={{ htmlInput: { maxLength: 128 } }}
             onChange={(event) => setCode(event.target.value)}
           />
-          <Tooltip title={copy.reviewLabel}>
+          <Tooltip title={designerText(copy.reviewLabel)}>
             <span>
               <Button
                 startIcon={<ShellIcon name="search" />}
@@ -237,7 +241,7 @@ export function ContentDesignerRetirementPanel({
                   mutation.reset();
                 }}
               >
-                {copy.reviewLabel}
+                {designerText(copy.reviewLabel)}
               </Button>
             </span>
           </Tooltip>
@@ -252,19 +256,27 @@ export function ContentDesignerRetirementPanel({
           if (!inFlight.current) setReview(undefined);
         }}
       >
-        <DialogTitle id="cms-retirement-title">{copy.reviewTitle}</DialogTitle>
+        <DialogTitle id="cms-retirement-title">
+          {designerText(copy.reviewTitle)}
+        </DialogTitle>
         <DialogContent>
           {review && (
             <Stack spacing={2} sx={{ pt: 1 }}>
               {scope(review)}
-              <Alert severity="warning">{review.action.consequence}</Alert>
-              <Typography variant="body2">{copy.historyMessage}</Typography>
+              <Alert severity="warning">
+                {designerText(review.action.consequence)}
+              </Alert>
+              <Typography variant="body2">
+                {designerText(copy.historyMessage)}
+              </Typography>
               {!current(review) && (
-                <Alert severity="warning">{copy.changedMessage}</Alert>
+                <Alert severity="warning">{designerText(copy.changedMessage)}</Alert>
               )}
-              {uncertain && <Alert severity="error">{copy.uncertainMessage}</Alert>}
+              {uncertain && (
+                <Alert severity="error">{designerText(copy.uncertainMessage)}</Alert>
+              )}
               <FormControlLabel
-                label={copy.acknowledgeLabel}
+                label={designerText(copy.acknowledgeLabel)}
                 control={
                   <Checkbox
                     checked={acknowledged}
@@ -284,9 +296,9 @@ export function ContentDesignerRetirementPanel({
               if (!inFlight.current) setReview(undefined);
             }}
           >
-            {copy.cancelLabel}
+            {designerText(copy.cancelLabel)}
           </Button>
-          <Tooltip title={copy.confirmLabel}>
+          <Tooltip title={designerText(copy.confirmLabel)}>
             <span>
               <Button
                 startIcon={<ShellIcon name="approve" />}
@@ -303,7 +315,7 @@ export function ContentDesignerRetirementPanel({
                   void confirm();
                 }}
               >
-                {copy.confirmLabel}
+                {designerText(copy.confirmLabel)}
               </Button>
             </span>
           </Tooltip>

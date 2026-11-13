@@ -1,3 +1,4 @@
+import { catalogue } from './fixtures';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -83,10 +84,13 @@ describe('Rules owner client', () => {
       'https://rules.example/nodics/rulesApi/v0/definitions/EWASTE_REWARD/versions',
     );
 
-    const catalogueFetch = respond({ code: 'EWASTE_REWARD_PROPERTIES' });
+    const catalogueFetch = respond({
+      catalogue: { ...catalogue, authoring: undefined },
+      authoring: catalogue.authoring,
+    });
     await expect(
       loadPropertyCatalogue(configuration, 'eWaste.reward'),
-    ).resolves.toEqual({ code: 'EWASTE_REWARD_PROPERTIES' });
+    ).resolves.toEqual(catalogue);
     expect(String(catalogueFetch.mock.calls[0]?.[0])).toBe(
       'https://rules.example/nodics/rulesApi/v0/property-catalogues/eWaste.reward',
     );

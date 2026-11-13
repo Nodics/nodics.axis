@@ -1,3 +1,4 @@
+import { AxisLocaleStyleBoundary } from './AxisLocaleStyleBoundary';
 import IntlMessageFormat from 'intl-messageformat';
 import {
   createContext,
@@ -12,6 +13,7 @@ import type { AxisPublicBootstrap } from '../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../runtime/runtimeConfig';
 import { AxisApiError } from './axisApiError';
 import { loadLocalizationBundle } from './localizationBundleClient';
+import { localeDirection as direction } from './localeDirection';
 import type {
   AxisLocalizationBundle,
   AxisLocalizationState,
@@ -20,21 +22,20 @@ import type {
 /* eslint-disable react-refresh/only-export-components */
 
 const LOCALE_STORAGE_KEY = 'nodics-axis-locale-v1';
-const BUNDLE_STORAGE_PREFIX = 'nodics-axis-localization-bundle-v1:';
-const RTL_LANGUAGES = new Set(['ar', 'fa', 'he', 'ur']);
+const BUNDLE_STORAGE_PREFIX = 'nodics-axis-localization-bundle-v3:';
 
 interface CachedBundle {
   readonly etag?: string | undefined;
   readonly bundle: AxisLocalizationBundle;
 }
 
-function direction(locale: string): 'ltr' | 'rtl' {
-  return RTL_LANGUAGES.has(new Intl.Locale(locale).language) ? 'rtl' : 'ltr';
-}
-
-function cachedBundle(storage: Storage, locale: string): CachedBundle | undefined {
+function cachedBundle(
+  storage: Storage,
+  cacheKey: string,
+  locale: string,
+): CachedBundle | undefined {
   try {
-    const raw = storage.getItem(`${BUNDLE_STORAGE_PREFIX}${locale}`);
+    const raw = storage.getItem(cacheKey);
     if (!raw) return undefined;
     const value = JSON.parse(raw) as CachedBundle;
     if (!value.bundle || value.bundle.locale !== locale) return undefined;
@@ -54,7 +55,10 @@ export function useAxisLocalizationController(
   );
   const defaultLocale = bootstrap?.uiComposition.locale ?? 'en';
   const [selectedLocale, setSelectedLocale] = useState<string>();
-  const [bundle, setBundle] = useState<AxisLocalizationBundle>();
+  const [bundle, setBundle] = useState<{
+    readonly cacheKey: string;
+    readonly bundle: AxisLocalizationBundle;
+  }>();
   const preferredLocale = useMemo(() => {
     const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
     const browserLocale = navigator.language;
@@ -68,9 +72,23 @@ export function useAxisLocalizationController(
     selectedLocale && supportedLocales.includes(selectedLocale)
       ? selectedLocale
       : preferredLocale;
-  const cached = useMemo(() => cachedBundle(window.localStorage, locale), [locale]);
-  const activeBundle = bundle?.locale === locale ? bundle : cached?.bundle;
-  const stale = Boolean(cached && bundle?.locale !== locale);
+  const cacheKey = bootstrap?.endpoints.localization
+    ? BUNDLE_STORAGE_PREFIX +
+      JSON.stringify([
+        bootstrap.endpoints.localization,
+        runtime.enterpriseCode,
+        bootstrap.uiComposition.site,
+        bootstrap.uiComposition.channel,
+        locale,
+      ])
+    : undefined;
+  const cached = useMemo(
+    () => (cacheKey ? cachedBundle(window.localStorage, cacheKey, locale) : undefined),
+    [cacheKey, locale],
+  );
+  const loadedBundle = bundle?.cacheKey === cacheKey ? bundle?.bundle : undefined;
+  const activeBundle = loadedBundle ?? cached?.bundle;
+  const stale = Boolean(cached && !loadedBundle);
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -78,8 +96,8 @@ export function useAxisLocalizationController(
   }, [locale]);
 
   useEffect(() => {
-    if (!bootstrap?.endpoints.localization) return;
-    if (!cached?.bundle && (supportedLocales.length <= 1 || locale === defaultLocale)) {
+    if (!bootstrap?.endpoints.localization || !cacheKey) return;
+    if (!cached?.bundle && supportedLocales.length <= 1) {
       return;
     }
     let active = true;
@@ -100,6 +118,12 @@ export function useAxisLocalizationController(
         'engagement',
         'cron',
         'docs',
+        'axis',
+        'backoffice',
+        'cms',
+        'publishing',
+        'experience',
+        'rules',
       ],
       runtime.requestTimeoutMs,
       cached?.etag,
@@ -108,9 +132,9 @@ export function useAxisLocalizationController(
         if (!active) return;
         const next = result.notModified ? cached?.bundle : result.bundle;
         if (!next) return;
-        setBundle(next);
+        setBundle({ cacheKey, bundle: next });
         window.localStorage.setItem(
-          `${BUNDLE_STORAGE_PREFIX}${locale}`,
+          cacheKey,
           JSON.stringify({ bundle: next, etag: result.etag ?? cached?.etag }),
         );
       })
@@ -122,7 +146,7 @@ export function useAxisLocalizationController(
     bootstrap,
     cached?.bundle,
     cached?.etag,
-    defaultLocale,
+    cacheKey,
     locale,
     runtime.enterpriseCode,
     runtime.requestTimeoutMs,
@@ -159,7 +183,7 @@ export function useAxisLocalizationController(
         error.messageKey &&
         ['PUBLIC', 'AUTHENTICATED'].includes(error.messageExposure ?? '')
           ? format(error.messageKey, error.message, error.messageParameters)
-          : error instanceof Error
+          : error instanceof Error && locale.startsWith('en')
             ? error.message
             : fallback,
     };
@@ -172,7 +196,17 @@ const DEFAULT_LOCALIZATION_STATE: AxisLocalizationState = Object.freeze({
   supportedLocales: Object.freeze(['en']),
   stale: false,
   setLocale: (): void => undefined,
-  format: (_key: string, fallback: string): string => fallback,
+  format: (
+    _key: string,
+    fallback: string,
+    parameters: Readonly<Record<string, string | number | boolean>> = {},
+  ): string => {
+    try {
+      return String(new IntlMessageFormat(fallback, 'en').format(parameters));
+    } catch {
+      return fallback;
+    }
+  },
   formatError: (error: unknown, fallback: string): string =>
     error instanceof Error ? error.message : fallback,
 });
@@ -185,7 +219,13 @@ export function AxisLocalizationBoundary({
   children,
   value,
 }: PropsWithChildren<{ readonly value: AxisLocalizationState }>) {
-  return <AxisLocalizationContext value={value}>{children}</AxisLocalizationContext>;
+  return (
+    <AxisLocalizationContext value={value}>
+      <AxisLocaleStyleBoundary direction={value.direction}>
+        {children}
+      </AxisLocaleStyleBoundary>
+    </AxisLocalizationContext>
+  );
 }
 
 export function useAxisLocalization(): AxisLocalizationState {

@@ -1,5 +1,12 @@
 /** In-memory draft/remount/uncertainty fixtures, not browser acceptance or backend qualification. */
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BackendOperationsWorkspaceRoutePage } from '../../src/app/BackendOperationsWorkspaceRoutePage';
@@ -255,6 +262,42 @@ async function fill(user: ReturnType<typeof userEvent.setup>) {
   );
 }
 describe('Enterprise creation routed remount', () => {
+  it.each(['empty', 'draft', 'held'])(
+    'shows unqualified setup inspection only for a held original command: %s',
+    (state) => {
+      const selectedWorkspace = {
+        ...workspace,
+        setupContinuation: { ...workspace.setupContinuation!, available: false },
+      };
+      const store = new EnterpriseCreationCheckpoint();
+      const binding = store.bind(
+        'same-admission/project/tenant/enterprise',
+        connection,
+        selectedWorkspace,
+        section,
+      )!;
+      if (state === 'draft') binding.save(values);
+      if (state === 'held') binding.settle(binding.begin(values)!, false);
+      vi.stubGlobal('fetch', vi.fn());
+      render(page(store, 1, selectedWorkspace));
+      const heading = screen.queryByRole('heading', {
+        name: selectedWorkspace.setupContinuation.presentation.title,
+      });
+      if (state === 'held') expect(heading).toBeVisible();
+      else expect(heading).not.toBeInTheDocument();
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+  it('keeps the generated command reference in closed technical details', async () => {
+    vi.stubGlobal('fetch', vi.fn());
+    render(page(new EnterpriseCreationCheckpoint()));
+    const details = screen.getByRole('group', { name: 'Command technical details' });
+    const reference = within(details).getByLabelText(/^Idempotency key/);
+    expect(reference).not.toBeVisible();
+    expect(reference).toHaveAttribute('readonly');
+    await userEvent.click(within(details).getByText('Command technical details'));
+    expect(reference).toBeVisible();
+  });
   it.each(['acknowledged', 'uncertain', 'failed'])(
     'ends request-busy presentation after an equivalent workspace refresh while retaining the held %s creation',
     async (outcome) => {
@@ -578,8 +621,11 @@ describe('Enterprise creation routed remount', () => {
     { status: 400, code: 'ERR_PRFL_00003', editable: false },
     { status: 409, code: undefined, editable: false },
     { status: 503, code: 'ERR_PROFILE_TENANT_PROVISIONING_HELD', editable: false },
+    { status: 503, code: 'ERR_PROFILE_ENTERPRISE_SETUP_NOT_READY', editable: true },
+    { status: 500, code: 'ERR_PROFILE_ENTERPRISE_SETUP_NOT_READY', editable: false },
+    { status: 403, code: 'ERR_AUTH_00003', editable: false },
   ])(
-    'retains editable input only for the definite pre-write duplicate $status/$code',
+    'retains editable input only for a registered pre-write refusal $status/$code',
     async ({ status, code, editable }) => {
       const checkpoint = new EnterpriseCreationCheckpoint();
       const fetcher = vi

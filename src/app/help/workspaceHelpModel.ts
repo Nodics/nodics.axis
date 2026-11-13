@@ -1,3 +1,10 @@
+import { createContext } from 'react';
+
+/** Confirmed Online reader paths for the current employee and tenant. */
+export const OnlineHelpPathsContext = createContext<ReadonlySet<string> | undefined>(
+  undefined,
+);
+
 export interface AxisHelpMetadata {
   readonly summary?: string | undefined;
   readonly documentationRoute?: string | undefined;

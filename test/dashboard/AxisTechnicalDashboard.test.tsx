@@ -1,11 +1,12 @@
 import { dashboardFixture } from './dashboardCompositionFixture';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AxisThemeProvider } from '../../src/app/AxisThemeProvider';
+import * as bootstrapApi from '../../src/bootstrap/publicBootstrap';
 import type { AxisAuthenticatedBootstrap } from '../../src/bootstrap/publicBootstrap';
 import { AxisTechnicalDashboard as AxisDashboardRoutePage } from '../../src/dashboard/AxisTechnicalDashboard';
 import type { AxisRuntimeConfig } from '../../src/runtime/runtimeConfig';
@@ -24,6 +25,11 @@ const runtime: AxisRuntimeConfig = {
 };
 
 const bootstrap: AxisAuthenticatedBootstrap = {
+  applicationReadinessScheduling: {
+    contractVersion: 1,
+    concurrency: 1,
+    priorityBurst: 1,
+  },
   axisPolicy: {
     contractVersion: 1,
     screenLockEnabled: true,
@@ -293,6 +299,216 @@ afterEach(() => {
 });
 
 describe('AxisDashboardRoutePage', () => {
+  it('observes one owner report on demand, shows unverified loading and does not duplicate profile GETs', async () => {
+    let complete!: (
+      report: NonNullable<AxisAuthenticatedBootstrap['operationalReadiness']>,
+    ) => void;
+    const observe = vi
+      .spyOn(bootstrapApi, 'loadOperationalReadiness')
+      .mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            complete = resolve;
+          }),
+      );
+    const fetcher = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation((input) =>
+        Promise.resolve(
+          response(urlOf(input).includes('/data/releases') ? { items: [] } : []),
+        ),
+      );
+    renderPageWithBootstrap(
+      {
+        ...bootstrap,
+        operationalReadinessObservation: { contractVersion: 1, mode: 'ON_DEMAND' },
+      },
+      true,
+    );
+    expect(
+      await screen.findByText('Checking operational readiness with BackOffice.'),
+    ).toBeInTheDocument();
+    expect(observe).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByRole('button', { name: 'Expand Application parity is aligned' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', {
+        name: 'Expand Application readiness is unverified',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      fetcher.mock.calls.some(([input]) => urlOf(input).includes('/initialization')),
+    ).toBe(false);
+    const report: NonNullable<AxisAuthenticatedBootstrap['operationalReadiness']> = {
+      contractVersion: 1,
+      state: 'NOT_READY',
+      checkedAt: '2026-11-04T11:00:00.000Z',
+      source: 'backoffice.operationalReadiness',
+      summary: { blockers: 1 },
+      sections: [
+        {
+          key: 'publishing',
+          title: 'Owner publication evidence',
+          businessStatus: 'NOT_READY',
+          ownerModule: 'cms',
+          source: 'BACKOFFICE_APPLICATION_INITIALIZATION',
+          route: '/publishing',
+          summary: { profileCount: 74, onlineCount: 2 },
+          blockers: [],
+          nextAction: 'Review the owner publication workspace.',
+        },
+      ],
+    };
+    await act(async () => {
+      complete(report);
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Checking operational readiness with BackOffice.'),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Expand Publishing flow is clear' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Expand Owner publication evidence' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Online-ready sources').parentElement).toHaveTextContent(
+      /2\s*\/\s*74/,
+    );
+    expect(
+      fetcher.mock.calls.some(([input]) => urlOf(input).includes('/initialization')),
+    ).toBe(false);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Refresh technical signals' }),
+    );
+    await waitFor(() => expect(observe).toHaveBeenCalledTimes(2));
+    expect(
+      screen.getByText('Checking operational readiness with BackOffice.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Online-ready sources').parentElement,
+    ).not.toHaveTextContent(/2\s*\/\s*74/);
+  });
+  it('keeps a failed report unverified until explicit manual recovery without commands', async () => {
+    const observe = vi
+      .spyOn(bootstrapApi, 'loadOperationalReadiness')
+      .mockRejectedValue(new Error('Owner report unavailable'));
+    const fetcher = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation((input) =>
+        Promise.resolve(
+          response(urlOf(input).includes('/data/releases') ? { items: [] } : []),
+        ),
+      );
+    renderPageWithBootstrap(
+      {
+        ...bootstrap,
+        operationalReadinessObservation: { contractVersion: 1, mode: 'ON_DEMAND' },
+      },
+      true,
+    );
+    expect(
+      await screen.findByText(
+        /Some dashboard signals are unavailable: Owner report unavailable/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Operational readiness is unverified/)).toBeInTheDocument();
+    expect(observe).toHaveBeenCalledTimes(1);
+    expect(
+      fetcher.mock.calls.some(
+        ([input]) =>
+          urlOf(input).includes('/initialization') || urlOf(input).includes('/repairs'),
+      ),
+    ).toBe(false);
+    observe.mockResolvedValue({
+      contractVersion: 1,
+      state: 'READY',
+      checkedAt: '2026-11-04T11:00:00Z',
+      source: 'backoffice.operationalReadiness',
+      summary: { blockers: 0 },
+      sections: [],
+    });
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Refresh technical signals' }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/Operational readiness is unverified/),
+      ).not.toBeInTheDocument(),
+    );
+    expect(observe).toHaveBeenCalledTimes(2);
+  });
+
+  it('shares the owner budget across application and documentation reads without duplicate profile requests', async () => {
+    const pending: { code: string; resolve: (value: Response) => void }[] = [];
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = urlOf(input);
+      const code = /\/applications\/([^/]+)\/initialization/.exec(url)?.[1];
+      if (code)
+        return new Promise<Response>((resolve) => pending.push({ code, resolve }));
+      return Promise.resolve(
+        response(url.includes('/runtime/modules/') ? { items: [] } : []),
+      );
+    });
+    const application = bootstrap.applicationInitializationProfiles![0]!;
+    const page = renderPageWithBootstrap({
+      ...bootstrap,
+      applicationInitializationProfiles: [
+        application,
+        {
+          ...application,
+          code: 'frameworkdocs',
+          kind: 'DOCUMENTATION',
+          type: 'DOCUMENTATION_BUNDLE',
+        },
+      ],
+    });
+    const finish = (item: (typeof pending)[number]) =>
+      item.resolve(
+        response({
+          profileCode: item.code,
+          type:
+            item.code === 'frameworkdocs' ? 'DOCUMENTATION_BUNDLE' : application.type,
+          owner: application.owner,
+          applicationCode: application.applicationCode,
+          siteCode:
+            item.code === 'frameworkdocs' ? 'nodics-docs' : application.siteCode,
+          readiness: 'READY',
+          releaseCode: 'release',
+          releaseVersion: '1',
+          allowedActions: [],
+        }),
+      );
+    try {
+      await waitFor(() => expect(pending.length).toBeGreaterThan(0));
+      expect(pending.map((item) => item.code)).toEqual([application.code]);
+      await act(async () => {
+        finish(pending[0]!);
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(pending).toHaveLength(2));
+      expect(pending.map((item) => item.code)).toEqual([
+        application.code,
+        'frameworkdocs',
+      ]);
+      await act(async () => {
+        finish(pending[1]!);
+        await Promise.resolve();
+      });
+      expect(
+        fetcher.mock.calls.filter(([input]) => urlOf(input).includes('/applications/')),
+      ).toHaveLength(2);
+    } finally {
+      await act(async () => {
+        page.unmount();
+        pending.forEach(finish);
+        await Promise.resolve();
+      });
+    }
+  });
   it('guides a first-time operator with live module, data, and approval signals', async () => {
     const fetchImplementation = vi.fn<typeof fetch>((input) => {
       const url = urlOf(input);

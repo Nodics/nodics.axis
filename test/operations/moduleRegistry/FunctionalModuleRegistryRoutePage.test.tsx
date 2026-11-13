@@ -98,6 +98,14 @@ function moduleItem(
 ) {
   const registrationState = options.registrationState ?? 'REGISTERED';
   return {
+    allowedActions: [
+      'register',
+      'activate',
+      'rollback',
+      'deactivate',
+      'deregister',
+      'installSampleData',
+    ],
     project: 'nodics.kickoff',
     functionalModule,
     displayName,
@@ -163,11 +171,17 @@ function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  const page = (currentBootstrap = bootstrap, routeNavigation?: AxisNavigationItem) => (
+  const page = (
+    currentBootstrap = bootstrap,
+    routeNavigation?: AxisNavigationItem,
+    generation = 1,
+  ) => (
     <AxisThemeProvider>
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
           <FunctionalModuleRegistryRoutePage
+            key={generation}
+            sessionGeneration={generation}
             accessToken="employee-token"
             bootstrap={currentBootstrap}
             routeNavigation={routeNavigation}
@@ -181,6 +195,8 @@ function renderPage() {
   return {
     ...view,
     queryClient,
+    refreshActor: (generation: number) =>
+      view.rerender(page(bootstrap, undefined, generation)),
     refreshBootstrap: (
       current: AxisAuthenticatedBootstrap,
       navigation?: AxisNavigationItem,
@@ -226,7 +242,7 @@ describe('FunctionalModuleRegistryRoutePage', () => {
       expect(screen.getByText('Cached ready to enable')).toBeInTheDocument();
       expect(screen.getByText('Last reported readiness')).toBeInTheDocument();
       expect(
-        screen.getByText('Last reported: 1 module ready to enable'),
+        screen.getByText('Last reported: 1 module you can enable'),
       ).toBeInTheDocument();
       expect(screen.getByText('Cached: Ready to enable')).toBeInTheDocument();
       expect(
@@ -634,5 +650,64 @@ describe('FunctionalModuleRegistryRoutePage', () => {
     expect(
       screen.getAllByText(/runtime heartbeat evidence is missing or not active/)[0],
     ).toBeInTheDocument();
+  });
+  it('keeps viewer inspection available but disables selection and lifecycle commands from owner read-only metadata', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>((input) =>
+      Promise.resolve(
+        response({
+          items: urlOf(input).includes('/runtime/modules/registrations')
+            ? []
+            : [{ ...moduleItem('nodics.commerce', 'Commerce'), allowedActions: [] }],
+        }),
+      ),
+    );
+    vi.stubGlobal('fetch', fetch);
+    renderPage();
+    await screen.findByText('Commerce');
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Select ready' })).toBeDisabled(),
+    );
+    expect(screen.getByRole('checkbox', { name: 'Select Commerce' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Enable selected (0)' })).toBeDisabled();
+    expect(screen.getByText(/Your current access is read-only/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Details for Commerce' }));
+    expect(
+      screen.queryByRole('button', { name: /^(Enable|Activate|Preview)$/ }),
+    ).toBeNull();
+    expect(
+      fetch.mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
+    ).toBe(true);
+  });
+  it('retires pending catalogue results and selections when the actor generation changes in the same enterprise', async () => {
+    const pending: ((value: Response) => void)[] = [];
+    let actor = 1;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof globalThis.fetch>((input) => {
+        if (actor === 1)
+          return new Promise<Response>((resolve) => pending.push(resolve));
+        return Promise.resolve(
+          response({
+            items: urlOf(input).includes('/runtime/modules/registrations')
+              ? []
+              : [
+                  {
+                    ...moduleItem('nodics.commerce', 'New actor module'),
+                    allowedActions: [],
+                  },
+                ],
+          }),
+        );
+      }),
+    );
+    const view = renderPage();
+    await waitFor(() => expect(pending).toHaveLength(2));
+    actor = 2;
+    view.refreshActor(2);
+    await screen.findByText('New actor module');
+    for (const resolve of pending)
+      resolve(response({ items: [moduleItem('nodics.loyalty', 'Old actor module')] }));
+    await waitFor(() => expect(screen.queryByText('Old actor module')).toBeNull());
+    expect(screen.getByRole('button', { name: 'Select ready' })).toBeDisabled();
   });
 });

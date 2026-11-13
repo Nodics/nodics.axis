@@ -191,8 +191,20 @@ export const scheduleLifecycleTextKeys = [
   'OUTCOME_UNKNOWN',
   'failed',
 ] as const;
+const scheduleTimingTextKeys = [
+  'expression',
+  'timeZone',
+  'nextRun',
+  'noNextRun',
+  'nextRunUnknown',
+  'nextRunMeaning',
+] as const;
+
 export interface ScheduleLifecycleCapability {
   readonly activationEnabled: boolean;
+  readonly timingPresentation?: Readonly<
+    Record<(typeof scheduleTimingTextKeys)[number], string>
+  >;
   readonly presentation: Readonly<
     Record<(typeof scheduleLifecycleTextKeys)[number], string>
   >;
@@ -203,6 +215,11 @@ export interface ScheduleLifecycleReceipt {
   readonly intent: 'ACTIVATE' | 'DEACTIVATE' | null;
   readonly reviewDigest: string | null;
   readonly state: 'ACTIVE' | 'INACTIVE' | 'SAVED_INACTIVE' | 'OUTCOME_UNKNOWN';
+  readonly timing?: {
+    readonly expression: string;
+    readonly timeZone: string;
+    readonly nextRunAt: string | null;
+  };
 }
 export interface ScheduleLifecycleReview {
   readonly code: string;
@@ -218,6 +235,13 @@ function parseLifecycleCapability(value: unknown): ScheduleLifecycleCapability {
   const copy = record(row.presentation);
   return {
     activationEnabled: row.activationEnabled,
+    ...(scheduleTimingTextKeys.every((key) => typeof copy[key] === 'string')
+      ? {
+          timingPresentation: Object.fromEntries(
+            scheduleTimingTextKeys.map((key) => [key, text(copy[key])]),
+          ) as NonNullable<ScheduleLifecycleCapability['timingPresentation']>,
+        }
+      : {}),
     presentation: Object.fromEntries(
       scheduleLifecycleTextKeys.map((key) => [key, text(copy[key])]),
     ) as ScheduleLifecycleCapability['presentation'],
@@ -262,7 +286,25 @@ export function parseScheduleLifecycleReceipt(
     (row.state === 'INACTIVE' && row.intent !== 'DEACTIVATE')
   )
     throw new Error('Invalid lifecycle receipt');
+  const timing = row.timing === undefined ? undefined : record(row.timing);
+  if (
+    timing &&
+    timing.nextRunAt !== null &&
+    (row.state !== 'ACTIVE' ||
+      typeof timing.nextRunAt !== 'string' ||
+      !Number.isFinite(Date.parse(timing.nextRunAt)))
+  )
+    throw new Error('Invalid next scheduled tick');
   return {
+    ...(timing
+      ? {
+          timing: {
+            expression: text(timing.expression),
+            timeZone: text(timing.timeZone),
+            nextRunAt: timing.nextRunAt as string | null,
+          },
+        }
+      : {}),
     code: expectedCode,
     revision: Number(row.revision),
     intent: row.intent as ScheduleLifecycleReceipt['intent'],

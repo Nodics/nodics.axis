@@ -3,7 +3,9 @@ import type {
   DataReleaseStatus,
   DataReleaseType,
   ImportRunSummary,
+  InitializationProfile,
 } from './api/dataReleaseContracts';
+import { sourceAwareCatalogueKey } from './api/dataCatalogueSources';
 
 export interface DataReleaseTypeCopy {
   readonly label: string;
@@ -23,7 +25,7 @@ export type HistoryFilter = 'all' | 'imports' | 'exports';
 export const typeCopy: Readonly<Record<DataReleaseType, DataReleaseTypeCopy>> = {
   init: {
     label: 'Initialization data',
-    help: 'Required bootstrap identities and records needed before dependent capabilities can operate.',
+    help: 'Bootstrap identities and reference records used by selected capabilities.',
     warning:
       'Initialization data is security-sensitive. Validate it before installation.',
   },
@@ -31,7 +33,7 @@ export const typeCopy: Readonly<Record<DataReleaseType, DataReleaseTypeCopy>> = 
     label: 'Core data',
     help: 'Governed baseline business and configuration records contributed by active modules.',
     warning:
-      'Install after adding modules or deploying a new immutable core-data release.',
+      'Review the owner plan when a selected capability needs these records or an update.',
   },
   sample: {
     label: 'Sample data',
@@ -87,10 +89,24 @@ export const areaCopy: Readonly<
   },
 };
 
-export function releaseKey(release: DataRelease): string {
+/** Canonical owner identity for API request and response correlation, scoped to one captured runtime. */
+export function ownerReleaseKey(release: DataRelease): string {
   return (
     release.releaseCode ??
     `${release.dataType}:${release.moduleName}:${release.version}:${release.checksum}`
+  );
+}
+
+/** Presentation/selection identity includes actual read provenance when observations are aggregated. */
+export function releaseKey(release: DataRelease): string {
+  return sourceAwareCatalogueKey(release, ownerReleaseKey(release));
+}
+
+/** Profile codes are runtime-local; declared destination metadata never chooses the API. */
+export function initializationProfileKey(profile: InitializationProfile): string {
+  return sourceAwareCatalogueKey(
+    profile,
+    `${profile.destinationRole ?? 'DEFAULT'}:${profile.profileCode}`,
   );
 }
 
@@ -203,4 +219,19 @@ export function summarizeModules(modules: readonly string[]): string {
   return remaining > 0
     ? `${visibleModules}, and ${remaining.toString()} more`
     : visibleModules;
+}
+/** Delivers the exact file returned by the governed Media download. */
+export function saveDataExportDownload(file: { blob: Blob; fileName: string }): void {
+  const objectUrl = URL.createObjectURL(file.blob);
+  const anchor = document.createElement('a');
+  try {
+    anchor.href = objectUrl;
+    anchor.download = file.fileName;
+    anchor.rel = 'noreferrer';
+    document.body.append(anchor);
+    anchor.click();
+  } finally {
+    anchor.remove();
+    URL.revokeObjectURL(objectUrl);
+  }
 }

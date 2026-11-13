@@ -1,6 +1,5 @@
 import {
   Avatar,
-  Badge,
   Box,
   Button,
   IconButton,
@@ -13,7 +12,7 @@ import {
   Typography,
 } from '@mui/material';
 import type { PaletteMode } from '@mui/material/styles';
-import { useState, type MouseEvent } from 'react';
+import { useState, type MouseEvent, type ReactNode } from 'react';
 
 import type { AxisNavigationItem } from '../../bootstrap/publicBootstrap';
 import { useAxisLocalization } from '../../localization/AxisLocalizationContext';
@@ -23,8 +22,10 @@ import { ShellIcon } from './ShellIcon';
 import type { ShellNavigationItem } from './shellNavigation';
 
 interface TopNavigationProps {
+  readonly workspaceTools?: ReactNode;
   readonly assistant?: AxisNavigationItem | undefined;
   readonly contextItems: readonly string[];
+  readonly technicalContextItems?: readonly string[];
   readonly employeeId?: string | undefined;
   readonly navigationToggleLabel: string;
   readonly recentItems: readonly ShellNavigationItem[];
@@ -36,7 +37,6 @@ interface TopNavigationProps {
   readonly onToggleColorMode: () => void;
   readonly onLock?: (() => void) | undefined;
   readonly onLogout?: (() => void) | undefined;
-  readonly onNotify: (message: string) => void;
 }
 
 const utilityActionSx = {
@@ -67,13 +67,14 @@ const parseContextItem = (item: string) => {
 
 export function TopNavigation({
   assistant,
+  workspaceTools,
   contextItems,
+  technicalContextItems = [],
   employeeId,
   navigationToggleLabel,
   colorMode,
   onLock,
   onLogout,
-  onNotify,
   onNavigate,
   onToggleNavigation,
   onToggleColorMode,
@@ -81,16 +82,29 @@ export function TopNavigation({
   query,
   recentItems,
 }: TopNavigationProps) {
+  const { format: workflowText } = useAxisLocalization();
   const localization = useAxisLocalization();
+  const navigationSearchLabel = localization.format(
+    'common.search-navigation',
+    'Search navigation',
+  );
+  const languageLabel = localization.format(
+    'common.change-language',
+    'Change language',
+  );
   const [profileAnchor, setProfileAnchor] = useState<HTMLElement | null>(null);
   const initials = employeeId?.slice(0, 2).toLocaleUpperCase() ?? 'AX';
   const assistantActive =
     assistant !== undefined && ['UP', 'DEGRADED'].includes(assistant.availability);
-  const contextSummary =
-    contextItems.length === 0
-      ? 'Current context unavailable'
-      : `Current context: ${contextItems.join(', ')}`;
   const contextRows = contextItems.map(parseContextItem);
+  const visibleContext = contextRows
+    .map(({ label, value }) =>
+      ['Enterprise code', 'Environments'].includes(label)
+        ? `${workflowText('axis.context.' + label.toLowerCase().replaceAll(' ', '-'), label)}: ${value}`
+        : value,
+    )
+    .join(' · ');
+  const technicalRows = technicalContextItems.map(parseContextItem);
 
   return (
     <Stack
@@ -108,11 +122,11 @@ export function TopNavigation({
         </IconButton>
       </Tooltip>
       <Box sx={{ display: { xs: 'block', md: 'none' } }}>
-        <AxisMark compact />
+        <AxisMark compact reverse={colorMode === 'dark'} />
       </Box>
       <TextField
-        aria-label="Search navigation"
-        placeholder="Search navigation"
+        aria-label={navigationSearchLabel}
+        placeholder={navigationSearchLabel}
         size="small"
         value={query}
         sx={{
@@ -138,6 +152,7 @@ export function TopNavigation({
         spacing={{ xs: 0.25, sm: 0.5 }}
         sx={{ alignItems: 'center', flexShrink: 0, ml: 'auto !important' }}
       >
+        {workspaceTools}
         {assistant ? (
           <Tooltip title={assistant.label}>
             <span>
@@ -158,50 +173,10 @@ export function TopNavigation({
             </span>
           </Tooltip>
         ) : null}
-        <Tooltip title="My Work">
-          <IconButton
-            aria-label="My Work"
-            onClick={() => {
-              onNotify('My Work will connect to the Workflow task contract.');
-            }}
-            sx={utilityActionSx}
-          >
-            <Badge
-              badgeContent={0}
-              color="primary"
-              showZero
-              slotProps={{
-                badge: {
-                  sx: {
-                    fontSize: 12,
-                    height: 20,
-                    minWidth: 20,
-                    p: 0,
-                  },
-                },
-              }}
-            >
-              <ShellIcon color="action" name="tasks" sx={utilityIconSx} />
-            </Badge>
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Notifications">
-          <IconButton
-            aria-label="Notifications"
-            onClick={() => {
-              onNotify('There are no new notifications.');
-            }}
-            sx={utilityActionSx}
-          >
-            <Badge color="error" variant="dot" invisible>
-              <ShellIcon color="action" name="bell" sx={utilityIconSx} />
-            </Badge>
-          </IconButton>
-        </Tooltip>
         {localization.supportedLocales.length > 1 ? (
-          <Tooltip title="Change language">
+          <Tooltip title={languageLabel}>
             <Button
-              aria-label="Change language"
+              aria-label={`${languageLabel}: ${localization.locale.toLocaleUpperCase()}`}
               onClick={() => {
                 const index = localization.supportedLocales.indexOf(
                   localization.locale,
@@ -213,7 +188,7 @@ export function TopNavigation({
                 );
               }}
               size="small"
-              sx={{ display: { xs: 'none', sm: 'inline-flex' }, minWidth: 44 }}
+              sx={{ minWidth: 44, minHeight: 44 }}
             >
               {localization.locale.toLocaleUpperCase()}
             </Button>
@@ -245,13 +220,21 @@ export function TopNavigation({
                 borderRadius: 2,
                 boxShadow: (currentTheme) => currentTheme.shadows[8],
                 color: 'text.primary',
-                maxWidth: 360,
+                maxWidth: 'min(360px, calc(100vw - 32px))',
                 p: 0,
               },
             },
           }}
           title={
-            <Box sx={{ minWidth: 320, p: 2 }}>
+            <Box
+              sx={{
+                minWidth: 0,
+                width: { xs: 'calc(100vw - 32px)', sm: 360 },
+                maxWidth: '100%',
+                boxSizing: 'border-box',
+                p: 2,
+              }}
+            >
               <Stack spacing={0.5}>
                 <Typography
                   sx={{
@@ -260,17 +243,21 @@ export function TopNavigation({
                     letterSpacing: '0.01em',
                   }}
                   variant="subtitle1"
+                  component="div"
                 >
-                  Current context
+                  {workflowText('axis.ui.current-context', 'Current context')}
                 </Typography>
                 <Typography sx={{ color: 'text.secondary' }} variant="caption">
-                  Runtime scope used by this Axis workspace.
+                  {workflowText(
+                    'axis.ui.current-employee-business-context',
+                    'Current employee business context.',
+                  )}
                 </Typography>
               </Stack>
               <Stack component="dl" spacing={1} sx={{ m: 0, mt: 1.5 }}>
                 {contextRows.map((item) => (
                   <Box
-                    key={`${item.label}:${item.value}`}
+                    key={`${workflowText('axis.context.' + item.label.toLowerCase().replaceAll(' ', '-'), item.label)}:${item.value}`}
                     component="div"
                     sx={{
                       alignItems: 'baseline',
@@ -278,7 +265,10 @@ export function TopNavigation({
                       borderColor: 'divider',
                       columnGap: 2,
                       display: 'grid',
-                      gridTemplateColumns: '140px minmax(0, 1fr)',
+                      gridTemplateColumns: {
+                        xs: 'minmax(0, 1fr) minmax(0, 1fr)',
+                        sm: '140px minmax(0, 1fr)',
+                      },
                       pt: 1,
                     }}
                   >
@@ -293,7 +283,10 @@ export function TopNavigation({
                         textTransform: 'uppercase',
                       }}
                     >
-                      {item.label}
+                      {workflowText(
+                        'axis.context.' + item.label.toLowerCase().replaceAll(' ', '-'),
+                        item.label,
+                      )}
                     </Typography>
                     <Typography
                       component="dd"
@@ -313,19 +306,99 @@ export function TopNavigation({
                   </Box>
                 ))}
               </Stack>
+              {technicalRows.length > 0 && (
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="subtitle2" component="div">
+                    {workflowText(
+                      'axis.ui.application-amp-technical-details',
+                      'Application & technical details',
+                    )}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {workflowText(
+                      'axis.ui.composition-site-and-catalog-render-axis-they-do-not-select-business-rec',
+                      'Composition Site and Catalog render Axis; they do not select business records.',
+                    )}
+                  </Typography>
+                  <Stack component="dl" spacing={1} sx={{ m: 0, mt: 1 }}>
+                    {technicalRows.map((item) => (
+                      <Box
+                        key={workflowText(
+                          'axis.context.' +
+                            item.label.toLowerCase().replaceAll(' ', '-'),
+                          item.label,
+                        )}
+                      >
+                        <Typography
+                          component="dt"
+                          variant="caption"
+                          color="text.secondary"
+                        >
+                          {workflowText(
+                            'axis.context.' +
+                              item.label.toLowerCase().replaceAll(' ', '-'),
+                            item.label,
+                          )}
+                        </Typography>
+                        <Typography
+                          component="dd"
+                          variant="body2"
+                          sx={{ m: 0, overflowWrap: 'anywhere' }}
+                        >
+                          {item.value}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Stack>
+                </Box>
+              )}
             </Box>
           }
         >
-          <IconButton aria-label={contextSummary} sx={responsiveUtilityActionSx}>
+          <Button
+            aria-label={`${visibleContext} · ${workflowText('axis.ui.current-context', 'Current context')}`}
+            color="inherit"
+            sx={{
+              alignItems: 'center',
+              borderRadius: 1,
+              color: 'text.secondary',
+              gap: 0.75,
+              height: 44,
+              maxWidth: { md: 260, lg: 320 },
+              minWidth: 44,
+              px: { xs: 0, md: 1 },
+              textTransform: 'none',
+            }}
+          >
             <ShellIcon color="action" name="info" sx={utilityIconSx} />
-          </IconButton>
+            <Typography
+              component="span"
+              variant="caption"
+              sx={{
+                display: { xs: 'none', md: 'inline' },
+                fontWeight: 600,
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {visibleContext || 'Context unavailable'}
+            </Typography>
+          </Button>
         </Tooltip>
         <Tooltip
-          title={colorMode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+          title={
+            colorMode === 'light'
+              ? workflowText('axis.ui.switch-to-dark-mode', 'Switch to dark mode')
+              : workflowText('axis.ui.switch-to-light-mode', 'Switch to light mode')
+          }
         >
           <IconButton
             aria-label={
-              colorMode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'
+              colorMode === 'light'
+                ? workflowText('axis.ui.switch-to-dark-mode', 'Switch to dark mode')
+                : workflowText('axis.ui.switch-to-light-mode', 'Switch to light mode')
             }
             onClick={onToggleColorMode}
             sx={responsiveUtilityActionSx}
@@ -338,7 +411,7 @@ export function TopNavigation({
           </IconButton>
         </Tooltip>
         <Button
-          aria-label="Open employee menu"
+          aria-label={`${initials} ${employeeId ?? 'Axis recovery'} · ${workflowText('axis.ui.open-employee-menu', 'Open employee menu')}`}
           color="inherit"
           sx={{
             gap: 1,
@@ -352,7 +425,7 @@ export function TopNavigation({
         >
           <Avatar sx={{ height: { xs: 36, sm: 40 }, width: { xs: 36, sm: 40 } }}>
             {initials}
-          </Avatar>
+          </Avatar>{' '}
           <Typography
             noWrap
             sx={{ display: { xs: 'none', md: 'block' }, maxWidth: 140 }}
@@ -372,18 +445,12 @@ export function TopNavigation({
         <MenuItem
           onClick={() => {
             setProfileAnchor(null);
-            onNotify('Employee profile workspace is not implemented yet.');
+            onToggleColorMode();
           }}
         >
-          Profile
-        </MenuItem>
-        <MenuItem
-          onClick={() => {
-            setProfileAnchor(null);
-            onNotify('Appearance preferences remain available in the shell.');
-          }}
-        >
-          Preferences
+          {colorMode === 'light'
+            ? workflowText('axis.ui.switch-to-dark-mode', 'Switch to dark mode')
+            : workflowText('axis.ui.switch-to-light-mode', 'Switch to light mode')}
         </MenuItem>
         {onLock ? (
           <MenuItem
@@ -392,7 +459,7 @@ export function TopNavigation({
               onLock();
             }}
           >
-            Lock screen
+            {workflowText('axis.ui.lock-screen', 'Lock screen')}
           </MenuItem>
         ) : null}
         {onLogout ? (
@@ -402,7 +469,7 @@ export function TopNavigation({
               onLogout();
             }}
           >
-            Sign out
+            {workflowText('axis.ui.sign-out', 'Sign out')}
           </MenuItem>
         ) : null}
       </Menu>

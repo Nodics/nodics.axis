@@ -7,18 +7,41 @@ interface PersistedScreenLock {
   readonly returnPath: string;
 }
 
+function isApplicationLocation(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.startsWith('/') &&
+    !value.startsWith('//') &&
+    !value.includes('\\') &&
+    !EXCLUDED_RETURN_PATHS.has(value.split(/[?#]/, 1)[0]!) &&
+    ![...value].some(
+      (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+    )
+  );
+}
+
 function safeReturnPath(value: unknown): string {
+  return isApplicationLocation(value) && value.length <= 512
+    ? value
+    : DEFAULT_RETURN_PATH;
+}
+
+/** Volatile same-application detail location for a verified same-context unlock. Never persist its query or fragment. */
+export function screenLockReturnLocation(
+  pathname: string,
+  search = '',
+  hash = '',
+): string {
   if (
-    typeof value !== 'string' ||
-    !value.startsWith('/') ||
-    value.startsWith('//') ||
-    value.includes('\\') ||
-    value.length > 512 ||
-    EXCLUDED_RETURN_PATHS.has(value)
-  ) {
+    !isApplicationLocation(pathname) ||
+    pathname.includes('?') ||
+    pathname.includes('#')
+  )
     return DEFAULT_RETURN_PATH;
-  }
-  return value;
+  if ((search && !search.startsWith('?')) || (hash && !hash.startsWith('#')))
+    return pathname;
+  const value = `${pathname}${search}${hash}`;
+  return isApplicationLocation(value) ? value : pathname;
 }
 
 /**

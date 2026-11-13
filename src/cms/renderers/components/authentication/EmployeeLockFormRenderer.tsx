@@ -1,5 +1,6 @@
 import { Alert, Button, CircularProgress, Stack, Typography } from '@mui/material';
 import type { FormEvent } from 'react';
+import { getUnlockErrorMessage } from '../../../../app/recoveryState';
 
 import { stringProperty } from '../../shared/rendererProperties';
 import type { CmsComponentRendererProps } from '../../shared/rendererTypes';
@@ -27,7 +28,14 @@ export function EmployeeLockFormRenderer({
         {stringProperty(component, 'title')}
       </Typography>
       {actions?.authenticationError ? (
-        <Alert severity="error">{actions.authenticationError}</Alert>
+        <Alert severity="error">
+          {getUnlockErrorMessage(actions.authenticationError)}
+        </Alert>
+      ) : null}
+      {actions?.employeeSessionRecoveryMessage ? (
+        <Alert role="status" severity="info">
+          {actions.employeeSessionRecoveryMessage}
+        </Alert>
       ) : null}
       <Stack spacing={0.5}>
         <Typography color="text.secondary" sx={{ fontSize: 12 }}>

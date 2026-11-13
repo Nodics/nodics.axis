@@ -302,7 +302,7 @@ describe('App first-run Process approval route admission', () => {
     await waitFor(() => expect(owners.authenticatedBootstrap).toHaveBeenCalledTimes(2));
     await user.click(refresh);
     await waitFor(() => expect(owners.authenticatedBootstrap).toHaveBeenCalledTimes(3));
-    await user.click(screen.getByRole('button', { name: 'Open employee menu' }));
+    await user.click(screen.getByRole('button', { name: /Open employee menu/ }));
     await user.click(screen.getByRole('menuitem', { name: 'Lock screen' }));
     await waitFor(() => expect(window.location.pathname).toBe('/lock-screen'));
     await act(async () => {
@@ -525,7 +525,8 @@ describe('App first-run Process approval route admission', () => {
   it('does not admit an unauthenticated approval deep link', async () => {
     owners.restoreSession.mockRejectedValue(new Error('No Employee session'));
     openApproval();
-    expect(await screen.findByRole('heading', { name: 'Nodics Axis' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeVisible();
+    expect(screen.getByRole('img', { name: 'Nodics Axis' })).toBeVisible();
     await waitFor(() => expect(window.location.pathname).toBe('/login'));
     expect(
       screen.queryByRole('region', { name: 'Admitted Process workspace' }),
@@ -597,10 +598,9 @@ describe('App first-run Process approval route admission', () => {
       expect(
         screen.queryByRole('region', { name: 'Admitted documentation' }),
       ).not.toBeInTheDocument();
-      await waitFor(
-        () => expect(window.location.pathname).toBe(available ? path : '/dashboard'),
-        { timeout: 8_000 },
-      );
+      await waitFor(() => expect(window.location.pathname).toBe(path), {
+        timeout: 8_000,
+      });
       if (available) {
         expect(
           await screen.findByRole('region', { name: 'Admitted documentation' }),
@@ -609,9 +609,14 @@ describe('App first-run Process approval route admission', () => {
         expect(window.location.hash).toBe('');
       } else {
         expect(
+          await screen.findByRole('heading', { name: 'Page unavailable' }),
+        ).toBeVisible();
+        expect(
           screen.queryByRole('region', { name: 'Admitted documentation' }),
         ).not.toBeInTheDocument();
       }
+      expect(window.location.search).toBe('');
+      expect(window.location.hash).toBe('');
       expect(owners.initialize).not.toHaveBeenCalled();
       expect(owners.completeTask).not.toHaveBeenCalled();
       expect(owners.initializationStatus.mock.calls.length).toBeGreaterThanOrEqual(2);

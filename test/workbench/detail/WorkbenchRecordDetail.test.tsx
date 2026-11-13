@@ -42,6 +42,85 @@ const schema: WorkbenchSchema = {
 };
 
 describe('WorkbenchRecordDetail', () => {
+  it('uses the owner display projection in the record heading while retaining the canonical identity', () => {
+    render(
+      <WorkbenchRecordDetail
+        closeLabel="Close"
+        editLabel="Edit"
+        deleteLabel="Delete"
+        falseLabel="No"
+        trueLabel="Yes"
+        schema={{
+          ...schema,
+          displayProperties: ['name', 'code'],
+          fields: [
+            ...schema.fields,
+            { ...schema.fields[0]!, name: 'name', label: 'Name', primary: false },
+          ],
+        }}
+        record={{ code: 'author-one', name: 'Editorial team' }}
+        onClose={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole('heading', { name: 'Editorial team - author-one' }),
+    ).toBeVisible();
+    expect(screen.getByText('author-one', { exact: true })).toBeVisible();
+  });
+  it('inspects saved structured fields as text without editing or exposing undeclared fields', () => {
+    const structured = {
+      en: 'Saved biography',
+      ar: 'سيرة',
+      enabled: false,
+      rank: 0,
+      links: [{ label: '<img src=x onerror=alert(1)>', url: 'https://example.test' }],
+    };
+    render(
+      <WorkbenchRecordDetail
+        closeLabel="Close"
+        editLabel="Edit"
+        deleteLabel="Delete"
+        falseLabel="No"
+        trueLabel="Yes"
+        schema={{
+          ...schema,
+          fields: [
+            ...schema.fields,
+            {
+              ...schema.fields[0]!,
+              name: 'biography',
+              label: 'Biography',
+              type: 'object',
+              component: 'json',
+              primary: false,
+              required: false,
+            },
+          ],
+        }}
+        record={{
+          code: 'author',
+          biography: structured,
+          privateField: 'must stay hidden',
+        }}
+        onClose={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+    const value = screen.getByText(
+      (_, element) =>
+        element?.tagName === 'PRE' &&
+        element.textContent === JSON.stringify(structured, null, 2),
+    );
+    expect(value).toBeVisible();
+    expect(value.querySelector('img')).toBeNull();
+    expect(screen.queryByText('Related data')).not.toBeInTheDocument();
+    expect(screen.queryByText('must stay hidden')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+  });
+
   it('edits nested records in dialogs and returns to the parent without exposing nested delete', async () => {
     const user = userEvent.setup();
     const relationship = {

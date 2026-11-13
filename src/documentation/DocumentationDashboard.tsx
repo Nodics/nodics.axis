@@ -7,6 +7,7 @@ import {
   Divider,
   IconButton,
   LinearProgress,
+  Pagination,
   Paper,
   Stack,
   Tooltip,
@@ -154,16 +155,6 @@ function sourceSummary(source: AxisDocumentationSource): string {
   );
 }
 
-function documentationSourceDisplayLabel(source: AxisDocumentationSource): string {
-  const label = source.label.toLocaleLowerCase();
-  if (label.includes('framework')) return 'Framework docs';
-  if (label.includes('axis')) return 'Axis docs';
-  if (label.includes('kickoff')) return 'Kickoff docs';
-  return /docs|documentation/iu.test(source.label)
-    ? source.label
-    : `${source.label} docs`;
-}
-
 function availabilityLabel(
   source: AxisDocumentationSource,
   bootstrap: AxisAuthenticatedBootstrap,
@@ -245,7 +236,12 @@ function DocumentationSourceListItem({
               <ShellIcon fontSize="small" name={source.dashboard.icon ?? 'content'} />
             </Box>
             <Box sx={{ minWidth: 0 }}>
-              <Typography noWrap title={source.label} variant="h6">
+              <Typography
+                component="h2"
+                sx={{ overflowWrap: 'anywhere' }}
+                title={source.label}
+                variant="h6"
+              >
                 {source.label}
               </Typography>
               <Typography color="text.secondary" noWrap variant="body2">
@@ -301,10 +297,13 @@ function DocumentationSourceListItem({
                 ...dashboardActionButtonSx,
                 minWidth: { xs: 0, sm: 184, lg: 204 },
               }}
-              to={source.route}
+              to={{
+                pathname: '/docs',
+                search: new URLSearchParams({ manage: source.id }).toString(),
+              }}
               variant="contained"
             >
-              Open {source.label}
+              {source.type === 'OPENAPI' ? 'Open' : 'Manage'} {source.label}
             </Button>
             <Tooltip
               arrow
@@ -349,7 +348,9 @@ function DocumentationSourceListItem({
                 spacing={1}
                 sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}
               >
-                <Typography variant="subtitle2">{coverageLabel(coverage)}</Typography>
+                <Typography component="p" variant="subtitle2">
+                  {coverageLabel(coverage)}
+                </Typography>
                 {coverage ? (
                   <Chip
                     color={statusColors[coverage.status]}
@@ -395,7 +396,7 @@ function documentationPublicationReadinessLabel(
 ): string {
   switch (readiness) {
     case 'NOT_IMPORTED':
-      return 'Not initialized';
+      return 'Candidate not imported';
     case 'IMPORTING':
       return 'Importing';
     case 'BLOCKED':
@@ -557,6 +558,13 @@ function documentationOperatorGuidance({
       body: 'A reviewer can inspect the publication evidence and approve or reject the Online release.',
     };
   }
+  if (publicationReadiness === 'MEDIA_DEPENDENCIES_PENDING') {
+    return {
+      severity: 'warning',
+      title: 'Complete asset approvals',
+      body: 'The guide content is approved. Review its referenced assets and complete their Media approvals to make the whole guide available Online.',
+    };
+  }
   if (publicationReadiness === 'READY') {
     return {
       severity: 'success',
@@ -603,7 +611,11 @@ function HeaderMetric({
       <Typography color="text.secondary" variant="caption">
         {label}
       </Typography>
-      <Typography sx={{ fontWeight: 700, lineHeight: 1.2 }} variant="subtitle2">
+      <Typography
+        component="p"
+        sx={{ fontWeight: 700, lineHeight: 1.2 }}
+        variant="subtitle2"
+      >
         {value}
       </Typography>
     </Box>
@@ -638,7 +650,9 @@ function DocumentationApprovalGuide() {
           }}
         >
           <Box sx={{ minWidth: 0 }}>
-            <Typography variant="subtitle2">Publication flow</Typography>
+            <Typography component="h2" variant="subtitle2">
+              Publication flow
+            </Typography>
             <Typography color="text.secondary" variant="body2">
               Staged documentation becomes visible only after governed review.
             </Typography>
@@ -1117,11 +1131,12 @@ function CmsDocumentationReadinessCard({
         >
           <Box sx={{ minWidth: 0 }}>
             <Typography
-              noWrap
-              title={documentationSourceDisplayLabel(source)}
+              component="h2"
+              sx={{ overflowWrap: 'anywhere' }}
+              title={source.label}
               variant="h6"
             >
-              {documentationSourceDisplayLabel(source)}
+              {source.label}
             </Typography>
             <Typography
               color="text.secondary"
@@ -1158,9 +1173,13 @@ function CmsDocumentationReadinessCard({
               />
               <Chip
                 color={publicationReadinessColor(publication.data?.readiness)}
-                label={`Online: ${documentationPublicationReadinessLabel(
-                  publication.data?.readiness,
-                ).toLocaleLowerCase()}`}
+                label={
+                  publication.data?.readiness === 'NOT_IMPORTED'
+                    ? 'Candidate: not imported'
+                    : `Online: ${documentationPublicationReadinessLabel(
+                        publication.data?.readiness,
+                      ).toLocaleLowerCase()}`
+                }
                 size="small"
                 sx={dashboardStatusChipSx}
               />
@@ -1453,7 +1472,15 @@ export function DocumentationDashboard({
   onPublicationStatusChange,
   runtime,
 }: DocumentationDashboardProps) {
-  const sources = bootstrap.documentationSources;
+  // Each visible CMS row observes its own publication and pack. Bound concurrent reads.
+  const pageSize = 5;
+  const [requestedPage, setPage] = useState(1);
+  const pageCount = Math.ceil(bootstrap.documentationSources.length / pageSize);
+  const page = Math.min(requestedPage, Math.max(pageCount, 1));
+  const sources = bootstrap.documentationSources.slice(
+    (page - 1) * pageSize,
+    page * pageSize,
+  );
   const cmsSources = sources.filter(isCmsDocumentationSource);
   const apiSources = sources.filter((source) => source.type === 'OPENAPI');
   const administrationConnection = selectModuleConnection(bootstrap, 'backoffice');
@@ -1517,32 +1544,52 @@ export function DocumentationDashboard({
           Boolean(item),
       ),
   );
+  const publicationFailedProfiles = new Set(
+    managedCmsSources
+      .filter((_, index) => publicationQueries[index]?.isError)
+      .map((source) => source.initializationProfile),
+  );
   const lockedDocumentationSources = cmsSources
     .map((source) => {
       if (!source.initializationProfile) {
         return {
           id: source.id,
-          label: documentationSourceDisplayLabel(source),
+          label: source.label,
           reason: 'Publication profile is not configured.',
-          route: source.route,
+          badge: 'Fix first',
           severity: 'error' as const,
         };
       }
       const status = publicationStatusByProfile.get(source.initializationProfile);
       if (status?.readiness === 'READY') return undefined;
+      const statusFailed =
+        !status && publicationFailedProfiles.has(source.initializationProfile);
       return {
         id: source.id,
-        label: documentationSourceDisplayLabel(source),
-        reason: status
-          ? `Online is ${documentationPublicationReadinessLabel(
-              status.readiness,
-            ).toLocaleLowerCase()}.`
-          : 'Publication status is still loading.',
-        route: source.route,
+        label: source.label,
+        reason: statusFailed
+          ? 'Publication status could not be checked. Use Refresh status to try again.'
+          : status?.readiness === 'NOT_IMPORTED'
+            ? 'The selected candidate has not been imported. Published guides are checked separately by the Online reader.'
+            : status
+              ? `Candidate publication: ${documentationPublicationReadinessLabel(status.readiness).toLocaleLowerCase()}.`
+              : 'Publication status is still loading.',
+        badge: statusFailed
+          ? 'Check failed'
+          : !status
+            ? 'Checking'
+            : status.readiness === 'NOT_IMPORTED'
+              ? 'Not installed'
+              : ['FAILED', 'REJECTED', 'BLOCKED'].includes(status.readiness)
+                ? 'Fix first'
+                : documentationPublicationReadinessLabel(status.readiness),
         severity:
-          status && ['FAILED', 'REJECTED'].includes(status.readiness)
+          statusFailed ||
+          (status && ['FAILED', 'REJECTED', 'BLOCKED'].includes(status.readiness))
             ? ('error' as const)
-            : ('warning' as const),
+            : !status || ['NOT_IMPORTED', 'IMPORTING'].includes(status.readiness)
+              ? ('info' as const)
+              : ('warning' as const),
       };
     })
     .filter(
@@ -1552,8 +1599,8 @@ export function DocumentationDashboard({
         readonly id: string;
         readonly label: string;
         readonly reason: string;
-        readonly route: string;
-        readonly severity: 'error' | 'warning';
+        readonly badge: string;
+        readonly severity: 'error' | 'warning' | 'info';
       } => Boolean(source),
     );
   const visibleDocumentationSources = sources.filter((source) => {
@@ -1581,10 +1628,18 @@ export function DocumentationDashboard({
           ? `${String(approvalNeededCmsCount)} documentation source${approvalNeededCmsCount === 1 ? '' : 's'} ready for approval request.`
           : publicationChecking
             ? 'Axis is checking documentation publication state.'
-            : 'Documentation links remain locked until every publishable source is Online-ready.';
+            : 'Candidate publication status is separate from the Online guide catalogue.';
 
   return (
     <Stack spacing={dashboardComponentGap}>
+      {pageCount > 1 && (
+        <Pagination
+          aria-label="Documentation publication pages"
+          count={pageCount}
+          page={page}
+          onChange={(_, next) => setPage(next)}
+        />
+      )}
       {cmsSources.length ? (
         <Paper
           component="section"
@@ -1644,6 +1699,9 @@ export function DocumentationDashboard({
                   '& > *:nth-of-type(2)': {
                     borderTop: { xs: 0 },
                   },
+                  '& > *:nth-of-type(3)': {
+                    gridColumn: { xs: '1 / -1', sm: 'auto' },
+                  },
                 }}
               >
                 <HeaderMetric
@@ -1660,13 +1718,22 @@ export function DocumentationDashboard({
               </Box>
             </Box>
             {!documentationVisible ? (
-              <Alert severity={publicationChecking ? 'info' : 'warning'}>
+              <Alert
+                severity={
+                  publicationChecking ||
+                  lockedDocumentationSources.every(
+                    (source) => source.severity === 'info',
+                  )
+                    ? 'info'
+                    : 'warning'
+                }
+              >
                 {publicationSummary}
               </Alert>
             ) : (
               <Alert severity="success">
-                All documentation sources are Online-ready. The documentation areas
-                below are now available.
+                The documentation sources on this page are Online-ready. The
+                documentation areas below are now available.
               </Alert>
             )}
             {lockedDocumentationSources.length > 0 ? (
@@ -1695,17 +1762,23 @@ export function DocumentationDashboard({
                   }}
                 >
                   <Box sx={{ minWidth: 0 }}>
-                    <Typography sx={{ fontWeight: 800 }}>
-                      Locked documentation sources
+                    <Typography component="h2" sx={{ fontWeight: 800 }} variant="body1">
+                      Publication candidates
                     </Typography>
                     <Typography color="text.secondary" variant="body2">
-                      These sources keep dashboard links locked until their governed
-                      publication path is complete.
+                      These candidate releases are not Online-ready. Published guides
+                      are checked separately by the Online reader.
                     </Typography>
                   </Box>
                   <Chip
-                    color="warning"
-                    label={`${String(lockedDocumentationSources.length)} locked`}
+                    color={
+                      lockedDocumentationSources.every(
+                        (source) => source.severity === 'info',
+                      )
+                        ? 'info'
+                        : 'warning'
+                    }
+                    label={`${String(lockedDocumentationSources.length)} candidate${lockedDocumentationSources.length === 1 ? '' : 's'}`}
                     sx={{ justifySelf: { md: 'end' } }}
                     variant="outlined"
                   />
@@ -1727,18 +1800,24 @@ export function DocumentationDashboard({
                       }}
                     >
                       <Stack
-                        direction="row"
+                        direction={{ xs: 'column', sm: 'row' }}
                         spacing={0.75}
-                        sx={{ alignItems: 'center', minWidth: 0 }}
+                        sx={{
+                          alignItems: { xs: 'stretch', sm: 'center' },
+                          minWidth: 0,
+                        }}
                       >
                         <Chip
                           color={source.severity}
-                          label={source.severity === 'error' ? 'Fix first' : 'Pending'}
+                          label={source.badge}
                           size="small"
+                          sx={{ alignSelf: { xs: 'flex-start', sm: 'auto' } }}
                           variant="outlined"
                         />
                         <Box sx={{ minWidth: 0 }}>
-                          <Typography noWrap sx={{ fontWeight: 800 }}>
+                          <Typography
+                            sx={{ fontWeight: 800, overflowWrap: 'anywhere' }}
+                          >
                             {source.label}
                           </Typography>
                           <Typography color="text.secondary" variant="caption">
@@ -1750,10 +1829,13 @@ export function DocumentationDashboard({
                         component={RouterLink}
                         size="small"
                         sx={dashboardSecondaryActionButtonSx}
-                        to={source.route}
+                        to={{
+                          pathname: '/docs',
+                          search: new URLSearchParams({ manage: source.id }).toString(),
+                        }}
                         variant="outlined"
                       >
-                        Open source
+                        Manage source
                       </Button>
                     </Box>
                   ))}

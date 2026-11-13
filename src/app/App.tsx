@@ -1,3 +1,9 @@
+import { EnterpriseDisplayContext } from './EnterpriseDisplayContext';
+import { useCurrentEnterpriseDisplay } from '../bootstrap/useCurrentEnterpriseDisplay';
+import {
+  useInvitedEmployeeRegistrationEntry,
+  INVITED_EMPLOYEE_REGISTRATION_ROUTE,
+} from '../auth/useInvitedEmployeeRegistrationEntry';
 import {
   readEnterpriseContext,
   rememberEnterpriseContext,
@@ -7,6 +13,8 @@ import {
 } from '../auth/enterpriseSessionContext';
 import { wasteOverviewAliases } from '../operations/wasteManagement/wasteOverviewAliases';
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -17,7 +25,7 @@ import {
   type ReactNode,
 } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router';
-import { useQueries, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Stack } from '@mui/material';
 
 import {
@@ -46,61 +54,46 @@ import {
 } from '../bootstrap/useNavigationAvailabilityRecovery';
 import { AssistantRoutePage } from '../assistant/AssistantRoutePage';
 import { CopilotWorkspaceRoutePage } from '../assistant/CopilotWorkspaceRoutePage';
-import { KnowledgeStudioRoutePage } from '../assistant/KnowledgeStudioRoutePage';
 import { CopilotActivityRoutePage } from '../assistant/CopilotActivityRoutePage';
 import { CopilotUsageRoutePage } from '../assistant/CopilotUsageRoutePage';
-import { CopilotAdministrationRoutePage } from '../assistant/CopilotAdministrationRoutePage';
 import { WorkbenchRoutePage } from '../workbench/WorkbenchRoutePage';
 import {
   EnterpriseCreationCheckpoint,
   enterpriseCreationReturnPath,
 } from '../operations/enterprise/enterpriseCreationCheckpoint';
 import { DocumentationRoutePage } from '../documentation/DocumentationRoutePage';
-import {
-  createDocumentationPublicationClient,
-  type DocumentationPublicationStatus,
-} from '../documentation/api/documentationPublicationClient';
-import { publicationQueryPolicy } from '../documentation/publicationQueryPolicy';
+import { useOnlineDocumentationGuides } from '../bootstrap/onlineDocumentationGuides';
+import { OnlineHelpPathsContext } from './help/workspaceHelpModel';
+import type { DocumentationPublicationStatus } from '../documentation/api/documentationPublicationClient';
+import { isDocumentationNavigationItem } from '../bootstrap/documentationGuides';
 import { ModuleHealthRoutePage } from '../operations/moduleHealth/ModuleHealthRoutePage';
-import { FunctionalModuleRegistryRoutePage } from '../operations/moduleRegistry/FunctionalModuleRegistryRoutePage';
-import { NavigationCompositionRoutePage } from '../operations/navigationComposition/NavigationCompositionRoutePage';
 import { SystemIntegrationsDashboardRoutePage } from '../operations/systemIntegrations/SystemIntegrationsDashboardRoutePage';
 import { CronDashboardRoutePage } from '../operations/cron/CronDashboardRoutePage';
 import { ContentDashboardRoutePage } from '../operations/contentExperience/ContentDashboardRoutePage';
-import { ContentDesignerRoutePage } from '../operations/contentExperience/ContentDesignerRoutePage';
-import { WcmsExperienceStudioRoutePage } from '../operations/contentExperience/WcmsExperienceStudioRoutePage';
 import { PublishingDashboardRoutePage } from '../operations/contentExperience/PublishingDashboardRoutePage';
 import { PublishingRouteGuidancePage } from '../operations/contentExperience/PublishingRouteGuidancePage';
 import { DocumentationManagementRoutePage } from '../operations/documentationManagement/DocumentationManagementRoutePage';
-import { ImportExportRoutePage } from '../operations/importExport/ImportExportRoutePage';
 import { ComplianceManagementRoutePage } from '../operations/compliance/ComplianceManagementRoutePage';
 import { NotificationManagementRoutePage } from '../operations/notifications/NotificationManagementRoutePage';
 import { OrderLifecycleManagementRoutePage } from '../operations/orderLifecycle/OrderLifecycleManagementRoutePage';
 import { MediaManagementDashboardRoutePage } from '../operations/mediaManagement/MediaManagementDashboardRoutePage';
 import { MediaManagementRoutePage } from '../operations/mediaManagement/MediaManagementRoutePage';
 import { ProcessWorkflowRoutePage } from '../operations/processWorkflow/ProcessWorkflowRoutePage';
-import { ProductManagementRoutePage } from '../operations/productManagement/ProductManagementRoutePage';
-import { ProductWorkbenchRoutePage } from '../operations/productManagement/ProductWorkbenchRoutePage';
 import { ProductSellabilityWorkspace } from '../operations/productManagement/ProductSellabilityWorkspace';
 import { DiscoveryManagementRoutePage } from '../operations/discovery/DiscoveryManagementRoutePage';
 import { MerchantRedemptionPanel } from '../operations/promotions/MerchantRedemptionPanel';
-import { PromotionsBuilderRoutePage } from '../operations/promotions/PromotionsBuilderRoutePage';
 import { CouponOfferWorkspace } from '../operations/promotions/CouponOfferWorkspace';
 import { CouponAcquisitionReportPanel } from '../operations/promotions/CouponAcquisitionReportPanel';
 import { LocalizationOperationsRoutePage } from '../operations/localization/LocalizationOperationsRoutePage';
 import { CustomerEngagementRoutePage } from '../operations/customerEngagement/CustomerEngagementRoutePage';
 import { SetupAcceleratorsRoutePage } from '../operations/setupAccelerators/SetupAcceleratorsRoutePage';
-import { CollectionCentresRoutePage } from '../operations/location/CollectionCentresRoutePage';
-import { LocationMapConfigurationRoutePage } from '../operations/location/LocationMapConfigurationRoutePage';
 import { WasteManagementRoutePage } from '../operations/wasteManagement/WasteManagementRoutePage';
-import { RulesManagementRoutePage } from '../operations/rulesManagement/RulesManagementRoutePage';
 import { CommercialAgreementRoutePage } from '../operations/commercialAgreement/CommercialAgreementRoutePage';
 import { admitsAgreementWorkspace } from '../operations/commercialAgreement/agreementClient';
 import { LoyaltyParticipationRoutePage } from '../operations/loyaltyParticipation/LoyaltyParticipationRoutePage';
 import { DigitalParticipationRoutePage } from '../operations/digitalParticipation/DigitalParticipationRoutePage';
 import { admitsParticipation } from '../operations/digitalParticipation/participationClient';
 import { loyaltyView } from '../operations/loyaltyParticipation/loyaltyClient';
-import { RuntimeConfigurationRoutePage } from '../operations/runtimeConfiguration/RuntimeConfigurationRoutePage';
 import { EnterpriseRelationshipsRoutePage } from '../operations/enterprise/EnterpriseRelationshipsRoutePage';
 import { EnterpriseTeamRoutePage } from '../operations/enterprise/EnterpriseTeamRoutePage';
 import { EnterpriseRecoveryRoutePage } from '../operations/enterprise/EnterpriseRecoveryRoutePage';
@@ -112,6 +105,7 @@ import { EnterpriseMembershipRoutePage } from '../operations/enterprise/Enterpri
 import type { EnterpriseMembership } from '../operations/enterprise/api/enterpriseMembershipClient';
 import { useIdleScreenLock } from '../auth/useIdleScreenLock';
 import { AxisInitializationWorkspace } from '../initialization/AxisInitializationWorkspace';
+import { useInitializationApproval } from '../initialization/useInitializationApproval';
 import { BundledLoginPage } from '../initialization/BundledLoginPage';
 import {
   initiateAxisInitialization,
@@ -127,6 +121,7 @@ import { processApprovalUnavailableMessage } from '../operations/processWorkflow
 import {
   clearScreenLock,
   persistScreenLock,
+  screenLockReturnLocation,
   restoreScreenLock,
 } from '../auth/screenLockState';
 import type { CmsRendererActions } from '../cms/renderers/shared/rendererTypes';
@@ -140,15 +135,96 @@ import {
 } from '../runtime/RuntimeConfigContext';
 import {
   BackendOperationsWorkspaceRoutePage,
+  type BackendOperationsWorkspaceRoutePageProps,
   PublicBackendOperationsWorkspaceRoutePage,
 } from './BackendOperationsWorkspaceRoutePage';
 import { CmsRoutePage } from './CmsRoutePage';
 import { EmployeeRegistrationRoutePage } from '../operations/enterprise/registration/EmployeeRegistrationRoutePage';
+import { EnterpriseManagementRoutePage } from '../operations/enterprise/EnterpriseManagementRoutePage';
 import { LoadingScreen } from './LoadingScreen';
+import { CmsRenderBoundary } from '../cms/renderers/shared/CmsRenderBoundary';
 import { ModuleWorkspacePlaceholder } from './ModuleWorkspacePlaceholder';
+import { UnavailableWorkspaceRoutePage } from './UnavailableWorkspaceRoutePage';
 import { RecoveryScreen } from './RecoveryScreen';
+import { OperationalReadinessInspector } from '../bootstrap/OperationalReadinessInspector';
 import { AppShell } from './shell/AppShell';
 import { canRenderWorkbenchNavigation } from './workbenchNavigationPolicy';
+
+const ApplicationBuilderRoutePage = lazy(() =>
+  import('../operations/applicationBuilder/ApplicationBuilderRoutePage').then(
+    (module) => ({ default: module.ApplicationBuilderRoutePage }),
+  ),
+);
+const ContentDesignerRoutePage = lazy(() =>
+  import('../operations/contentExperience/ContentDesignerRoutePage').then((module) => ({
+    default: module.ContentDesignerRoutePage,
+  })),
+);
+const WcmsExperienceStudioRoutePage = lazy(() =>
+  import('../operations/contentExperience/WcmsExperienceStudioRoutePage').then(
+    (module) => ({ default: module.WcmsExperienceStudioRoutePage }),
+  ),
+);
+const RulesManagementRoutePage = lazy(() =>
+  import('../operations/rulesManagement/RulesManagementRoutePage').then((module) => ({
+    default: module.RulesManagementRoutePage,
+  })),
+);
+const KnowledgeStudioRoutePage = lazy(() =>
+  import('../assistant/KnowledgeStudioRoutePage').then((module) => ({
+    default: module.KnowledgeStudioRoutePage,
+  })),
+);
+const CopilotAdministrationRoutePage = lazy(() =>
+  import('../assistant/CopilotAdministrationRoutePage').then((module) => ({
+    default: module.CopilotAdministrationRoutePage,
+  })),
+);
+const ProductManagementRoutePage = lazy(() =>
+  import('../operations/productManagement/ProductManagementRoutePage').then(
+    (module) => ({ default: module.ProductManagementRoutePage }),
+  ),
+);
+const ProductWorkbenchRoutePage = lazy(() =>
+  import('../operations/productManagement/ProductWorkbenchRoutePage').then(
+    (module) => ({ default: module.ProductWorkbenchRoutePage }),
+  ),
+);
+const PromotionsBuilderRoutePage = lazy(() =>
+  import('../operations/promotions/PromotionsBuilderRoutePage').then((module) => ({
+    default: module.PromotionsBuilderRoutePage,
+  })),
+);
+const ImportExportRoutePage = lazy(() =>
+  import('../operations/importExport/ImportExportRoutePage').then((module) => ({
+    default: module.ImportExportRoutePage,
+  })),
+);
+const NavigationCompositionRoutePage = lazy(() =>
+  import('../operations/navigationComposition/NavigationCompositionRoutePage').then(
+    (module) => ({ default: module.NavigationCompositionRoutePage }),
+  ),
+);
+const FunctionalModuleRegistryRoutePage = lazy(() =>
+  import('../operations/moduleRegistry/FunctionalModuleRegistryRoutePage').then(
+    (module) => ({ default: module.FunctionalModuleRegistryRoutePage }),
+  ),
+);
+const LocationMapConfigurationRoutePage = lazy(() =>
+  import('../operations/location/LocationMapConfigurationRoutePage').then((module) => ({
+    default: module.LocationMapConfigurationRoutePage,
+  })),
+);
+const CollectionCentresRoutePage = lazy(() =>
+  import('../operations/location/CollectionCentresRoutePage').then((module) => ({
+    default: module.CollectionCentresRoutePage,
+  })),
+);
+const RuntimeConfigurationRoutePage = lazy(() =>
+  import('../operations/runtimeConfiguration/RuntimeConfigurationRoutePage').then(
+    (module) => ({ default: module.RuntimeConfigurationRoutePage }),
+  ),
+);
 
 const axisDashboardRoute = '/dashboard';
 const axisInitializationRoute = '/initialize-axis';
@@ -163,61 +239,10 @@ function normalizeRoutePath(path: string): string {
   return path.replace(/\/$/, '') || '/';
 }
 
-function isDocumentationNavigationItem(item: AxisNavigationItem): boolean {
-  const route = normalizeRoutePath(item.route);
-  const groupId = item.group?.id?.trim().toLowerCase();
-  const groupLabel = item.group?.label?.trim().toLowerCase();
-  return (
-    (item.id === 'documentation' && item.moduleName === 'backoffice') ||
-    route === '/docs' ||
-    route.startsWith('/docs/') ||
-    groupId === 'documentation' ||
-    groupLabel === 'documentation'
-  );
-}
-
-function isCmsDocumentationSource(
-  source: AxisAuthenticatedBootstrap['documentationSources'][number],
-): source is Extract<
-  AxisAuthenticatedBootstrap['documentationSources'][number],
-  { readonly type: 'CMS' }
-> {
-  return source.type === 'CMS';
-}
-
-function documentationSourceDisplayLabel(
-  source: AxisAuthenticatedBootstrap['documentationSources'][number],
-): string {
-  return source.label.trim();
-}
-
 const documentationPublicationQueryKey = (
   enterpriseCode: string,
   profileCode: string,
 ) => ['documentation-publication', enterpriseCode, profileCode] as const;
-
-function documentationSourceNavigationItem(
-  source: AxisAuthenticatedBootstrap['documentationSources'][number],
-): AxisNavigationItem {
-  return {
-    id: `documentation-source-${source.id}`,
-    label: documentationSourceDisplayLabel(source),
-    route: source.route,
-    order: 200 + source.order,
-    moduleName: 'axisDocumentation',
-    category: 'documentation',
-    icon:
-      source.dashboard.icon ?? (source.type === 'OPENAPI' ? 'reference' : 'content'),
-    availability: 'UP',
-    perspectives: ['business', 'developer', 'operations'],
-    contexts: ['documentation'],
-    featureState: 'ACTIVE',
-    group: { id: 'documentation', label: 'Documentation', order: 1_600 },
-    help: {
-      summary: `Open ${documentationSourceDisplayLabel(source)}.`,
-    },
-  };
-}
 
 function safeReturnPath(value: string | null | undefined): string | undefined {
   if (!value || !value.startsWith('/') || value.startsWith('//')) return undefined;
@@ -252,8 +277,11 @@ function initializationReturnPath(state: unknown): string | undefined {
 function resolveCurrentNavigation(
   navigation: readonly AxisNavigationItem[] | undefined,
   pathname: string,
+  hash = '',
 ): AxisNavigationItem | undefined {
   if (!navigation) return undefined;
+  const exact = navigation.find((item) => item.route === `${pathname}${hash}`);
+  if (exact) return exact;
   const normalizedPath = normalizeRoutePath(pathname);
   return navigation
     .filter((item) => {
@@ -284,6 +312,29 @@ function resolveCurrentWorkbenchNavigation(
         normalizeRoutePath(right.route).length -
           normalizeRoutePath(left.route).length || right.order - left.order,
     )[0];
+}
+
+/** Recognizes only Profile's declared native fresh-definition task, not another module's matching code. */
+function isEnterpriseManagementNavigation(item: AxisNavigationItem): boolean {
+  return (
+    item.moduleName === 'profile' &&
+    item.backendWorkspace?.renderer === 'axis.workspace.native' &&
+    item.backendWorkspace.workspaceCode === 'profile.enterpriseManagement' &&
+    item.backendWorkspace.viewCode === 'administration'
+  );
+}
+
+/** Preserves the existing generic command/checkpoint props when a Profile task first loads fresh definitions. */
+function BackendWorkspaceEntry({
+  navigationItem,
+  ...props
+}: BackendOperationsWorkspaceRoutePageProps & {
+  readonly navigationItem: AxisNavigationItem;
+}) {
+  const Page = isEnterpriseManagementNavigation(navigationItem)
+    ? EnterpriseManagementRoutePage
+    : BackendOperationsWorkspaceRoutePage;
+  return <Page {...props} />;
 }
 
 function isOrderLifecycleNavigation(item: AxisNavigationItem | undefined): boolean {
@@ -323,6 +374,7 @@ export function App() {
   const [loginPending, setLoginPending] = useState(false);
   const unlockAttempt = useRef<object | undefined>(undefined);
   const [unlockPending, setUnlockPending] = useState(false);
+  const [lockedReturnPath, setLockedReturnPath] = useState(axisDashboardRoute);
   const retireUnlock = useCallback(() => {
     unlockAttempt.current = undefined;
     setUnlockPending(false);
@@ -332,10 +384,13 @@ export function App() {
     setLoginPending(false);
   }, []);
   const updateSession = useCallback(
-    (value: EmployeeSession | undefined, preserveCreationCheckpoint = false) => {
+    (value: EmployeeSession | undefined, preserveContext = false) => {
       retireLogin();
       retireUnlock();
-      if (!preserveCreationCheckpoint) enterpriseCreationCheckpoint.clear();
+      if (!preserveContext) {
+        enterpriseCreationCheckpoint.clear();
+        setLockedReturnPath(axisDashboardRoute);
+      }
       if (value) sessionInvalidated.current = false;
       admittedSession.current = value;
       availabilityReadSequence.current += 1;
@@ -347,7 +402,6 @@ export function App() {
     useState<AxisAuthenticatedBootstrap>();
   const [employeePolicy, setEmployeePolicy] = useState<AxisEmployeePolicy>();
   const [locked, setLocked] = useState(false);
-  const [lockedReturnPath, setLockedReturnPath] = useState(axisDashboardRoute);
   const [authenticationError, setAuthenticationError] = useState<string>();
   const [initializationStatus, setInitializationStatus] =
     useState<AxisInitializationStatus>();
@@ -385,7 +439,33 @@ export function App() {
         : { ...baseRuntime, enterpriseCode: selectedEnterprise },
     [baseRuntime, selectedEnterprise],
   );
+  const enterpriseDisplay = useCurrentEnterpriseDisplay({
+    bootstrap: authenticatedBootstrap,
+    runtime,
+    accessToken: session?.accessToken,
+    generation: session?.generation,
+    active: Boolean(
+      session &&
+      authenticatedBootstrap &&
+      !locked &&
+      !restoringSession &&
+      !switchingContext,
+    ),
+  });
   const localization = useAxisLocalizationController(bootstrap, runtime);
+  const employeeRegistrationEntry = useInvitedEmployeeRegistrationEntry({
+    runtime: baseRuntime,
+    profileBaseUrl: bootstrap?.endpoints.profile,
+    available: bootstrap?.invitedEmployeeRegistrationAvailable === true,
+    enabled:
+      !session &&
+      !restoringSession &&
+      !bootstrapError &&
+      !restoreError &&
+      !loginPending &&
+      location.pathname === '/login',
+    scope: location.key,
+  });
   // Retire before paint on any router navigation, including same-path search/state changes.
   useLayoutEffect(() => {
     retireLogin();
@@ -454,7 +534,20 @@ export function App() {
   const finishRestoreNavigation = useEffectEvent(() => {
     const persistedLock = restoreScreenLock();
     if (persistedLock) {
-      setLockedReturnPath(persistedLock.returnPath);
+      // A new internal entry is explicit navigation, not a restoration from private storage.
+      // Keep it volatile until the existing same-context unlock and route admission succeed.
+      const usesStoredDestination = [
+        '/',
+        '/login',
+        '/forgot-password',
+        '/lock-screen',
+        bootstrap?.uiComposition.defaultPublicPage,
+      ].includes(location.pathname);
+      setLockedReturnPath(
+        usesStoredDestination
+          ? persistedLock.returnPath
+          : screenLockReturnLocation(location.pathname, location.search, location.hash),
+      );
       setLocked(true);
       void navigate('/lock-screen', { replace: true });
     } else if (!['/', '/login', '/forgot-password'].includes(location.pathname)) {
@@ -516,7 +609,7 @@ export function App() {
   const lockScreen = useCallback(() => {
     if (!session || locked) return;
     availabilityReadSequence.current += 1;
-    const returnPath = ['/login', '/forgot-password', '/lock-screen'].includes(
+    const persistedReturnPath = ['/login', '/forgot-password', '/lock-screen'].includes(
       location.pathname,
     )
       ? axisDashboardRoute
@@ -527,14 +620,18 @@ export function App() {
             (item) => item.moduleName === 'profile' && item.route === location.pathname,
           )?.backendWorkspace,
         );
-    setLockedReturnPath(returnPath);
-    persistScreenLock(returnPath);
+    setLockedReturnPath(
+      screenLockReturnLocation(location.pathname, location.search, location.hash),
+    );
+    // Durable presentation state keeps its existing restricted path; private detail references stay in memory.
+    persistScreenLock(persistedReturnPath);
     setAuthenticationError(undefined);
     setLocked(true);
     void navigate('/lock-screen', { replace: true });
   }, [
     location.pathname,
     location.search,
+    location.hash,
     authenticatedBootstrap,
     locked,
     navigate,
@@ -568,6 +665,60 @@ export function App() {
     setEmployeePolicy(employeeBootstrap.axisPolicy);
   }, [locked, runtime, session]);
 
+  const onlineGuides = useOnlineDocumentationGuides(
+    authenticatedBootstrap,
+    runtime,
+    session?.accessToken,
+    session?.loginId,
+    !locked,
+  );
+  const importedNavigation = onlineGuides.isSuccess
+    ? onlineGuides.data.navigation
+    : undefined;
+  const onlineHelpPaths = useMemo(() => {
+    const catalogue = onlineGuides.data;
+    return catalogue
+      ? new Set([
+          '/docs',
+          ...catalogue.navigation.map((entry) => entry.route),
+          ...catalogue.guides.flatMap((guide) => [
+            guide.route,
+            ...guide.topics.map((topic) => topic.route),
+          ]),
+        ])
+      : undefined;
+  }, [onlineGuides.data]);
+  const shellNavigation = useMemo(() => {
+    if (!authenticatedBootstrap) return undefined;
+    // BackOffice owns management navigation. Only CMS Online can supply reader entries.
+    const base = authenticatedBootstrap.navigation.filter((item) => {
+      const [route, search] = item.route.split('?');
+      const path = normalizeRoutePath(route ?? '');
+      if (path === '/docs') {
+        const query = new URLSearchParams(search);
+        return !query.has('guide') && !query.has('project');
+      }
+      return (
+        !path.startsWith('/docs/') ||
+        path === documentationDesignerRoute ||
+        path.startsWith(documentationDesignerRoute + '/')
+      );
+    });
+    return [
+      ...base,
+      ...(importedNavigation ?? []).map(
+        (item): AxisNavigationItem => ({
+          ...item,
+          moduleName: 'cms',
+          category: 'documentation',
+          icon: 'content',
+          availability: 'UP',
+          group: { id: 'documentation', label: 'Documentation', order: 1600 },
+        }),
+      ),
+    ];
+  }, [authenticatedBootstrap, importedNavigation]);
+
   const refreshDocumentationNavigation = useCallback(
     async (status: DocumentationPublicationStatus) => {
       queryClient.setQueryData(
@@ -575,7 +726,14 @@ export function App() {
         status,
       );
       await queryClient.invalidateQueries({
-        queryKey: ['documentation-publication', runtime.enterpriseCode],
+        queryKey: documentationPublicationQueryKey(
+          runtime.enterpriseCode,
+          status.profileCode,
+        ),
+        exact: true,
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['online-documentation-guides', runtime.enterpriseCode],
       });
       await refreshAuthenticatedBootstrap();
     },
@@ -583,7 +741,7 @@ export function App() {
   );
 
   const refreshInitialization = useCallback(
-    async (background = false) => {
+    async (background = false, bootstrapAlreadyFresh = false) => {
       if (!session) return;
       const sequence = ++initializationReadSequence.current;
       if (!background) {
@@ -605,7 +763,7 @@ export function App() {
         setInitializationRecoveryAttempt(0);
         if (status.readiness === 'READY') {
           setInitializationError(undefined);
-          await refreshAuthenticatedBootstrap();
+          if (!bootstrapAlreadyFresh) await refreshAuthenticatedBootstrap();
         }
       } catch (error: unknown) {
         if (sequence !== initializationReadSequence.current) return;
@@ -632,8 +790,22 @@ export function App() {
     [runtime, session, refreshAuthenticatedBootstrap],
   );
 
+  const initializationApproval = useInitializationApproval(
+    initializationStatus,
+    authenticatedBootstrap,
+    session?.accessToken,
+    runtime.enterpriseCode,
+    runtime.requestTimeoutMs,
+    initializationStatusUnavailable,
+  );
+
   const approveInitialization = useCallback(async () => {
-    if (initializationBusy || initializationStatusUnavailable) return;
+    if (
+      initializationBusy ||
+      initializationStatusUnavailable ||
+      !initializationApproval.eligible
+    )
+      return;
     const workflowRef = initializationStatus?.publication?.workflowRef;
     if (!session) {
       setInitializationError('Sign in again before approving the Axis baseline.');
@@ -661,8 +833,24 @@ export function App() {
       );
       setAuthenticatedBootstrap(latestBootstrap);
       const processConnection = selectModuleConnection(latestBootstrap, 'workflow', {
-        server: 'processServer',
+        publicationRole: 'OPERATIONAL',
       });
+      const current = await loadAxisInitializationStatus(
+        runtime.backofficeBaseUrl,
+        session.accessToken,
+        runtime.requestTimeoutMs,
+      );
+      if (
+        current.publication?.code !== initializationStatus?.publication?.code ||
+        current.publication?.revision !== initializationStatus?.publication?.revision ||
+        current.publication?.workflowRef !== workflowRef ||
+        current.publication?.state !== 'PENDING_APPROVAL' ||
+        current.review?.releaseChecksum !==
+          initializationStatus?.review?.releaseChecksum
+      )
+        throw new Error(
+          'Publication changed. Refresh its exact review before approving.',
+        );
       if (!processConnection) {
         throw new Error(
           processApprovalUnavailableMessage({
@@ -682,8 +870,10 @@ export function App() {
         configuration,
         workflowRef,
       );
-      const task = tasks.find((item) =>
-        ['OPEN', 'CLAIMED', 'ESCALATED'].includes(item.status),
+      const task = tasks.find(
+        (item) =>
+          item.instanceCode === workflowRef &&
+          ['OPEN', 'CLAIMED', 'ESCALATED'].includes(item.status),
       );
       if (!task) {
         throw new Error(
@@ -695,6 +885,14 @@ export function App() {
           }),
         );
       }
+      if (
+        task.reviewContext?.publicationCode !== current.publication.code ||
+        task.reviewerEligibility?.eligible !== true
+      )
+        throw new Error(
+          task.reviewerEligibility?.message ??
+            'Current reviewer eligibility is unavailable. Refresh the Process task.',
+        );
       await completeProcessTask(processConnection, configuration, task.code, {
         approved: true,
         reason: 'Axis baseline approved by the authenticated administrator',
@@ -708,6 +906,7 @@ export function App() {
       setInitializationBusy(false);
     }
   }, [
+    initializationApproval.eligible,
     initializationStatus,
     initializationBusy,
     initializationStatusUnavailable,
@@ -731,7 +930,9 @@ export function App() {
       setInitializationStatusUnavailable(false);
       return;
     }
-    void refreshInitialization();
+    // This first status read follows a fresh authenticated bootstrap. Later
+    // recovery, explicit refresh and setup commands still refresh that bootstrap.
+    void refreshInitialization(false, true);
   }, [
     hasAuthenticatedBootstrap,
     refreshInitialization,
@@ -767,79 +968,6 @@ export function App() {
     refreshInitialization,
   ]);
 
-  const documentationAdministrationConnection = authenticatedBootstrap
-    ? selectModuleConnection(authenticatedBootstrap, 'backoffice')
-    : undefined;
-  const cmsDocumentationSources = (
-    authenticatedBootstrap?.documentationSources ?? []
-  ).filter(isCmsDocumentationSource);
-  const documentationWorkspaceActive =
-    normalizeRoutePath(location.pathname) === '/docs' ||
-    normalizeRoutePath(location.pathname).startsWith('/docs/');
-  const publicationNavigationQueries = useQueries({
-    queries: cmsDocumentationSources
-      .filter((source) => source.initializationProfile)
-      .map((source) => ({
-        ...publicationQueryPolicy,
-        enabled: Boolean(
-          session &&
-          !locked &&
-          authenticatedBootstrap &&
-          documentationAdministrationConnection &&
-          documentationWorkspaceActive,
-        ),
-        queryKey: documentationPublicationQueryKey(
-          runtime.enterpriseCode,
-          source.initializationProfile ?? '',
-        ),
-        queryFn: () => {
-          if (!documentationAdministrationConnection || !source.initializationProfile) {
-            throw new Error('Documentation publication is unavailable');
-          }
-          return createDocumentationPublicationClient({
-            connection: documentationAdministrationConnection,
-            enterpriseCode: runtime.enterpriseCode,
-            accessToken: session?.accessToken ?? '',
-            timeoutMs: runtime.requestTimeoutMs,
-            profileCode: source.initializationProfile,
-          }).getStatus();
-        },
-      })),
-  });
-  const onlineDocumentationProfiles = useMemo(
-    () =>
-      new Set(
-        publicationNavigationQueries
-          .map((query) =>
-            query.data?.readiness === 'READY' ? query.data.profileCode : undefined,
-          )
-          .filter((profileCode): profileCode is string => Boolean(profileCode)),
-      ),
-    [publicationNavigationQueries],
-  );
-  const shellNavigation = useMemo(() => {
-    if (!authenticatedBootstrap) return undefined;
-    const documentationSourceRoutes = new Set(
-      authenticatedBootstrap.documentationSources.map((source) =>
-        normalizeRoutePath(source.route),
-      ),
-    );
-    const baseNavigation = authenticatedBootstrap.navigation.filter((item) => {
-      const route = normalizeRoutePath(item.route);
-      return route === '/docs' || !documentationSourceRoutes.has(route);
-    });
-    const sourceItems = authenticatedBootstrap.documentationSources
-      .filter((source) => {
-        if (source.type === 'OPENAPI') return true;
-        return Boolean(
-          source.initializationProfile &&
-          onlineDocumentationProfiles.has(source.initializationProfile),
-        );
-      })
-      .map(documentationSourceNavigationItem);
-    return Object.freeze([...baseNavigation, ...sourceItems]);
-  }, [authenticatedBootstrap, onlineDocumentationProfiles]);
-
   useEffect(
     () =>
       subscribeEmployeeSessionExpired((identity) => {
@@ -864,7 +992,10 @@ export function App() {
         clearScreenLock();
         void queryClient.cancelQueries();
         queryClient.clear();
-        setAuthenticationError('Your session has expired. Sign in again.');
+        setAuthenticationError(
+          employeePolicy?.sessionRecoveryPresentation?.expiredMessage ??
+            'Your session has expired. Sign in again.',
+        );
         const returnPath = safeReturnPath(location.pathname);
         const signIn = bootstrap?.uiComposition.defaultPublicPage ?? '/login';
         void navigate(
@@ -887,12 +1018,14 @@ export function App() {
       bootstrap,
       runtime.enterpriseCode,
       updateSession,
+      employeePolicy,
     ],
   );
 
   const currentNavigation = resolveCurrentNavigation(
     authenticatedBootstrap?.navigation,
     location.pathname,
+    location.hash,
   );
   const loadNavigationAvailability = useCallback(
     async (signal: AbortSignal) => {
@@ -995,8 +1128,14 @@ export function App() {
   const documentationNavigation = authenticatedBootstrap?.navigation.find(
     isDocumentationNavigationItem,
   );
-  const documentationSourcesAvailable =
-    (authenticatedBootstrap?.documentationSources.length ?? 0) > 0;
+  const onlineDocsConnection =
+    authenticatedBootstrap &&
+    selectModuleConnection(authenticatedBootstrap, 'cms', {
+      publicationRole: 'ONLINE',
+    });
+  const openApiSource = authenticatedBootstrap?.documentationSources.find(
+    (source) => source.type === 'OPENAPI',
+  );
   const moduleHealthNavigation = authenticatedBootstrap?.navigation.find(
     (item) => item.id === 'module-health' && item.moduleName === 'backoffice',
   );
@@ -1027,9 +1166,15 @@ export function App() {
     (item) => item.id === 'cms' && item.moduleName === 'cms',
   );
   const contentDashboardNavigation =
+    (location.hash &&
+    currentNavigation?.moduleName === 'cms' &&
+    currentNavigation.route === `/content${location.hash}`
+      ? currentNavigation
+      : undefined) ??
     authenticatedBootstrap?.navigation.find(
       (item) => item.route === '/content' && item.group?.id === 'content',
-    ) ?? cmsWorkbenchNavigation;
+    ) ??
+    cmsWorkbenchNavigation;
   const publishingDashboardNavigation =
     authenticatedBootstrap?.navigation.find(
       (item) => item.route === '/publishing' && item.group?.id === 'publishing',
@@ -1048,6 +1193,12 @@ export function App() {
     unavailableFallback?: ReactNode,
   ) => (
     <CmsRoutePage
+      embedded={path === axisDashboardRoute}
+      sessionGeneration={
+        accessToken && accessToken === session?.accessToken
+          ? session.generation
+          : undefined
+      }
       accessToken={accessToken}
       actions={actions}
       authenticationError={authenticationError}
@@ -1236,7 +1387,13 @@ export function App() {
   };
 
   const initiateInitialization = async () => {
-    if (!session || initializationBusy || initializationStatusUnavailable) return;
+    if (
+      !session ||
+      initializationBusy ||
+      initializationStatusUnavailable ||
+      !initializationStatus?.allowedActions?.includes('INITIALIZE')
+    )
+      return;
     initializationReadSequence.current += 1;
     setInitializationBusy(true);
     setInitializationError(undefined);
@@ -1261,7 +1418,12 @@ export function App() {
         );
         setInitializationStatus(status);
         setInitializationStatusUnavailable(false);
-        if (['PUBLICATION_PENDING', 'READY'].includes(status.readiness))
+        if (
+          status.readiness === 'READY' ||
+          (status.readiness === 'PUBLICATION_PENDING' &&
+            (initializationStatus?.publication?.state !== 'PENDING_APPROVAL' ||
+              status.publication?.approvalDiagnostic?.status === 'WAITING_REVIEWER'))
+        )
           setInitializationError(undefined);
         if (status.readiness === 'READY') await refreshAuthenticatedBootstrap();
       } catch {
@@ -1308,12 +1470,28 @@ export function App() {
         return;
       rememberEnterpriseContext(runtime.backofficeBaseUrl, runtime.enterpriseCode);
       queryClient.clear();
-      updateSession(
-        nextSession,
+      const sameScope =
         nextSession.loginId === session.loginId &&
-          nextSession.enterpriseCode === session.enterpriseCode &&
-          employeeBootstrap.tenantCode === authenticatedBootstrap?.tenantCode,
+        nextSession.enterpriseCode === session.enterpriseCode &&
+        employeeBootstrap.tenantCode === authenticatedBootstrap?.tenantCode;
+      const returnLocation = new URL(lockedReturnPath, window.location.origin);
+      const returnNavigation = resolveCurrentNavigation(
+        employeeBootstrap.navigation,
+        returnLocation.pathname,
+        returnLocation.hash,
       );
+      // Private record references cannot survive removal of their fresh route admission.
+      // Ordinary unavailable-route recovery retains its URL, so retire it at this boundary.
+      if (
+        !sameScope ||
+        !returnNavigation ||
+        normalizeRoutePath(returnNavigation.route) !==
+          normalizeRoutePath(returnLocation.pathname) ||
+        !['ACTIVE', 'PREVIEW'].includes(returnNavigation.featureState ?? 'ACTIVE') ||
+        !['UP', 'DEGRADED'].includes(returnNavigation.availability)
+      )
+        setLockedReturnPath(composition.defaultAuthenticatedPage);
+      updateSession(nextSession, sameScope);
       setAuthenticatedBootstrap(employeeBootstrap);
       setEmployeePolicy(employeeBootstrap.axisPolicy);
       clearScreenLock();
@@ -1335,60 +1513,119 @@ export function App() {
 
   const authenticatedShell = (content: ReactNode) => (
     <RuntimeConfigContext.Provider value={runtime}>
-      <AppShell
-        catalog={composition.catalog}
-        employeeId={session?.loginId}
-        enterpriseCode={runtime.enterpriseCode}
-        environments={authenticatedBootstrap?.environments}
-        tenantCode={authenticatedBootstrap?.tenantCode}
-        navigation={shellNavigation}
-        recentNavigationLimit={authenticatedBootstrap?.axisPolicy.recentNavigationLimit}
-        site={composition.site}
-        onLock={lockScreen}
-        onLogout={logout}
-      >
-        <NavigationAvailabilityRecoveryContext.Provider
-          value={navigationAvailabilityRecovery}
+      <EnterpriseDisplayContext.Provider value={enterpriseDisplay}>
+        <AppShell
+          workspaceTools={
+            session && !locked && authenticatedBootstrap ? (
+              <OperationalReadinessInspector
+                key={`${session.generation}:${authenticatedBootstrap.tenantCode}:${runtime.enterpriseCode}`}
+                scope={`${session.generation}:${authenticatedBootstrap.tenantCode}:${runtime.enterpriseCode}:${runtime.projectCode}`}
+                bootstrap={authenticatedBootstrap}
+                runtime={runtime}
+                accessToken={session.accessToken}
+              />
+            ) : undefined
+          }
+          catalog={composition.catalog}
+          employeeId={session?.loginId}
+          enterpriseCode={runtime.enterpriseCode}
+          enterpriseDisplayName={enterpriseDisplay?.displayName ?? undefined}
+          environments={authenticatedBootstrap?.environments}
+          tenantCode={authenticatedBootstrap?.tenantCode}
+          navigation={shellNavigation}
+          recentNavigationLimit={
+            authenticatedBootstrap?.axisPolicy.recentNavigationLimit
+          }
+          site={composition.site}
+          onLock={lockScreen}
+          onLogout={logout}
         >
-          {navigationAvailabilityRecovery &&
-          !hasUnavailableNavigation(currentNavigation) &&
-          (hasUnavailableBootstrap(authenticatedBootstrap) ||
-            (navigationAvailabilityRecovery.message &&
-              !navigationAvailabilityRecovery.refreshing)) ? (
-            <Alert
-              severity="info"
-              action={
-                <Button
-                  disabled={navigationAvailabilityRecovery.refreshing}
-                  onClick={navigationAvailabilityRecovery.refresh}
+          <NavigationAvailabilityRecoveryContext.Provider
+            value={navigationAvailabilityRecovery}
+          >
+            {navigationAvailabilityRecovery &&
+            !hasUnavailableNavigation(currentNavigation) &&
+            (hasUnavailableBootstrap(authenticatedBootstrap) ||
+              (navigationAvailabilityRecovery.message &&
+                !navigationAvailabilityRecovery.refreshing)) ? (
+              <Alert
+                severity="info"
+                action={
+                  <Button
+                    disabled={navigationAvailabilityRecovery.refreshing}
+                    onClick={navigationAvailabilityRecovery.refresh}
+                  >
+                    Refresh availability
+                  </Button>
+                }
+              >
+                {navigationAvailabilityRecovery.message ??
+                  'Some workspaces are temporarily unavailable.'}
+              </Alert>
+            ) : null}
+            <OnlineHelpPathsContext.Provider value={onlineHelpPaths}>
+              <CmsRenderBoundary
+                key={currentRoutePath}
+                fallback={
+                  <Alert
+                    severity="error"
+                    role="alert"
+                    action={
+                      <Button onClick={() => window.location.reload()}>
+                        {localization.format(
+                          'common.reload-workspace',
+                          'Reload workspace',
+                        )}
+                      </Button>
+                    }
+                  >
+                    {localization.format(
+                      'common.workspace-load-failed',
+                      'The workspace could not be loaded. Reload to try again.',
+                    )}
+                  </Alert>
+                }
+              >
+                <Suspense
+                  fallback={
+                    <LoadingScreen
+                      embedded
+                      label={localization.format(
+                        'common.loading-workspace',
+                        'Loading workspace',
+                      )}
+                    />
+                  }
                 >
-                  Refresh availability
-                </Button>
-              }
-            >
-              {navigationAvailabilityRecovery.message ??
-                'Some workspaces are temporarily unavailable.'}
-            </Alert>
-          ) : null}
-          {content}
-        </NavigationAvailabilityRecoveryContext.Provider>
-      </AppShell>
+                  {content}
+                </Suspense>
+              </CmsRenderBoundary>
+            </OnlineHelpPathsContext.Provider>
+          </NavigationAvailabilityRecoveryContext.Provider>
+        </AppShell>
+      </EnterpriseDisplayContext.Provider>
     </RuntimeConfigContext.Provider>
   );
-  const sessionFallback = (
-    <Navigate
-      replace
-      to={
-        session && !locked
-          ? composition.defaultAuthenticatedPage
-          : session
+  const sessionFallback =
+    session && !locked && authenticatedBootstrap ? (
+      authenticatedShell(
+        <UnavailableWorkspaceRoutePage
+          moduleName="axis"
+          dashboardRoute={composition.defaultAuthenticatedPage}
+        />,
+      )
+    ) : (
+      <Navigate
+        replace
+        to={
+          session
             ? '/lock-screen'
             : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
                 currentRoutePath,
               )}`
-      }
-    />
-  );
+        }
+      />
+    );
   const workbenchRouteElement = (navigationItem?: AxisNavigationItem) =>
     session &&
     !locked &&
@@ -1416,9 +1653,25 @@ export function App() {
       : sessionFallback;
   const navigationRouteElement = (navigationItem?: AxisNavigationItem) =>
     session && !locked && authenticatedBootstrap && navigationItem
-      ? navigationItem.backendWorkspace?.renderer === 'axis.workspace.native'
+      ? navigationItem.backendWorkspace?.renderer === 'axis.workspace.native' &&
+        !isEnterpriseManagementNavigation(navigationItem)
         ? authenticatedShell(
-            navigationItem.moduleName === 'copilotApi' &&
+            navigationItem.moduleName === 'installer' &&
+              navigationItem.backendWorkspace.workspaceCode ===
+                'installer.applicationBuilder' &&
+              navigationItem.backendWorkspace.viewCode === 'overview' &&
+              !['DISABLED', 'HIDDEN'].includes(
+                navigationItem.featureState ?? 'ACTIVE',
+              ) &&
+              ['UP', 'DEGRADED'].includes(navigationItem.availability) ? (
+              <ApplicationBuilderRoutePage
+                accessToken={session.accessToken}
+                sessionGeneration={session.generation}
+                bootstrap={authenticatedBootstrap}
+                runtime={runtime}
+                routeNavigation={navigationItem}
+              />
+            ) : navigationItem.moduleName === 'copilotApi' &&
               navigationItem.backendWorkspace.workspaceCode === 'copilot.workspace' &&
               navigationItem.backendWorkspace.viewCode === 'overview' &&
               !['DISABLED', 'HIDDEN'].includes(
@@ -1685,55 +1938,73 @@ export function App() {
         : navigationItem.workbenchTarget
           ? workbenchRouteElement(navigationItem)
           : navigationItem.backendWorkspace &&
-              selectModuleConnection(
-                authenticatedBootstrap,
-                navigationItem.moduleName,
-                navigationItem.backendWorkspace.ownerSelector,
-              )
+              normalizeRoutePath(location.pathname) !==
+                normalizeRoutePath(navigationItem.route)
             ? authenticatedShell(
-                <BackendOperationsWorkspaceRoutePage
-                  bootstrap={authenticatedBootstrap}
-                  spendCms={{
-                    baseUrl: bootstrap.endpoints.cms,
-                    site: composition.site,
-                    locale: composition.locale,
-                    channel: composition.channel,
-                  }}
-                  key={`${session.generation}:${navigationItem.moduleName}:${navigationItem.id}:${navigationItem.route}`}
-                  enterpriseCreationCheckpoint={{
-                    checkpoint: enterpriseCreationCheckpoint,
-                    scope: JSON.stringify([
-                      runtime.projectCode,
-                      runtime.backofficeBaseUrl,
-                      runtime.enterpriseCode,
-                      authenticatedBootstrap.tenantCode,
-                      session.loginId,
-                      navigationItem.moduleName,
-                      navigationItem.id,
-                      navigationItem.route,
-                    ]),
-                  }}
-                  accessToken={session.accessToken}
-                  sessionGeneration={session.generation}
-                  enterpriseCode={runtime.enterpriseCode}
-                  runtime={runtime}
-                  connection={selectModuleConnection(
+                <UnavailableWorkspaceRoutePage
+                  moduleName={navigationItem.moduleName}
+                  dashboardRoute={composition.defaultAuthenticatedPage}
+                />,
+              )
+            : navigationItem.backendWorkspace &&
+                (['DISABLED', 'HIDDEN'].includes(
+                  navigationItem.featureState ?? 'ACTIVE',
+                ) ||
+                  !['UP', 'DEGRADED'].includes(navigationItem.availability))
+              ? authenticatedShell(<ModuleWorkspacePlaceholder item={navigationItem} />)
+              : navigationItem.backendWorkspace &&
+                  selectModuleConnection(
                     authenticatedBootstrap,
                     navigationItem.moduleName,
                     navigationItem.backendWorkspace.ownerSelector,
-                  )}
-                  workspace={navigationItem.backendWorkspace}
-                  authorizedRoutes={authenticatedBootstrap.navigation
-                    .filter(
-                      (item) =>
-                        Boolean(item.backendWorkspace) &&
-                        item.moduleName === navigationItem.moduleName &&
-                        ['UP', 'DEGRADED'].includes(item.availability),
-                    )
-                    .map((item) => item.route)}
-                />,
-              )
-            : authenticatedShell(<ModuleWorkspacePlaceholder item={navigationItem} />)
+                  )
+                ? authenticatedShell(
+                    <BackendWorkspaceEntry
+                      navigationItem={navigationItem}
+                      bootstrap={authenticatedBootstrap}
+                      spendCms={{
+                        baseUrl: bootstrap.endpoints.cms,
+                        site: composition.site,
+                        locale: composition.locale,
+                        channel: composition.channel,
+                      }}
+                      key={`${session.generation}:${navigationItem.moduleName}:${navigationItem.id}:${navigationItem.route}`}
+                      enterpriseCreationCheckpoint={{
+                        checkpoint: enterpriseCreationCheckpoint,
+                        scope: JSON.stringify([
+                          runtime.projectCode,
+                          runtime.backofficeBaseUrl,
+                          runtime.enterpriseCode,
+                          authenticatedBootstrap.tenantCode,
+                          session.loginId,
+                          navigationItem.moduleName,
+                          navigationItem.id,
+                          navigationItem.route,
+                        ]),
+                      }}
+                      accessToken={session.accessToken}
+                      sessionGeneration={session.generation}
+                      enterpriseCode={runtime.enterpriseCode}
+                      runtime={runtime}
+                      connection={selectModuleConnection(
+                        authenticatedBootstrap,
+                        navigationItem.moduleName,
+                        navigationItem.backendWorkspace.ownerSelector,
+                      )}
+                      workspace={navigationItem.backendWorkspace}
+                      authorizedRoutes={authenticatedBootstrap.navigation
+                        .filter(
+                          (item) =>
+                            !['DISABLED', 'HIDDEN'].includes(
+                              item.featureState ?? 'ACTIVE',
+                            ) && ['UP', 'DEGRADED'].includes(item.availability),
+                        )
+                        .map((item) => item.route)}
+                    />,
+                  )
+                : authenticatedShell(
+                    <ModuleWorkspacePlaceholder item={navigationItem} />,
+                  )
       : sessionFallback;
   const cmsWorkbenchElement =
     currentWorkbenchNavigation && currentWorkbenchSchema
@@ -1808,9 +2079,10 @@ export function App() {
     session &&
     !locked &&
     authenticatedBootstrap &&
-    (documentationNavigation || documentationSourcesAvailable)
+    (documentationNavigation || onlineDocsConnection)
       ? authenticatedShell(
           documentationNavigation &&
+            !onlineDocsConnection &&
             !['UP', 'DEGRADED'].includes(documentationNavigation.availability) ? (
             <ModuleWorkspacePlaceholder item={documentationNavigation} />
           ) : (
@@ -1891,6 +2163,7 @@ export function App() {
       ? authenticatedShell(
           ['UP', 'DEGRADED'].includes(wcmsExperienceNavigation.availability) ? (
             <WcmsExperienceStudioRoutePage
+              sessionGeneration={session.generation}
               accessToken={session.accessToken}
               bootstrap={authenticatedBootstrap}
               channel={composition.channel}
@@ -2105,13 +2378,12 @@ export function App() {
           ),
         )
       : sessionFallback;
-  const localizationNavigation = currentNavigation?.route.startsWith('/localization')
-    ? currentNavigation
-    : authenticatedBootstrap?.navigation.find(
-        (item) =>
-          item.id === 'localization-operations' &&
-          item.moduleName === 'nodics.localization',
-      );
+  const localizationNavigation = authenticatedBootstrap?.navigation.find(
+    (item) =>
+      item.moduleName === 'localizationCore' &&
+      item.route.startsWith('/localization') &&
+      normalizeRoutePath(item.route) === normalizeRoutePath(location.pathname),
+  );
   const localizationOperationsElement =
     session && !locked && authenticatedBootstrap && localizationNavigation
       ? authenticatedShell(
@@ -2122,27 +2394,39 @@ export function App() {
               channel={composition.channel}
               cmsBaseUrl={bootstrap.endpoints.cms}
               employeeId={session.loginId}
-              locale={composition.locale}
+              fallbackLocales={composition.fallbackLocales}
               navigation={localizationNavigation}
               runtime={runtime}
               site={composition.site}
+              supportedLocales={composition.supportedLocales}
             />
           ) : (
             <ModuleWorkspacePlaceholder item={localizationNavigation} />
           ),
         )
       : sessionFallback;
-  const processNavigation = currentNavigation?.route.startsWith('/process')
-    ? currentNavigation
-    : authenticatedBootstrap?.navigation.find(
-        (item) => item.id === 'process-workflows' && item.moduleName === 'workflow',
-      );
+  // Publishing also links to the task queue. Prefer the task owner's help
+  // and capabilities when both authorized entries resolve to the same route.
+  const workflowTaskNavigation = authenticatedBootstrap?.navigation.find(
+    (item) =>
+      item.route === currentNavigation?.route &&
+      item.id === 'process-tasks' &&
+      item.moduleName === 'workflow',
+  );
+  const processNavigation =
+    workflowTaskNavigation ??
+    (currentNavigation?.route.startsWith('/process')
+      ? currentNavigation
+      : authenticatedBootstrap?.navigation.find(
+          (item) => item.id === 'process-workflows' && item.moduleName === 'workflow',
+        ));
   const processWorkflowElement =
     session && !locked && authenticatedBootstrap && processNavigation
       ? authenticatedShell(
           ['UP', 'DEGRADED'].includes(processNavigation.availability) ? (
             <ProcessWorkflowRoutePage
               accessToken={session.accessToken}
+              sessionGeneration={session.generation}
               bootstrap={authenticatedBootstrap}
               navigation={processNavigation}
               runtime={runtime}
@@ -2303,6 +2587,7 @@ export function App() {
       <LoadingScreen />
     ) : (
       <AxisInitializationWorkspace
+        approvalEligibility={initializationApproval}
         busy={initializationBusy}
         error={initializationError}
         onInitiate={() => void initiateInitialization()}
@@ -2352,6 +2637,7 @@ export function App() {
                   </Button>
                   <ProcessWorkflowRoutePage
                     accessToken={session.accessToken}
+                    sessionGeneration={session.generation}
                     bootstrap={authenticatedBootstrap}
                     navigation={setupWorkflowNavigation}
                     runtime={runtime}
@@ -2379,6 +2665,44 @@ export function App() {
             }
           />
         </Routes>
+      </AxisLocalizationBoundary>
+    );
+  }
+
+  // Reader access is governed by the Online CMS catalogue. Unavailable
+  // BackOffice administration must not hide published articles.
+  const canReadOnlineDocumentation =
+    currentNavigation?.id === 'documentation-dashboard' &&
+    currentNavigation.featureState !== 'HIDDEN' &&
+    onlineDocsConnection !== undefined &&
+    (location.pathname === '/docs' || location.pathname.startsWith('/docs/')) &&
+    location.pathname !== documentationDesignerRoute &&
+    !location.pathname.startsWith(`${documentationDesignerRoute}/`) &&
+    !new URLSearchParams(location.search).has('manage');
+  if (
+    session &&
+    !locked &&
+    authenticatedBootstrap &&
+    currentNavigation &&
+    !canReadOnlineDocumentation &&
+    (!['ACTIVE', 'PREVIEW'].includes(currentNavigation.featureState ?? 'ACTIVE') ||
+      !['UP', 'DEGRADED'].includes(currentNavigation.availability))
+  ) {
+    return (
+      <AxisLocalizationBoundary value={localization}>
+        {authenticatedShell(
+          currentNavigation.featureState === 'HIDDEN' ? (
+            <UnavailableWorkspaceRoutePage
+              moduleName={currentNavigation.moduleName}
+              dashboardRoute={composition.defaultAuthenticatedPage}
+            />
+          ) : (
+            <ModuleWorkspacePlaceholder
+              item={currentNavigation}
+              dashboardRoute={composition.defaultAuthenticatedPage}
+            />
+          ),
+        )}
       </AxisLocalizationBoundary>
     );
   }
@@ -2424,11 +2748,13 @@ export function App() {
                     void login(id, secret, enterprise),
                   employeeLoginEnterpriseCode: runtime.enterpriseCode,
                   employeeLoginPending: loginPending,
+                  employeeRegistrationEntry,
                 },
                 undefined,
                 <BundledLoginPage
                   key={runtime.enterpriseCode}
                   enterpriseCode={runtime.enterpriseCode}
+                  registrationEntry={employeeRegistrationEntry}
                   error={authenticationError}
                   pending={loginPending}
                   onLogin={(id, secret, enterprise) =>
@@ -2467,7 +2793,7 @@ export function App() {
           }
         />
         <Route
-          path="/enterprise-access/register"
+          path={INVITED_EMPLOYEE_REGISTRATION_ROUTE}
           element={
             <PublicBackendOperationsWorkspaceRoutePage
               runtime={runtime}
@@ -2483,6 +2809,9 @@ export function App() {
               authenticatedShell(
                 page(axisDashboardRoute, session.accessToken, {
                   dashboard: {
+                    site: composition.site,
+                    catalog: composition.catalog,
+                    employeeId: session.loginId,
                     accessToken: session.accessToken,
                     bootstrap: authenticatedBootstrap,
                     runtime,
@@ -2500,112 +2829,70 @@ export function App() {
         <Route
           path="/assistant"
           element={
-            session && !locked && authenticatedBootstrap && assistantNavigation ? (
-              authenticatedShell(
-                ['UP', 'DEGRADED'].includes(assistantNavigation.availability) &&
-                  assistantConnection ? (
-                  <AssistantRoutePage
-                    accessToken={session.accessToken}
-                    channel={composition.channel}
-                    cmsBaseUrl={bootstrap.endpoints.cms}
-                    connection={assistantConnection}
-                    employeeId={session.loginId}
-                    locale={composition.locale}
-                    runtime={runtime}
-                    site={composition.site}
-                  />
-                ) : (
-                  <ModuleWorkspacePlaceholder item={assistantNavigation} />
-                ),
-              )
-            ) : (
-              <Navigate
-                replace
-                to={
-                  session && !locked
-                    ? composition.defaultAuthenticatedPage
-                    : session
-                      ? '/lock-screen'
-                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
-                          currentRoutePath,
-                        )}`
-                }
-              />
-            )
+            session && !locked && authenticatedBootstrap && assistantNavigation
+              ? authenticatedShell(
+                  ['UP', 'DEGRADED'].includes(assistantNavigation.availability) &&
+                    assistantConnection ? (
+                    <AssistantRoutePage
+                      accessToken={session.accessToken}
+                      channel={composition.channel}
+                      cmsBaseUrl={bootstrap.endpoints.cms}
+                      connection={assistantConnection}
+                      employeeId={session.loginId}
+                      locale={composition.locale}
+                      runtime={runtime}
+                      site={composition.site}
+                    />
+                  ) : (
+                    <ModuleWorkspacePlaceholder item={assistantNavigation} />
+                  ),
+                )
+              : sessionFallback
           }
         />
         <Route
           path="/schema-workbench"
           element={
-            session && !locked && authenticatedBootstrap && workbenchNavigation ? (
-              authenticatedShell(
-                ['UP', 'DEGRADED'].includes(workbenchNavigation.availability) ? (
-                  <WorkbenchRoutePage
-                    accessToken={session.accessToken}
-                    bootstrap={authenticatedBootstrap}
-                    channel={composition.channel}
-                    cmsBaseUrl={bootstrap.endpoints.cms}
-                    employeeId={session.loginId}
-                    locale={composition.locale}
-                    routeNavigation={workbenchNavigation}
-                    runtime={runtime}
-                    site={composition.site}
-                  />
-                ) : (
-                  <ModuleWorkspacePlaceholder item={workbenchNavigation} />
-                ),
-              )
-            ) : (
-              <Navigate
-                replace
-                to={
-                  session && !locked
-                    ? composition.defaultAuthenticatedPage
-                    : session
-                      ? '/lock-screen'
-                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
-                          currentRoutePath,
-                        )}`
-                }
-              />
-            )
+            session && !locked && authenticatedBootstrap && workbenchNavigation
+              ? authenticatedShell(
+                  ['UP', 'DEGRADED'].includes(workbenchNavigation.availability) ? (
+                    <WorkbenchRoutePage
+                      accessToken={session.accessToken}
+                      bootstrap={authenticatedBootstrap}
+                      channel={composition.channel}
+                      cmsBaseUrl={bootstrap.endpoints.cms}
+                      employeeId={session.loginId}
+                      locale={composition.locale}
+                      routeNavigation={workbenchNavigation}
+                      runtime={runtime}
+                      site={composition.site}
+                    />
+                  ) : (
+                    <ModuleWorkspacePlaceholder item={workbenchNavigation} />
+                  ),
+                )
+              : sessionFallback
           }
         />
         <Route
           path="/system-integrations"
           element={
-            session &&
-            !locked &&
-            authenticatedBootstrap &&
-            systemIntegrationsNavigation ? (
-              authenticatedShell(
-                ['UP', 'DEGRADED'].includes(
-                  systemIntegrationsNavigation.availability,
-                ) ? (
-                  <SystemIntegrationsDashboardRoutePage
-                    accessToken={session.accessToken}
-                    bootstrap={authenticatedBootstrap}
-                    routeNavigation={systemIntegrationsNavigation}
-                    runtime={runtime}
-                  />
-                ) : (
-                  <ModuleWorkspacePlaceholder item={systemIntegrationsNavigation} />
-                ),
-              )
-            ) : (
-              <Navigate
-                replace
-                to={
-                  session && !locked
-                    ? composition.defaultAuthenticatedPage
-                    : session
-                      ? '/lock-screen'
-                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
-                          currentRoutePath,
-                        )}`
-                }
-              />
-            )
+            session && !locked && authenticatedBootstrap && systemIntegrationsNavigation
+              ? authenticatedShell(
+                  ['UP', 'DEGRADED'].includes(
+                    systemIntegrationsNavigation.availability,
+                  ) ? (
+                    <SystemIntegrationsDashboardRoutePage
+                      accessToken={session.accessToken}
+                      bootstrap={authenticatedBootstrap}
+                      routeNavigation={systemIntegrationsNavigation}
+                      runtime={runtime}
+                    />
+                  ) : (
+                    <ModuleWorkspacePlaceholder item={systemIntegrationsNavigation} />
+                  ),
+                )
+              : sessionFallback
           }
         />
         <Route
@@ -2615,34 +2902,23 @@ export function App() {
         <Route
           path="/registry"
           element={
-            session && !locked && authenticatedBootstrap && moduleRegistryNavigation ? (
-              authenticatedShell(
-                ['UP', 'DEGRADED'].includes(moduleRegistryNavigation.availability) ? (
-                  <FunctionalModuleRegistryRoutePage
-                    accessToken={session.accessToken}
-                    bootstrap={authenticatedBootstrap}
-                    onBootstrapRefresh={refreshAuthenticatedBootstrap}
-                    routeNavigation={moduleRegistryNavigation}
-                    runtime={runtime}
-                  />
-                ) : (
-                  <ModuleWorkspacePlaceholder item={moduleRegistryNavigation} />
-                ),
-              )
-            ) : (
-              <Navigate
-                replace
-                to={
-                  session && !locked
-                    ? composition.defaultAuthenticatedPage
-                    : session
-                      ? '/lock-screen'
-                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
-                          currentRoutePath,
-                        )}`
-                }
-              />
-            )
+            session && !locked && authenticatedBootstrap && moduleRegistryNavigation
+              ? authenticatedShell(
+                  ['UP', 'DEGRADED'].includes(moduleRegistryNavigation.availability) ? (
+                    <FunctionalModuleRegistryRoutePage
+                      key={session.generation}
+                      sessionGeneration={session.generation}
+                      accessToken={session.accessToken}
+                      bootstrap={authenticatedBootstrap}
+                      onBootstrapRefresh={refreshAuthenticatedBootstrap}
+                      routeNavigation={moduleRegistryNavigation}
+                      runtime={runtime}
+                    />
+                  ) : (
+                    <ModuleWorkspacePlaceholder item={moduleRegistryNavigation} />
+                  ),
+                )
+              : sessionFallback
           }
         />
         <Route
@@ -2651,94 +2927,52 @@ export function App() {
             session &&
             !locked &&
             authenticatedBootstrap &&
-            navigationCompositionNavigation ? (
-              authenticatedShell(
-                <NavigationCompositionRoutePage
-                  accessToken={session.accessToken}
-                  bootstrap={authenticatedBootstrap}
-                  routeNavigation={navigationCompositionNavigation}
-                  runtime={runtime}
-                />,
-              )
-            ) : (
-              <Navigate
-                replace
-                to={
-                  session && !locked
-                    ? composition.defaultAuthenticatedPage
-                    : session
-                      ? '/lock-screen'
-                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
-                          currentRoutePath,
-                        )}`
-                }
-              />
-            )
+            navigationCompositionNavigation
+              ? authenticatedShell(
+                  <NavigationCompositionRoutePage
+                    accessToken={session.accessToken}
+                    bootstrap={authenticatedBootstrap}
+                    routeNavigation={navigationCompositionNavigation}
+                    runtime={runtime}
+                  />,
+                )
+              : sessionFallback
           }
         />
         <Route
           path="/setup-accelerators"
           element={
-            session &&
-            !locked &&
-            authenticatedBootstrap &&
-            setupAcceleratorsNavigation ? (
-              authenticatedShell(
-                <SetupAcceleratorsRoutePage
-                  accessToken={session.accessToken}
-                  bootstrap={authenticatedBootstrap}
-                  onBootstrapRefresh={refreshAuthenticatedBootstrap}
-                  routeNavigation={setupAcceleratorsNavigation}
-                  runtime={runtime}
-                />,
-              )
-            ) : (
-              <Navigate
-                replace
-                to={
-                  session && !locked
-                    ? composition.defaultAuthenticatedPage
-                    : session
-                      ? '/lock-screen'
-                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
-                          currentRoutePath,
-                        )}`
-                }
-              />
-            )
+            session && !locked && authenticatedBootstrap && setupAcceleratorsNavigation
+              ? authenticatedShell(
+                  <SetupAcceleratorsRoutePage
+                    accessToken={session.accessToken}
+                    bootstrap={authenticatedBootstrap}
+                    onBootstrapRefresh={refreshAuthenticatedBootstrap}
+                    routeNavigation={setupAcceleratorsNavigation}
+                    runtime={runtime}
+                  />,
+                )
+              : sessionFallback
           }
         />
         <Route path="/system/modules" element={<Navigate replace to="/registry" />} />
         <Route
           path="/operations/module-health"
           element={
-            session && !locked && authenticatedBootstrap && moduleHealthNavigation ? (
-              authenticatedShell(
-                ['UP', 'DEGRADED'].includes(moduleHealthNavigation.availability) ? (
-                  <ModuleHealthRoutePage
-                    accessToken={session.accessToken}
-                    bootstrap={authenticatedBootstrap}
-                    routeNavigation={moduleHealthNavigation}
-                    runtime={runtime}
-                  />
-                ) : (
-                  <ModuleWorkspacePlaceholder item={moduleHealthNavigation} />
-                ),
-              )
-            ) : (
-              <Navigate
-                replace
-                to={
-                  session && !locked
-                    ? composition.defaultAuthenticatedPage
-                    : session
-                      ? '/lock-screen'
-                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
-                          currentRoutePath,
-                        )}`
-                }
-              />
-            )
+            session && !locked && authenticatedBootstrap && moduleHealthNavigation
+              ? authenticatedShell(
+                  ['UP', 'DEGRADED'].includes(moduleHealthNavigation.availability) ? (
+                    <ModuleHealthRoutePage
+                      accessToken={session.accessToken}
+                      bootstrap={authenticatedBootstrap}
+                      routeNavigation={moduleHealthNavigation}
+                      runtime={runtime}
+                    />
+                  ) : (
+                    <ModuleWorkspacePlaceholder item={moduleHealthNavigation} />
+                  ),
+                )
+              : sessionFallback
           }
         />
         <Route
@@ -2748,76 +2982,68 @@ export function App() {
         <Route
           path="/operations/imports-exports"
           element={
-            session && !locked && authenticatedBootstrap && importExportNavigation ? (
-              authenticatedShell(
-                ['UP', 'DEGRADED'].includes(importExportNavigation.availability) ? (
-                  <ImportExportRoutePage
-                    key={session.generation}
-                    accessToken={session.accessToken}
-                    sessionGeneration={session.generation}
-                    bootstrap={authenticatedBootstrap}
-                    routeNavigation={importExportNavigation}
-                    runtime={runtime}
-                  />
-                ) : (
-                  <ModuleWorkspacePlaceholder item={importExportNavigation} />
-                ),
-              )
-            ) : (
-              <Navigate
-                replace
-                to={
-                  session && !locked
-                    ? composition.defaultAuthenticatedPage
-                    : session
-                      ? '/lock-screen'
-                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
-                          currentRoutePath,
-                        )}`
-                }
-              />
-            )
+            session && !locked && authenticatedBootstrap && importExportNavigation
+              ? authenticatedShell(
+                  ['UP', 'DEGRADED'].includes(importExportNavigation.availability) ? (
+                    <ImportExportRoutePage
+                      key={session.generation}
+                      accessToken={session.accessToken}
+                      sessionGeneration={session.generation}
+                      bootstrap={authenticatedBootstrap}
+                      routeNavigation={importExportNavigation}
+                      runtime={runtime}
+                    />
+                  ) : (
+                    <ModuleWorkspacePlaceholder item={importExportNavigation} />
+                  ),
+                )
+              : sessionFallback
           }
         />
         <Route
           path="/system/imports"
           element={<Navigate replace to="/operations/imports-exports" />}
         />
-        <Route path="/system/apis" element={<Navigate replace to="/docs/swaggers" />} />
+        <Route
+          path="/system/apis"
+          element={
+            openApiSource &&
+            authenticatedBootstrap?.navigation.some(
+              (item) =>
+                item.moduleName === 'backoffice' &&
+                item.route === '/docs' &&
+                ['UP', 'DEGRADED'].includes(item.availability) &&
+                item.featureState !== 'HIDDEN' &&
+                item.featureState !== 'DISABLED',
+            ) ? (
+              <Navigate
+                replace
+                to={`/docs?manage=${encodeURIComponent(openApiSource.id)}`}
+              />
+            ) : (
+              sessionFallback
+            )
+          }
+        />
         <Route
           path="/cron/*"
           element={
-            session && !locked && authenticatedBootstrap ? (
-              cronNavigation ? (
-                authenticatedShell(
-                  selectModuleConnection(authenticatedBootstrap, 'cronjob') ? (
-                    <CronDashboardRoutePage
-                      accessToken={session.accessToken}
-                      bootstrap={authenticatedBootstrap}
-                      routeNavigation={cronNavigation}
-                      runtime={runtime}
-                    />
-                  ) : (
-                    <ModuleWorkspacePlaceholder item={cronNavigation} />
-                  ),
-                )
-              ) : (
-                <Navigate replace to={composition.defaultAuthenticatedPage} />
-              )
-            ) : (
-              <Navigate
-                replace
-                to={
-                  session && !locked
-                    ? composition.defaultAuthenticatedPage
-                    : session
-                      ? '/lock-screen'
-                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
-                          currentRoutePath,
-                        )}`
-                }
-              />
-            )
+            session && !locked && authenticatedBootstrap
+              ? cronNavigation
+                ? authenticatedShell(
+                    selectModuleConnection(authenticatedBootstrap, 'cronjob') ? (
+                      <CronDashboardRoutePage
+                        accessToken={session.accessToken}
+                        bootstrap={authenticatedBootstrap}
+                        routeNavigation={cronNavigation}
+                        runtime={runtime}
+                      />
+                    ) : (
+                      <ModuleWorkspacePlaceholder item={cronNavigation} />
+                    ),
+                  )
+                : sessionFallback
+              : sessionFallback
           }
         />
         <Route path="/docs" element={documentationRouteElement} />
@@ -2826,37 +3052,26 @@ export function App() {
         <Route
           path="/media/*"
           element={
-            currentNavigation?.backendWorkspace ? (
-              navigationRouteElement(currentNavigation)
-            ) : session &&
-              !locked &&
-              authenticatedBootstrap &&
-              mediaManagementNavigation ? (
-              authenticatedShell(
-                ['UP', 'DEGRADED'].includes(mediaManagementNavigation.availability) ? (
-                  <MediaManagementRoutePage
-                    accessToken={session.accessToken}
-                    bootstrap={authenticatedBootstrap}
-                    runtime={runtime}
-                  />
-                ) : (
-                  <ModuleWorkspacePlaceholder item={mediaManagementNavigation} />
-                ),
-              )
-            ) : (
-              <Navigate
-                replace
-                to={
-                  session && !locked
-                    ? composition.defaultAuthenticatedPage
-                    : session
-                      ? '/lock-screen'
-                      : `${composition.defaultPublicPage}?returnTo=${encodeURIComponent(
-                          currentRoutePath,
-                        )}`
-                }
-              />
-            )
+            currentNavigation?.backendWorkspace
+              ? navigationRouteElement(currentNavigation)
+              : session &&
+                  !locked &&
+                  authenticatedBootstrap &&
+                  mediaManagementNavigation
+                ? authenticatedShell(
+                    ['UP', 'DEGRADED'].includes(
+                      mediaManagementNavigation.availability,
+                    ) ? (
+                      <MediaManagementRoutePage
+                        accessToken={session.accessToken}
+                        bootstrap={authenticatedBootstrap}
+                        runtime={runtime}
+                      />
+                    ) : (
+                      <ModuleWorkspacePlaceholder item={mediaManagementNavigation} />
+                    ),
+                  )
+                : sessionFallback
           }
         />
         <Route path="/content" element={contentDashboardElement} />
@@ -2960,6 +3175,8 @@ export function App() {
                 currentEmployeeId: session.loginId,
                 onEmployeeUnlock: (password) => void unlock(password),
                 employeeUnlockPending: unlockPending,
+                employeeSessionRecoveryMessage:
+                  employeePolicy?.sessionRecoveryPresentation?.lockedMessage,
                 onEmployeeSignOut: logout,
               })
             ) : (
@@ -2985,7 +3202,7 @@ export function App() {
               }
             />
           ))}
-        <Route path="*" element={<Navigate replace to="/" />} />
+        <Route path="*" element={sessionFallback} />
       </Routes>
     </AxisLocalizationBoundary>
   );

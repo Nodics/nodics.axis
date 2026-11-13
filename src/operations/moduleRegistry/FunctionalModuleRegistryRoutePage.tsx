@@ -29,7 +29,7 @@ import {
   Typography,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from 'react-router';
 
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
@@ -62,6 +62,7 @@ import type {
 } from './api/functionalModuleRegistryContracts';
 
 interface FunctionalModuleRegistryRoutePageProps {
+  readonly sessionGeneration: number;
   readonly accessToken: string;
   readonly bootstrap: AxisAuthenticatedBootstrap;
   readonly onBootstrapRefresh?: (() => Promise<void>) | undefined;
@@ -150,7 +151,15 @@ function sortedModules(
   return ordered;
 }
 
-const registryQueryRoot = ['functional-module-registry'] as const;
+const registryQueryPrefix = ['functional-module-registry'] as const;
+/** Renders only owner-advertised permission eligibility; this grants no API authority. */
+function permits(module: FunctionalModuleRegistration, action: string): boolean {
+  return (
+    module.allowedActions?.includes(
+      action as NonNullable<FunctionalModuleRegistration['allowedActions']>[number],
+    ) === true
+  );
+}
 type ModuleAction = FunctionalModuleLifecycleAction | 'preview';
 type ModuleReadiness =
   | 'Blocked'
@@ -1067,16 +1076,19 @@ function ModuleCard({
   const [expanded, setExpanded] = useState(true);
   const [technicalExpanded, setTechnicalExpanded] = useState(false);
   const isRegistered = module.registrationState === 'REGISTERED';
-  const canRegister = module.registrationState === 'AVAILABLE';
+  const canRegister =
+    module.registrationState === 'AVAILABLE' && permits(module, 'register');
   const missingDependencyCount =
     module.activationData?.preflight.missingDependencies.length ?? 0;
   const canActivate =
     isRegistered &&
     !module.enabled &&
     module.runtimeState === 'ACTIVE' &&
-    missingDependencyCount === 0;
+    missingDependencyCount === 0 &&
+    permits(module, 'activate');
   const canDeactivate = isRegistered && module.enabled && !module.required;
-  const canDeregister = isRegistered && !module.required;
+  const canDeregister =
+    isRegistered && !module.required && permits(module, 'deregister');
   const pending = Boolean(pendingAction);
   const readiness = moduleReadiness(module);
   const impactCount = module.technicalModules.length + module.observedServers.length;
@@ -1124,7 +1136,7 @@ function ModuleCard({
     ? 'register'
     : canActivate
       ? 'activate'
-      : !module.enabled
+      : !module.enabled && permits(module, 'activate')
         ? 'preview'
         : undefined;
   const primaryActionLabel =
@@ -1586,7 +1598,7 @@ function ModuleCard({
                 {canDeactivate ? (
                   <Button
                     color="warning"
-                    disabled={disabled || pending}
+                    disabled={disabled || pending || !permits(module, 'rollback')}
                     onClick={() => onAction(module, 'rollback')}
                     variant="outlined"
                   >
@@ -1598,7 +1610,7 @@ function ModuleCard({
                 {canDeactivate ? (
                   <Button
                     color="warning"
-                    disabled={disabled || pending}
+                    disabled={disabled || pending || !permits(module, 'deactivate')}
                     onClick={() => onAction(module, 'deactivate')}
                     variant="outlined"
                   >
@@ -1622,6 +1634,7 @@ function ModuleCard({
                       pending ||
                       pendingSampleData ||
                       sampleDataDisabled ||
+                      !permits(module, 'installSampleData') ||
                       !module.enabled
                     }
                     onClick={() => onSampleData(module)}
@@ -1685,6 +1698,50 @@ export function FunctionalModuleRegistryRoutePage(
       }
   >();
   const connection = selectModuleConnection(props.bootstrap, 'backoffice');
+  const active = useRef(true);
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+    };
+  }, []);
+  const actorCoordinate = JSON.stringify([
+    props.sessionGeneration,
+    props.bootstrap.tenantCode,
+    props.runtime.enterpriseCode,
+  ]);
+  const [lastOwner, setLastOwner] = useState({
+    actor: actorCoordinate,
+    id: connection?.instanceId,
+  });
+  if (
+    lastOwner.actor !== actorCoordinate ||
+    (connection?.instanceId && lastOwner.id !== connection.instanceId)
+  ) {
+    setLastOwner({ actor: actorCoordinate, id: connection?.instanceId });
+    setSelectedAvailableModules([]);
+    setSafetyConfirmation(undefined);
+    setDetailModuleCode(undefined);
+  }
+  const observedOwner =
+    connection?.instanceId ||
+    (lastOwner.actor === actorCoordinate ? lastOwner.id : undefined);
+  const registryQueryRoot = useMemo(
+    () => [
+      ...registryQueryPrefix,
+      props.sessionGeneration,
+      props.bootstrap.tenantCode,
+      props.runtime.enterpriseCode,
+      observedOwner,
+    ],
+    [
+      props.sessionGeneration,
+      props.bootstrap.tenantCode,
+      props.runtime.enterpriseCode,
+      observedOwner,
+    ],
+  );
+
   const browserOnline = useSyncExternalStore(
     subscribeRegistryConnectivity,
     registryBrowserOnline,
@@ -1746,13 +1803,15 @@ export function FunctionalModuleRegistryRoutePage(
     !registeredModules.isFetching &&
     !availableModules.isFetching;
   const assertCurrentRegistry = () => {
-    if (!currentRegistry || !registryBrowserOnline())
+    if (!active.current || !currentRegistry || !registryBrowserOnline())
       throw new Error('Registry status is unavailable. This action was not sent.');
   };
   const selection = useMutation({
     onMutate: () => setNavigationRefreshState(undefined),
     mutationFn: async (modules: readonly FunctionalModuleRegistration[]) => {
       assertCurrentRegistry();
+      if (!modules.length || modules.some((module) => !permits(module, 'activate')))
+        throw new Error('Your current access does not allow enabling modules.');
       if (!connection) throw new Error('BackOffice is unavailable');
       return applyFunctionalModuleSelection(
         connection,
@@ -1765,6 +1824,7 @@ export function FunctionalModuleRegistryRoutePage(
       );
     },
     onSuccess: async (result) => {
+      if (!active.current) return;
       setSelectedAvailableModules([]);
       await Promise.all([
         queryClient.invalidateQueries({
@@ -1806,6 +1866,8 @@ export function FunctionalModuleRegistryRoutePage(
       readonly action: ModuleAction;
     }) => {
       assertCurrentRegistry();
+      if (!permits(module, action === 'preview' ? 'activate' : action))
+        throw new Error('Your current access does not allow this module action.');
       if (!connection) throw new Error('BackOffice is unavailable');
       return applyFunctionalModuleLifecycleAction(
         connection,
@@ -1816,6 +1878,7 @@ export function FunctionalModuleRegistryRoutePage(
       );
     },
     onSuccess: async (updatedModule, variables) => {
+      if (!active.current) return;
       setNavigationRefreshState(undefined);
       const registeredQueryKey = [
         ...registryQueryRoot,
@@ -1903,11 +1966,14 @@ export function FunctionalModuleRegistryRoutePage(
   const sampleData = useMutation({
     mutationFn: async (module: FunctionalModuleRegistration) => {
       assertCurrentRegistry();
+      if (!permits(module, 'installSampleData'))
+        throw new Error('Your current access does not allow sample imports.');
       const importConnection = selectSampleDataConnection(props.bootstrap, module);
       if (!importConnection) throw new Error('Import service is unavailable');
       return installFunctionalModuleSampleData(importConnection, module, configuration);
     },
     onSuccess: async () => {
+      if (!active.current) return;
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: [...registryQueryRoot, 'registered', configuration.projectCode],
@@ -1950,8 +2016,10 @@ export function FunctionalModuleRegistryRoutePage(
   );
   const selectedAvailable = useMemo(
     () =>
-      readyAvailable.filter((module) =>
-        selectedAvailableModules.includes(module.functionalModule),
+      readyAvailable.filter(
+        (module) =>
+          permits(module, 'activate') &&
+          selectedAvailableModules.includes(module.functionalModule),
       ),
     [readyAvailable, selectedAvailableModules],
   );
@@ -1993,10 +2061,12 @@ export function FunctionalModuleRegistryRoutePage(
   const detailModule = allModules.find(
     (module) => module.functionalModule === detailModuleCode,
   );
-  const visibleReadyModules = readyAvailable.filter((module) =>
-    visibleModules.some(
-      (visible) => visible.functionalModule === module.functionalModule,
-    ),
+  const visibleReadyModules = readyAvailable.filter(
+    (module) =>
+      permits(module, 'activate') &&
+      visibleModules.some(
+        (visible) => visible.functionalModule === module.functionalModule,
+      ),
   );
   const busy =
     !currentRegistry ||
@@ -2011,7 +2081,13 @@ export function FunctionalModuleRegistryRoutePage(
     module: FunctionalModuleRegistration,
     action: ModuleAction,
   ) => {
-    if (!currentRegistry || !registryBrowserOnline()) return;
+    if (
+      !active.current ||
+      !currentRegistry ||
+      !registryBrowserOnline() ||
+      !permits(module, action === 'preview' ? 'activate' : action)
+    )
+      return;
     sampleData.reset();
     if (action === 'rollback' || action === 'deactivate' || action === 'deregister') {
       setSafetyConfirmation({ action, module });
@@ -2022,7 +2098,13 @@ export function FunctionalModuleRegistryRoutePage(
   const requestCapabilitySelection = (
     modules: readonly FunctionalModuleRegistration[],
   ) => {
-    if (!currentRegistry || !registryBrowserOnline()) return;
+    if (
+      !active.current ||
+      !currentRegistry ||
+      !registryBrowserOnline() ||
+      modules.some((module) => !permits(module, 'activate'))
+    )
+      return;
     lifecycle.reset();
     sampleData.reset();
     selection.mutate(modules);
@@ -2061,6 +2143,14 @@ export function FunctionalModuleRegistryRoutePage(
       />
 
       <Stack spacing={3}>
+        {currentRegistry &&
+        allModules.length > 0 &&
+        allModules.every((module) => !module.allowedActions?.length) ? (
+          <Alert severity="info">
+            Your current access is read-only. You can inspect modules, but cannot change
+            their activation or import sample data.
+          </Alert>
+        ) : null}
         {!currentRegistry ? (
           <Alert severity="warning">
             {!browserOnline
@@ -2265,7 +2355,7 @@ export function FunctionalModuleRegistryRoutePage(
                 <Typography variant="body2" sx={{ fontWeight: 600 }} aria-live="polite">
                   {selectedAvailable.length
                     ? `${selectedAvailable.length} module${selectedAvailable.length === 1 ? '' : 's'} selected`
-                    : `${currentRegistry ? '' : 'Last reported: '}${visibleReadyModules.length} module${visibleReadyModules.length === 1 ? '' : 's'} ready to enable`}
+                    : `${currentRegistry ? '' : 'Last reported: '}${visibleReadyModules.length} module${visibleReadyModules.length === 1 ? '' : 's'} you can enable`}
                 </Typography>
                 <Stack
                   direction="row"
@@ -2425,7 +2515,9 @@ export function FunctionalModuleRegistryRoutePage(
                         >
                           <Checkbox
                             checked={enabled || checked}
-                            disabled={!selectable || busy}
+                            disabled={
+                              !selectable || busy || !permits(module, 'activate')
+                            }
                             slotProps={{
                               input: { 'aria-label': `Select ${module.displayName}` },
                             }}

@@ -4,11 +4,13 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AxisModuleConnection } from '../../../src/bootstrap/publicBootstrap';
 import {
   loadContentDesignerAuthoringModel,
+  loadContentDesignerPage,
   retireContentDesignerRecord,
   saveContentDesignerDraft,
   type ContentDesignerDraft,
 } from '../../../src/operations/contentExperience/api/contentDesignerClient';
 import { retirementPresentation } from './contentDesignerRetirementFixtures';
+import { designerFormPresentation } from './contentDesignerFormFixtures';
 
 const connection: AxisModuleConnection = {
   moduleName: 'cms',
@@ -23,6 +25,14 @@ const configuration = {
   enterpriseCode: 'enterprise-a',
   timeoutMs: 1_000,
 };
+
+function requestUrlForSavedTest(input: RequestInfo | URL): string {
+  return typeof input === 'string'
+    ? input
+    : input instanceof URL
+      ? input.toString()
+      : input.url;
+}
 const draft: ContentDesignerDraft = {
   catalogCode: 'catalog-a',
   siteCode: 'site-a',
@@ -32,6 +42,232 @@ const draft: ContentDesignerDraft = {
 };
 
 describe('CMS Designer owner responses', () => {
+  it('accepts only bounded inert owner form copy without changing operations or retrying malformed models', async () => {
+    for (const presentation of [
+      designerFormPresentation,
+      { ...designerFormPresentation, continueLabel: '' },
+      { ...designerFormPresentation, pageNameHelp: 'x'.repeat(1025) },
+      { ...designerFormPresentation, newPageTitle: 'Name\u0000hidden' },
+    ]) {
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            result: {
+              rules: {},
+              operations: ['getDraftComposition'],
+              presentation,
+            },
+          }),
+        ),
+      );
+      const request = loadContentDesignerAuthoringModel(
+        connection,
+        configuration,
+        fetcher,
+      );
+      if (presentation === designerFormPresentation) {
+        const value = await request;
+        expect(value.presentation).toEqual(designerFormPresentation);
+        expect(value.operations).toEqual(['getDraftComposition']);
+      } else await expect(request).rejects.toThrow('form presentation');
+      expect(fetcher).toHaveBeenCalledOnce();
+      expect(fetcher.mock.calls[0]?.[1]?.method).not.toBe('POST');
+    }
+  });
+  it('reopens only the exact scoped saved identity and preserves inert extension properties', async () => {
+    const sourceVersion = 'a'.repeat(64);
+    const stored = {
+      ...draft,
+      sourceVersion,
+      sections: [
+        {
+          code: 'placement',
+          slot: 'main',
+          index: 0,
+          components: [
+            {
+              code: 'block',
+              typeCode: 'block-type',
+              properties: { extension: { preserve: true } },
+              localizations: [
+                {
+                  code: 'legacy-locale',
+                  locale: 'en',
+                  properties: { title: 'Saved' },
+                  seo: { preserve: true },
+                },
+              ],
+              media: [{ code: 'legacy-media', mediaCode: 'image' }],
+            },
+          ],
+        },
+      ],
+    };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          result: { draft: stored, sourceVersion, editable: true, issues: [] },
+        }),
+      ),
+    );
+    const result = await loadContentDesignerPage(
+      connection,
+      configuration,
+      { catalogCode: 'catalog-a', siteCode: 'site-a', pageCode: 'page-a' },
+      fetcher,
+    );
+    expect(result.draft).toEqual(stored);
+    expect(requestUrlForSavedTest(fetcher.mock.calls[0]![0])).toContain(
+      '/designer/composition/draft?catalogCode=catalog-a&siteCode=site-a&pageCode=page-a',
+    );
+    expect(new Headers(fetcher.mock.calls[0]![1]?.headers).get('Authorization')).toBe(
+      'Bearer employee-token',
+    );
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it('rejects foreign or contradictory saved projections and never falls back or replays denied reads', async () => {
+    const sourceVersion = 'a'.repeat(64);
+    for (const changed of [
+      { ...draft, sourceVersion, siteCode: 'foreign' },
+      { ...draft, sourceVersion: 'b'.repeat(64) },
+      {
+        ...draft,
+        sourceVersion,
+        sections: [{ code: 'placement', slot: 'main', index: 0, components: [] }],
+      },
+    ]) {
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            result: { draft: changed, sourceVersion, editable: true, issues: [] },
+          }),
+        ),
+      );
+      await expect(
+        loadContentDesignerPage(
+          connection,
+          configuration,
+          { catalogCode: 'catalog-a', siteCode: 'site-a', pageCode: 'page-a' },
+          fetcher,
+        ),
+      ).rejects.toThrow();
+      expect(fetcher).toHaveBeenCalledOnce();
+    }
+    const denied = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response('Denied', { status: 403 }));
+    await expect(
+      loadContentDesignerPage(
+        connection,
+        configuration,
+        { catalogCode: 'catalog-a', siteCode: 'site-a', pageCode: 'page-a' },
+        denied,
+      ),
+    ).rejects.toThrow();
+    expect(denied).toHaveBeenCalledOnce();
+  });
+  it('accepts bounded inert field descriptors without granting operations', async () => {
+    const fields = [
+      {
+        property: 'title',
+        label: 'Heading',
+        control: 'text',
+        required: true,
+        maxLength: 240,
+      },
+      {
+        property: 'items',
+        label: 'Cards',
+        control: 'items',
+        maximumItems: 12,
+        itemFields: [{ property: 'text', label: 'Card text', control: 'multiline' }],
+      },
+    ];
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          result: {
+            rules: {},
+            operations: [],
+            defaults: {
+              componentKinds: [
+                {
+                  label: 'Cards',
+                  typeCode: 'cardsType',
+                  renderer: 'nexus.cardGrid',
+                  fields,
+                },
+              ],
+            },
+          },
+        }),
+      ),
+    );
+    const model = await loadContentDesignerAuthoringModel(
+      connection,
+      configuration,
+      fetcher,
+    );
+    expect(model.defaults.componentKinds[0]?.fields).toEqual(fields);
+    expect(model.operations).toEqual([]);
+    expect(Object.isFrozen(model.defaults.componentKinds[0]?.fields)).toBe(true);
+  });
+  it.each([
+    [{ property: 'title.path', label: 'Heading', control: 'text' }],
+    [{ property: 'constructor', label: 'Heading', control: 'text' }],
+    [{ property: 'title', label: 'Heading', control: 'script' }],
+    [{ property: 'title', label: '', control: 'text' }],
+    [{ property: 'title', label: 'Heading', control: 'text', maxLength: 100001 }],
+    [
+      {
+        property: 'items',
+        label: 'Cards',
+        control: 'items',
+        maximumItems: 33,
+        itemFields: [],
+      },
+    ],
+    [
+      {
+        property: 'items',
+        label: 'Cards',
+        control: 'items',
+        itemFields: [
+          { property: 'more', label: 'More', control: 'items', itemFields: [] },
+        ],
+      },
+    ],
+    [
+      { property: 'title', label: 'Heading', control: 'text' },
+      { property: 'title', label: 'Duplicate', control: 'text' },
+    ],
+  ])('holds authoring for incompatible field descriptors: %j', async (...fields) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          result: {
+            rules: {},
+            defaults: {
+              componentKinds: [
+                {
+                  label: 'Text',
+                  typeCode: 'textType',
+                  renderer: 'nexus.contentSection',
+                  fields,
+                },
+              ],
+            },
+          },
+        }),
+      ),
+    );
+    await expect(
+      loadContentDesignerAuthoringModel(connection, configuration, fetcher),
+    ).rejects.toThrow('CMS content fields are incompatible');
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it('parses owner retirement copy without treating action descriptors as permission grants', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(

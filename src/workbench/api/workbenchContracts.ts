@@ -45,6 +45,7 @@ export interface WorkbenchField {
   readonly type: string;
   readonly required: boolean;
   readonly readOnly: boolean;
+  readonly readOnlyOnUpdate?: boolean | undefined;
   readonly primary: boolean;
   readonly description: string;
   readonly enum?: readonly string[] | undefined;
@@ -225,6 +226,8 @@ export function parseWorkbenchApiOperations(value: unknown): WorkbenchApiOperati
 }
 
 export interface WorkbenchSchema {
+  /** Owner notice when schema inspection exists but generic record APIs do not. */
+  readonly recordApi?: Readonly<{ available: false; reason: string; message: string }>;
   readonly apiOperations?: WorkbenchApiOperations;
   readonly form?: WorkbenchFormDefinition;
   readonly authoring?: {
@@ -277,6 +280,7 @@ export interface WorkbenchFormDefinition {
   readonly completionAction?:
     | { readonly label: string; readonly path: string }
     | undefined;
+  readonly omitEmptyOptionalOnReview?: boolean | undefined;
   readonly copy: Readonly<Record<string, string>>;
 }
 
@@ -313,6 +317,9 @@ function parseWorkbenchForm(value: unknown): WorkbenchFormDefinition {
   return Object.freeze({
     contractVersion: 1,
     sections: Object.freeze(sections),
+    ...(form.omitEmptyOptionalOnReview === true
+      ? { omitEmptyOptionalOnReview: true }
+      : {}),
     hiddenFields: stringList(form.hiddenFields, 'Form hidden fields'),
     managedCreateFields: stringList(form.managedCreateFields, 'Form managed fields'),
     defaultColumns: stringList(form.defaultColumns, 'Form default columns'),
@@ -570,6 +577,14 @@ function parseField(value: unknown): WorkbenchField {
     type: text(field.type, 'Workbench field type'),
     required: booleanValue(field.required, 'Workbench field required'),
     readOnly: booleanValue(field.readOnly, 'Workbench field readOnly'),
+    ...(field.readOnlyOnUpdate === undefined
+      ? {}
+      : {
+          readOnlyOnUpdate: booleanValue(
+            field.readOnlyOnUpdate,
+            'Workbench field readOnlyOnUpdate',
+          ),
+        }),
     primary: booleanValue(field.primary, 'Workbench field primary'),
     description: typeof field.description === 'string' ? field.description : '',
     enum: enumValues,
@@ -692,6 +707,17 @@ export function parseWorkbenchSchema(value: unknown): WorkbenchSchema {
   const schema = record(value, 'Workbench schema');
   const moduleName = text(schema.moduleName, 'Workbench module name');
   const operations = stringList(schema.operations, 'Workbench operations');
+  let recordApi: WorkbenchSchema['recordApi'];
+  if (schema.recordApi !== undefined) {
+    const status = record(schema.recordApi, 'Schema record API status');
+    if (status.available !== false || operations.length > 0)
+      throw new Error('Schema record API status contradicts its operations');
+    const message = text(status.message, 'Schema record API message');
+    const reason = text(status.reason, 'Schema record API reason');
+    if (message.length > 500 || !/^[A-Z][A-Z0-9_]{0,63}$/.test(reason))
+      throw new Error('Schema record API status is invalid');
+    recordApi = Object.freeze({ available: false, reason, message });
+  }
   if (
     operations.some(
       (operation) =>
@@ -731,6 +757,7 @@ export function parseWorkbenchSchema(value: unknown): WorkbenchSchema {
       : record(schema.mutationPolicy, 'Workbench mutation policy');
   return Object.freeze({
     moduleName,
+    ...(recordApi ? { recordApi } : {}),
     ...(schema.apiOperations === undefined
       ? {}
       : { apiOperations: parseWorkbenchApiOperations(schema.apiOperations) }),

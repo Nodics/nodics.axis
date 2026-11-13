@@ -97,6 +97,7 @@ function normalizeDateValue(value: unknown): unknown {
 function normalizeGeneratedCrudModel(
   schema: Pick<WorkbenchSchema, 'fields' | 'concurrency'>,
   model: Readonly<Record<string, unknown>>,
+  operation: 'create' | 'update' = 'create',
 ): Readonly<Record<string, unknown>> {
   const dateFields = new Set(
     schema.fields
@@ -106,10 +107,18 @@ function normalizeGeneratedCrudModel(
   const managedField = schema.concurrency?.managed
     ? schema.concurrency.field
     : undefined;
-  if (dateFields.size === 0 && !managedField) return model;
+  const updateProtected = new Set(
+    operation === 'update'
+      ? schema.fields
+          .filter((field) => field.readOnlyOnUpdate)
+          .map((field) => field.name)
+      : [],
+  );
+  if (dateFields.size === 0 && !managedField && updateProtected.size === 0)
+    return model;
   const normalized = Object.fromEntries(
     Object.entries(model)
-      .filter(([key]) => key !== managedField)
+      .filter(([key]) => key !== managedField && !updateProtected.has(key))
       .map(([key, value]) => [
         key,
         dateFields.has(key) ? normalizeDateValue(value) : value,
@@ -224,7 +233,13 @@ async function request(
   }
 }
 
-export async function loadWorkbenchSchemas(
+export interface WorkbenchSchemaDiscoveryResult {
+  readonly schemas: readonly WorkbenchSchema[];
+  readonly unavailableSources: readonly string[];
+}
+
+/** Preserves partial discovery coverage without returning private response errors. */
+export async function discoverWorkbenchSchemas(
   connections: readonly AxisModuleConnection[],
   configuration: WorkbenchClientConfiguration,
   fetchImplementation: typeof fetch = fetch,
@@ -232,7 +247,7 @@ export async function loadWorkbenchSchemas(
     moduleName: string;
     descriptor: AxisWorkbenchSchemaDiscovery;
   }>,
-): Promise<readonly WorkbenchSchema[]> {
+): Promise<WorkbenchSchemaDiscoveryResult> {
   const discovery = ownerDiscovery
     ? parseWorkbenchSchemaDiscovery(ownerDiscovery.descriptor)
     : undefined;
@@ -304,19 +319,44 @@ export async function loadWorkbenchSchemas(
       uniqueSchemas.set(key, schema);
     }
   });
-  return Object.freeze(
-    [...uniqueSchemas.values()].sort(
-      (left, right) =>
-        left.label.localeCompare(right.label) ||
-        left.moduleName.localeCompare(right.moduleName),
+  return Object.freeze({
+    unavailableSources: Object.freeze(
+      selectedConnections.flatMap((connection, index) => {
+        const result = results[index];
+        if (result?.status !== 'rejected') return [];
+        // Generic discovery includes non-schema modules and unreadable runtimes.
+        // Confirmed exclusions are different from lost or invalid metadata.
+        if (
+          result.reason instanceof WorkbenchRequestError &&
+          [403, 404, 405].includes(result.reason.status)
+        )
+          return [];
+        return [
+          `${connection.moduleName} / ${connection.server ?? connection.instanceId} / ${connection.environment}`,
+        ];
+      }),
     ),
-  );
+    schemas: Object.freeze(
+      [...uniqueSchemas.values()].sort(
+        (left, right) =>
+          left.label.localeCompare(right.label) ||
+          left.moduleName.localeCompare(right.moduleName),
+      ),
+    ),
+  });
+}
+
+/** Existing record consumers retain the canonical schema-array contract. */
+export async function loadWorkbenchSchemas(
+  ...args: Parameters<typeof discoverWorkbenchSchemas>
+): Promise<readonly WorkbenchSchema[]> {
+  return (await discoverWorkbenchSchemas(...args)).schemas;
 }
 
 /** Use an advertised route exactly once; compatibility fallback applies only to absent metadata. */
 function generatedRequest(
   connection: AxisModuleConnection,
-  schema: Pick<WorkbenchSchema, 'apiOperations'>,
+  schema: Pick<WorkbenchSchema, 'apiOperations' | 'recordApi'>,
   operation: keyof WorkbenchApiOperations,
   defaultPath: string,
   configuration: WorkbenchClientConfiguration,
@@ -324,6 +364,8 @@ function generatedRequest(
   fetchImplementation: typeof fetch,
   allowEmptyResult = false,
 ): Promise<unknown> {
+  if (operation !== 'capabilities' && schema.recordApi?.available === false)
+    throw new Error(schema.recordApi.message);
   const route =
     schema.apiOperations === undefined
       ? undefined
@@ -337,7 +379,28 @@ function generatedRequest(
     fetchImplementation,
     allowEmptyResult,
     route?.apiVersion ?? 'v0',
-  );
+  ).catch((error: unknown) => {
+    if (
+      ['create', 'update', 'delete', 'bulk'].includes(operation) &&
+      (!(error instanceof WorkbenchRequestError) || error.status >= 500)
+    ) {
+      const recovery =
+        'The write outcome could not be confirmed. Keep your inputs and inspect the saved records before submitting again.';
+      if (error instanceof WorkbenchRequestError)
+        throw new WorkbenchRequestError(
+          error.status,
+          `${error.message} ${recovery}`,
+          error.code,
+        );
+      throw new Error(recovery, { cause: error });
+    }
+    if (!(error instanceof WorkbenchRequestError))
+      throw new Error(
+        'The requested data could not be loaded. Try again to reconnect.',
+        { cause: error },
+      );
+    throw error;
+  });
 }
 
 export async function loadGeneratedSchemaCapabilities(
@@ -426,7 +489,11 @@ export async function createWorkbenchRecord(
     'create',
     `/${safeSegment(schema.schemaName, 'Workbench schema name')}`,
     configuration,
-    { method: 'PUT', body: JSON.stringify(normalizedModel) },
+    {
+      method: 'PUT',
+      body: JSON.stringify(normalizedModel),
+      headers: { 'Idempotency-Key': workbenchCommandKey(model) },
+    },
     fetchImplementation,
   );
   return mutationRecord(schema, result);
@@ -447,7 +514,7 @@ export async function updateWorkbenchRecord(
     throw new Error('This schema does not allow generated record updates');
   }
   const identity = recordIdentity(schema, original);
-  const normalizedModel = normalizeGeneratedCrudModel(schema, model);
+  const normalizedModel = normalizeGeneratedCrudModel(schema, model, 'update');
   const result = await generatedRequest(
     connection,
     schema,
@@ -456,6 +523,7 @@ export async function updateWorkbenchRecord(
     configuration,
     {
       method: 'PATCH',
+      headers: { 'Idempotency-Key': workbenchCommandKey(model) },
       body: JSON.stringify({
         query: identity,
         model: normalizedModel,

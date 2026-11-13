@@ -4,11 +4,12 @@ import {
   workspacePanelPadding,
 } from '../../app/shell/workspaceLayout';
 import {
-  selectModuleConnection,
   type AxisAuthenticatedBootstrap,
   type AxisModuleConnection,
+  type AxisWorkbenchSchemaDiscovery,
 } from '../../bootstrap/publicBootstrap';
 import {
+  loadGeneratedSchemaCapabilities,
   loadWorkbenchRecords,
   loadWorkbenchSchemas,
 } from '../../workbench/api/workbenchClient';
@@ -35,6 +36,16 @@ export interface WorkbenchMetricDefinition {
   readonly description: string;
   readonly route: string;
   readonly icon: string;
+  readonly includeSourceContext?: boolean | undefined;
+  readonly schemaDiscovery?:
+    | Readonly<{ moduleName: string; descriptor: AxisWorkbenchSchemaDiscovery }>
+    | undefined;
+  readonly ownerSelector?:
+    | Readonly<{
+        runtimeRoleCode: string;
+        publicationRole: string;
+      }>
+    | undefined;
   readonly filter?: {
     readonly field: string;
     readonly value: string;
@@ -45,6 +56,8 @@ export type WorkbenchMetricStatus = 'ready' | 'unavailable';
 
 export interface WorkbenchMetric extends WorkbenchMetricDefinition {
   readonly detail: string;
+  readonly canOpen?: boolean | undefined;
+  readonly href?: string | undefined;
   readonly status: WorkbenchMetricStatus;
   readonly value: number | undefined;
 }
@@ -57,7 +70,7 @@ export function connectionKey(connections: readonly AxisModuleConnection[]): str
   return connections
     .map(
       (connection) =>
-        `${connection.moduleName}:${connection.instanceId}:${connection.endpoint}:${connection.state}`,
+        `${connection.moduleName}:${connection.instanceId}:${connection.endpoint}:${connection.state}:${connection.runtimeRole?.code ?? ''}:${connection.runtimeRole?.publication ?? ''}`,
     )
     .sort()
     .join('|');
@@ -79,24 +92,38 @@ function workbenchConnectionModuleName(schema: WorkbenchSchema): string {
   return schema.connectionModuleName ?? schema.moduleName;
 }
 
+/** Selects exact advertised authority; names and successful empty reads are never ownership proof. */
 function findMetricSchema(
   schemas: readonly WorkbenchSchema[],
   definition: WorkbenchMetricDefinition,
+  bootstrap: AxisAuthenticatedBootstrap,
 ): WorkbenchSchema | undefined {
-  const candidates = schemas.filter(
+  let candidates = schemas.filter(
     (schema) =>
       schema.moduleName === definition.moduleName &&
       schema.schemaName === definition.schemaName,
   );
-  return (
-    candidates.find((schema) =>
-      schema.connectionServer?.toLowerCase().includes('staged'),
-    ) ??
-    candidates.find(
-      (schema) => schema.connectionModuleName === definition.moduleName,
-    ) ??
-    candidates[0]
-  );
+  if (definition.ownerSelector) {
+    const { runtimeRoleCode, publicationRole } = definition.ownerSelector;
+    const owners = (bootstrap.moduleConnections[definition.moduleName] ?? []).filter(
+      (connection) =>
+        ['UP', 'DEGRADED'].includes(connection.state) &&
+        connection.runtimeRole?.code === runtimeRoleCode &&
+        connection.runtimeRole.publication === publicationRole,
+    );
+    if (owners.length !== 1) return undefined;
+    const owner = owners[0]!;
+    candidates = candidates.filter(
+      (schema) =>
+        schema.connectionModuleName === owner.moduleName &&
+        schema.connectionInstanceId === owner.instanceId &&
+        (schema.connectionEnvironment === undefined ||
+          schema.connectionEnvironment === owner.environment) &&
+        (schema.connectionServer === undefined ||
+          schema.connectionServer === owner.server),
+    );
+  }
+  return candidates.length === 1 ? candidates[0] : undefined;
 }
 
 function findSchemaConnection(
@@ -104,14 +131,17 @@ function findSchemaConnection(
   schema: WorkbenchSchema,
 ): AxisModuleConnection | undefined {
   const moduleName = workbenchConnectionModuleName(schema);
-  const connections = bootstrap.moduleConnections[moduleName] ?? [];
-  return (
-    connections.find(
-      (connection) =>
-        connection.moduleName === moduleName &&
-        connection.instanceId === schema.connectionInstanceId,
-    ) ?? selectModuleConnection(bootstrap, moduleName)
+  const connections = (bootstrap.moduleConnections[moduleName] ?? []).filter(
+    (connection) =>
+      ['UP', 'DEGRADED'].includes(connection.state) &&
+      (schema.connectionInstanceId === undefined ||
+        connection.instanceId === schema.connectionInstanceId) &&
+      (schema.connectionServer === undefined ||
+        connection.server === schema.connectionServer) &&
+      (schema.connectionEnvironment === undefined ||
+        connection.environment === schema.connectionEnvironment),
   );
+  return connections.length === 1 ? connections[0] : undefined;
 }
 
 function equalFilter(
@@ -148,11 +178,18 @@ export async function loadWorkbenchMetric(
   bootstrap: AxisAuthenticatedBootstrap,
   configuration: WorkbenchMetricConfiguration,
 ): Promise<WorkbenchMetric> {
-  const discoveredSchema = findMetricSchema(schemas, definition);
+  const canOpen = bootstrap.navigation.some(
+    (item) =>
+      item.route === definition.route &&
+      !['DISABLED', 'HIDDEN'].includes(item.featureState ?? 'ACTIVE') &&
+      ['UP', 'DEGRADED'].includes(item.availability),
+  );
+  const discoveredSchema = findMetricSchema(schemas, definition, bootstrap);
   if (!discoveredSchema) {
     return Object.freeze({
       ...definition,
-      detail: 'Schema was not discovered from live workbench contracts.',
+      canOpen,
+      detail: 'The required runtime source is unavailable or ambiguous.',
       status: 'unavailable',
       value: undefined,
     });
@@ -162,6 +199,7 @@ export async function loadWorkbenchMetric(
   if (!connection) {
     return Object.freeze({
       ...definition,
+      canOpen,
       detail: 'Owning runtime connection is not available.',
       status: 'unavailable',
       value: undefined,
@@ -173,6 +211,7 @@ export async function loadWorkbenchMetric(
   if (definition.filter && !filters) {
     return Object.freeze({
       ...definition,
+      canOpen,
       detail: `${definition.filter.field} is not available as an EQUALS filter for this schema.`,
       status: 'unavailable',
       value: undefined,
@@ -188,6 +227,11 @@ export async function loadWorkbenchMetric(
     });
     return Object.freeze({
       ...definition,
+      canOpen,
+      href:
+        definition.includeSourceContext && connection.server
+          ? `${definition.route}?${new URLSearchParams({ sourceServer: connection.server, sourceEnvironment: connection.environment }).toString()}`
+          : definition.route,
       detail: definition.description,
       status: 'ready',
       value: page.totalCount,
@@ -195,6 +239,7 @@ export async function loadWorkbenchMetric(
   } catch (error: unknown) {
     return Object.freeze({
       ...definition,
+      canOpen,
       detail: error instanceof Error ? error.message : 'Metric count failed.',
       status: 'unavailable',
       value: undefined,
@@ -208,10 +253,80 @@ export async function loadWorkbenchMetrics(
   configuration: WorkbenchMetricConfiguration,
   definitions: readonly WorkbenchMetricDefinition[],
 ): Promise<readonly WorkbenchMetric[]> {
-  const schemas = await loadWorkbenchSchemas(connections, configuration);
+  const requiredConnections = connections.filter((connection) => {
+    const owned = definitions.filter(
+      (definition) => definition.moduleName === connection.moduleName,
+    );
+    return owned.some(
+      (definition) =>
+        !definition.ownerSelector ||
+        (connection.runtimeRole?.code === definition.ownerSelector.runtimeRoleCode &&
+          connection.runtimeRole.publication ===
+            definition.ownerSelector.publicationRole),
+    );
+  });
+  // Discovery is grouped by its advertised owner contract, never retried through
+  // the generic route after a denial or failure. One failed owner does not hide
+  // independent successful dashboard observations.
+  const groups = new Map<string, Promise<readonly WorkbenchSchema[]>>();
+  for (const definition of definitions) {
+    const key = JSON.stringify(definition.schemaDiscovery ?? null);
+    if (groups.has(key)) continue;
+    const groupDefinitions = definitions.filter(
+      (item) => JSON.stringify(item.schemaDiscovery ?? null) === key,
+    );
+    const groupConnections = requiredConnections.filter((connection) =>
+      groupDefinitions.some((item) => item.moduleName === connection.moduleName),
+    );
+    groups.set(
+      key,
+      (definition.schemaDiscovery
+        ? loadWorkbenchSchemas(
+            groupConnections,
+            configuration,
+            fetch,
+            definition.schemaDiscovery,
+          )
+        : Promise.allSettled(
+            groupConnections.flatMap((connection) =>
+              [
+                ...new Set(
+                  groupDefinitions
+                    .filter((item) => item.moduleName === connection.moduleName)
+                    .map((item) => item.schemaName),
+                ),
+              ].map(async (schemaName) => {
+                const schema = await loadGeneratedSchemaCapabilities(
+                  connection,
+                  { schemaName },
+                  configuration,
+                );
+                if (
+                  schema.moduleName !== connection.moduleName ||
+                  schema.schemaName !== schemaName
+                )
+                  throw new Error(
+                    'Metric schema owner does not match the selected source',
+                  );
+                return schema;
+              }),
+            ),
+          ).then((results) =>
+            results.flatMap((result) =>
+              result.status === 'fulfilled' ? [result.value] : [],
+            ),
+          )
+      ).catch(() => []),
+    );
+  }
   const metrics = await Promise.all(
-    definitions.map((definition) =>
-      loadWorkbenchMetric(definition, schemas, bootstrap, configuration),
+    definitions.map(async (definition) =>
+      loadWorkbenchMetric(
+        definition,
+        (await groups.get(JSON.stringify(definition.schemaDiscovery ?? null))) ?? [],
+        bootstrap,
+        configuration,
+      ),
     ),
   );
   return Object.freeze(metrics);

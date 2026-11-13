@@ -1,6 +1,7 @@
 import {
   Alert,
   Box,
+  Button,
   Chip,
   CircularProgress,
   Divider,
@@ -14,17 +15,26 @@ import {
   Typography,
   alpha,
 } from '@mui/material';
+import { useEffect, useRef } from 'react';
+import { useMutation } from '@tanstack/react-query';
 
 import { ShellIcon } from '../../../app/shell/ShellIcon';
-import type { ImportRunFailure, ImportRunSummary } from '../api/dataReleaseContracts';
+import type {
+  DataExportMediaSummary,
+  ImportRunFailure,
+  ImportRunSummary,
+} from '../api/dataReleaseContracts';
+import type { DataExportDownload } from '../api/dataReleaseClient';
 import {
   formatRunType,
   formatStatus,
+  saveDataExportDownload,
   summarizeModules,
   type HistoryFilter,
 } from '../importExportPresentation';
 
 interface ImportExportHistoryPanelProps {
+  readonly exportDenied: boolean;
   readonly filter: HistoryFilter;
   readonly filteredRuns: readonly ImportRunSummary[];
   readonly isError: boolean;
@@ -32,9 +42,46 @@ interface ImportExportHistoryPanelProps {
   readonly isSuccess: boolean;
   readonly onFilterChange: (value: HistoryFilter) => void;
   readonly onSearchChange: (value: string) => void;
+  readonly onRefresh: () => void;
   readonly runs: readonly ImportRunSummary[];
   readonly search: string;
   readonly errorMessage: string | undefined;
+  readonly onDownloadArtifact?:
+    | ((media: DataExportMediaSummary) => Promise<DataExportDownload>)
+    | undefined;
+}
+
+/** A late read from a retired history view cannot deliver a private file. */
+function HistoryArtifact(props: {
+  readonly media: DataExportMediaSummary;
+  readonly onDownload: (media: DataExportMediaSummary) => Promise<DataExportDownload>;
+}) {
+  const active = useRef(false);
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+    };
+  }, []);
+  const download = useMutation({
+    mutationFn: async () => {
+      const file = await props.onDownload(props.media);
+      if (active.current) saveDataExportDownload(file);
+    },
+  });
+  return (
+    <Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
+      <Typography variant="body2">
+        {props.media.originalFileName ?? props.media.name}
+      </Typography>
+      <Button onClick={() => download.mutate()} disabled={download.isPending}>
+        {download.isPending ? 'Downloading…' : 'Download exact artifact'}
+      </Button>
+      {download.isError ? (
+        <Alert severity="error">{download.error.message}</Alert>
+      ) : null}
+    </Stack>
+  );
 }
 
 function count(value: number | undefined): string {
@@ -42,6 +89,9 @@ function count(value: number | undefined): string {
 }
 
 function failureTitle(failure: ImportRunFailure, index: number): string {
+  if (failure.rowNumber !== undefined) {
+    return `Row ${failure.rowNumber}${failure.propertyName ? ` · ${failure.propertyName}` : ''}`;
+  }
   return (
     failure.recordKey ??
     failure.fileName ??
@@ -63,6 +113,7 @@ function failureContext(failure: ImportRunFailure): string {
 
 function ImportRunFailureList(props: {
   readonly failures: readonly ImportRunFailure[];
+  readonly title?: string;
 }) {
   if (props.failures.length === 0) return null;
   return (
@@ -79,7 +130,7 @@ function ImportRunFailureList(props: {
     >
       <Stack spacing={1}>
         <Typography color="error.dark" sx={{ fontWeight: 800 }}>
-          Failed records
+          {props.title ?? 'Failed records'}
         </Typography>
         {props.failures.slice(0, 10).map((failure, index) => (
           <Box key={`${failureTitle(failure, index)}-${String(index)}`}>
@@ -173,15 +224,26 @@ export function ImportExportHistoryPanel(props: ImportExportHistoryPanelProps) {
               },
             }}
           />
+          <Button onClick={props.onRefresh} disabled={props.isLoading}>
+            Refresh history
+          </Button>
         </Stack>
       </Paper>
       {props.isLoading ? (
         <CircularProgress aria-label="Loading import history" />
       ) : null}
       {props.isError ? <Alert severity="error">{props.errorMessage}</Alert> : null}
+      {props.exportDenied ? (
+        <Alert severity="info">
+          Export history is unavailable for this runtime and account. This view shows
+          import history only.
+        </Alert>
+      ) : null}
       {props.isSuccess && props.runs.length === 0 ? (
         <Alert severity="info">
-          No import or export runs are available for this tenant.
+          {props.exportDenied
+            ? 'No import runs match this history view.'
+            : 'No runs match this history view.'}
         </Alert>
       ) : null}
       {props.isSuccess && props.runs.length > 0 && props.filteredRuns.length === 0 ? (
@@ -213,7 +275,9 @@ export function ImportExportHistoryPanel(props: ImportExportHistoryPanelProps) {
                     sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 0.75 }}
                   >
                     <Typography component="h3" variant="h6">
-                      {formatRunType(run.dataType)}
+                      {run.dataType === 'media' && run.validationOnly
+                        ? 'File validation'
+                        : formatRunType(run.dataType)}
                     </Typography>
                     <Chip label={formatStatus(run.status)} size="small" />
                     {run.createdAt ? (
@@ -225,6 +289,11 @@ export function ImportExportHistoryPanel(props: ImportExportHistoryPanelProps) {
                   <Typography color="text.secondary" variant="body2">
                     {summarizeModules(run.modules)}
                   </Typography>
+                  {run.requestedBy ? (
+                    <Typography color="text.secondary" variant="body2">
+                      Requested by {run.requestedBy}
+                    </Typography>
+                  ) : null}
                   {run.summary ? (
                     <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 0.75 }}>
                       <Chip
@@ -232,19 +301,29 @@ export function ImportExportHistoryPanel(props: ImportExportHistoryPanelProps) {
                         size="small"
                         variant="outlined"
                       />
-                      <Chip
-                        label={`${count(run.summary.recordsSucceeded)} succeeded`}
-                        size="small"
-                        variant="outlined"
-                      />
-                      <Chip
-                        color={
-                          (run.summary.recordsFailed ?? 0) > 0 ? 'error' : 'default'
-                        }
-                        label={`${count(run.summary.recordsFailed)} failed`}
-                        size="small"
-                        variant="outlined"
-                      />
+                      {run.validationOnly ? (
+                        <Chip
+                          label={`${count(run.summary.validationErrors ?? run.validationErrors?.length)} validation issues`}
+                          size="small"
+                          variant="outlined"
+                        />
+                      ) : (
+                        <>
+                          <Chip
+                            label={`${count(run.summary.recordsSucceeded)} succeeded`}
+                            size="small"
+                            variant="outlined"
+                          />
+                          <Chip
+                            color={
+                              (run.summary.recordsFailed ?? 0) > 0 ? 'error' : 'default'
+                            }
+                            label={`${count(run.summary.recordsFailed)} failed`}
+                            size="small"
+                            variant="outlined"
+                          />
+                        </>
+                      )}
                     </Stack>
                   ) : null}
                   <Typography
@@ -254,6 +333,12 @@ export function ImportExportHistoryPanel(props: ImportExportHistoryPanelProps) {
                   >
                     Run {run.runId}
                   </Typography>
+                  {run.media && props.onDownloadArtifact ? (
+                    <HistoryArtifact
+                      media={run.media}
+                      onDownload={props.onDownloadArtifact}
+                    />
+                  ) : null}
                 </Stack>
                 <Chip
                   label={run.dataType ? run.dataType.toUpperCase() : 'IMPORT'}
@@ -262,6 +347,10 @@ export function ImportExportHistoryPanel(props: ImportExportHistoryPanelProps) {
                 />
               </Stack>
               <ImportRunFailureList failures={run.failures ?? []} />
+              <ImportRunFailureList
+                failures={run.validationErrors ?? []}
+                title="Validation issues"
+              />
             </Box>
           ))}
         </Paper>

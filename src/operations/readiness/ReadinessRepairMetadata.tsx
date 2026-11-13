@@ -33,6 +33,7 @@ export interface ReadinessApprovalDiagnostic {
 }
 
 interface ReadinessRepairMetadataProps {
+  readonly canOpenRoute?: ((route: string) => boolean) | undefined;
   readonly approvalDiagnostic?: ReadinessApprovalDiagnostic | undefined;
   readonly repair?: ReadinessRepairAction | undefined;
   readonly runtimeDiagnostic?: ReadinessRuntimeDiagnostic | undefined;
@@ -128,6 +129,7 @@ function repairOwnerRoute(
 
 export function ReadinessRepairMetadata({
   approvalDiagnostic,
+  canOpenRoute,
   repair,
   runtimeDiagnostic,
 }: ReadinessRepairMetadataProps): ReactElement | null {
@@ -135,7 +137,7 @@ export function ReadinessRepairMetadata({
   const ownerRoute = repairOwnerRoute(repair, runtimeDiagnostic, approvalDiagnostic);
   return (
     <Stack spacing={0.75} sx={{ mt: 0.75 }}>
-      {ownerRoute ? (
+      {ownerRoute && (!canOpenRoute || canOpenRoute(ownerRoute.path)) ? (
         <Stack
           direction="row"
           spacing={0.75}

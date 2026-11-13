@@ -23,7 +23,10 @@ import type {
   WorkbenchSchema,
 } from '../../../../workbench/api/workbenchContracts';
 import { WorkbenchRecordForm } from '../../../../workbench/form/WorkbenchRecordForm';
-import { updateMediaFolderPolicy } from '../../api/mediaStoragePolicyClient';
+import {
+  updateMediaFolderPolicy,
+  type MediaSourceContextFolderPolicy,
+} from '../../api/mediaStoragePolicyClient';
 import { humanize, numberValue, textValue } from '../../mediaRecordValues';
 
 type ModuleConnection = ReturnType<typeof selectModuleConnection>;
@@ -36,6 +39,8 @@ export interface MediaFolderPolicyActionsPanelProps {
   readonly onChanged: (record?: WorkbenchRecord) => void;
   readonly onModeChange: (mode: 'create' | 'delete' | 'edit' | 'none') => void;
   readonly record?: WorkbenchRecord | undefined;
+  readonly policyStatus: 'loading' | 'unavailable' | 'not-configured' | 'available';
+  readonly effectivePolicy?: MediaSourceContextFolderPolicy | undefined;
 }
 
 function numericInputValue(record: WorkbenchRecord | undefined, key: string): string {
@@ -57,19 +62,26 @@ export function MediaFolderPolicyActionsPanel(
 ) {
   return (
     <MediaFolderPolicyActionsPanelBody
-      key={textValue(props.record, 'code')}
+      key={JSON.stringify([textValue(props.record, 'code'), props.effectivePolicy])}
       {...props}
     />
   );
 }
 
 function MediaFolderPolicyActionsPanelBody(props: MediaFolderPolicyActionsPanelProps) {
-  const [access, setAccess] = useState(textValue(props.record, 'access'));
+  const policyRecord = props.effectivePolicy
+    ? {
+        access: props.effectivePolicy.access,
+        maximumFileSizeBytes: props.effectivePolicy.maxFileSizeBytes,
+        retentionDays: props.effectivePolicy.retentionDays,
+      }
+    : props.record;
+  const [access, setAccess] = useState(textValue(policyRecord, 'access'));
   const [maximumFileSizeBytes, setMaximumFileSizeBytes] = useState(
-    numericInputValue(props.record, 'maximumFileSizeBytes'),
+    numericInputValue(policyRecord, 'maximumFileSizeBytes'),
   );
   const [retentionDays, setRetentionDays] = useState(
-    numericInputValue(props.record, 'retentionDays'),
+    numericInputValue(policyRecord, 'retentionDays'),
   );
 
   const mutation = useMutation({
@@ -153,11 +165,12 @@ function MediaFolderPolicyActionsPanelBody(props: MediaFolderPolicyActionsPanelP
     retentionDays: parsedRetentionDays,
   };
   const unchanged =
-    access === textValue(props.record, 'access') &&
-    maximumFileSizeBytes === numericInputValue(props.record, 'maximumFileSizeBytes') &&
-    retentionDays === numericInputValue(props.record, 'retentionDays');
+    access === textValue(policyRecord, 'access') &&
+    maximumFileSizeBytes === numericInputValue(policyRecord, 'maximumFileSizeBytes') &&
+    retentionDays === numericInputValue(policyRecord, 'retentionDays');
+  const canEditPolicy = canUpdate && props.policyStatus === 'available';
   const saveDisabled =
-    !canUpdate ||
+    !canEditPolicy ||
     unchanged ||
     mutation.isPending ||
     maximumFileSizeInvalid ||
@@ -285,8 +298,17 @@ function MediaFolderPolicyActionsPanelBody(props: MediaFolderPolicyActionsPanelP
         <>
           <Divider />
           <Typography component="h4" sx={{ fontWeight: 700 }} variant="h6">
-            Folder policy
+            Intake policy
           </Typography>
+          {props.policyStatus !== 'available' ? (
+            <Alert severity={props.policyStatus === 'loading' ? 'info' : 'warning'}>
+              {props.policyStatus === 'loading'
+                ? 'Checking the configured intake policy…'
+                : props.policyStatus === 'not-configured'
+                  ? 'This folder record has no configured intake policy. A storage administrator must configure its source context before it can be used for uploads. Review Storage & Delivery for the current runtime policies.'
+                  : 'The configured intake policy could not be verified. Refresh this workspace before changing upload limits.'}
+            </Alert>
+          ) : null}
           {!canUpdate ? (
             <Alert severity="info">
               Editing is unavailable until nMedia exposes mediaFolder update permission
@@ -295,15 +317,14 @@ function MediaFolderPolicyActionsPanelBody(props: MediaFolderPolicyActionsPanelP
             </Alert>
           ) : (
             <Alert severity="info">
-              Axis submits changes through the nMedia folder policy operation. nMedia
-              remains authoritative for validation, upload policy, storage routing,
-              provider configuration, and tenant policy.
+              Review visibility, upload size and retention before saving this runtime’s
+              intake policy.
             </Alert>
           )}
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
             <TextField
               fullWidth
-              disabled={!canUpdate || mutation.isPending}
+              disabled={!canEditPolicy || mutation.isPending}
               label="Visibility"
               select
               size="small"
@@ -318,7 +339,7 @@ function MediaFolderPolicyActionsPanelBody(props: MediaFolderPolicyActionsPanelP
             </TextField>
             <TextField
               fullWidth
-              disabled={!canUpdate || mutation.isPending}
+              disabled={!canEditPolicy || mutation.isPending}
               error={maximumFileSizeInvalid}
               helperText={
                 maximumFileSizeInvalid
@@ -334,7 +355,7 @@ function MediaFolderPolicyActionsPanelBody(props: MediaFolderPolicyActionsPanelP
             />
             <TextField
               fullWidth
-              disabled={!canUpdate || mutation.isPending}
+              disabled={!canEditPolicy || mutation.isPending}
               error={retentionInvalid}
               helperText={
                 retentionInvalid

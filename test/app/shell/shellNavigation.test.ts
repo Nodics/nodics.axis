@@ -3,6 +3,25 @@ import { describe, expect, it } from 'vitest';
 import { composeShellNavigation } from '../../../src/app/shell/shellNavigation';
 
 describe('Axis shell navigation composition', () => {
+  it('keeps unavailable navigation visible and disabled while hiding healthy disabled features', () => {
+    const base = {
+      label: 'Operations',
+      route: '/operations',
+      order: 1,
+      moduleName: 'backoffice',
+      category: 'platform',
+      icon: 'operations',
+      featureState: 'DISABLED' as const,
+    };
+    const items = composeShellNavigation([
+      { ...base, id: 'unavailable', availability: 'UNAVAILABLE' },
+      { ...base, id: 'unknown', availability: 'UNKNOWN' },
+      { ...base, id: 'disabled', availability: 'UP' },
+      { ...base, id: 'hidden', featureState: 'HIDDEN', availability: 'UNAVAILABLE' },
+    ]).flatMap((group) => group.items);
+    expect(items.map((item) => item.id)).toEqual(['unavailable', 'unknown']);
+    expect(items.every((item) => item.featureState === 'DISABLED')).toBe(true);
+  });
   it('does not synthesize a local dashboard and groups backend capabilities by declared group', () => {
     const groups = composeShellNavigation([
       {

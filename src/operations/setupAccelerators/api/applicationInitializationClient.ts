@@ -1,3 +1,5 @@
+import { parseDataReleaseExecution } from '../../importExport/api/dataReleaseClient';
+import type { DataReleaseExecution } from '../../importExport/api/dataReleaseContracts';
 import type { AxisModuleConnection } from '../../../bootstrap/publicBootstrap';
 import {
   parseMediaPublicationDependency,
@@ -136,6 +138,9 @@ export interface ApplicationInitializationStatus {
     readonly steps: readonly ApplicationPreparationStep[];
     readonly selectionRequired?: boolean | undefined;
     readonly selectableStepCodes?: readonly string[] | undefined;
+    readonly executions?:
+      | readonly (DataReleaseExecution & { readonly targetServer: string })[]
+      | undefined;
     readonly groupReceipts?: readonly ApplicationPreparationGroupReceipt[] | undefined;
     readonly operationFailure?: ApplicationPreparationFailure | undefined;
   }>;
@@ -343,6 +348,7 @@ interface ApplicationInitializationClientOptions {
 }
 
 interface ApplicationInitializationOperationInput {
+  readonly continuation?: boolean | undefined;
   readonly reason?: string | undefined;
   readonly forceRefresh?: boolean | undefined;
 }
@@ -457,7 +463,7 @@ function parseGroupReceipts(
     value.map((item) => {
       const source = record(item, 'Application import group receipt');
       if (
-        !['COMPLETE', 'UNCONFIRMED', 'FAILED', 'NOT_ATTEMPTED'].includes(
+        !['COMPLETE', 'IN_PROGRESS', 'UNCONFIRMED', 'FAILED', 'NOT_ATTEMPTED'].includes(
           String(source.status),
         ) ||
         !Array.isArray(source.releases) ||
@@ -1137,6 +1143,9 @@ function parse(value: unknown): ApplicationInitializationStatus {
             status: text(preparation.status, 'Application preparation status'),
             steps: Object.freeze(preparationSteps),
             ...parseStageSelection(preparation, preparationSteps),
+            ...(preparation.executions !== undefined
+              ? { executions: parsePreparationExecutions(preparation.executions) }
+              : {}),
             ...(preparation.groupReceipts !== undefined
               ? { groupReceipts: parseGroupReceipts(preparation.groupReceipts) }
               : {}),
@@ -1422,6 +1431,7 @@ async function invoke(
                     : `Axis Setup & Accelerators ${operation} requested`),
               forceRefresh: input.forceRefresh === true ? true : undefined,
               afterPublicationStepCode: input.afterPublicationStepCode,
+              ...(operation === 'prepare' ? { continuation: true } : {}),
             }),
           }
         : {}),
@@ -1477,4 +1487,20 @@ export function createApplicationInitializationClient(
     reconcileApproval: (input?: ApplicationInitializationOperationInput) =>
       invoke(options, 'POST', 'reconcile-approval', fetchImplementation, input),
   });
+}
+
+function parsePreparationExecutions(
+  value: unknown,
+): readonly (DataReleaseExecution & { readonly targetServer: string })[] {
+  if (!Array.isArray(value) || value.length > 256)
+    throw new Error('Recorded setup preparation is incompatible');
+  return Object.freeze(
+    value.map((item) => {
+      const source = record(item, 'Recorded setup preparation');
+      return Object.freeze({
+        ...parseDataReleaseExecution(item),
+        targetServer: receiptIdentifier(source.targetServer),
+      });
+    }),
+  );
 }

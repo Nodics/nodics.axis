@@ -15,6 +15,7 @@ import {
   useTheme,
   alpha,
 } from '@mui/material';
+import { isDocumentationNavigationItem } from '../bootstrap/documentationGuides';
 import type { AxisAuthenticatedBootstrap } from '../bootstrap/publicBootstrap';
 import type { CmsComponentContract } from '../cms/cmsContract';
 import { ShellIcon } from '../app/shell/ShellIcon';
@@ -29,7 +30,16 @@ import {
   renderDashboardSections,
 } from './dashboardComposition';
 
+import { DashboardDocumentationGuides } from './DashboardDocumentationGuides';
+
+type GuideProps = Pick<
+  Parameters<typeof DashboardDocumentationGuides>[0],
+  'guides' | 'loading' | 'unavailable'
+>;
+
 interface Props {
+  readonly guideIndex: GuideProps;
+  readonly currentProjectId?: string | undefined;
   readonly media?: ApplicationArtworkContext;
   readonly bootstrap: AxisAuthenticatedBootstrap;
   readonly entries: readonly Entry[];
@@ -47,6 +57,8 @@ interface Props {
 /** Presentation of authorized evidence; CMS decides which sections are present. */
 export function AxisOverviewDashboard({
   bootstrap,
+  currentProjectId,
+  guideIndex,
   entries: allEntries,
   findings,
   sections,
@@ -59,7 +71,7 @@ export function AxisOverviewDashboard({
   const strip = useRef<HTMLDivElement>(null);
   const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const entries = allEntries.filter((entry) => !isDocumentation(entry));
-  const documentation = allEntries.filter(isDocumentation);
+  const docsNavigation = bootstrap.navigation.find(isDocumentationNavigationItem);
   const displayedApplications = visibleApplications ?? entries;
   const groups = [
     'published',
@@ -68,6 +80,7 @@ export function AxisOverviewDashboard({
     'available',
     'blocked',
     'unknown',
+    'checking',
   ] as const;
   const colors = [
     theme.palette.success.main,
@@ -76,12 +89,13 @@ export function AxisOverviewDashboard({
     theme.palette.grey[400],
     theme.palette.error.main,
     theme.palette.grey[600],
+    theme.palette.info.main,
   ];
   const counts = groups.map(
     (group) => entries.filter((entry) => overviewState(entry) === group).length,
   );
   const attention = entries.filter(
-    (entry) => !['published', 'available'].includes(overviewState(entry)),
+    (entry) => !['published', 'available', 'checking'].includes(overviewState(entry)),
   );
   const orderedFindings = [...findings].sort(
     (a, b) =>
@@ -89,10 +103,12 @@ export function AxisOverviewDashboard({
       ['ERROR', 'WARNING', 'INFO'].indexOf(b.severity),
   );
   const label = (component: CmsComponentContract, state: string) =>
-    dashboardText(
-      component,
-      typeof component.properties[state] === 'string' ? state : 'unknown',
-    );
+    state === 'checking' && typeof component.properties.checking !== 'string'
+      ? 'Checking status'
+      : dashboardText(
+          component,
+          typeof component.properties[state] === 'string' ? state : 'unknown',
+        );
   const status = (component: CmsComponentContract, entry: Entry) => {
     const state = overviewState(entry);
     return (
@@ -267,9 +283,14 @@ export function AxisOverviewDashboard({
               color="text.secondary"
               sx={{ display: 'block', mt: 1 }}
             >
-              {entries.length - (counts[5] ?? 0)} / {entries.length}{' '}
+              {entries.length - (counts[5] ?? 0) - (counts[6] ?? 0)} / {entries.length}{' '}
               {dashboardText(component, 'checked')}
             </Typography>
+            {counts[6] ? (
+              <Typography role="status" variant="body2" sx={{ mt: 1 }}>
+                Checking application status
+              </Typography>
+            ) : null}
             {counts[5] ? (
               <Alert severity="warning" sx={{ mt: 1 }}>
                 {dashboardText(component, 'incomplete')}
@@ -379,7 +400,8 @@ export function AxisOverviewDashboard({
                         >
                           {entry.profile.summary}
                         </Typography>
-                        {steps.length && overviewState(entry) !== 'unknown' ? (
+                        {steps.length &&
+                        !['unknown', 'checking'].includes(overviewState(entry)) ? (
                           <Box sx={{ width: '100%' }}>
                             <Typography variant="caption" color="text.secondary">
                               {complete} / {steps.length}{' '}
@@ -924,77 +946,21 @@ export function AxisOverviewDashboard({
             component,
             <>
               {heading(component, 'content')}
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: { xs: '1fr', md: 'repeat(3,minmax(0,1fr))' },
-                  gap: 2,
-                }}
-              >
-                {documentation.map((entry) => (
-                  <Stack
-                    key={entry.profile.code}
-                    sx={{
-                      minWidth: 0,
-                      border: 1,
-                      borderColor: 'divider',
-                      borderRadius: '6px',
-                      bgcolor: 'background.paper',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <Box
-                      component="img"
-                      src="/brand/documentation-cover-v2.png"
-                      alt=""
-                      loading="lazy"
-                      decoding="async"
-                      sx={{
-                        display: 'block',
-                        width: '100%',
-                        height: 168,
-                        objectFit: 'cover',
-                        flexShrink: 0,
-                      }}
-                    />
-                    <Stack
-                      spacing={1.25}
-                      sx={{ p: 2, flex: 1, minWidth: 0, alignItems: 'start' }}
-                    >
-                      <Typography component="h3" variant="subtitle2">
-                        {entry.profile.title}
-                      </Typography>
-                      {status(component, entry)}
-                      <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        sx={{ flex: 1 }}
-                      >
-                        {entry.profile.summary}
-                      </Typography>
-                      {canOpen(dashboardText(component, 'route')) && (
-                        <Button
-                          component={RouterLink}
-                          to={
-                            dashboardText(component, 'route') +
-                            '?profile=' +
-                            encodeURIComponent(entry.profile.code)
-                          }
-                          color="inherit"
-                          endIcon={<ShellIcon name="chevron-right" />}
-                        >
-                          {dashboardText(component, 'review')}
-                        </Button>
-                      )}
-                    </Stack>
-                  </Stack>
-                ))}
-              </Box>
-              {!documentation.length && (
-                <Typography color="text.secondary">
-                  {dashboardText(component, 'empty')}
-                </Typography>
-              )}
+              <DashboardDocumentationGuides
+                {...guideIndex}
+                sources={bootstrap.documentationSources}
+                packs={allEntries.filter(isDocumentation)}
+                setupRoute={
+                  canOpen(dashboardText(component, 'route'))
+                    ? dashboardText(component, 'route')
+                    : undefined
+                }
+                readerAvailable={
+                  !docsNavigation ||
+                  ['UP', 'DEGRADED'].includes(docsNavigation.availability)
+                }
+                currentProjectId={currentProjectId}
+              />
             </>,
           ),
         ...renderers,

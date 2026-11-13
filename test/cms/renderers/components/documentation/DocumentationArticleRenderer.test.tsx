@@ -1,3 +1,4 @@
+import mermaid from 'mermaid';
 import { ThemeProvider } from '@mui/material/styles';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -7,6 +8,15 @@ import { describe, expect, it, vi } from 'vitest';
 import { createAxisTheme } from '../../../../../src/app/axisTheme';
 import type { CmsComponentContract } from '../../../../../src/cms/cmsContract';
 import { DocumentationArticleRenderer } from '../../../../../src/cms/renderers/components/documentation/DocumentationArticleRenderer';
+
+vi.mock('mermaid', () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn().mockResolvedValue({
+      svg: '<svg role="img" aria-label="Rendered owner diagram"></svg>',
+    }),
+  },
+}));
 
 const article: CmsComponentContract = {
   code: 'docsComponent',
@@ -78,6 +88,37 @@ describe('DocumentationArticleRenderer', () => {
       within(related).getByRole('link', { name: 'Shared capability' }),
     ).toHaveAttribute('href', '/docs/shared#ownership');
     expect(within(related).queryByText('Unsafe reference')).not.toBeInTheDocument();
+  });
+
+  it('restricts adjacent, inline and related documentation links to Online topics', () => {
+    render(
+      <MemoryRouter>
+        <DocumentationArticleRenderer
+          component={{
+            ...article,
+            properties: {
+              ...article.properties,
+              relatedLinks: [
+                { title: 'Unpublished', route: '/docs/draft' },
+                { title: 'Online anchor', route: '/docs/deployment#install' },
+              ],
+            },
+          }}
+          actions={{ documentationTopicRoutes: new Set(['/docs/deployment']) }}
+        />
+      </MemoryRouter>,
+    );
+    expect(
+      screen.queryByRole('link', { name: /Introduction|Unpublished|^guide$/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Online anchor' })).toHaveAttribute(
+      'href',
+      '/docs/deployment#install',
+    );
+    expect(screen.getByRole('link', { name: /Deployment/ })).toHaveAttribute(
+      'href',
+      '/docs/deployment',
+    );
   });
 
   it('opens with a fitted overview, then zooms to readable native size within a scrollable viewport', async () => {
@@ -251,6 +292,20 @@ describe('DocumentationArticleRenderer', () => {
     );
   });
 
+  it('keeps source lifecycle metadata in an explicit reader disclosure', async () => {
+    render(
+      <MemoryRouter>
+        <DocumentationArticleRenderer component={article} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('ONLINE')).not.toBeVisible();
+    await userEvent.setup().click(screen.getByText('Article details'));
+    expect(screen.getByText('ONLINE')).toBeVisible();
+    expect(screen.getByText('ONLINE').parentElement).toHaveTextContent(
+      'Source lifecycle: ONLINE',
+    );
+  });
+
   it('renders bounded declarative documentation and safe internal links', () => {
     render(
       <ThemeProvider theme={createAxisTheme('light')}>
@@ -346,4 +401,34 @@ describe('DocumentationArticleRenderer', () => {
       });
     });
   });
+});
+
+it('loads the diagram renderer on demand and retains strict rendering security', async () => {
+  vi.mocked(mermaid.initialize).mockClear();
+  const view = render(
+    <MemoryRouter>
+      <DocumentationArticleRenderer component={article} />
+    </MemoryRouter>,
+  );
+  expect(mermaid.initialize).not.toHaveBeenCalled();
+  view.rerender(
+    <MemoryRouter>
+      <DocumentationArticleRenderer
+        component={{
+          ...article,
+          properties: {
+            ...article.properties,
+            blocks: [{ kind: 'diagram', title: 'Owner flow', text: 'graph LR; A-->B' }],
+          },
+        }}
+      />
+    </MemoryRouter>,
+  );
+  expect(
+    await screen.findByRole('img', { name: 'Rendered owner diagram' }),
+  ).toBeVisible();
+  expect(mermaid.initialize).toHaveBeenCalledWith(
+    expect.objectContaining({ securityLevel: 'strict', startOnLoad: false }),
+  );
+  expect(mermaid.render).toHaveBeenCalledWith(expect.any(String), 'graph LR; A-->B');
 });

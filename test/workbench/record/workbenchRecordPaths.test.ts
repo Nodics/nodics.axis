@@ -117,3 +117,32 @@ describe('containerFieldNames', () => {
     expect([...containerFieldNames(fields)]).toEqual(['name']);
   });
 });
+
+it('retains explicit text clears for an update without manufacturing absent values', () => {
+  expect(
+    compactWorkbenchDraft(
+      {
+        description: '',
+        'name.middleName': '',
+        untouched: undefined,
+        active: false,
+        priority: 0,
+      },
+      'update',
+      { description: 'Before', name: { middleName: 'Before' } },
+    ),
+  ).toEqual({ description: '', name: { middleName: '' }, active: false, priority: 0 });
+  expect(
+    compactWorkbenchDraft({ description: '', untouched: undefined }, 'create'),
+  ).toEqual({});
+});
+
+it('omits untouched empty text that had no original string value', () => {
+  expect(
+    compactWorkbenchDraft(
+      { description: '', 'name.middleName': '', active: false },
+      'update',
+      { active: false, description: null },
+    ),
+  ).toEqual({ active: false });
+});

@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'nodics-axis-navigation-preferences-v1';
+const STORAGE_KEY = 'nodics-axis-navigation-preferences-v2';
 const DEFAULT_MAX_ITEMS = 12;
 const MIN_ITEMS = 1;
 const MAX_ITEMS = 24;
@@ -11,6 +11,42 @@ export interface NavigationPreferences {
 export interface NavigationPreferenceLimits {
   readonly favouriteItems?: number | undefined;
   readonly recentItems?: number | undefined;
+}
+
+/** Non-secret signed employee context; this identifies presentation state, never authority. */
+export interface NavigationPreferenceScope {
+  readonly employeeId: string;
+  readonly tenantCode: string;
+  readonly enterpriseCode: string;
+  readonly environments: readonly string[];
+}
+
+/** Returns an unambiguous owner key, refusing incomplete context and unowned legacy state. */
+export function navigationPreferenceStorageKey(
+  scope: NavigationPreferenceScope | undefined,
+): string | undefined {
+  const coordinate = (value: unknown): value is string =>
+    typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(value);
+  if (
+    !scope ||
+    typeof scope.employeeId !== 'string' ||
+    !scope.employeeId.trim() ||
+    scope.employeeId.length > 320 ||
+    !coordinate(scope.tenantCode) ||
+    !coordinate(scope.enterpriseCode) ||
+    !Array.isArray(scope.environments) ||
+    scope.environments.length === 0 ||
+    !scope.environments.every(coordinate)
+  )
+    return undefined;
+  return `${STORAGE_KEY}:${encodeURIComponent(
+    JSON.stringify([
+      scope.employeeId,
+      scope.tenantCode,
+      scope.enterpriseCode,
+      [...new Set(scope.environments)].sort(),
+    ]),
+  )}`;
 }
 
 const emptyPreferences: NavigationPreferences = Object.freeze({
@@ -43,13 +79,16 @@ export function navigationItemKey(moduleName: string, id: string): string {
 }
 
 export function loadNavigationPreferences(
+  scope: NavigationPreferenceScope | undefined,
   storage: Pick<Storage, 'getItem'> = window.localStorage,
   limits: NavigationPreferenceLimits = {},
 ): NavigationPreferences {
+  const key = navigationPreferenceStorageKey(scope);
+  if (!key) return emptyPreferences;
   const favouriteLimit = boundedLimit(limits.favouriteItems);
   const recentLimit = boundedLimit(limits.recentItems);
   try {
-    const raw = storage.getItem(STORAGE_KEY);
+    const raw = storage.getItem(key);
     if (!raw) return emptyPreferences;
     const value: unknown = JSON.parse(raw);
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -67,18 +106,26 @@ export function loadNavigationPreferences(
 
 export function saveNavigationPreferences(
   preferences: NavigationPreferences,
+  scope: NavigationPreferenceScope | undefined,
   storage: Pick<Storage, 'setItem'> = window.localStorage,
   limits: NavigationPreferenceLimits = {},
 ): void {
+  const key = navigationPreferenceStorageKey(scope);
+  if (!key) return;
   const favouriteLimit = boundedLimit(limits.favouriteItems);
   const recentLimit = boundedLimit(limits.recentItems);
-  storage.setItem(
-    STORAGE_KEY,
-    JSON.stringify({
-      favourites: boundedKeys(preferences.favourites, favouriteLimit),
-      recents: boundedKeys(preferences.recents, recentLimit),
-    }),
-  );
+  try {
+    storage.setItem(
+      key,
+      JSON.stringify({
+        favourites: boundedKeys(preferences.favourites, favouriteLimit),
+        recents: boundedKeys(preferences.recents, recentLimit),
+      }),
+    );
+  } catch {
+    // Unavailable preference storage must not interrupt authorized navigation.
+    return;
+  }
 }
 
 export function toggleNavigationFavourite(

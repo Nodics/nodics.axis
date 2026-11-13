@@ -245,7 +245,14 @@ describe('Order refund approval and recovery', () => {
     const { user, fetcher } = setup([
       () =>
         Promise.resolve(
-          new Response(JSON.stringify({ message: 'Access denied' }), { status: 403 }),
+          new Response(
+            JSON.stringify({
+              message: 'Access denied',
+              messageKey: 'common.test.safe-owner-message',
+              messageExposure: 'AUTHENTICATED',
+            }),
+            { status: 403 },
+          ),
         ),
     ]);
     await user.click(

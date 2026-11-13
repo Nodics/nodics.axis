@@ -1,3 +1,4 @@
+import { InvitedEmployeeRegistrationLink } from '../../../../auth/InvitedEmployeeRegistrationLink';
 import { Alert, Button, CircularProgress, Stack, TextField } from '@mui/material';
 import type { FormEvent } from 'react';
 import { getSignInErrorMessage } from '../../../../app/recoveryState';
@@ -48,6 +49,7 @@ export function EmployeeLoginFormRenderer({
         required={Boolean(actions?.employeeLoginEnterpriseCode)}
         slotProps={{
           htmlInput: {
+            dir: 'ltr',
             maxLength: 128,
             pattern: String.raw`[A-Za-z0-9][A-Za-z0-9._\-]{0,127}`,
           },
@@ -81,6 +83,10 @@ export function EmployeeLoginFormRenderer({
       >
         {stringProperty(component, 'submitLabel')}
       </Button>
+      <InvitedEmployeeRegistrationLink
+        entry={actions?.employeeRegistrationEntry}
+        pending={actions?.employeeLoginPending === true}
+      />
     </Stack>
   );
 }

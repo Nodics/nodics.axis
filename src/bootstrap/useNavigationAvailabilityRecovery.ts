@@ -15,6 +15,7 @@ import {
 
 export interface NavigationAvailabilityRecovery {
   readonly itemId: string;
+  readonly moduleName: string;
   readonly route: string;
   readonly refreshing: boolean;
   readonly message?: string;
@@ -190,6 +191,7 @@ export function useNavigationAvailabilityRecovery(options: {
   if (!active) return undefined;
   return {
     itemId,
+    moduleName,
     route,
     refreshing: state.key === key && state.refreshing,
     ...(state.key === key && state.message ? { message: state.message } : {}),

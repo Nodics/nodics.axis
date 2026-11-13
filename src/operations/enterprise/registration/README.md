@@ -8,6 +8,14 @@ App supplies `bootstrap.endpoints.profile` explicitly. Discovery and registratio
 commands use that connection through the existing authentication URL helper.
 Do not send Profile operations to `runtime.backofficeBaseUrl`, guess another host,
 use a caller query parameter as an endpoint, or retry an old route on failure.
+Discovery and account-access commands accept the same maximum request timeout
+admitted by the Axis runtime parser. Projects customize the existing public
+`AXIS_REQUEST_TIMEOUT_MS`; these clients do not impose a smaller hidden ceiling,
+change the configured deadline or retry a timed-out email/provisioning command.
+`registrationConnection.test.ts` covers valid long deployment values, invalid
+bounds and one-attempt timeout cleanup, while `registrationUi.test.tsx` covers
+the mounted six-minute configuration.
+
 The project endpoint still owns non-secret routing-hint isolation. The same
 Profile connection supports consolidated and separate-runtime deployments.
 
@@ -134,3 +142,53 @@ Browser acceptance must cover one and multiple invitations, code expiry/resend,
 interrupted registration, wrong original password, final sign-in, restore/logout,
 keyboard use, focus and narrow layouts. Operator/business task manuals belong to
 the backend documentation owner and must be validated against the real interface.
+
+## Public sign-in invitation entry
+
+The existing Profile public feature observation must explicitly advertise
+`invitedEmployeeRegistration` before Axis discovers invitation entry copy. App
+uses `baseRuntime` and the discovered Profile endpoint for this GET, preserving
+the project's public enterprise rather than a selected sign-in enterprise.
+`useInvitedEmployeeRegistrationEntry` renders only a fresh compatible PASSWORD
+workspace's `presentation.title`. Denial, failure, source/route replacement or an
+active employee session hides the entry; no email or registration command runs.
+CMS-managed and bundled login share the same link to the existing registration
+route. The route performs its normal owner discovery again; the entry is not an
+invitation, credential or grant. Pending sign-in hides the competing link without
+clearing credentials or retrying authentication.
+
+Customize entry wording through Profile's existing registration title and layout
+through `InvitedEmployeeRegistrationLink`. Preserve the fixed route, current owner
+read, public enterprise and no-command behavior. Hook tests cover absent opt-in,
+owner denial, malformed contracts and stale connection results; both login tests
+cover the shared link. Native entry and deployed qualification are separate gates.
+
+The public registration/recovery page provides its own main landmark. Its heading
+receives focus when owner presentation first arrives and at each stage transition.
+Before email is sent, during verification and after discovery failure, Sign in
+provides a direct return through the existing handler. Pending work disables the
+return. Only verified COMPLETE/SIGN_IN progress may supply an enterprise hint;
+email text and unverified progress never do. Returning cancels local observation,
+not an owner operation, and sends no email, provisioning or authentication command.
+The failure screen uses generic browser recovery copy until owner copy is available.
+`registrationUi.test.tsx` covers initial/failed discovery return without commands,
+while the existing verified handoff tests retain their enterprise-context checks.
+
+If workspace discovery is unavailable, Axis owns the generic browser fallback:
+lead with Retry/contact-administrator guidance and retain the escaped owner or
+transport diagnostic in collapsed Technical details. Keep Sign in available and
+issue no account command. Successful discovery restores Profile-owned copy; do
+not parse English messages, infer qualification or fall back to registration for
+a recovery request. `registrationUi` covers both ordinary and recovery entry.
+
+Terminal NO_INVITATION and ACCOUNT_UNAVAILABLE outcomes retain the existing
+Sign in return as well as deliberate restart. Returning sends no registration,
+verification or resend command and supplies no enterprise hint. Only confirmed
+COMPLETE/SIGN_IN owner progress may supply that routing context; App retains
+its existing secure session handoff. The rendered regression covers ordinary
+registration and recovery terminal refusals.
+
+Owner delivery outcomes UNAVAILABLE, UNCERTAIN and RETRY_PENDING use the existing
+Profile deliveryMessage warning. Accepted request copy must not conceal those
+unconfirmed outcomes. This changes presentation only: no browser retry, new code,
+Communication retry-policy change or inbox-delivery inference is introduced.

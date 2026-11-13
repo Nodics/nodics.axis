@@ -91,6 +91,13 @@ describe('Axis color theme', () => {
     expect(light.palette.primary.contrastText).toBe('#25292c');
   });
 
+  it('keeps filled success labels readable in both color modes', () => {
+    for (const mode of ['light', 'dark'] as const) {
+      const { main, contrastText } = createAxisTheme(mode).palette.success;
+      expect(getContrastRatio(main, contrastText)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it('gives light and dark workspaces distinct governed surfaces', () => {
     const light = createAxisTheme('light');
     const dark = createAxisTheme('dark');
@@ -100,6 +107,46 @@ describe('Axis color theme', () => {
     expect(dark.palette.background.default).toBe('#171a1d');
     expect(dark.palette.background.paper).toBe('#202428');
     expect(light.palette.divider).not.toBe(dark.palette.divider);
+  });
+});
+
+describe('Axis primary link contrast', () => {
+  function linkStyles(
+    theme: Theme,
+    color: 'primary' | 'secondary' | 'inherit' = 'primary',
+  ): CSSObject {
+    const override = theme.components?.MuiLink?.styleOverrides?.root;
+    if (typeof override !== 'function')
+      throw new Error('Expected resolved link theme override');
+    return override({ theme, ownerState: { color } }) as CSSObject;
+  }
+
+  it('keeps default light links readable on both workspace surfaces without changing brand fills', () => {
+    const theme = createAxisTheme('light');
+    const style = linkStyles(theme);
+    for (const surface of [
+      theme.palette.background.paper,
+      theme.palette.background.default,
+    ])
+      expect(getContrastRatio(String(style.color), surface)).toBeGreaterThanOrEqual(
+        4.5,
+      );
+    expect(style.textDecorationColor).toBe('currentColor');
+    expect(theme.palette.primary.main).toBe(axisTokens.color.signatureGold);
+  });
+
+  it('resolves link text from the composed project theme', () => {
+    const theme = createTheme({
+      palette: { mode: 'light', text: { primary: '#164c66' } },
+      components: createAxisTheme('light').components,
+    });
+    expect(linkStyles(theme).color).toBe('#164c66');
+  });
+
+  it('preserves dark links and explicit semantic or inherited color choices', () => {
+    expect(linkStyles(createAxisTheme('dark'))).toEqual({});
+    expect(linkStyles(createAxisTheme('light'), 'secondary')).toEqual({});
+    expect(linkStyles(createAxisTheme('light'), 'inherit')).toEqual({});
   });
 });
 
@@ -132,6 +179,11 @@ describe('Axis primary button contrast', () => {
       false,
     ]);
     expect(buttonStyles(theme)[unfilledPrimarySelector]).toBeDefined();
+    expect(
+      buttons.map((button) =>
+        button.matches('.MuiButton-contained.MuiButton-colorPrimary'),
+      ),
+    ).toEqual([false, false, false, true, false]);
   });
   it('gives light unfilled labels and outlined borders readable default and hover contrast', () => {
     const theme = createAxisTheme('light');
@@ -172,14 +224,22 @@ describe('Axis primary button contrast', () => {
     expect(unfilledPrimarySelector).not.toContain('Secondary');
   });
 
-  it('preserves contained brand colors and the existing hover in both modes', () => {
+  it('keeps contained brand fills and their current MUI hover readable in both modes', () => {
     for (const mode of ['light', 'dark'] as const) {
       const theme = createAxisTheme(mode);
       expect(theme.palette.primary.main).toBe(axisTokens.color.signatureGold);
       expect(theme.palette.primary.contrastText).toBe(axisTokens.color.charcoal[900]);
-      expect(buttonStyles(theme)['&.MuiButton-containedPrimary:hover']).toEqual({
-        backgroundColor: axisTokens.color.gold[600],
+      expect(
+        buttonStyles(theme)['&.MuiButton-contained.MuiButton-colorPrimary:hover'],
+      ).toEqual({
+        backgroundColor: theme.palette.primary.dark,
       });
+      expect(
+        getContrastRatio(
+          theme.palette.primary.dark,
+          theme.palette.primary.contrastText,
+        ),
+      ).toBeGreaterThanOrEqual(4.5);
     }
   });
 
@@ -265,9 +325,14 @@ describe('Axis selected tab and focused label contrast', () => {
     );
   });
 
-  it('leaves dark state colors untouched and follows custom composed text colors', () => {
+  it('keeps dark tab text readable and follows custom composed text colors', () => {
     const dark = createAxisTheme('dark');
-    expect(stateLabelStyles(dark, 'MuiTab')[selectedTabSelector]).toBeUndefined();
+    expect(stateLabelStyles(dark, 'MuiTab')[selectedTabSelector]).toEqual({
+      color: dark.palette.text.primary,
+    });
+    expect(stateLabelStyles(dark, 'MuiTab')['&:not(.Mui-disabled)']).toEqual({
+      opacity: 1,
+    });
     expect(
       stateLabelStyles(dark, 'MuiInputLabel')[focusedLabelSelector],
     ).toBeUndefined();
@@ -301,4 +366,48 @@ describe('Axis spacing and surface theme', () => {
     expect(axisTokens.spacing.cardPadding).toBe(24);
     expect(axisTokens.radius.large).toBe(14);
   });
+});
+
+describe('semantic status contrast', () => {
+  it.each(['light', 'dark'] as const)(
+    'keeps %s semantic text, indicators and contained-button hover readable',
+    (mode) => {
+      const theme = createAxisTheme(mode);
+      for (const family of ['success', 'warning', 'error', 'info'] as const) {
+        const palette = theme.palette[family];
+        for (const surface of [
+          theme.palette.background.default,
+          theme.palette.background.paper,
+        ]) {
+          expect(
+            getContrastRatio(palette.main, surface),
+            `${mode}.${family} foreground`,
+          ).toBeGreaterThanOrEqual(4.5);
+        }
+        expect(
+          getContrastRatio(palette.main, palette.contrastText),
+          `${mode}.${family} button`,
+        ).toBeGreaterThanOrEqual(4.5);
+        expect(
+          getContrastRatio(palette.dark, palette.contrastText),
+          `${mode}.${family} hover`,
+        ).toBeGreaterThanOrEqual(4.5);
+        if (mode === 'light') expect(palette.main).toBe(axisTokens.color[family]);
+      }
+    },
+  );
+});
+
+it('gives the keyboard focus outline sufficient contrast on the workspace surfaces', () => {
+  for (const mode of ['light', 'dark'] as const) {
+    const theme = createAxisTheme(mode);
+    const styles = theme.components?.MuiCssBaseline?.styleOverrides as CSSObject;
+    const focus = styles[':focus-visible'] as CSSObject;
+    const outline = String(focus.outline).split(' ').at(-1)!;
+    for (const surface of ['canvas', 'raised', 'muted', 'navigation'] as const) {
+      expect(
+        getContrastRatio(outline, axisTokens.color.surface[mode][surface]),
+      ).toBeGreaterThanOrEqual(3);
+    }
+  }
 });

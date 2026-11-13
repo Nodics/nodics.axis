@@ -32,6 +32,7 @@ export function overviewReferences(
 /** Exact authorized catalogue, including ancestor availability. Presentation never restores denied routes. */
 export function overviewNavigation(
   navigation: readonly AxisNavigationItem[],
+  availableContexts: readonly string[] = ['tenant', 'enterprise', 'environment'],
 ): readonly AxisNavigationItem[] {
   const byIdentity = new Map(
     navigation.map((item) => [`${item.moduleName}:${item.id}`, item]),
@@ -44,9 +45,7 @@ export function overviewNavigation(
       (item.featureState && item.featureState !== 'ACTIVE') ||
       !/^\/(?!\/)/.test(item.route) ||
       /[\\\r\n]/.test(item.route) ||
-      item.contexts?.some(
-        (context) => !['tenant', 'enterprise', 'environment'].includes(context),
-      )
+      item.contexts?.some((context) => !availableContexts.includes(context))
     )
       return false;
     if (!item.parentId) return true;
@@ -65,9 +64,10 @@ export function overviewNavigation(
 export function overviewDomains(
   navigation: readonly AxisNavigationItem[],
   excludedGroups: readonly string[],
+  availableContexts?: readonly string[],
 ): readonly OverviewDomain[] {
   const groups = new Map<string, AxisNavigationItem[]>();
-  for (const item of overviewNavigation(navigation)) {
+  for (const item of overviewNavigation(navigation, availableContexts)) {
     if (!item.group || excludedGroups.includes(item.group.id)) continue;
     groups.set(item.group.id, [...(groups.get(item.group.id) ?? []), item]);
   }
@@ -92,8 +92,9 @@ export function overviewDomains(
 export function overviewMetricDefinitions(
   navigation: readonly AxisNavigationItem[],
   references: readonly string[],
+  availableContexts?: readonly string[],
 ): readonly WorkbenchMetricDefinition[] {
-  const authorized = overviewNavigation(navigation);
+  const authorized = overviewNavigation(navigation, availableContexts);
   return references.flatMap((reference) => {
     const item = authorized.find(
       (item) => `${item.moduleName}:${item.id}` === reference,
@@ -115,6 +116,14 @@ export function overviewMetricDefinitions(
         description: item.help?.summary ?? item.label,
         route: item.route,
         icon: item.icon,
+        ...(item.workbenchPresentation?.schemaDiscovery
+          ? {
+              schemaDiscovery: {
+                moduleName: item.moduleName,
+                descriptor: item.workbenchPresentation.schemaDiscovery,
+              },
+            }
+          : {}),
       },
     ];
   });

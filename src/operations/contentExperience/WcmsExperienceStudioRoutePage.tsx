@@ -1,5 +1,9 @@
+import { useAxisLocalization } from '../../localization/AxisLocalizationContext';
 import {
   Alert,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
   Box,
   Button,
   Card,
@@ -14,7 +18,7 @@ import {
   Typography,
   alpha,
 } from '@mui/material';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router';
 
@@ -29,14 +33,16 @@ import {
 } from '../../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import { WorkbenchRoutePage } from '../../workbench/WorkbenchRoutePage';
+import { PreviewExecution } from './ExperiencePreview';
+import { GuidedExperiencePanel } from './GuidedExperiencePanel';
 import {
   loadWcmsExperienceIndexStatus,
-  previewWcmsExperience,
   type WcmsExperienceResolveRequest,
 } from './api/wcmsExperienceClient';
 
 interface WcmsExperienceStudioRoutePageProps {
   readonly accessToken: string;
+  readonly sessionGeneration: number;
   readonly bootstrap: AxisAuthenticatedBootstrap;
   readonly channel: string;
   readonly cmsBaseUrl: string;
@@ -91,17 +97,17 @@ const tabs: readonly StudioTabDefinition[] = Object.freeze([
 const journeyCards = Object.freeze([
   Object.freeze({
     title: 'Collection journey',
-    target: 'COLLECTION / agoraNewArrivals',
+    target: 'COLLECTION / your-collection',
     summary:
       'Show a targeted hero or carousel when a shopper lands from a curated collection.',
-    example: '/shop?collection=agoraNewArrivals&page=1&pageSize=10',
+    example: '/shop?collection=your-collection&page=1&pageSize=10',
   }),
   Object.freeze({
     title: 'Brand journey',
-    target: 'BRAND / atelier-minimal',
+    target: 'BRAND / your-brand',
     summary:
       'Use brand-specific banners, editorial blocks, or featured products while product search remains commerce-owned.',
-    example: '/shop?brand=atelier-minimal&page=1&pageSize=10',
+    example: '/shop?brand=your-brand&page=1&pageSize=10',
   }),
   Object.freeze({
     title: 'Default fallback',
@@ -133,19 +139,34 @@ function FieldGrid({ children }: { readonly children: ReactNode }) {
   );
 }
 
-function StudioTabs({ activeTab }: { readonly activeTab: ExperienceStudioTab }) {
+function StudioTabs({
+  activeTab,
+  navigation,
+}: {
+  readonly activeTab: ExperienceStudioTab;
+  readonly navigation: readonly AxisNavigationItem[];
+}) {
+  const { format: workflowText } = useAxisLocalization();
+  const authorizedTabs = tabs.filter((tab) =>
+    navigation.some(
+      (item) =>
+        item.route === tab.route &&
+        ['ACTIVE', 'PREVIEW'].includes(item.featureState ?? 'ACTIVE') &&
+        ['UP', 'DEGRADED'].includes(item.availability),
+    ),
+  );
   return (
     <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-      {tabs.map((tab) => (
+      {authorizedTabs.map((tab) => (
         <Button
-          aria-pressed={activeTab === tab.id}
+          aria-current={activeTab === tab.id ? 'page' : undefined}
           component={RouterLink}
           key={tab.id}
           startIcon={<ShellIcon name={tab.icon} />}
           to={tab.route}
           variant={activeTab === tab.id ? 'contained' : 'outlined'}
         >
-          {tab.label}
+          {workflowText('experience.studio.tab.' + tab.id + '.label', tab.label)}
         </Button>
       ))}
     </Stack>
@@ -153,12 +174,14 @@ function StudioTabs({ activeTab }: { readonly activeTab: ExperienceStudioTab }) 
 }
 
 function OverviewPanel() {
+  const { format: workflowText } = useAxisLocalization();
   return (
     <Stack spacing={3}>
       <Alert severity="info">
-        Experience Studio is an Axis control surface. CMS components and placements stay
-        backend-owned, publication stays governed, and storefront delivery reads indexed
-        projections only.
+        {workflowText(
+          'experience.ui.preview-how-placements-will-appear-on-the-storefront-when-the-preview-is',
+          'Preview how placements will appear on the storefront. When the preview is ready, submit the changes for review before publishing.',
+        )}
       </Alert>
       <Box
         sx={{
@@ -180,8 +203,22 @@ function OverviewPanel() {
                   size="small"
                   sx={{ alignSelf: 'flex-start' }}
                 />
-                <Typography variant="h5">{card.title}</Typography>
-                <Typography color="text.secondary">{card.summary}</Typography>
+                <Typography component="h2" variant="h5">
+                  {workflowText(
+                    'experience.studio.journey.' +
+                      (card.target.split(' / ')[0]?.toLowerCase() ?? 'default') +
+                      '.title',
+                    card.title,
+                  )}
+                </Typography>
+                <Typography color="text.secondary">
+                  {workflowText(
+                    'experience.studio.journey.' +
+                      (card.target.split(' / ')[0]?.toLowerCase() ?? 'default') +
+                      '.summary',
+                    card.summary,
+                  )}
+                </Typography>
                 <Typography
                   sx={{
                     bgcolor: alpha(axisTokens.color.signatureGold, 0.12),
@@ -205,7 +242,9 @@ function OverviewPanel() {
         sx={{ border: 1, borderColor: 'divider', p: { xs: 2, md: 3 } }}
       >
         <Stack spacing={2}>
-          <Typography variant="h5">Governed flow</Typography>
+          <Typography component="h2" variant="h5">
+            {workflowText('experience.ui.governed-flow', 'Governed flow')}
+          </Typography>
           <Box
             sx={{
               display: 'grid',
@@ -233,10 +272,12 @@ function OverviewPanel() {
                   p: 2,
                 }}
               >
-                <Typography color="primary" variant="overline">
-                  Step {String(index + 1)}
+                <Typography color="text.secondary" variant="overline">
+                  {workflowText('experience.ui.step', 'Step')} {String(index + 1)}
                 </Typography>
-                <Typography sx={{ fontWeight: 700 }}>{step}</Typography>
+                <Typography sx={{ fontWeight: 700 }}>
+                  {workflowText('experience.studio.step.' + String(index + 1), step)}
+                </Typography>
               </Box>
             ))}
           </Box>
@@ -249,7 +290,9 @@ function OverviewPanel() {
 function PreviewPanel({
   configuration,
   connection,
-  defaultRequest,
+  request,
+  setRequest,
+  supportsPrivatePreparation,
 }: {
   readonly configuration: {
     readonly accessToken: string;
@@ -257,17 +300,13 @@ function PreviewPanel({
     readonly timeoutMs: number;
   };
   readonly connection: ReturnType<typeof selectModuleConnection>;
-  readonly defaultRequest: WcmsExperienceResolveRequest;
+  readonly request: WcmsExperienceResolveRequest;
+  readonly setRequest: React.Dispatch<
+    React.SetStateAction<WcmsExperienceResolveRequest>
+  >;
+  readonly supportsPrivatePreparation: boolean;
 }) {
-  const [request, setRequest] = useState<WcmsExperienceResolveRequest>(defaultRequest);
-  const preview = useMutation({
-    mutationFn: () => {
-      if (!connection) throw new Error('WCMS Experience connection is unavailable.');
-      return previewWcmsExperience(connection, configuration, request);
-    },
-  });
-  const slotEntries = Object.entries(preview.data?.slots ?? {});
-
+  const { format: workflowText } = useAxisLocalization();
   return (
     <Paper
       component="section"
@@ -276,27 +315,42 @@ function PreviewPanel({
     >
       <Stack spacing={3}>
         <WorkspaceHeading
-          description="Resolve staged placements for a selected journey. Axis sends the context; the backend authoring controller forces preview mode and returns storefront-safe component projections."
+          description={workflowText(
+            'experience.ui.inspect-indexed-staged-content-for-the-selected-journey-match-site-local',
+            'Inspect indexed Staged content for the selected journey. Match Site, locale and channel to the placement records. Authored records require a qualified Staged projection before they can appear here.',
+          )}
           eyebrow="Staged inspection"
+          headingComponent="h2"
           headingVariant="h4"
-          title="Preview targeted experience"
+          title={workflowText(
+            'experience.ui.preview-targeted-experience',
+            'Preview targeted experience',
+          )}
         />
         {!connection ? (
           <Alert severity="warning">
-            WCMS Experience runtime is not available in the authenticated BackOffice
-            module connections.
+            {workflowText(
+              'experience.ui.wcms-experience-runtime-is-not-available-in-the-authenticated-backoffice',
+              'WCMS Experience runtime is not available in the authenticated BackOffice module connections.',
+            )}
           </Alert>
         ) : null}
+        <Alert severity="info">
+          {workflowText(
+            'experience.ui.preview-capability-this-inspection-requires-a-qualified-staged-discovery',
+            'Preview capability: this inspection requires a qualified Staged Discovery projection. Saving or importing a placement does not publish or index it automatically.',
+          )}
+        </Alert>
         <FieldGrid>
           <TextField
-            label="Site"
+            label={workflowText('experience.ui.site', 'Site')}
             onChange={(event) =>
               setRequest((current) => ({ ...current, site: event.target.value }))
             }
             value={request.site}
           />
           <TextField
-            label="Page type"
+            label={workflowText('experience.ui.page-type', 'Page type')}
             onChange={(event) =>
               setRequest((current) => ({ ...current, pageType: event.target.value }))
             }
@@ -317,7 +371,7 @@ function PreviewPanel({
             ))}
           </TextField>
           <TextField
-            label="Target type"
+            label={workflowText('experience.ui.target-type', 'Target type')}
             onChange={(event) =>
               setRequest((current) => ({ ...current, targetType: event.target.value }))
             }
@@ -331,88 +385,34 @@ function PreviewPanel({
             ))}
           </TextField>
           <TextField
-            label="Target code"
+            label={workflowText('experience.ui.target-code', 'Target code')}
             onChange={(event) =>
               setRequest((current) => ({ ...current, targetCode: event.target.value }))
             }
             value={request.targetCode}
           />
           <TextField
-            label="Locale"
+            label={workflowText('experience.ui.locale', 'Locale')}
             onChange={(event) =>
               setRequest((current) => ({ ...current, locale: event.target.value }))
             }
             value={request.locale}
           />
           <TextField
-            label="Channel"
+            label={workflowText('experience.ui.channel', 'Channel')}
             onChange={(event) =>
               setRequest((current) => ({ ...current, channel: event.target.value }))
             }
             value={request.channel}
           />
         </FieldGrid>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-          <Button
-            disabled={!connection || preview.isPending}
-            onClick={() => preview.mutate()}
-            startIcon={<ShellIcon name="visible" />}
-            variant="contained"
-          >
-            Run staged preview
-          </Button>
-          <Button
-            component={RouterLink}
-            to="/content/experience-studio/placements"
-            variant="outlined"
-          >
-            Manage placements
-          </Button>
-        </Stack>
-        {preview.isPending ? <LinearProgress /> : null}
-        {preview.isError ? (
-          <Alert severity="error">
-            {preview.error instanceof Error
-              ? preview.error.message
-              : 'Preview request failed.'}
-          </Alert>
-        ) : null}
-        {preview.data ? (
-          <Stack spacing={2}>
-            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-              <Chip
-                color={preview.data.diagnostics.matched ? 'success' : 'warning'}
-                label={preview.data.diagnostics.matched ? 'Matched' : 'Fallback only'}
-              />
-              <Chip
-                label={`${String(preview.data.diagnostics.placementCount)} placements`}
-              />
-              {preview.data.release ? <Chip label={preview.data.release} /> : null}
-              {preview.data.indexVersion ? (
-                <Chip label={preview.data.indexVersion} />
-              ) : null}
-            </Stack>
-            {slotEntries.length > 0 ? (
-              slotEntries.map(([slot, components]) => (
-                <Paper
-                  elevation={0}
-                  key={slot}
-                  sx={{ border: 1, borderColor: 'divider', p: 2 }}
-                >
-                  <Typography variant="h6">{slot}</Typography>
-                  {components.map((component) => (
-                    <Typography color="text.secondary" key={component.placementCode}>
-                      {component.placementCode} → {component.componentCode} ·{' '}
-                      {component.rendererKey} v{String(component.contractVersion)}
-                    </Typography>
-                  ))}
-                </Paper>
-              ))
-            ) : (
-              <Alert severity="warning">No slots were returned for this context.</Alert>
-            )}
-          </Stack>
-        ) : null}
+        <PreviewExecution
+          key={JSON.stringify(request)}
+          request={request}
+          configuration={configuration}
+          connection={connection}
+          supportsPrivatePreparation={supportsPrivatePreparation}
+        />
       </Stack>
     </Paper>
   );
@@ -421,7 +421,11 @@ function PreviewPanel({
 function IndexStatusPanel({
   configuration,
   connection,
+  context,
+  ownerScope,
 }: {
+  readonly context: WcmsExperienceResolveRequest;
+  readonly ownerScope: string;
   readonly configuration: {
     readonly accessToken: string;
     readonly enterpriseCode: string;
@@ -429,12 +433,14 @@ function IndexStatusPanel({
   };
   readonly connection: ReturnType<typeof selectModuleConnection>;
 }) {
+  const { format: workflowText, locale } = useAxisLocalization();
+  const { formatError } = useAxisLocalization();
   const status = useQuery({
-    enabled: Boolean(connection),
-    queryKey: ['wcms-experience-index-status', connection?.instanceId],
+    enabled: Boolean(connection && context.site.trim()),
+    queryKey: ['wcms-experience-index-status', ownerScope, context],
     queryFn: () => {
       if (!connection) throw new Error('WCMS Experience connection is unavailable.');
-      return loadWcmsExperienceIndexStatus(connection, configuration);
+      return loadWcmsExperienceIndexStatus(connection, configuration, fetch, context);
     },
   });
 
@@ -446,23 +452,50 @@ function IndexStatusPanel({
     >
       <Stack spacing={2}>
         <WorkspaceHeading
-          description="Inspect whether published placements have been projected into the current Discovery/Elasticsearch delivery index."
+          description={workflowText(
+            'experience.ui.observe-matching-staged-projections-for-this-journey-this-bounded-check-',
+            'Observe matching Staged projections for this journey. This bounded check does not certify Online publication or alias health.',
+          )}
           eyebrow="Operational diagnostics"
+          headingComponent="h2"
           headingVariant="h4"
-          title="Index Status"
+          title={workflowText('experience.ui.index-status', 'Index Status')}
         />
+        <Alert severity="info">
+          {workflowText('experience.ui.site-c9aa3f', 'Site:')} {context.site} ·{' '}
+          {context.pageType} · {context.targetType}/{context.targetCode} ·{' '}
+          {context.locale} · {context.channel}
+        </Alert>
+        <Button
+          disabled={!connection || status.isFetching}
+          onClick={() => {
+            void status.refetch();
+          }}
+          variant="outlined"
+        >
+          {workflowText(
+            'experience.ui.refresh-index-evidence',
+            'Refresh index evidence',
+          )}
+        </Button>
         {!connection ? (
           <Alert severity="warning">
-            WCMS Experience runtime is not available in the authenticated BackOffice
-            module connections.
+            {workflowText(
+              'experience.ui.wcms-experience-runtime-is-not-available-in-the-authenticated-backoffice',
+              'WCMS Experience runtime is not available in the authenticated BackOffice module connections.',
+            )}
           </Alert>
         ) : null}
         {status.isPending && connection ? <LinearProgress /> : null}
         {status.isError ? (
           <Alert severity="error">
-            {status.error instanceof Error
-              ? status.error.message
-              : 'Index status request failed.'}
+            {formatError(
+              status.error,
+              workflowText(
+                'experience.ui.index-status-request-failed',
+                'Index status request failed.',
+              ),
+            )}
           </Alert>
         ) : null}
         {status.data ? (
@@ -477,14 +510,24 @@ function IndexStatusPanel({
               ['Status', status.data.status],
               ['Indexing mode', status.data.indexingMode],
               [
-                'Documents',
+                'Matching projections',
                 status.data.documentCount === undefined
                   ? '—'
-                  : new Intl.NumberFormat().format(status.data.documentCount),
+                  : new Intl.NumberFormat(locale).format(status.data.documentCount),
               ],
               ['Current index', status.data.currentIndexVersion ?? '—'],
-              ['Last indexed', status.data.lastIndexedAt ?? '—'],
-              ['Online alias', status.data.onlineAliasTemplate ?? '—'],
+              [
+                'Last indexed',
+                status.data.lastIndexedAt &&
+                Number.isFinite(Date.parse(status.data.lastIndexedAt))
+                  ? new Intl.DateTimeFormat(locale, {
+                      dateStyle: 'medium',
+                      timeStyle: 'short',
+                    }).format(new Date(status.data.lastIndexedAt))
+                  : '—',
+              ],
+              ['Publication context', status.data.publication ?? '—'],
+              ['Observation limit', String(status.data.observationLimit ?? '—')],
             ].map(([label, value]) => (
               <Paper
                 elevation={0}
@@ -492,7 +535,10 @@ function IndexStatusPanel({
                 sx={{ border: 1, borderColor: 'divider', p: 2 }}
               >
                 <Typography color="text.secondary" variant="body2">
-                  {label}
+                  {workflowText(
+                    'experience.status.' + label!.toLowerCase().replaceAll(' ', '-'),
+                    label!,
+                  )}
                 </Typography>
                 <Typography sx={{ fontWeight: 800 }}>{value ?? '—'}</Typography>
               </Paper>
@@ -516,19 +562,52 @@ function IndexStatusPanel({
 export function WcmsExperienceStudioRoutePage(
   props: WcmsExperienceStudioRoutePageProps,
 ) {
+  const connection = selectModuleConnection(props.bootstrap, 'wcmsExperience', {
+    publicationRole: 'STAGED',
+  });
+  const scope = JSON.stringify([
+    props.sessionGeneration,
+    props.bootstrap.tenantCode,
+    props.runtime.enterpriseCode,
+    connection?.instanceId,
+    connection?.endpoint,
+    props.site,
+    props.locale,
+    props.channel,
+  ]);
+  return (
+    <ExperienceStudioWorkspace
+      key={scope}
+      {...props}
+      ownerScope={scope}
+      connection={connection}
+    />
+  );
+}
+
+function ExperienceStudioWorkspace(
+  props: WcmsExperienceStudioRoutePageProps & {
+    readonly ownerScope: string;
+    readonly connection: ReturnType<typeof selectModuleConnection>;
+  },
+) {
+  const { format: workflowText } = useAxisLocalization();
   const location = useLocation();
   const activeTab = activeTabForPath(location.pathname);
-  const connection =
-    selectModuleConnection(props.bootstrap, 'wcmsExperience', {
-      server: 'wcmsStagedServer',
-    }) ?? selectModuleConnection(props.bootstrap, 'wcmsExperience');
+  const connection = props.connection;
   const configuration = useMemo(
     () => ({
       accessToken: props.accessToken,
       enterpriseCode: props.runtime.enterpriseCode,
       timeoutMs: props.runtime.requestTimeoutMs,
+      sessionGeneration: props.sessionGeneration,
     }),
-    [props.accessToken, props.runtime.enterpriseCode, props.runtime.requestTimeoutMs],
+    [
+      props.accessToken,
+      props.runtime.enterpriseCode,
+      props.runtime.requestTimeoutMs,
+      props.sessionGeneration,
+    ],
   );
   const placementsNavigation = useMemo<AxisNavigationItem>(
     () => ({
@@ -563,14 +642,16 @@ export function WcmsExperienceStudioRoutePage(
     () => ({
       site: props.site,
       pageType: 'PRODUCT_LISTING',
-      targetType: 'COLLECTION',
-      targetCode: 'agoraNewArrivals',
+      targetType: 'DEFAULT',
+      targetCode: '*',
       locale: props.locale,
       channel: props.channel,
       device: 'desktop',
     }),
     [props.channel, props.locale, props.site],
   );
+
+  const [request, setRequest] = useState(defaultRequest);
 
   return (
     <WorkspaceContainer>
@@ -587,50 +668,124 @@ export function WcmsExperienceStudioRoutePage(
               sx={{ justifyContent: 'space-between' }}
             >
               <WorkspaceHeading
-                description="Configure targeted CMS components for collection, brand, category, and fallback storefront journeys without changing frontend code."
+                description={workflowText(
+                  'experience.ui.configure-targeted-cms-components-for-collection-brand-category-and-fall',
+                  'Configure targeted CMS components for collection, brand, category, and fallback storefront journeys without changing frontend code.',
+                )}
                 help={props.navigation.help}
                 eyebrow="WCMS Experience"
+                headingComponent="h1"
                 headingVariant="h3"
-                title="Experience Studio"
+                title={workflowText(
+                  'experience.ui.experience-studio',
+                  'Experience Studio',
+                )}
               />
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                <Chip label="CMS-owned components" />
-                <Chip label="Discovery delivery index" />
-                <Chip color="success" label="Backend-governed" />
+                <Chip
+                  label={workflowText(
+                    'experience.ui.cms-owned-components',
+                    'CMS-owned components',
+                  )}
+                />
+                <Chip
+                  label={workflowText(
+                    'experience.ui.discovery-delivery-index',
+                    'Discovery delivery index',
+                  )}
+                />
+                <Chip
+                  color="success"
+                  label={workflowText(
+                    'experience.ui.backend-governed',
+                    'Backend-governed',
+                  )}
+                />
               </Stack>
             </Stack>
             <Divider />
-            <StudioTabs activeTab={activeTab} />
+            <StudioTabs activeTab={activeTab} navigation={props.bootstrap.navigation} />
             <Typography color="text.secondary">
-              {tabs.find((tab) => tab.id === activeTab)?.summary}
+              {workflowText(
+                'experience.studio.tab.' + activeTab + '.summary',
+                tabs.find((tab) => tab.id === activeTab)?.summary ?? '',
+              )}
             </Typography>
           </Stack>
         </Paper>
 
         {activeTab === 'overview' ? <OverviewPanel /> : null}
-        {activeTab === 'placements' ? (
-          <WorkbenchRoutePage
-            accessToken={props.accessToken}
+        {activeTab === 'placements' && connection ? (
+          <GuidedExperiencePanel
             bootstrap={props.bootstrap}
-            channel={props.channel}
-            cmsBaseUrl={props.cmsBaseUrl}
-            employeeId={props.employeeId}
+            connection={connection}
+            configuration={configuration}
+            cachePartition={props.ownerScope}
             locale={props.locale}
-            routeNavigation={placementsNavigation}
-            routeSchema={placementsNavigation.workbenchTarget}
-            runtime={props.runtime}
-            site={props.site}
+            channel={props.channel}
           />
+        ) : null}
+        {activeTab === 'placements' && !connection ? (
+          <Alert severity="warning">
+            {workflowText(
+              'experience.ui.experience-authoring-is-temporarily-unavailable-inspect-readiness-and-re',
+              'Experience authoring is temporarily unavailable. Inspect readiness and refresh availability before continuing.',
+            )}
+          </Alert>
+        ) : null}
+        {activeTab === 'placements' ? (
+          <Accordion slotProps={{ transition: { unmountOnExit: true } }}>
+            <AccordionSummary expandIcon={<ShellIcon name="chevron-down" />}>
+              {workflowText(
+                'experience.ui.advanced-placement-records',
+                'Advanced placement records',
+              )}
+            </AccordionSummary>
+            <AccordionDetails>
+              <WorkbenchRoutePage
+                accessToken={props.accessToken}
+                bootstrap={props.bootstrap}
+                channel={props.channel}
+                cmsBaseUrl={props.cmsBaseUrl}
+                employeeId={props.employeeId}
+                locale={props.locale}
+                routeNavigation={placementsNavigation}
+                routeSchema={placementsNavigation.workbenchTarget}
+                runtime={props.runtime}
+                site={props.site}
+              />
+            </AccordionDetails>
+          </Accordion>
         ) : null}
         {activeTab === 'preview' ? (
           <PreviewPanel
             configuration={configuration}
             connection={connection}
-            defaultRequest={defaultRequest}
+            request={request}
+            setRequest={setRequest}
+            supportsPrivatePreparation={props.bootstrap.navigation.some(
+              (item) =>
+                item.id === 'wcms-experience-preview' &&
+                item.lifecycleActions?.some(
+                  (action) =>
+                    action.id === 'prepare-private-preview' &&
+                    action.featureState === 'ACTIVE' &&
+                    action.ownerModule === 'wcmsExperience' &&
+                    action.handlerAction === 'preparePreview' &&
+                    action.httpMethod === 'POST' &&
+                    action.operationRoute ===
+                      '/nodics/wcmsExperience/v0/authoring/preparation',
+                ),
+            )}
           />
         ) : null}
         {activeTab === 'index-status' ? (
-          <IndexStatusPanel configuration={configuration} connection={connection} />
+          <IndexStatusPanel
+            configuration={configuration}
+            connection={connection}
+            context={request}
+            ownerScope={props.ownerScope}
+          />
         ) : null}
       </Stack>
     </WorkspaceContainer>

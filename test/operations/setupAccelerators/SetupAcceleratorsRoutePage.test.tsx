@@ -227,6 +227,15 @@ function renderPage(
 
 const publicationBootstrap: AxisAuthenticatedBootstrap = {
   ...bootstrap,
+  navigation: [
+    {
+      id: 'process-tasks',
+      moduleName: 'workflow',
+      route: '/process/tasks',
+      featureState: 'ACTIVE',
+      availability: 'UP',
+    } as AxisAuthenticatedBootstrap['navigation'][number],
+  ],
   moduleConnections: {
     ...bootstrap.moduleConnections,
     workflow: [
@@ -408,257 +417,109 @@ function mockCoordinatedPublication(count = 1, cmsInitiallyOnline = false) {
   return { state, commands, tasksRead, fetcher };
 }
 
-describe('SetupAccelerators coordinated publication', () => {
-  it('keeps decisions and refresh disabled until the explicit asset sequence settles', async () => {
-    const { state, commands } = mockCoordinatedPublication(1, true);
-    let release: (() => void) | undefined;
-    state.mediaGate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+describe('SetupAccelerators governed review handoff', () => {
+  it('opens the exact frozen workflow without issuing any approval or Media command', async () => {
+    const { commands, tasksRead } = mockCoordinatedPublication(83);
     renderPage('/setup-accelerators?profile=circa-ewaste', publicationBootstrap);
-    const retry = await screen.findByRole('button', {
-      name: 'Complete asset approvals',
-    });
-    await waitFor(() => expect(retry).toBeEnabled());
-    await userEvent.setup().click(retry);
-    await waitFor(() => expect(commands).toHaveLength(1));
-    const approving = screen.getByRole('button', { name: 'Approving...' });
-    expect(approving).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Reject' })).toBeDisabled();
-    expect(
-      screen.getByRole('button', { name: 'Refresh Circa eWaste status' }),
-    ).toBeDisabled();
-    fireEvent.click(approving);
-    expect(commands).toHaveLength(1);
-    release?.();
-    await screen.findByText('Online ready');
-    expect(commands).toHaveLength(2);
-  });
-
-  it.each([2, 100])(
-    'bounds CMS activation observation before Media coordination (%s owner reads)',
-    async (activatingReads) => {
-      vi.useFakeTimers();
-      const { state, commands } = mockCoordinatedPublication();
-      state.activatingReads = activatingReads;
-      try {
-        await act(async () => {
-          renderPage('/setup-accelerators?profile=circa-ewaste', publicationBootstrap);
-          await vi.advanceTimersByTimeAsync(100);
-        });
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(100);
-        });
-        await act(async () => {
-          fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
-          await vi.advanceTimersByTimeAsync(100);
-        });
-        expect(commands).toHaveLength(1);
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(10_000);
-        });
-        if (activatingReads === 2) {
-          expect(commands).toHaveLength(3);
-          expect(screen.getByText('Online ready')).toBeVisible();
-        } else {
-          expect(commands).toHaveLength(1);
-          expect(screen.queryByText('Online ready')).toBeNull();
-          // The command has settled; ordinary bounded GET observation may continue.
-          expect(
-            screen.getByRole('button', { name: 'Refresh Circa eWaste status' }),
-          ).toBeEnabled();
-        }
-      } finally {
-        vi.useRealTimers();
-      }
-    },
-  );
-
-  it('fails closed on an unpinned asset before any Media request', async () => {
-    const { state, commands } = mockCoordinatedPublication(1, true);
-    Reflect.deleteProperty(state.dependencies[0]!, 'versionId');
-    renderPage('/setup-accelerators?profile=circa-ewaste', publicationBootstrap);
-    const retry = await screen.findByRole('button', {
-      name: 'Complete asset approvals',
-    });
-    await waitFor(() => expect(retry).toBeEnabled());
-    await userEvent.setup().click(retry);
-    expect(
-      await screen.findByText(
-        'Pack Media requires exact version and checksum evidence',
-      ),
-    ).toBeVisible();
-    expect(commands).toEqual([]);
-  });
-
-  it('coordinates CMS and 83 pinned assets only after explicit approval', async () => {
-    const { commands, state } = mockCoordinatedPublication(83);
-    renderPage('/setup-accelerators?profile=circa-ewaste', publicationBootstrap);
-    const approve = await screen.findByRole('button', { name: 'Approve' });
-    await waitFor(() => expect(approve).toBeEnabled());
-    expect(commands).toEqual([]);
-    await userEvent.setup().click(approve);
-    await screen.findByText('Online ready');
-    expect(state.dependencies.every((item) => item.qualified)).toBe(true);
-    expect(commands).toHaveLength(167);
-    expect(commands[0]?.path).toContain('/cms-task/complete');
-    for (let index = 0; index < 83; index++) {
-      expect(commands[index * 2 + 1]?.path).toContain('/publication/requests');
-      expect(commands[index * 2 + 2]?.body).toEqual({
-        decision: {
-          approved: true,
-          reason:
-            'Circa eWaste pinned Media publication approved from Setup & Accelerators',
-        },
-      });
-    }
-  });
-
-  it('retains partial failure after CMS Online and resumes without replaying completed CMS or qualified assets', async () => {
-    const { state, commands, tasksRead } = mockCoordinatedPublication(2);
-    state.deniedMedia = state.dependencies[1]!.mediaCode;
-    renderPage('/setup-accelerators?profile=circa-ewaste', publicationBootstrap);
-    await userEvent
-      .setup()
-      .click(await screen.findByRole('button', { name: 'Approve' }));
-    const retry = await screen.findByRole('button', {
-      name: 'Complete asset approvals',
-    });
-    await waitFor(() => expect(retry).toBeEnabled());
-    expect(screen.getByText('Media publication returned HTTP 403')).toBeVisible();
-    expect(screen.queryByText('Online ready')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Reject' })).toBeDisabled();
-    expect(state.dependencies.map((item) => item.qualified)).toEqual([true, false]);
-    expect(commands).toHaveLength(4);
-    state.deniedMedia = undefined;
-    await userEvent.setup().click(retry);
-    await screen.findByText('Online ready');
-    expect(commands).toHaveLength(6);
-    expect(
-      commands.filter((item) => item.path.endsWith('/cms-task/complete')),
-    ).toHaveLength(1);
-    expect(
-      tasksRead.filter((item) => item.startsWith('cmsPublicationApproval-')),
-    ).toHaveLength(1);
-    expect(commands[4]?.body.mediaCode).toBe(state.dependencies[1]!.mediaCode);
-    expect(screen.queryByText('Media publication returned HTTP 403')).toBeNull();
-  });
-
-  it('resumes with fresh pinned evidence even without a CMS workflow reference', async () => {
-    const { state, commands, tasksRead } = mockCoordinatedPublication(1, true);
-    state.omitCmsWorkflow = true;
-    renderPage('/setup-accelerators?profile=circa-ewaste', publicationBootstrap);
-    const retry = await screen.findByRole('button', {
-      name: 'Complete asset approvals',
-    });
-    await waitFor(() => expect(retry).toBeEnabled());
-    expect(commands).toEqual([]);
-    state.dependencies[0]!.versionId = 5;
-    await userEvent.setup().click(retry);
-    await screen.findByText('Online ready');
-    expect(commands).toHaveLength(2);
-    expect(commands[0]?.body.versionId).toBe(5);
-    expect(
-      tasksRead.every((reference) => reference.startsWith('publicationApproval-')),
-    ).toBe(true);
-  });
-
-  it('preserves CMS rejection and never coordinates Media on Reject', async () => {
-    const { commands } = mockCoordinatedPublication();
-    renderPage('/setup-accelerators?profile=circa-ewaste', publicationBootstrap);
-    const reject = await screen.findByRole('button', { name: 'Reject' });
-    await waitFor(() => expect(reject).toBeEnabled());
-    await userEvent.setup().click(reject);
-    await waitFor(() => expect(commands).toHaveLength(1));
-    expect(commands[0]?.body).toEqual({
-      decision: {
-        approved: false,
-        outcome: 'rejected-from-setup-accelerators',
-        reason:
-          'Circa eWaste rejected from Setup & Accelerators; Online remains unchanged',
-      },
-    });
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull(),
+    const review = await screen.findByRole('button', { name: 'Review publication' });
+    await waitFor(() => expect(review).toBeEnabled());
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
+    await userEvent.setup().click(review);
+    expect(screen.getByLabelText('Observed route')).toHaveTextContent(
+      '/process/tasks?instanceCode=cmsPublicationApproval-circa-ewaste',
     );
-    expect(commands).toHaveLength(1);
+    expect(commands).toEqual([]);
+    expect(tasksRead).toEqual([]);
   });
-
-  it.each(['COMPLETED', 'mismatched', 'denied'])(
-    'stops at non-actionable or denied Media Process evidence (%s)',
-    async (failure) => {
-      const { state, commands } = mockCoordinatedPublication(2, true);
-      state.taskStatus = failure === 'COMPLETED' ? failure : 'OPEN';
-      state.mismatchedTask = failure === 'mismatched';
-      state.deniedDecision = failure === 'denied';
-      renderPage('/setup-accelerators?profile=circa-ewaste', publicationBootstrap);
-      const retry = await screen.findByRole('button', {
-        name: 'Complete asset approvals',
-      });
-      await waitFor(() => expect(retry).toBeEnabled());
-      await userEvent.setup().click(retry);
-      await waitFor(() => expect(retry).toBeEnabled());
-      expect(commands).toHaveLength(failure === 'denied' ? 2 : 1);
-      expect(state.dependencies.every((item) => !item.qualified)).toBe(true);
-      expect(screen.queryByText('Online ready')).toBeNull();
-      if (failure !== 'denied')
-        expect(
-          screen.getByText(
-            'Media approval task is not actionable; review Process evidence',
-          ),
-        ).toBeVisible();
-    },
-  );
-
-  it.each(['missing-media', 'online-media', 'missing-process', 'empty-evidence'])(
-    'does not expose asset decisions without existing prerequisites (%s)',
+  it.each(['HIDDEN', 'DISABLED', 'unavailable', 'missing'])(
+    'keeps diagnostics read-only when review navigation is %s',
     async (boundary) => {
-      const { commands } = mockCoordinatedPublication(
-        boundary === 'empty-evidence' ? 0 : 1,
-        true,
-      );
-      const selectedBootstrap = {
+      const { commands } = mockCoordinatedPublication();
+      renderPage('/setup-accelerators?profile=circa-ewaste', {
         ...publicationBootstrap,
-        moduleConnections: {
-          ...publicationBootstrap.moduleConnections,
-          ...(boundary === 'missing-media' ? { media: [] } : {}),
-          ...(boundary === 'missing-process' ? { workflow: [] } : {}),
-          ...(boundary === 'online-media'
-            ? {
-                media: publicationBootstrap.moduleConnections.media!.map((item) => ({
-                  ...item,
-                  runtimeRole: { code: 'WCMS_ONLINE', publication: 'ONLINE' },
-                })),
-              }
-            : {}),
-        },
-      };
-      renderPage('/setup-accelerators?profile=circa-ewaste', selectedBootstrap);
-      await screen.findByRole('button', { name: 'Show Circa eWaste details' });
+        navigation:
+          boundary === 'missing'
+            ? []
+            : publicationBootstrap.navigation.map((item) => ({
+                ...item,
+                featureState:
+                  boundary === 'unavailable'
+                    ? 'ACTIVE'
+                    : (boundary as 'HIDDEN' | 'DISABLED'),
+                availability: boundary === 'unavailable' ? 'UNAVAILABLE' : 'UP',
+              })),
+      });
       expect(
-        screen.queryByRole('button', { name: 'Complete asset approvals' }),
-      ).toBeNull();
+        await screen.findByRole('button', { name: 'Review publication' }),
+      ).toBeDisabled();
       expect(commands).toEqual([]);
     },
   );
-
-  it('does not infer whole-pack readiness from successful Media decisions', async () => {
-    const { state, commands } = mockCoordinatedPublication(1, true);
-    state.qualifyOnDecision = false;
+  it('opens Media prerequisites for individual owner inspection without blanket approval', async () => {
+    const { commands, state, tasksRead } = mockCoordinatedPublication(83, true);
     renderPage('/setup-accelerators?profile=circa-ewaste', publicationBootstrap);
-    const retry = await screen.findByRole('button', {
-      name: 'Complete asset approvals',
+    const review = await screen.findByRole('button', {
+      name: 'Review Media prerequisites',
     });
-    await waitFor(() => expect(retry).toBeEnabled());
-    await userEvent.setup().click(retry);
-    await waitFor(() => expect(retry).toBeEnabled());
-    expect(commands).toHaveLength(2);
-    expect(screen.queryByText('Online ready')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Reject' })).toBeDisabled();
+    await waitFor(() => expect(review).toBeEnabled());
+    await userEvent.setup().click(review);
+    expect(screen.getByLabelText('Observed route')).toHaveTextContent(
+      'expanded=circa-ewaste',
+    );
+    expect(state.dependencies.every((item) => !item.qualified)).toBe(true);
+    expect(commands).toEqual([]);
+    expect(tasksRead).toEqual([]);
+    expect(
+      screen.queryByRole('button', { name: 'Complete asset approvals' }),
+    ).toBeNull();
   });
 });
 
 describe('SetupAcceleratorsRoutePage', () => {
+  it('finds a setup by business description, reports empty results, and clears without commands', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input) => {
+        await Promise.resolve();
+        const url = input instanceof Request ? input.url : input.toString();
+        return new Response(
+          JSON.stringify(
+            responseFor(
+              url.includes('agora-apparel') ? 'agora-apparel' : 'circa-ewaste',
+            ),
+          ),
+          { status: 200 },
+        );
+      });
+    renderPage();
+    await screen.findByRole('heading', { name: 'Circa eWaste', level: 3 });
+    const search = screen.getByRole('searchbox', { name: 'Find a setup' });
+    fireEvent.change(search, { target: { value: '  storefront  ' } });
+    expect(
+      screen.getByRole('heading', { name: 'Agora Apparel', level: 3 }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('heading', { name: 'Circa eWaste', level: 3 }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('1 matching setup')).toBeVisible();
+    fireEvent.change(search, { target: { value: 'no-such-application' } });
+    expect(screen.getByText('0 matching setups')).toBeVisible();
+    expect(
+      screen.queryByRole('heading', { name: 'Agora Apparel', level: 3 }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+    expect(
+      screen.getByRole('heading', { name: 'Circa eWaste', level: 3 }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('heading', { name: 'Agora Apparel', level: 3 }),
+    ).toBeVisible();
+    expect(fetchMock.mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(
+      true,
+    );
+  });
+
   it.each([200, 500])(
     'refreshes only the operated profile after command HTTP %s',
     async (httpStatus) => {
@@ -785,7 +646,7 @@ describe('SetupAcceleratorsRoutePage', () => {
       return Promise.resolve();
     });
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled(),
+      expect(screen.getByRole('button', { name: 'Review publication' })).toBeEnabled(),
     );
     expect(screen.queryByText('Status read canceled')).toBeNull();
     expect(fetcher).toHaveBeenCalledTimes(2);
@@ -911,8 +772,8 @@ describe('SetupAcceleratorsRoutePage', () => {
     });
     renderPage('/setup-accelerators', selectedBootstrap);
     const summary = within(screen.getByLabelText('Setup profile summary'));
-    expect(summary.getByText('Need attention').parentElement).toHaveTextContent(
-      '0Need attention',
+    expect(summary.getByText('Setup options').parentElement).toHaveTextContent(
+      '0Setup options',
     );
     expect(summary.getByText('Loading status').parentElement).toHaveTextContent(
       '3Loading status',
@@ -933,8 +794,8 @@ describe('SetupAcceleratorsRoutePage', () => {
     expect(
       screen.getByRole('progressbar', { name: 'Loading Slow profile status' }),
     ).toBeVisible();
-    expect(summary.getByText('Need attention').parentElement).toHaveTextContent(
-      '1Need attention',
+    expect(summary.getByText('Setup options').parentElement).toHaveTextContent(
+      '1Setup options',
     );
     expect(summary.getByText('Loading status').parentElement).toHaveTextContent(
       '1Loading status',
@@ -989,7 +850,7 @@ describe('SetupAcceleratorsRoutePage', () => {
     });
     const first = renderPage('/setup-accelerators', publicationBootstrap, queryClient);
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled(),
+      expect(screen.getByRole('button', { name: 'Review publication' })).toBeEnabled(),
     );
     first.unmount();
     refreshing = true;
@@ -1005,7 +866,7 @@ describe('SetupAcceleratorsRoutePage', () => {
     ).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Circa eWaste' })).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Agora Apparel' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Review publication' })).toBeDisabled();
     expect(
       screen.getByRole('button', { name: 'Refresh Circa eWaste status' }),
     ).toBeDisabled();
@@ -1023,7 +884,7 @@ describe('SetupAcceleratorsRoutePage', () => {
         screen.queryByRole('progressbar', { name: 'Refreshing Circa eWaste status' }),
       ).toBeNull(),
     );
-    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Review publication' })).toBeDisabled();
     expect(
       screen.getByRole('button', { name: 'Refresh Circa eWaste status' }),
     ).toBeEnabled();
@@ -1038,7 +899,7 @@ describe('SetupAcceleratorsRoutePage', () => {
       screen.getByRole('button', { name: 'Refresh Circa eWaste status' }),
     );
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled(),
+      expect(screen.getByRole('button', { name: 'Review publication' })).toBeEnabled(),
     );
     expect(fetcher).toHaveBeenCalledTimes(5);
     expect(
@@ -1287,6 +1148,7 @@ describe('SetupAcceleratorsRoutePage', () => {
       forceRefresh: true,
       reason:
         'Circa eWaste setup preparation repair requested from Setup & Accelerators',
+      continuation: true,
     });
     expect(screen.queryByRole('combobox', { name: 'Setup stage' })).toBeNull();
   });
@@ -2266,6 +2128,63 @@ describe('SetupAcceleratorsRoutePage', () => {
     );
   });
 
+  it.each(['ready-to-submit', 'awaiting-review'])(
+    'distinguishes an existing approval request from %s without issuing a command',
+    async (state) => {
+      const result = responseFor('circa-ewaste').result;
+      const awaitingReview = state === 'awaiting-review';
+      const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            result: {
+              ...result,
+              readiness: awaitingReview ? 'PUBLICATION_PENDING' : 'IMPORTED',
+              allowedActions: awaitingReview ? [] : ['INITIALIZE'],
+              publication: awaitingReview ? result.publication : undefined,
+              capability: {
+                ...result.capability,
+                businessStatus: awaitingReview
+                  ? 'APPROVAL_IN_PROGRESS'
+                  : 'APPROVAL_REQUIRED',
+                approvalDiagnostic: awaitingReview
+                  ? result.capability.approvalDiagnostic
+                  : undefined,
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+      renderPage('/setup-accelerators?profile=circa-ewaste');
+      await screen.findByText(
+        awaitingReview ? 'Approval in progress' : 'Approval required',
+      );
+      const summary = screen.getByLabelText('Setup profile summary');
+      expect(
+        within(summary).getByText('Pending approval').parentElement,
+      ).toHaveTextContent(`${awaitingReview ? '1' : '0'}Pending approval`);
+      expect(
+        within(summary).getByText('Setup options').parentElement,
+      ).toHaveTextContent('1Setup options');
+      if (!awaitingReview) {
+        expect(screen.getByRole('button', { name: 'Submit for review' })).toBeEnabled();
+        expect(
+          screen.getByText(
+            /Staged setup is current. Submit its publication for normal review/,
+          ),
+        ).toBeVisible();
+        expect(
+          screen.queryByText(
+            /Use the profile action to install the governed setup data/,
+          ),
+        ).toBeNull();
+      }
+      expect(fetcher.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(
+        false,
+      );
+    },
+  );
+
   it('does not execute an unavailable readiness descriptor', async () => {
     const baseline = responseFor('circa-ewaste').result;
     vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
@@ -2389,7 +2308,7 @@ describe('SetupAcceleratorsRoutePage', () => {
     },
   );
 
-  it('revokes and restores decisions only as refreshed owner diagnostics permit', async () => {
+  it('revokes and restores review handoff only as refreshed owner diagnostics permit', async () => {
     const baseline = responseFor('circa-ewaste').result;
     let diagnostic = 'WAITING_REVIEWER';
     const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
@@ -2410,14 +2329,14 @@ describe('SetupAcceleratorsRoutePage', () => {
     );
     renderPage('/setup-accelerators?profile=circa-ewaste', publicationBootstrap);
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled(),
+      expect(screen.getByRole('button', { name: 'Review publication' })).toBeEnabled(),
     );
     diagnostic = 'TASK_REFERENCE_MISSING';
     fireEvent.click(
       screen.getByRole('button', { name: 'Refresh Circa eWaste status' }),
     );
     await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull(),
+      expect(screen.queryByRole('button', { name: 'Review publication' })).toBeNull(),
     );
     expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
     diagnostic = 'WAITING_REVIEWER';
@@ -2425,50 +2344,11 @@ describe('SetupAcceleratorsRoutePage', () => {
       screen.getByRole('button', { name: 'Refresh Circa eWaste status' }),
     );
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled(),
+      expect(screen.getByRole('button', { name: 'Review publication' })).toBeEnabled(),
     );
-    expect(screen.getByRole('button', { name: 'Reject' })).toBeEnabled();
     expect(
       fetcher.mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
     ).toBe(true);
-  });
-
-  it('does not run a hidden repair or initialization when approval has no actionable Process task', async () => {
-    const user = userEvent.setup();
-    const tasks = vi.spyOn(processClient, 'loadProcessTasks').mockResolvedValue([]);
-    const complete = vi.spyOn(processClient, 'completeProcessTask');
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockImplementation(() =>
-        Promise.resolve(
-          new Response(JSON.stringify(responseFor('circa-ewaste')), { status: 200 }),
-        ),
-      );
-    renderPage('/setup-accelerators?profile=circa-ewaste', {
-      ...bootstrap,
-      moduleConnections: {
-        ...bootstrap.moduleConnections,
-        workflow: [
-          {
-            moduleName: 'workflow',
-            instanceId: 'process',
-            endpoint: 'http://localhost:4311/nodics/workflow',
-            environment: 'kickoffLocal',
-            server: 'processServer',
-            state: 'UP',
-          },
-        ],
-      },
-    });
-    const approve = await screen.findByRole('button', { name: 'Approve' });
-    await waitFor(() => expect(approve).toBeEnabled());
-    await user.click(approve);
-    await waitFor(() => expect(tasks).toHaveBeenCalledOnce());
-    await waitFor(() => expect(approve).toBeEnabled());
-    expect(complete).not.toHaveBeenCalled();
-    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(
-      false,
-    );
   });
 
   it('does not infer initialization authority from preparation requirements', async () => {
@@ -2618,7 +2498,7 @@ describe('SetupAcceleratorsRoutePage', () => {
     expect(fetchImplementation).toHaveBeenCalledTimes(1);
   });
 
-  it('shows a guided publication recovery path from backend-owned status', async () => {
+  it('keeps recovery diagnostics visible without offering unauthorized destinations', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url =
         input instanceof Request
@@ -2647,8 +2527,17 @@ describe('SetupAcceleratorsRoutePage', () => {
       within(panel).getByText('Agora Apparel: release needs repair'),
     ).toBeVisible();
     expect(within(panel).getByText('Circa eWaste: review approval task')).toBeVisible();
-    expect(within(panel).getByText('Open Data Releases')).toBeVisible();
-    expect(within(panel).getByText('Open Approval Queue')).toBeVisible();
-    expect(screen.getByText('Approval Queue')).toBeVisible();
+    const handoffs = within(panel).getAllByRole('button');
+    expect(handoffs).toHaveLength(2);
+    handoffs.forEach((button) => expect(button).toBeDisabled());
+    expect(
+      within(panel).getByRole('button', { name: 'Open Approval Queue' }),
+    ).toBeDisabled();
+    expect(
+      screen.queryByRole('button', { name: 'Approval Queue' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Open Publishing' }),
+    ).not.toBeInTheDocument();
   });
 });

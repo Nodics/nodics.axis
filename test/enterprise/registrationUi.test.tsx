@@ -1,3 +1,4 @@
+import type { RegistrationWorkspace } from '../../src/operations/enterprise/registration/registrationClient';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -40,26 +41,28 @@ function LocationProbe() {
 function mount(
   reply: (action: string, body: Readonly<Record<string, string>>) => unknown,
   recovery = false,
-  registrationWorkspace = workspace,
+  registrationWorkspace: RegistrationWorkspace | Response = workspace,
+  requestTimeoutMs = runtime.requestTimeoutMs,
 ) {
   const commands: { action: string; body: Record<string, string> }[] = [];
   const fetcher = vi.fn<typeof fetch>(async (input, init) => {
     const url = input instanceof Request ? input.url : input.toString();
     expect(new URL(url).origin).toBe('https://profile.example.test');
     expect(new Headers(init?.headers).has('Authorization')).toBe(false);
-    let result: unknown = recovery
-      ? {
-          ...workspace,
-          renderer: 'axis.employee-recovery',
-          endpoints: {
-            start: '/nodics/profile/v0/employee-recovery/start',
-            verify: '/nodics/profile/v0/employee-recovery/verify',
-            resend: '/nodics/profile/v0/employee-recovery/resend',
-            status: '/nodics/profile/v0/employee-recovery/status',
-            complete: '/nodics/profile/v0/employee-recovery/reset',
-          },
-        }
-      : registrationWorkspace;
+    let result: unknown =
+      recovery && !(registrationWorkspace instanceof Response)
+        ? {
+            ...workspace,
+            renderer: 'axis.employee-recovery',
+            endpoints: {
+              start: '/nodics/profile/v0/employee-recovery/start',
+              verify: '/nodics/profile/v0/employee-recovery/verify',
+              resend: '/nodics/profile/v0/employee-recovery/resend',
+              status: '/nodics/profile/v0/employee-recovery/status',
+              complete: '/nodics/profile/v0/employee-recovery/reset',
+            },
+          }
+        : registrationWorkspace;
     if (init?.method === 'POST') {
       const action = new URL(url).pathname.split('/').at(-1) ?? '';
       if (typeof init.body !== 'string')
@@ -82,7 +85,7 @@ function mount(
           path="/enterprise-access/register"
           element={
             <EmployeeRegistrationRoutePage
-              runtime={runtime}
+              runtime={{ ...runtime, requestTimeoutMs }}
               profileBaseUrl={profileBaseUrl}
               journey={recovery ? 'recovery' : 'registration'}
             />
@@ -380,16 +383,19 @@ describe('Invited registration rendered journey', () => {
         .map((command) => command.body.continuation),
     ).toEqual([continuation, continuation]);
   });
-  it('does not show sending success when delivery is unavailable', async () => {
-    const { user } = mount(() => ({
-      ...progress,
-      continuation,
-      deliveryStatus: 'UNAVAILABLE',
-    }));
-    await enterEmail(user);
-    expect(await screen.findByText('Delivery unavailable')).toBeVisible();
-    expect(screen.queryByText('Sending requested')).toBeNull();
-  });
+  it.each(['UNAVAILABLE', 'UNCERTAIN', 'RETRY_PENDING'])(
+    'does not show sending success when delivery is %s',
+    async (deliveryStatus) => {
+      const { user } = mount(() => ({
+        ...progress,
+        continuation,
+        deliveryStatus,
+      }));
+      await enterEmail(user);
+      expect(await screen.findByText('Delivery unavailable')).toBeVisible();
+      expect(screen.queryByText('Sending requested')).toBeNull();
+    },
+  );
   it.each(['SIGN_IN', 'NO_INVITATION'])(
     'does not create a password form for %s',
     async (stage) => {
@@ -407,6 +413,30 @@ describe('Invited registration rendered journey', () => {
       expect(commands).toHaveLength(2);
     },
   );
+  it.each([false, true])(
+    'returns to sign-in after terminal refusal without another account command (recovery=%s)',
+    async (recovery) => {
+      const { user, commands } = mount(
+        (action) =>
+          action === 'start'
+            ? { ...progress, continuation }
+            : {
+                ...progress,
+                stage: recovery ? 'ACCOUNT_UNAVAILABLE' : 'NO_INVITATION',
+                codeState: 'VERIFIED',
+              },
+        recovery,
+      );
+      await enterEmail(user);
+      await verify(user);
+      await user.click(await screen.findByRole('button', { name: 'Sign in' }));
+      expect(JSON.parse(screen.getByTestId('destination').textContent || '{}')).toEqual(
+        { path: '/login', state: null },
+      );
+      expect(commands.map((command) => command.action)).toEqual(['start', 'verify']);
+    },
+  );
+
   it('admits only one in-flight submission even on repeated clicks', async () => {
     let release: ((value: unknown) => void) | undefined;
     const { user, commands } = mount(
@@ -444,3 +474,81 @@ describe('Invited registration rendered journey', () => {
     expect(screen.getByRole('button', { name: 'Start again' })).toBeEnabled();
   });
 });
+
+it('renders and starts email verification with the admitted six-minute deployment timeout', async () => {
+  const { user, commands } = mount(
+    () => ({ ...progress, continuation }),
+    false,
+    workspace,
+    360000,
+  );
+  await enterEmail(user);
+  expect(commands).toHaveLength(1);
+  expect(commands[0]?.action).toBe('start');
+  expect(screen.queryByText('Backend workspace timeout is invalid')).toBeNull();
+});
+
+it('offers a main landmark and returns to sign-in before sending email without inventing an enterprise hint', async () => {
+  const f = mount(() => {
+    throw new Error('No account command expected');
+  });
+  await screen.findByRole('heading', { name: workspace.presentation.title });
+  expect(screen.getByRole('main')).toBeVisible();
+  await waitFor(() =>
+    expect(
+      screen.getByRole('heading', { name: workspace.presentation.title }),
+    ).toHaveFocus(),
+  );
+  await f.user.type(
+    screen.getByRole('textbox', { name: workspace.presentation.emailLabel }),
+    'unverified@example.test',
+  );
+  await f.user.click(
+    screen.getByRole('button', { name: workspace.presentation.signInLabel }),
+  );
+  expect(JSON.parse(screen.getByTestId('destination').textContent ?? '{}')).toEqual({
+    path: '/login',
+    state: null,
+  });
+  expect(f.commands).toEqual([]);
+});
+it('keeps a no-command sign-in return available after workspace discovery fails', async () => {
+  const f = mount(
+    () => progress,
+    false,
+    new Response(JSON.stringify({ message: 'Account options are unavailable.' }), {
+      status: 503,
+    }),
+  );
+  await screen.findByRole('heading', { name: 'Account access is unavailable' });
+  expect(screen.getByRole('main')).toBeVisible();
+  await f.user.click(screen.getByRole('button', { name: 'Sign in' }));
+  expect(JSON.parse(screen.getByTestId('destination').textContent ?? '{}')).toEqual({
+    path: '/login',
+    state: null,
+  });
+  expect(f.commands).toEqual([]);
+});
+
+it.each([false, true])(
+  'offers business recovery guidance with collapsed technical detail for account access recovery=%s',
+  async (recovery) => {
+    const diagnostic =
+      'Access denied: API category is disabled for this runtime: profileEmployeeRecovery';
+    const f = mount(
+      () => progress,
+      recovery,
+      new Response(JSON.stringify({ message: diagnostic }), { status: 403 }),
+    );
+    await screen.findByRole('heading', { name: 'Account access is unavailable' });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Try again, or contact your administrator if the problem continues.',
+    );
+    expect(screen.getByText(diagnostic)).not.toBeVisible();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
+    await f.user.click(screen.getByText('Technical details'));
+    expect(screen.getByText(diagnostic)).toBeVisible();
+    expect(f.commands).toEqual([]);
+  },
+);

@@ -16,6 +16,7 @@ export function WasteSubmissionDialog({
   closeLabel,
   busy,
   onClose,
+  onExited,
   header,
   children,
 }: {
@@ -24,6 +25,8 @@ export function WasteSubmissionDialog({
   closeLabel: string;
   busy: boolean;
   onClose: () => void;
+  /** Restores the original trigger after responsive Dialog transitions finish. */
+  onExited?: () => void;
   header?: ReactNode;
   children: ReactNode;
 }) {
@@ -38,7 +41,10 @@ export function WasteSubmissionDialog({
       fullWidth
       maxWidth="lg"
       aria-labelledby="waste-submission-dialog-title"
-      slotProps={{ paper: { sx: { maxHeight: fullScreen ? '100%' : '90dvh' } } }}
+      slotProps={{
+        paper: { sx: { maxHeight: fullScreen ? '100%' : '90dvh' } },
+        transition: { onExited },
+      }}
     >
       <Stack
         direction="row"

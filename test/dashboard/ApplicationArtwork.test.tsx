@@ -170,7 +170,7 @@ describe('Owner-provided application artwork', () => {
     );
     expect(screen.getByRole('img', { name: 'Nodics' })).toHaveAttribute(
       'src',
-      '/brand/application-fallback-v1.png',
+      '/brand/favicon.svg',
     );
     expect(loadApplicationArtwork).not.toHaveBeenCalled();
     rerender(<ApplicationArtwork media={media} visual={visual} />);

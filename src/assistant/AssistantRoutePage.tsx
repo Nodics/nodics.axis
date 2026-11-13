@@ -240,6 +240,7 @@ function ScopedAssistantRoutePage(props: AssistantRoutePageProps) {
         />
       ) : null}
       <CmsRoutePage
+        embedded
         accessToken={props.accessToken}
         actions={{ assistant: controller }}
         channel={props.channel}

@@ -9,6 +9,8 @@ export function canRenderWorkbenchNavigation(
   navigationItem: AxisNavigationItem,
 ): boolean {
   if (!navigationItem.workbenchTarget) return false;
+  if (!['ACTIVE', 'PREVIEW'].includes(navigationItem.featureState ?? 'ACTIVE'))
+    return false;
   if (!['UP', 'DEGRADED'].includes(navigationItem.availability)) return false;
   return Boolean(
     selectModuleConnection(bootstrap, navigationItem.workbenchTarget.moduleName),

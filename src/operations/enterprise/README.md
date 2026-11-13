@@ -1,5 +1,23 @@
 # Enterprise Workspace Consumers
 
+`EnterpriseManagementRoutePage` loads the existing generic operations workspace
+from Profile's authenticated `/enterprises/workspace` task. App admits only the
+registered `profile.enterpriseManagement` / `administration` native entry through
+its exact-route and owner-availability guards. The current signed Enterprise,
+discovered Profile connection, access token and authentication generation bind one
+abortable read; scope changes retire late replies. Failed reads show an explicit
+read retry without static forms or command replay. Profile supplies current role
+choices and labels; Axis stores canonical codes unchanged. Idle unavailable setup
+inspection is omitted, while held creation checkpoints retain recovery guidance.
+
+Enterprise creation preserves an editable draft for the exact registered
+`503 ERR_PROFILE_ENTERPRISE_SETUP_NOT_READY` pre-write refusal and the existing
+definite duplicate conflict. Generic identity errors, wrong status/code pairs,
+provisioning failures and uncertain transport outcomes retain the original hold.
+No submission is retried automatically. Profile owns prerequisite checks and
+Data Import guidance. Generated idempotency fields remain read-only inside closed
+Technical details; their values still bind the unchanged command and checkpoint.
+
 The invitation workspace's `BUSINESS_ACCESS` field renders two owner-defined
 selectors using `EnterpriseBusinessAccessSelector`: business area and access
 level. Its parser admits only unique explicit role mappings and ENTERPRISE scope.

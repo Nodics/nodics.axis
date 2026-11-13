@@ -3,6 +3,7 @@ import { Component, type ReactNode } from 'react';
 
 interface CmsRenderBoundaryProps {
   readonly children: ReactNode;
+  readonly fallback?: ReactNode;
 }
 
 interface CmsRenderBoundaryState {
@@ -26,9 +27,11 @@ export class CmsRenderBoundary extends Component<
   public render() {
     if (this.state.failed) {
       return (
-        <Alert role="alert" severity="error">
-          This page component could not be displayed safely.
-        </Alert>
+        this.props.fallback ?? (
+          <Alert role="alert" severity="error">
+            This page component could not be displayed safely.
+          </Alert>
+        )
       );
     }
     return this.props.children;

@@ -201,10 +201,10 @@ function mount(existingSession: boolean) {
     requests,
     calls: (path: string) =>
       requests.filter((request) => request.url.pathname === path),
-    resolveLogout: async (status: number) => {
+    resolveLogout: async (status: number, result = true) => {
       if (!finishLogout) throw new Error('No secure logout is pending');
       await act(async () => {
-        finishLogout?.(new Response(null, { status }));
+        finishLogout?.(Response.json({ code: 'SUC_AUTH_00000', result }, { status }));
         await Promise.resolve();
       });
     },
@@ -319,32 +319,35 @@ describe('App completed registration session handoff', () => {
     },
   );
 
-  it('locks the old session on logout failure without authenticating the new enterprise', async () => {
-    const journey = mount(true);
-    await completeRegistration(journey);
-    await journey.user.click(screen.getByRole('button', { name: 'Sign in' }));
-    expectOldSessionLogout(journey);
-    await journey.resolveLogout(503);
-    await screen.findByRole('heading', { name: 'Locked session' });
-    expect(window.location.pathname).toBe('/lock-screen');
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'Secure logout could not be completed. Please retry before leaving this device.',
-    );
-    expect(screen.getByText(oldEmployee)).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Unlock' })).toBeVisible();
-    expect(
-      screen.queryByRole('textbox', { name: 'Employee ID' }),
-    ).not.toBeInTheDocument();
-    expect(readEnterpriseContext(runtime.backofficeBaseUrl)).toBe(
-      runtime.enterpriseCode,
-    );
-    expect(journey.calls(`${browserPath}authenticate`)).toHaveLength(0);
-    expectOldSessionLogout(journey);
-    expect(
-      journey.requests.some(
-        ({ init }) =>
-          new Headers(init?.headers).get('x-enterprise-code') === newEnterprise,
-      ),
-    ).toBe(false);
-  });
+  it.each([503, 200])(
+    'locks the old session on unconfirmed logout HTTP%s without authenticating the new enterprise',
+    async (status) => {
+      const journey = mount(true);
+      await completeRegistration(journey);
+      await journey.user.click(screen.getByRole('button', { name: 'Sign in' }));
+      expectOldSessionLogout(journey);
+      await journey.resolveLogout(status, false);
+      await screen.findByRole('heading', { name: 'Locked session' });
+      expect(window.location.pathname).toBe('/lock-screen');
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Secure logout could not be completed. Please retry before leaving this device.',
+      );
+      expect(screen.getByText(oldEmployee)).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Unlock' })).toBeVisible();
+      expect(
+        screen.queryByRole('textbox', { name: 'Employee ID' }),
+      ).not.toBeInTheDocument();
+      expect(readEnterpriseContext(runtime.backofficeBaseUrl)).toBe(
+        runtime.enterpriseCode,
+      );
+      expect(journey.calls(`${browserPath}authenticate`)).toHaveLength(0);
+      expectOldSessionLogout(journey);
+      expect(
+        journey.requests.some(
+          ({ init }) =>
+            new Headers(init?.headers).get('x-enterprise-code') === newEnterprise,
+        ),
+      ).toBe(false);
+    },
+  );
 });

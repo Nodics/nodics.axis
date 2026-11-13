@@ -3,8 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   AuthenticatedBootstrapUnavailableError,
   parseBackendWorkspace,
+  parseEmployeePolicy,
+  parsePublicBootstrap,
   parseWorkbenchSchemaDiscovery,
   loadAuthenticatedBootstrap,
+  loadOperationalReadiness,
   loadPublicBootstrap,
   selectModuleConnection,
 } from '../../src/bootstrap/publicBootstrap';
@@ -495,6 +498,62 @@ describe('Axis bootstrap clients', () => {
     ).rejects.toThrow(/incompatible/i);
   });
 
+  const projectGuide = {
+    guide: 'project',
+    projectId: 'kickoff',
+    projectLabel: 'Kickoff',
+    channelReferences: [
+      { sourceId: 'circadocs', channelId: 'circa', channelLabel: 'Circa' },
+    ],
+  };
+
+  function loadGuide(metadata: Record<string, unknown>) {
+    const data = {
+      ...authenticatedData,
+      documentationSources: [
+        { ...authenticatedData.documentationSources[0], ...metadata },
+      ],
+    };
+    return loadAuthenticatedBootstrap(
+      'https://backoffice.example.com',
+      1,
+      'employee-access',
+      10_000,
+      vi.fn<typeof fetch>().mockResolvedValue(Response.json({ data })),
+    );
+  }
+
+  it('preserves explicit article paths across sibling route roots', async () => {
+    const articleRoutes = ['/docs/modules/basics', '/docs/architecture/basics'];
+    expect(
+      (await loadGuide({ guide: 'framework', articleRoutes })).documentationSources[0]
+        ?.articleRoutes,
+    ).toEqual(articleRoutes);
+  });
+
+  it('retains owner-provided project and channel metadata on the authorized source', async () => {
+    expect((await loadGuide(projectGuide)).documentationSources[0]).toMatchObject(
+      projectGuide,
+    );
+  });
+
+  it.each([
+    { ...projectGuide, projectId: '' },
+    { ...projectGuide, projectLabel: undefined },
+    { ...projectGuide, channelReferences: {} },
+    {
+      ...projectGuide,
+      channelReferences: [{ sourceId: 'circadocs', channelId: 'circa' }],
+    },
+    { guide: 'framework', channelReferences: [] },
+    { ...projectGuide, guide: 'axis' },
+    { guide: 'unknown' },
+    { articleRoutes: ['/docs/../admin'] },
+    { articleRoutes: ['/dashboard'] },
+  ])('rejects inconsistent guide metadata', async (metadata) => {
+    await expect(loadGuide(metadata)).rejects.toThrow(/documentation/);
+  });
+
   it('uses the employee bearer only for the secured bootstrap', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
@@ -766,6 +825,93 @@ describe('Axis bootstrap clients', () => {
         route: '/content/admin',
       }),
     ]);
+  });
+
+  it.each(['effective', 'catalogue'] as const)(
+    'retains inert owner permission metadata for %s navigation round trips',
+    async (kind) => {
+      const item = {
+        ...authenticatedData.catalogue.cms.navigation[0],
+        moduleName: 'cms',
+        availability: 'UP',
+        requiredPermissions: ['cms.backoffice.view'],
+      };
+      const data =
+        kind === 'effective'
+          ? {
+              ...authenticatedData,
+              effectiveNavigationComposition: {
+                contractVersion: 1,
+                checksum: 'a'.repeat(64),
+                lifecycleState: 'PUBLISHED',
+                source: 'MODULE_DEFAULTS',
+                generatedAt: '2026-11-05T00:00:00.000Z',
+                navigation: [item],
+              },
+            }
+          : {
+              ...authenticatedData,
+              catalogue: {
+                cms: { ...authenticatedData.catalogue.cms, navigation: [item] },
+              },
+            };
+      const request = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(JSON.stringify({ data }), { status: 200 }));
+      const result = await loadAuthenticatedBootstrap(
+        'https://backoffice.example.com',
+        1,
+        'employee-access',
+        10_000,
+        request,
+      );
+      expect(result.navigation[0]?.requiredPermissions).toEqual([
+        'cms.backoffice.view',
+      ]);
+      const roundTrip: unknown = JSON.parse(JSON.stringify(result.navigation));
+      expect(roundTrip).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ requiredPermissions: ['cms.backoffice.view'] }),
+        ]),
+      );
+      expect(request).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('rejects malformed owner permissions in effective navigation', async () => {
+    const data = {
+      ...authenticatedData,
+      effectiveNavigationComposition: {
+        contractVersion: 1,
+        checksum: 'a'.repeat(64),
+        lifecycleState: 'PUBLISHED',
+        source: 'MODULE_DEFAULTS',
+        generatedAt: '2026-11-05T00:00:00.000Z',
+        navigation: [
+          {
+            id: 'cms',
+            moduleName: 'cms',
+            route: '/content',
+            label: 'Content',
+            availability: 'UP',
+            requiredPermissions: ['cms.view', 42],
+          },
+        ],
+      },
+    };
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(JSON.stringify({ data }), { status: 200 }));
+    await expect(
+      loadAuthenticatedBootstrap(
+        'https://backoffice.example.com',
+        1,
+        'employee-access',
+        10_000,
+        request,
+      ),
+    ).rejects.toThrow();
+    expect(request).toHaveBeenCalledOnce();
   });
 
   it('rejects unsafe schema-workbench navigation targets', async () => {
@@ -1294,4 +1440,328 @@ it('parses operational report owner selectors and never selects an Online substi
       workspace.ownerSelector,
     ),
   ).toBeUndefined();
+});
+
+describe('optional operational diagnostic observation', () => {
+  const base = 'https://backoffice.example.com';
+  const observedData = {
+    ...authenticatedData,
+    modules: {
+      ...authenticatedData.modules,
+      backoffice: [
+        {
+          moduleName: 'backoffice',
+          displayName: 'BackOffice',
+          canonicalIdentity: 'nodics.platform/modules/backoffice',
+          instanceId: 'platform-backoffice',
+          environment: 'kickoffLocal',
+          runtimeRole: { code: 'PLATFORM', publication: 'OPERATIONAL' },
+          clientCallable: true,
+          endpoint: 'https://backoffice.example.com/nodics/backoffice',
+          state: 'UP',
+          moduleKind: 'capability',
+        },
+      ],
+    },
+  };
+
+  const requestFor = (data: unknown) =>
+    vi.fn<typeof fetch>().mockResolvedValue(Response.json({ data }));
+  it('requests lightweight admission without weakening non-ready admission or policy evidence', async () => {
+    const request = requestFor({
+      ...observedData,
+      operationalReadiness: undefined,
+      operationalReadinessObservation: { contractVersion: 1, mode: 'ON_DEMAND' },
+      axisInitializationAdmission: 'NOT_READY',
+    });
+    const result = await loadAuthenticatedBootstrap(base, 1, 'employee', 1000, request);
+    expect(
+      new URL((request.mock.calls[0]?.[0] as URL).href).searchParams.get(
+        'includeOperationalReadiness',
+      ),
+    ).toBe('false');
+    expect(
+      new URL((request.mock.calls[0]?.[0] as URL).href).searchParams.get('projection'),
+    ).toBe('axis-client-v1');
+    expect(result.axisInitializationAdmission).toBe('NOT_READY');
+    expect(result.axisPolicy).toEqual(observedData.axisPolicy);
+    expect(result.operationalReadiness).toBeUndefined();
+    expect(result.operationalReadinessObservation).toEqual({
+      contractVersion: 1,
+      mode: 'ON_DEMAND',
+    });
+  });
+  const inspectorPresentation = {
+    openLabel: 'Inspect readiness',
+    title: 'Operational readiness',
+    description:
+      'Compare the same owner-reported state while working in any workspace. This view does not grant permission to run an action.',
+    refreshLabel: 'Refresh readiness',
+    closeLabel: 'Close',
+    loadingMessage: 'Checking readiness with the owning services…',
+    errorMessage: 'Readiness could not be loaded. Refresh to try again.',
+    checkedAtLabel: 'Checked at',
+    receiptLabel: 'Evidence receipt',
+    buildLabel: 'Running build',
+    stateLabel: 'Status',
+    nextActionLabel: 'Next action',
+    historicalMessage:
+      'Previous observations are historical evidence. Actions always recheck current owner permissions and prerequisites.',
+  };
+  it('retains only complete bounded owner inspector presentation', async () => {
+    const result = await loadAuthenticatedBootstrap(
+      base,
+      1,
+      'employee',
+      1000,
+      requestFor({
+        ...observedData,
+        operationalReadiness: undefined,
+        operationalReadinessObservation: {
+          contractVersion: 1,
+          mode: 'ON_DEMAND',
+          presentation: inspectorPresentation,
+        },
+      }),
+    );
+    expect(result.operationalReadinessObservation?.presentation).toEqual(
+      inspectorPresentation,
+    );
+  });
+  it.each([
+    null,
+    {},
+    { contractVersion: 1, mode: 'ON_DEMAND', presentation: {} },
+    {
+      contractVersion: 1,
+      mode: 'ON_DEMAND',
+      presentation: { ...inspectorPresentation, title: '' },
+    },
+    {
+      contractVersion: 1,
+      mode: 'ON_DEMAND',
+      presentation: { ...inspectorPresentation, title: 'x'.repeat(1025) },
+    },
+    {
+      contractVersion: 1,
+      mode: 'ON_DEMAND',
+      presentation: { ...inspectorPresentation, unknown: 'not permitted' },
+    },
+    { contractVersion: 2, mode: 'ON_DEMAND' },
+    { contractVersion: 1, mode: 'READY' },
+    { contractVersion: 1, mode: 'ON_DEMAND', endpoint: '/untrusted' },
+  ])('rejects invalid observation capability %j', async (capability) => {
+    await expect(
+      loadAuthenticatedBootstrap(
+        base,
+        1,
+        'employee',
+        1000,
+        requestFor({
+          ...observedData,
+          operationalReadiness: undefined,
+          operationalReadinessObservation: capability,
+        }),
+      ),
+    ).rejects.toThrow(/operational readiness/);
+  });
+  it('requests the full existing owner report with no credential redirects or implicit retries', async () => {
+    const expected = await loadAuthenticatedBootstrap(
+      base,
+      1,
+      'employee',
+      1000,
+      requestFor(observedData),
+    );
+    const request = requestFor(observedData);
+    const result = await loadOperationalReadiness(
+      base,
+      1,
+      'employee',
+      1000,
+      expected,
+      undefined,
+      request,
+    );
+    expect(result.state).toBe('NEEDS_ATTENTION');
+    expect(
+      new URL((request.mock.calls[0]?.[0] as URL).href).searchParams.get(
+        'includeOperationalReadiness',
+      ),
+    ).toBe('true');
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0]?.[1]).toMatchObject({
+      method: 'GET',
+      credentials: 'omit',
+      redirect: 'error',
+      cache: 'no-store',
+    });
+  });
+  it('refuses a missing report or changed tenant/source instead of presenting stale authority', async () => {
+    const expected = await loadAuthenticatedBootstrap(
+      base,
+      1,
+      'employee',
+      1000,
+      requestFor(observedData),
+    );
+    await expect(
+      loadOperationalReadiness(
+        base,
+        1,
+        'employee',
+        1000,
+        expected,
+        undefined,
+        requestFor({ ...observedData, operationalReadiness: undefined }),
+      ),
+    ).rejects.toThrow(/unavailable/);
+    await expect(
+      loadOperationalReadiness(
+        base,
+        1,
+        'employee',
+        1000,
+        { ...expected, tenantCode: 'other' },
+        undefined,
+        requestFor(observedData),
+      ),
+    ).rejects.toThrow(/source changed/);
+    await expect(
+      loadOperationalReadiness(
+        base,
+        1,
+        'employee',
+        1000,
+        {
+          ...expected,
+          moduleConnections: {
+            ...expected.moduleConnections,
+            backoffice:
+              expected.moduleConnections.backoffice?.map((connection) => ({
+                ...connection,
+                endpoint: 'https://changed.example/nodics/backoffice',
+              })) ?? [],
+          },
+        },
+        undefined,
+        requestFor(observedData),
+      ),
+    ).rejects.toThrow(/source changed/);
+  });
+  it('links cancellation to the owner request and refuses a late successful response', async () => {
+    const expected = await loadAuthenticatedBootstrap(
+      base,
+      1,
+      'employee',
+      1000,
+      requestFor(observedData),
+    );
+    let complete!: (response: Response) => void;
+    const request = vi.fn<typeof fetch>().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const controller = new AbortController();
+    const pending = loadOperationalReadiness(
+      base,
+      1,
+      'employee',
+      1000,
+      expected,
+      controller.signal,
+      request,
+    );
+    const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    controller.abort();
+    expect(request.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    complete(Response.json({ data: observedData }));
+    await rejected;
+  });
+});
+
+describe('Profile public invited-registration observation', () => {
+  it('admits only an explicitly advertised qualified entry', () => {
+    const bootstrap = parsePublicBootstrap(
+      {
+        ...document,
+        data: {
+          ...document.data,
+          featureAvailability: {
+            profile: {
+              contractVersion: 1,
+              features: { invitedEmployeeRegistration: true },
+            },
+          },
+        },
+      },
+      1,
+    );
+    expect(bootstrap).toHaveProperty('invitedEmployeeRegistrationAvailable', true);
+  });
+  it.each([
+    undefined,
+    {},
+    { profile: { contractVersion: 1, features: {} } },
+    {
+      profile: { contractVersion: 1, features: { invitedEmployeeRegistration: false } },
+    },
+  ])('does not invent absent or disabled registration: %j', (featureAvailability) => {
+    expect(
+      parsePublicBootstrap(
+        { ...document, data: { ...document.data, featureAvailability } },
+        1,
+      ),
+    ).not.toHaveProperty('invitedEmployeeRegistrationAvailable');
+  });
+  it.each([
+    { contractVersion: 2, features: { invitedEmployeeRegistration: true } },
+    { contractVersion: 1, features: { invitedEmployeeRegistration: 'true' } },
+    {
+      contractVersion: 1,
+      features: { invitedEmployeeRegistration: true },
+      endpoint: '/execute',
+    },
+    { contractVersion: 1, features: [] },
+  ])('rejects unsupported or malformed Profile observations: %j', (profile) => {
+    expect(() =>
+      parsePublicBootstrap(
+        { ...document, data: { ...document.data, featureAvailability: { profile } } },
+        1,
+      ),
+    ).toThrow();
+  });
+});
+
+/** Recovery presentation is inert owner metadata; malformed guidance cannot be silently admitted. */
+it('validates bounded session recovery guidance and accepts its absence from older policy snapshots', () => {
+  const presentation = {
+    lockedMessage: 'Saved checkpoints can return; other unsaved edits may be lost.',
+    expiredMessage: 'Sign in and inspect submitted actions before retrying.',
+  };
+  const parsed = parseEmployeePolicy({
+    ...authenticatedData.axisPolicy,
+    sessionRecoveryPresentation: presentation,
+  });
+  expect(parsed.sessionRecoveryPresentation).toEqual(presentation);
+  expect(Object.isFrozen(parsed.sessionRecoveryPresentation)).toBe(true);
+  expect(
+    parseEmployeePolicy(authenticatedData.axisPolicy).sessionRecoveryPresentation,
+  ).toBeUndefined();
+  for (const invalid of [
+    null,
+    {},
+    { ...presentation, lockedMessage: ' ' },
+    { ...presentation, expiredMessage: 'x'.repeat(1025) },
+    { ...presentation, command: '/write' },
+  ]) {
+    expect(() =>
+      parseEmployeePolicy({
+        ...authenticatedData.axisPolicy,
+        sessionRecoveryPresentation: invalid,
+      }),
+    ).toThrow();
+  }
 });

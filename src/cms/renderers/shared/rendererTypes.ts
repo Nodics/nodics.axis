@@ -1,3 +1,4 @@
+import type { InvitedEmployeeRegistrationEntry } from '../../../auth/useInvitedEmployeeRegistrationEntry';
 import type { ReactNode } from 'react';
 
 import type { AxisSort } from '../../../app/table/axisTableSorting';
@@ -49,6 +50,7 @@ export interface WorkbenchRendererController {
   readonly scope?: WorkbenchRendererScope | undefined;
   readonly schemas: readonly WorkbenchSchema[];
   readonly schemasError?: string | undefined;
+  readonly unavailableSchemaSources?: readonly string[] | undefined;
   readonly schemasLoading: boolean;
   readonly selectedSchema?: WorkbenchSchema | undefined;
   readonly records: readonly WorkbenchRecord[];
@@ -93,6 +95,8 @@ export interface WorkbenchRendererController {
   readonly bulkDeleteError?: string | undefined;
   readonly bulkDeleting?: boolean;
   readonly lifecycleActionError?: string | undefined;
+  /** Retires completed presentation feedback after confirmed owner inspection; never cancels a pending operation. */
+  readonly clearLifecycleFeedback?: (() => void) | undefined;
   readonly lifecycleActionPendingId?: string | undefined;
   readonly lifecycleActionResult?: unknown;
   readonly tenantCode: string;
@@ -161,6 +165,7 @@ export interface MediaManagementRendererController {
 }
 
 export interface CmsRendererActions {
+  readonly documentationTopicRoutes?: ReadonlySet<string>;
   readonly documentationMedia?:
     | {
         readonly bootstrap: AxisAuthenticatedBootstrap;
@@ -169,7 +174,13 @@ export interface CmsRendererActions {
         readonly timeoutMs: number;
       }
     | undefined;
-  readonly dashboard?: MediaManagementRendererController | undefined;
+  readonly dashboard?:
+    | (MediaManagementRendererController & {
+        readonly employeeId: string;
+        readonly site?: string | undefined;
+        readonly catalog?: string | undefined;
+      })
+    | undefined;
   readonly employeeLoginEnterpriseCode?: string;
   readonly onEmployeeLogin?: (
     loginId: string,
@@ -177,9 +188,12 @@ export interface CmsRendererActions {
     enterpriseCode?: string,
   ) => void;
   readonly employeeLoginPending?: boolean;
+  readonly employeeRegistrationEntry?: InvitedEmployeeRegistrationEntry | undefined;
   readonly onEmployeeRecovery?: (identifier: string) => void;
   readonly onEmployeeUnlock?: (password: string) => void;
   readonly employeeUnlockPending?: boolean;
+  /** Inert recovery guidance from the current BackOffice employee policy. */
+  readonly employeeSessionRecoveryMessage?: string | undefined;
   readonly onEmployeeSignOut?: () => void;
   readonly currentEmployeeId?: string;
   readonly authenticationError?: string;

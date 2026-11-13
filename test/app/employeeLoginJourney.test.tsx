@@ -515,6 +515,52 @@ const assistantPage = {
   },
 };
 
+const onlineGuideFixture = {
+  contractVersion: 1,
+  navigation: [
+    {
+      id: 'axis-imported',
+      label: 'Imported Axis index',
+      route: '/docs?guide=axis',
+      order: 5,
+    },
+  ],
+  guides: [
+    {
+      guide: 'framework',
+      label: 'Imported Framework',
+      route: '/docs?guide=framework',
+      topics: [
+        {
+          id: 'published-article',
+          label: 'Published article',
+          route: documentationPage.path,
+          site: 'axisCmsSite',
+          locale: 'en',
+          channel: 'web',
+          accessMode: 'PUBLIC',
+        },
+      ],
+    },
+    {
+      guide: 'axis',
+      label: 'Imported Axis',
+      route: '/docs?guide=axis',
+      topics: [
+        {
+          id: 'axis-article',
+          label: 'Axis article',
+          route: '/docs/axis/article',
+          site: 'axisCmsSite',
+          locale: 'en',
+          channel: 'web',
+          accessMode: 'PUBLIC',
+        },
+      ],
+    },
+  ],
+};
+
 describe('employee login journey', () => {
   beforeEach(() => {
     window.sessionStorage.clear();
@@ -570,7 +616,9 @@ describe('employee login journey', () => {
       'registered-enterprise',
     );
     expect(
-      request.mock.calls.some(([input]) => fetchInputUrl(input).endsWith('/bootstrap')),
+      request.mock.calls.some(([input]) =>
+        new URL(fetchInputUrl(input)).pathname.endsWith('/bootstrap'),
+      ),
     ).toBe(false);
     expect(
       window.sessionStorage.getItem(
@@ -581,6 +629,7 @@ describe('employee login journey', () => {
   it.each([
     { route: '/media/items', status: 200, write: false },
     { route: '/media/publication', status: 200, write: false },
+    { route: '/media/publication', status: 200, write: true },
     { route: '/media/items', status: 401, write: false },
     { route: '/media/items', status: 403, write: false },
     { route: '/media/items', status: 401, write: true },
@@ -626,6 +675,16 @@ describe('employee login journey', () => {
               JSON.stringify({
                 data: {
                   modules: {
+                    workflow: [
+                      {
+                        moduleName: 'workflow',
+                        instanceId: 'process',
+                        clientCallable: true,
+                        environment: 'kickoffLocal',
+                        endpoint: 'https://process.example.com/nodics/process',
+                        state: 'UP',
+                      },
+                    ],
                     media: ['ONLINE', 'STAGED'].map((role) => ({
                       moduleName: 'media',
                       instanceId: role,
@@ -637,6 +696,23 @@ describe('employee login journey', () => {
                     })),
                   },
                   catalogue: {
+                    workflow: {
+                      enabled: true,
+                      category: 'operations',
+                      icon: 'workflow',
+                      requiredPermissions: [],
+                      compatibility: { status: 'COMPATIBLE' },
+                      navigation: [
+                        {
+                          id: 'approval-queue',
+                          label: 'Approval Queue',
+                          route: '/process/tasks',
+                          icon: 'workflow',
+                          order: 20,
+                          featureState: 'ACTIVE',
+                        },
+                      ],
+                    },
                     media: {
                       enabled: true,
                       category: 'content',
@@ -681,6 +757,11 @@ describe('employee login journey', () => {
                                     type: 'form',
                                     title: 'Owner edit',
                                     submitLabel: 'Save owner draft',
+                                    resultNavigation: {
+                                      label: 'Review this approval',
+                                      route: '/process/tasks',
+                                      parameters: { instanceCode: 'workflowRef' },
+                                    },
                                     endpoint: {
                                       method: 'POST',
                                       path: '/nodics/media/v0/owner-command',
@@ -702,7 +783,7 @@ describe('employee login journey', () => {
                       ],
                     },
                   },
-                  availability: { media: { state: 'UP' } },
+                  availability: { media: { state: 'UP' }, workflow: { state: 'UP' } },
                   axisPolicy: {
                     contractVersion: 0,
                     screenLockEnabled: true,
@@ -738,9 +819,16 @@ describe('employee login journey', () => {
         }
         if (url === 'https://staged.example.com/nodics/media/v0/owner-command')
           return Promise.resolve(
-            new Response(JSON.stringify({ message: 'Expired owner session' }), {
-              status: 401,
-            }),
+            new Response(
+              JSON.stringify(
+                status === 200
+                  ? { data: { workflowRef: 'approval-one' } }
+                  : { message: 'Expired owner session' },
+              ),
+              {
+                status,
+              },
+            ),
           );
         if (url.includes('/pages/resolve'))
           return Promise.resolve(
@@ -761,6 +849,10 @@ describe('employee login journey', () => {
           .setup()
           .click(screen.getByRole('button', { name: 'Save owner draft' }));
       }
+      if (write && status === 200)
+        expect(
+          await screen.findByRole('link', { name: 'Review this approval' }),
+        ).toHaveAttribute('href', '/process/tasks?instanceCode=approval-one');
       if (status === 401) {
         await waitFor(() => expect(window.location.pathname).toBe('/login'));
         expect(new URLSearchParams(window.location.search).get('returnTo')).toBe(route);
@@ -1072,6 +1164,11 @@ describe('employee login journey', () => {
         </AppProviders>,
       );
 
+      expect(
+        await screen.findByRole('heading', { name: 'Page unavailable' }),
+      ).toBeVisible();
+      expect(window.location.pathname).toBe('/waste/assets');
+      await user.click(screen.getByRole('link', { name: 'Return to dashboard' }));
       await waitFor(() => expect(window.location.pathname).toBe('/dashboard'));
       expect(
         await screen.findByRole('button', { name: 'Open navigation' }),
@@ -1107,195 +1204,212 @@ describe('employee login journey', () => {
     },
   );
 
-  it('restores an authenticated documentation deep link in a fresh browser tab', async () => {
-    window.history.pushState(
-      {},
-      '',
-      '/docs/framework/capabilities/content-publishing/wcms-authoring-model#websites',
-    );
-    document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
-    const request = vi.fn<typeof fetch>().mockImplementation((input, options) => {
-      const url = fetchInputUrl(input);
-      if (url.includes('/bootstrap/public')) {
-        return Promise.resolve(
-          new Response(JSON.stringify(publicBootstrap), { status: 200 }),
-        );
-      }
-      if (url.includes('/employee/browser/restore')) {
-        expect(new Headers(options?.headers).get('X-CSRF-Token')).toBe('refresh-csrf');
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              result: {
-                authToken: 'restored-docs-access',
-                loginId: 'operator',
-              },
-            }),
-            { status: 200 },
-          ),
-        );
-      }
-      if (url.includes('/axis/initialization')) {
-        return Promise.resolve(
-          new Response(JSON.stringify(axisInitializationReady), { status: 200 }),
-        );
-      }
-      if (url.includes('/bootstrap')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              data: {
-                modules: {
-                  cms: [
-                    {
-                      moduleName: 'cms',
-                      instanceId: 'runtime-1',
-                      environment: 'kickoffLocal',
-                      clientCallable: true,
-                      endpoint: 'https://cms.example.com/nodics/cms',
-                      state: 'UP',
-                    },
-                  ],
-                  backoffice: [
-                    {
-                      moduleName: 'backoffice',
-                      instanceId: 'platform-1',
-                      environment: 'kickoffLocal',
-                      clientCallable: true,
-                      endpoint: 'https://platform.example.com/nodics/backoffice',
-                      state: 'UP',
-                    },
-                  ],
+  it.each([false, true])(
+    'restores a documentation deep link when BackOffice administration is unavailable: %s',
+    async (administrationUnavailable) => {
+      window.history.pushState(
+        {},
+        '',
+        '/docs/framework/capabilities/content-publishing/wcms-authoring-model#websites',
+      );
+      document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
+      const request = vi.fn<typeof fetch>().mockImplementation((input, options) => {
+        const url = fetchInputUrl(input);
+        if (url.endsWith('/v0/delivery/documentation/guides'))
+          return Promise.resolve(Response.json({ result: onlineGuideFixture }));
+        if (url.includes('/bootstrap/public')) {
+          return Promise.resolve(
+            new Response(JSON.stringify(publicBootstrap), { status: 200 }),
+          );
+        }
+        if (url.includes('/employee/browser/restore')) {
+          expect(new Headers(options?.headers).get('X-CSRF-Token')).toBe(
+            'refresh-csrf',
+          );
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                result: {
+                  authToken: 'restored-docs-access',
+                  loginId: 'operator',
                 },
-                catalogue: {
-                  backoffice: {
-                    enabled: true,
-                    category: 'platform',
-                    icon: 'documentation',
-                    requiredPermissions: ['backoffice.documentation.view'],
-                    compatibility: { status: 'COMPATIBLE' },
-                    navigation: [
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        if (url.includes('/axis/initialization')) {
+          return Promise.resolve(
+            new Response(JSON.stringify(axisInitializationReady), { status: 200 }),
+          );
+        }
+        if (url.includes('/bootstrap')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                data: {
+                  modules: {
+                    cms: [
                       {
-                        id: 'documentation',
-                        label: 'Documentation',
-                        route: '/docs',
-                        order: 100,
-                        group: {
-                          id: 'documentation',
-                          label: 'Documentation',
-                          order: 1600,
-                        },
-                        requiredPermissions: ['backoffice.documentation.view'],
+                        moduleName: 'cms',
+                        instanceId: 'runtime-1',
+                        environment: 'kickoffLocal',
+                        clientCallable: true,
+                        runtimeRole: { code: 'WCMS_ONLINE', publication: 'ONLINE' },
+                        endpoint: 'https://cms.example.com/nodics/cms',
+                        state: 'UP',
                       },
+                    ],
+                    backoffice: [
                       {
-                        id: 'documentation-framework-placeholder',
-                        label: 'Framework placeholder',
-                        route: '/docs/framework',
-                        order: 110,
-                        group: {
-                          id: 'documentation',
-                          label: 'Documentation',
-                          order: 1600,
-                        },
-                        requiredPermissions: ['backoffice.documentation.view'],
+                        moduleName: 'backoffice',
+                        instanceId: 'platform-1',
+                        environment: 'kickoffLocal',
+                        clientCallable: true,
+                        endpoint: 'https://platform.example.com/nodics/backoffice',
+                        state: 'UP',
                       },
                     ],
                   },
-                },
-                availability: {
-                  backoffice: { state: 'UP' },
-                  cms: { state: 'UP' },
-                },
-                axisPolicy: {
-                  contractVersion: 0,
-                  screenLockEnabled: true,
-                  idleTimeoutSeconds: 900,
-                  recentNavigationLimit: 12,
-                  revision: 0,
-                  source: 'DEFAULT',
-                },
-                documentationSources: [
-                  {
-                    id: 'framework',
-                    label: 'Framework',
-                    type: 'CMS',
-                    route: '/docs/framework',
-                    order: 100,
-                    ownerModule: 'backoffice',
-                    connectionModule: 'cms',
-                    site: 'axisCmsSite',
-                    catalog: 'nodicsDocumentationContentCatalog',
-                    defaultPage: '/docs',
-                    packCode: 'nodicsDocumentation',
-                    initializationProfile: 'frameworkdocs',
+                  catalogue: {
+                    backoffice: {
+                      enabled: true,
+                      category: 'platform',
+                      icon: 'documentation',
+                      requiredPermissions: ['backoffice.documentation.view'],
+                      compatibility: { status: 'COMPATIBLE' },
+                      navigation: [
+                        {
+                          id: 'documentation-dashboard',
+                          label: 'Documentation',
+                          route: '/docs',
+                          order: 100,
+                          group: {
+                            id: 'documentation',
+                            label: 'Documentation',
+                            order: 1600,
+                          },
+                          requiredPermissions: ['backoffice.documentation.view'],
+                        },
+                        ...(!administrationUnavailable
+                          ? [
+                              {
+                                id: 'documentation-framework-placeholder',
+                                label: 'Framework placeholder',
+                                route: '/docs/framework',
+                                order: 110,
+                                group: {
+                                  id: 'documentation',
+                                  label: 'Documentation',
+                                  order: 1600,
+                                },
+                                requiredPermissions: ['backoffice.documentation.view'],
+                              },
+                            ]
+                          : []),
+                      ],
+                    },
                   },
-                ],
-                tenantCode: 'default',
-                startupValidation: readyStartupValidation,
-              },
-            }),
-            { status: 200 },
-          ),
-        );
-      }
-      if (url.includes('/applications/frameworkdocs/initialization')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              data: {
-                profileCode: 'frameworkdocs',
-                siteCode: 'axisCmsSite',
-                readiness: 'READY',
-                releaseCode: 'contentPack:nodicsDocumentation',
-                releaseVersion: '0.0.0',
-                allowedActions: [],
-                publication: {
-                  code: 'frameworkdocs-0.3.10',
-                  state: 'ONLINE',
-                  revision: 4,
+                  availability: {
+                    backoffice: {
+                      state: administrationUnavailable ? 'UNAVAILABLE' : 'UP',
+                    },
+                    cms: { state: 'UP' },
+                  },
+                  axisPolicy: {
+                    contractVersion: 0,
+                    screenLockEnabled: true,
+                    idleTimeoutSeconds: 900,
+                    recentNavigationLimit: 12,
+                    revision: 0,
+                    source: 'DEFAULT',
+                  },
+                  documentationSources: [
+                    {
+                      id: 'framework',
+                      guide: 'framework',
+                      label: 'Framework',
+                      type: 'CMS',
+                      route: '/docs/framework',
+                      order: 100,
+                      ownerModule: 'backoffice',
+                      connectionModule: 'cms',
+                      site: 'axisCmsSite',
+                      catalog: 'nodicsDocumentationContentCatalog',
+                      defaultPage: '/docs',
+                      packCode: 'nodicsDocumentation',
+                      initializationProfile: 'frameworkdocs',
+                    },
+                  ],
+                  tenantCode: 'default',
+                  startupValidation: readyStartupValidation,
                 },
-              },
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        if (url.includes('/applications/frameworkdocs/initialization')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                data: {
+                  profileCode: 'frameworkdocs',
+                  siteCode: 'axisCmsSite',
+                  readiness: 'READY',
+                  releaseCode: 'contentPack:nodicsDocumentation',
+                  releaseVersion: '0.0.0',
+                  allowedActions: [],
+                  publication: {
+                    code: 'frameworkdocs-0.3.10',
+                    state: 'ONLINE',
+                    revision: 4,
+                  },
+                },
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        if (url.includes('/delivery/pages/resolve')) {
+          expect(url).not.toContain('/authenticated');
+          const authenticated = new Headers(options?.headers).get('Authorization');
+          expect(authenticated).toBeNull();
+          expect(new URL(url).searchParams.get('path')).toBe(
+            '/docs/framework/capabilities/content-publishing/wcms-authoring-model',
+          );
+          return Promise.resolve(
+            new Response(JSON.stringify({ result: documentationPage }), {
+              status: 200,
             }),
-            { status: 200 },
-          ),
-        );
-      }
-      if (url.includes('/delivery/pages/resolve')) {
-        expect(url).not.toContain('/authenticated');
-        const authenticated = new Headers(options?.headers).get('Authorization');
-        expect(authenticated).toBeNull();
-        expect(new URL(url).searchParams.get('path')).toBe(
-          '/docs/framework/capabilities/content-publishing/wcms-authoring-model',
-        );
-        return Promise.resolve(
-          new Response(JSON.stringify({ result: documentationPage }), { status: 200 }),
-        );
-      }
-      return Promise.resolve(new Response(null, { status: 404 }));
-    });
-    vi.stubGlobal('fetch', request);
+          );
+        }
+        return Promise.resolve(new Response(null, { status: 404 }));
+      });
+      vi.stubGlobal('fetch', request);
 
-    render(
-      <AppProviders runtimeConfig={runtimeConfig}>
-        <App />
-      </AppProviders>,
-    );
+      render(
+        <AppProviders runtimeConfig={runtimeConfig}>
+          <App />
+        </AppProviders>,
+      );
 
-    expect(
-      await screen.findByRole('heading', {
-        name: 'Web Content Management System Authoring Model',
-      }),
-    ).toBeVisible();
-    expect(
-      request.mock.calls.some(([input]) =>
-        fetchInputUrl(input).includes('/employee/browser/restore'),
-      ),
-    ).toBe(true);
-    expect(window.location.pathname).toBe(documentationPage.path);
-    expect(window.location.hash).toBe('#websites');
-  });
+      expect(
+        await screen.findByRole('heading', {
+          name: 'Web Content Management System Authoring Model',
+        }),
+      ).toBeVisible();
+      expect(
+        request.mock.calls.some(([input]) =>
+          fetchInputUrl(input).includes('/employee/browser/restore'),
+        ),
+      ).toBe(true);
+      expect(window.location.pathname).toBe(documentationPage.path);
+      expect(window.location.hash).toBe('#websites');
+    },
+  );
 
-  it('opens the documentation dashboard from source registry without a navigation item', async () => {
+  it('denies publication management without the BackOffice navigation grant', async () => {
     window.history.pushState({}, '', '/docs');
     document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
     const request = vi.fn<typeof fetch>().mockImplementation((input, options) => {
@@ -1336,6 +1450,7 @@ describe('employee login journey', () => {
                       instanceId: 'runtime-1',
                       environment: 'kickoffLocal',
                       clientCallable: true,
+                      runtimeRole: { code: 'WCMS_ONLINE', publication: 'ONLINE' },
                       endpoint: 'https://cms.example.com/nodics/cms',
                       state: 'UP',
                     },
@@ -1376,6 +1491,7 @@ describe('employee login journey', () => {
                 documentationSources: [
                   {
                     id: 'framework',
+                    guide: 'framework',
                     label: 'Framework',
                     type: 'CMS',
                     route: '/docs/framework',
@@ -1452,8 +1568,13 @@ describe('employee login journey', () => {
     );
 
     expect(
-      await screen.findByRole('heading', { name: 'Documentation publication center' }),
+      await screen.findByText(
+        /No Online documentation is available here for your account/,
+      ),
     ).toBeVisible();
+    expect(
+      screen.queryByRole('heading', { name: 'Documentation publication center' }),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('link', { name: 'Open Framework' }),
     ).not.toBeInTheDocument();
@@ -1464,12 +1585,29 @@ describe('employee login journey', () => {
     ).toBe(false);
   });
 
-  it('adds an Online-ready documentation source to the shell navigation', async () => {
-    window.history.pushState({}, '', '/docs');
+  it('opens authorized shell guides without querying readiness for the source registry', async () => {
+    window.history.pushState({}, '', '/docs?guide=framework');
     document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
     const user = userEvent.setup();
     const request = vi.fn<typeof fetch>().mockImplementation((input, options) => {
       const url = fetchInputUrl(input);
+      if (url.endsWith('/v0/delivery/documentation/guides')) {
+        expect(url).toBe(
+          'https://cms.example.com/nodics/cms/v0/delivery/documentation/guides',
+        );
+        expect(new Headers(options?.headers).get('Authorization')).toBe(
+          'Bearer restored-docs-access',
+        );
+        expect(new Headers(options?.headers).get('x-enterprise-code')).toBe(
+          'enterprise-a',
+        );
+        expect(options).toMatchObject({
+          credentials: 'omit',
+          redirect: 'error',
+          cache: 'no-store',
+        });
+        return Promise.resolve(Response.json({ result: onlineGuideFixture }));
+      }
       if (url.includes('/bootstrap/public')) {
         return Promise.resolve(
           new Response(JSON.stringify(publicBootstrap), { status: 200 }),
@@ -1506,6 +1644,7 @@ describe('employee login journey', () => {
                       instanceId: 'runtime-1',
                       environment: 'kickoffLocal',
                       clientCallable: true,
+                      runtimeRole: { code: 'WCMS_ONLINE', publication: 'ONLINE' },
                       endpoint: 'https://cms.example.com/nodics/cms',
                       state: 'UP',
                     },
@@ -1569,8 +1708,24 @@ describe('employee login journey', () => {
                   source: 'DEFAULT',
                 },
                 documentationSources: [
+                  ...Array.from({ length: 68 }, (_, i) => ({
+                    id: `module-${i}`,
+                    label: `Module ${i}`,
+                    guide: 'axis',
+                    type: 'CMS',
+                    route: `/docs/module-${i}`,
+                    order: i,
+                    ownerModule: 'axis',
+                    connectionModule: 'cms',
+                    site: 'axisDocumentationSite',
+                    catalog: 'documentationContentCatalog',
+                    defaultPage: `/docs/module-${i}`,
+                    packCode: `modulePack${i}`,
+                    initializationProfile: `moduleDocs${i}`,
+                  })),
                   {
                     id: 'framework',
+                    guide: 'framework',
                     label: 'Framework',
                     type: 'CMS',
                     route: '/docs/framework',
@@ -1652,13 +1807,33 @@ describe('employee login journey', () => {
     );
 
     expect(
-      await screen.findByRole('heading', { name: 'Documentation publication center' }),
+      await screen.findByRole('heading', { name: 'Imported Framework' }),
     ).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Open navigation' }));
-    expect(await screen.findByRole('button', { name: 'Framework' })).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Framework placeholder' }),
+    ).not.toBeInTheDocument();
+    const link = await screen.findByRole('button', { name: 'Imported Axis index' });
+    await user.click(link);
+    expect(await screen.findByRole('heading', { name: 'Imported Axis' })).toBeVisible();
+    expect(window.location.search).toBe('?guide=axis');
+    expect(
+      request.mock.calls.filter(([input]) =>
+        fetchInputUrl(input).endsWith('/v0/delivery/documentation/guides'),
+      ),
+    ).toHaveLength(1);
+    expect(
+      request.mock.calls
+        .map(([input]) => fetchInputUrl(input))
+        .filter(
+          (url) =>
+            /applications\/[^/]+\/initialization/.test(url) &&
+            !url.includes('/applications/axis/'),
+        ),
+    ).toEqual([]);
   });
 
-  it('keeps OpenAPI documentation visible while CMS documentation waits for publication', async () => {
+  it('keeps management references out of reader navigation while CMS awaits publication', async () => {
     window.history.pushState({}, '', '/docs');
     document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
     const user = userEvent.setup();
@@ -1700,6 +1875,7 @@ describe('employee login journey', () => {
                       instanceId: 'runtime-1',
                       environment: 'kickoffLocal',
                       clientCallable: true,
+                      runtimeRole: { code: 'WCMS_ONLINE', publication: 'ONLINE' },
                       endpoint: 'https://cms.example.com/nodics/cms',
                       state: 'UP',
                     },
@@ -1764,6 +1940,7 @@ describe('employee login journey', () => {
                 documentationSources: [
                   {
                     id: 'framework',
+                    guide: 'framework',
                     label: 'Framework',
                     type: 'CMS',
                     route: '/docs/framework',
@@ -1778,6 +1955,7 @@ describe('employee login journey', () => {
                   },
                   {
                     id: 'swaggers',
+                    guide: 'framework',
                     label: 'Swaggers',
                     type: 'OPENAPI',
                     route: '/docs/swaggers',
@@ -1871,13 +2049,27 @@ describe('employee login journey', () => {
     expect(
       screen.queryByRole('link', { name: 'Open Framework' }),
     ).not.toBeInTheDocument();
-    expect(await screen.findByRole('link', { name: 'Open Swaggers' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open Swaggers' })).toHaveAttribute(
+      'href',
+      '/docs?manage=swaggers',
+    );
     await user.click(screen.getByRole('button', { name: 'Open navigation' }));
     expect(screen.queryByRole('button', { name: 'Framework' })).not.toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: 'Swaggers' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Swaggers' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Framework guide' }),
+    ).not.toBeInTheDocument();
+    act(() => {
+      window.history.pushState({}, '', '/system/apis');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/docs');
+      expect(window.location.search).toBe('?manage=swaggers');
+    });
   });
 
-  it('adds a documentation source to navigation immediately after inline approval', async () => {
+  it('does not invent guide navigation after inline publication approval', async () => {
     window.history.pushState({}, '', '/docs');
     document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
     const user = userEvent.setup();
@@ -1930,6 +2122,7 @@ describe('employee login journey', () => {
                       instanceId: 'runtime-1',
                       environment: 'kickoffLocal',
                       clientCallable: true,
+                      runtimeRole: { code: 'WCMS_ONLINE', publication: 'ONLINE' },
                       endpoint: 'https://cms.example.com/nodics/cms',
                       state: 'UP',
                     },
@@ -1997,6 +2190,7 @@ describe('employee login journey', () => {
                 documentationSources: [
                   {
                     id: 'framework',
+                    guide: 'framework',
                     label: 'Framework',
                     type: 'CMS',
                     route: '/docs/framework',
@@ -2113,164 +2307,227 @@ describe('employee login journey', () => {
     expect(screen.queryByRole('button', { name: 'Framework' })).not.toBeInTheDocument();
     await user.click(await screen.findByRole('button', { name: 'Approve' }));
     await user.click(screen.getByRole('button', { name: 'Open navigation' }));
-    expect(await screen.findByRole('button', { name: 'Framework' })).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Framework guide' }),
+    ).not.toBeInTheDocument();
   });
 
-  it('restores a content workbench child route without requiring a cms parent item', async () => {
-    window.history.pushState({}, '', '/content/component-media');
-    document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
-    const request = vi.fn<typeof fetch>().mockImplementation((input, options) => {
-      const url = fetchInputUrl(input);
-      if (url.includes('/bootstrap/public')) {
-        return Promise.resolve(
-          new Response(JSON.stringify(publicBootstrap), { status: 200 }),
-        );
-      }
-      if (url.includes('/employee/browser/restore')) {
-        expect(new Headers(options?.headers).get('X-CSRF-Token')).toBe('refresh-csrf');
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              result: {
-                authToken: 'restored-content-access',
-                loginId: 'operator',
-              },
-            }),
-            { status: 200 },
-          ),
-        );
-      }
-      if (url.includes('/axis/initialization')) {
-        return Promise.resolve(
-          new Response(JSON.stringify(axisInitializationReady), { status: 200 }),
-        );
-      }
-      if (url.includes('/bootstrap')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              data: {
-                modules: {
-                  cms: [
-                    {
-                      moduleName: 'cms',
-                      instanceId: 'runtime-1',
-                      environment: 'kickoffLocal',
-                      clientCallable: true,
-                      endpoint: 'https://cms.example.com/nodics/cms',
-                      state: 'UP',
-                    },
-                  ],
+  it.each([
+    '/content/component-media',
+    '/axis-c02-unknown-route',
+    '/administration/runtime-configuration',
+    '/operations/module-health',
+    '/assistant',
+    '/schema-workbench',
+    '/system-integrations',
+    '/registry',
+    '/administration/navigation-composition',
+    '/setup-accelerators',
+    '/operations/imports-exports',
+    '/cron',
+    '/media/items',
+    '/content',
+    '/content#sites-catalogs',
+    '/content#unadmitted-fragment',
+  ])(
+    'restores admitted child routes and explains unavailable destinations: %s',
+    async (requestedRoute) => {
+      window.history.pushState({}, '', requestedRoute);
+      document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
+      const request = vi.fn<typeof fetch>().mockImplementation((input, options) => {
+        const url = fetchInputUrl(input);
+        if (url.includes('/bootstrap/public')) {
+          return Promise.resolve(
+            new Response(JSON.stringify(publicBootstrap), { status: 200 }),
+          );
+        }
+        if (url.includes('/employee/browser/restore')) {
+          expect(new Headers(options?.headers).get('X-CSRF-Token')).toBe(
+            'refresh-csrf',
+          );
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                result: {
+                  authToken: 'restored-content-access',
+                  loginId: 'operator',
                 },
-                catalogue: {
-                  cms: {
-                    enabled: true,
-                    category: 'content',
-                    icon: 'content',
-                    requiredPermissions: ['cms.backoffice.view'],
-                    compatibility: { status: 'COMPATIBLE' },
-                    navigation: [
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        if (url.includes('/axis/initialization')) {
+          return Promise.resolve(
+            new Response(JSON.stringify(axisInitializationReady), { status: 200 }),
+          );
+        }
+        if (url.includes('/bootstrap')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                data: {
+                  modules: {
+                    cms: [
                       {
-                        id: 'component-media',
-                        label: 'Component Media',
-                        route: '/content/component-media',
-                        order: 220,
-                        group: {
-                          id: 'content',
-                          label: 'Content & Experience',
-                          order: 200,
-                        },
-                        requiredPermissions: ['cms.backoffice.view'],
-                        workbenchTarget: {
-                          moduleName: 'cms',
-                          schemaName: 'cmsPage',
-                        },
+                        moduleName: 'cms',
+                        instanceId: 'runtime-1',
+                        environment: 'kickoffLocal',
+                        clientCallable: true,
+                        endpoint: 'https://cms.example.com/nodics/cms',
+                        state: 'UP',
                       },
                     ],
                   },
+                  catalogue: {
+                    cms: {
+                      enabled: true,
+                      category: 'content',
+                      icon: 'content',
+                      requiredPermissions: ['cms.backoffice.view'],
+                      compatibility: { status: 'COMPATIBLE' },
+                      navigation: [
+                        {
+                          id: 'component-media',
+                          label: 'Component Media',
+                          route:
+                            requestedRoute === '/content#sites-catalogs'
+                              ? requestedRoute
+                              : '/content/component-media',
+                          order: 220,
+                          group: {
+                            id: 'content',
+                            label: 'Content & Experience',
+                            order: 200,
+                          },
+                          requiredPermissions: ['cms.backoffice.view'],
+                          workbenchTarget: {
+                            moduleName: 'cms',
+                            schemaName: 'cmsPage',
+                          },
+                        },
+                      ],
+                    },
+                  },
+                  availability: {
+                    cms: { state: 'UP' },
+                  },
+                  axisPolicy: {
+                    contractVersion: 0,
+                    screenLockEnabled: true,
+                    idleTimeoutSeconds: 900,
+                    recentNavigationLimit: 12,
+                    revision: 0,
+                    source: 'DEFAULT',
+                  },
+                  documentationSources: [],
+                  tenantCode: 'default',
+                  startupValidation: readyStartupValidation,
                 },
-                availability: {
-                  cms: { state: 'UP' },
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        if (url.endsWith('/schemas')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ result: { schemas: [cmsPageWorkbenchSchema] } }),
+              { status: 200 },
+            ),
+          );
+        }
+        if (url.includes('/cmsPage/safe-search')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                result: {
+                  records: [{ code: 'home', name: 'Home Page' }],
+                  totalCount: 1,
+                  pageNumber: 1,
+                  pageSize: 10,
+                  sort: { field: 'code', direction: 'ASC' },
                 },
-                axisPolicy: {
-                  contractVersion: 0,
-                  screenLockEnabled: true,
-                  idleTimeoutSeconds: 900,
-                  recentNavigationLimit: 12,
-                  revision: 0,
-                  source: 'DEFAULT',
-                },
-                documentationSources: [],
-                tenantCode: 'default',
-                startupValidation: readyStartupValidation,
-              },
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        if (url.includes('path=%2Fschema-workbench')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ result: schemaWorkbenchPage }), {
+              status: 200,
             }),
-            { status: 200 },
-          ),
-        );
-      }
-      if (url.endsWith('/schemas')) {
+          );
+        }
         return Promise.resolve(
-          new Response(
-            JSON.stringify({ result: { schemas: [cmsPageWorkbenchSchema] } }),
-            { status: 200 },
-          ),
+          new Response(JSON.stringify({ result: dashboardPage }), { status: 200 }),
         );
-      }
-      if (url.includes('/cmsPage/safe-search')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              result: {
-                records: [{ code: 'home', name: 'Home Page' }],
-                totalCount: 1,
-                pageNumber: 1,
-                pageSize: 10,
-                sort: { field: 'code', direction: 'ASC' },
-              },
-            }),
-            { status: 200 },
-          ),
-        );
-      }
-      if (url.includes('path=%2Fschema-workbench')) {
-        return Promise.resolve(
-          new Response(JSON.stringify({ result: schemaWorkbenchPage }), {
-            status: 200,
-          }),
-        );
-      }
-      return Promise.resolve(
-        new Response(JSON.stringify({ result: dashboardPage }), { status: 200 }),
+      });
+      vi.stubGlobal('fetch', request);
+
+      render(
+        <AppProviders runtimeConfig={runtimeConfig}>
+          <App />
+        </AppProviders>,
       );
-    });
-    vi.stubGlobal('fetch', request);
 
-    render(
-      <AppProviders runtimeConfig={runtimeConfig}>
-        <App />
-      </AppProviders>,
-    );
+      if (requestedRoute === '/content#sites-catalogs') {
+        expect(
+          await screen.findByRole('heading', { name: 'Websites and Content Catalogs' }),
+        ).toBeVisible();
+        expect(window.location.pathname + window.location.hash).toBe(requestedRoute);
+        expect(
+          screen.queryByText('Authenticated employee workspace'),
+        ).not.toBeInTheDocument();
+        return;
+      }
+      if (requestedRoute !== '/content/component-media') {
+        expect(
+          await screen.findByRole('heading', { name: 'Page unavailable' }),
+        ).toBeVisible();
+        expect(window.location.pathname + window.location.hash).toBe(requestedRoute);
+        expect(
+          screen.getByText(
+            'This page is not available in your current workspace. Choose a page from the navigation or return to your dashboard.',
+          ),
+        ).toBeVisible();
+        expect(
+          request.mock.calls.some(([input]) =>
+            fetchInputUrl(input).includes('/cmsPage/safe-search'),
+          ),
+        ).toBe(false);
+        await userEvent.click(
+          screen.getByRole('link', { name: 'Return to dashboard' }),
+        );
+        await waitFor(() => expect(window.location.pathname).toBe('/dashboard'));
+        expect(
+          await screen.findByText('Authenticated employee workspace'),
+        ).toBeVisible();
+        return;
+      }
 
-    expect(
-      (await screen.findAllByRole('cell', { name: 'home' }, { timeout: 5_000 })).length,
-    ).toBeGreaterThan(0);
-    expect(
-      screen.queryByText('Authenticated employee workspace'),
-    ).not.toBeInTheDocument();
-    expect(
-      request.mock.calls.some(([input]) =>
-        fetchInputUrl(input).includes('/cmsPage/safe-search'),
-      ),
-    ).toBe(true);
-    expect(
-      request.mock.calls.some(([, options]) =>
-        new Headers(options?.headers)
-          .get('Authorization')
-          ?.includes('restored-content-access'),
-      ),
-    ).toBe(true);
-  });
+      expect(
+        (await screen.findAllByRole('cell', { name: 'home' }, { timeout: 5_000 }))
+          .length,
+      ).toBeGreaterThan(0);
+      expect(
+        screen.queryByText('Authenticated employee workspace'),
+      ).not.toBeInTheDocument();
+      expect(
+        request.mock.calls.some(([input]) =>
+          fetchInputUrl(input).includes('/cmsPage/safe-search'),
+        ),
+      ).toBe(true);
+      expect(
+        request.mock.calls.some(([, options]) =>
+          new Headers(options?.headers)
+            .get('Authorization')
+            ?.includes('restored-content-access'),
+        ),
+      ).toBe(true);
+    },
+  );
 
   it('discovers modules, authenticates through Profile, and protects dashboard', async () => {
     window.history.pushState({}, '', '/login');
@@ -2318,6 +2575,16 @@ describe('employee login journey', () => {
             JSON.stringify({
               data: {
                 modules: {
+                  profile: [
+                    {
+                      moduleName: 'profile',
+                      instanceId: 'runtime-1',
+                      environment: 'kickoffLocal',
+                      clientCallable: true,
+                      endpoint: 'https://profile.example.com/nodics/profile',
+                      state: 'UP',
+                    },
+                  ],
                   cms: [
                     {
                       moduleName: 'cms',
@@ -2541,9 +2808,11 @@ describe('employee login journey', () => {
           ),
         );
       }
-      if (url.includes('/token/logout')) {
+      if (url.includes('/employee/browser/logout')) {
         return Promise.resolve(
-          new Response(JSON.stringify({ result: true }), { status: 200 }),
+          new Response(JSON.stringify({ code: 'SUC_AUTH_00000', result: true }), {
+            status: 200,
+          }),
         );
       }
       if (url.includes('/cmsPage/safe-search')) {
@@ -2639,6 +2908,21 @@ describe('employee login journey', () => {
           ),
         );
       }
+      if (url.endsWith('/identity/scopes/me')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: {
+                enterprise: {
+                  code: runtimeConfig.enterpriseCode,
+                  displayName: 'Registered Enterprise Alpha',
+                },
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
       if (url.endsWith('/schemas')) {
         const schemas = url.includes('cms.example.com')
           ? [cmsPageWorkbenchSchema]
@@ -2690,13 +2974,7 @@ describe('employee login journey', () => {
     ).toBeVisible();
     expect(
       screen.getByRole('button', {
-        name: [
-          'Current context: Environment: Kickoff Local',
-          'Tenant: Default',
-          'Enterprise: Enterprise A',
-          'Site: Axis CMS Site',
-          'Catalog: Axis Content Catalog',
-        ].join(', '),
+        name: 'Kickoff Local · Registered Enterprise Alpha · Current context',
       }),
     ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Open navigation' }));
@@ -2708,7 +2986,7 @@ describe('employee login journey', () => {
     );
     const contentNavigationItem = screen
       .getAllByRole('button', { name: 'Content' })
-      .find((button) => button.getAttribute('aria-level') === '1');
+      .find((button) => button.closest('nav'));
     expect(contentNavigationItem).toBeDefined();
     document.cookie = 'nodics_axis_csrf=refresh-csrf; Path=/';
     rendered.unmount();
@@ -2818,7 +3096,7 @@ describe('employee login journey', () => {
       }),
     ).toBe(true);
 
-    await user.click(screen.getByRole('button', { name: 'Open employee menu' }));
+    await user.click(screen.getByRole('button', { name: /Open employee menu/ }));
     await user.click(screen.getByRole('menuitem', { name: 'Sign out' }));
     expect(await screen.findByLabelText(/Employee ID/)).toBeVisible();
     restoredProvider.unmount();

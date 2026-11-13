@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 
 import { axisTokens } from '../../../app/axisTheme';
 import { AxisMark } from '../../../app/shell/AxisMark';
+import { useAxisLocalization } from '../../../localization/AxisLocalizationContext';
 
 export interface AuthenticationTemplateSlots {
   readonly showcase: ReactNode;
@@ -23,6 +24,7 @@ export function AuthenticationTemplateRenderer({
   readonly showcaseLogoAsset: string;
   readonly slots: AuthenticationTemplateSlots;
 }) {
+  const { format } = useAxisLocalization();
   const showcaseBackgroundImage = `linear-gradient(90deg, ${alpha(
     axisTokens.color.charcoal[950],
     0.92,
@@ -107,7 +109,10 @@ export function AuthenticationTemplateRenderer({
           )}
           {slots.showcase}
           <Typography variant="caption" sx={{ color: alpha('#ffffff', 0.64) }}>
-            Secure employee access • Nodics contract governance
+            {format(
+              'common.authentication.secure-footer',
+              'Secure employee access • Nodics contract governance',
+            )}
           </Typography>
         </Stack>
       </Box>

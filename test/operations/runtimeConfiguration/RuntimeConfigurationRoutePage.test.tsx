@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RuntimeConfigurationRoutePage } from '../../../src/operations/runtimeConfiguration/RuntimeConfigurationRoutePage';
@@ -129,3 +129,71 @@ describe('runtime configuration owner readiness', () => {
     expect(client.validateRuntimeConfigurationUpdate).not.toHaveBeenCalled();
   });
 });
+
+/** Holds one owner read so freshness and failed-read recovery are observable. */
+function deferredRead<T>() {
+  let reject: (reason: unknown) => void = () => undefined;
+  const promise = new Promise<T>((_resolve, rejectPromise) => {
+    reject = rejectPromise;
+  });
+  return { promise, reject };
+}
+
+it.each(['schemas', 'effective'] as const)(
+  'withholds stale configured evidence during a pending or failed %s refresh and recovers with reads only',
+  async (ownerRead) => {
+    const current = {
+      ...effective,
+      status: 'CONFIGURED',
+      values: { token: { configured: true, sensitive: true } },
+    };
+    vi.mocked(client.loadRuntimeConfigurationEffective).mockResolvedValue(current);
+    const schemaRead =
+      deferredRead<
+        Awaited<ReturnType<typeof client.loadRuntimeConfigurationSchemas>>
+      >();
+    const effectiveRead =
+      deferredRead<
+        Awaited<ReturnType<typeof client.loadRuntimeConfigurationEffective>>
+      >();
+    if (ownerRead === 'schemas') {
+      vi.mocked(client.loadRuntimeConfigurationSchemas)
+        .mockResolvedValueOnce([schema])
+        .mockImplementationOnce(() => schemaRead.promise);
+    } else {
+      vi.mocked(client.loadRuntimeConfigurationEffective)
+        .mockResolvedValueOnce(current)
+        .mockImplementationOnce(() => effectiveRead.promise);
+    }
+    const user = userEvent.setup();
+    setup();
+    expect(await screen.findByText('CONFIGURED')).toBeVisible();
+    await user.type(screen.getByLabelText('New value'), 'synthetic-retained-draft');
+    await user.click(screen.getByRole('button', { name: 'Refresh readiness' }));
+    await waitFor(() => expect(screen.getByLabelText('New value')).toBeDisabled());
+    expect(screen.queryByText('CONFIGURED')).not.toBeInTheDocument();
+    expect(screen.queryByText('1/1 configured')).not.toBeInTheDocument();
+    expect(screen.queryByText('Current: Configured securely')).not.toBeInTheDocument();
+    await act(async () => {
+      (ownerRead === 'schemas' ? schemaRead : effectiveRead).reject(
+        new Error('Owner unavailable'),
+      );
+      await Promise.resolve();
+    });
+    expect(await screen.findByText(/Configuration cannot be verified/)).toBeVisible();
+    expect(
+      screen.getByText(/Check the selected runtime.*Refresh readiness/),
+    ).toBeVisible();
+    expect(screen.queryByText('CONFIGURED')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('New value')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(client.loadRuntimeConfigurationSchemas).toHaveBeenCalledTimes(2);
+    expect(client.loadRuntimeConfigurationEffective).toHaveBeenCalledTimes(2);
+    await user.click(screen.getByRole('button', { name: 'Refresh readiness' }));
+    expect(await screen.findByText('CONFIGURED')).toBeVisible();
+    expect(screen.getByLabelText('New value')).toHaveValue('synthetic-retained-draft');
+    expect(screen.getByLabelText('New value')).toBeEnabled();
+    expect(client.saveRuntimeConfigurationUpdate).not.toHaveBeenCalled();
+    expect(client.validateRuntimeConfigurationUpdate).not.toHaveBeenCalled();
+  },
+);

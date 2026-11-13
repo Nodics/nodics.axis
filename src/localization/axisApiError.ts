@@ -25,7 +25,7 @@ export async function parseAxisApiError(
   try {
     const value: unknown = await response.json();
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      return new AxisApiError({ message: fallback });
+      return localizedHttpFallback(response.status, fallback);
     }
     const record = value as Record<string, unknown>;
     const parameters =
@@ -55,8 +55,26 @@ export async function parseAxisApiError(
         : {}),
       ...(parameters ? { messageParameters: parameters } : {}),
       ...(exposure ? { messageExposure: exposure } : {}),
+      ...(!structuredSafe
+        ? {
+            messageKey: localizedHttpFallback(response.status, fallback).messageKey,
+            messageExposure: 'PUBLIC' as const,
+          }
+        : {}),
     });
   } catch {
-    return new AxisApiError({ message: fallback });
+    return localizedHttpFallback(response.status, fallback);
   }
+}
+
+/** Localized, bounded transport fallback; owner text is shown only with an exposure contract. */
+function localizedHttpFallback(status: number, message: string): AxisApiError {
+  const category = [400, 401, 403, 404, 409, 422, 429, 503, 504].includes(status)
+    ? status
+    : 500;
+  return new AxisApiError({
+    message,
+    messageKey: 'common.http.' + String(category),
+    messageExposure: 'PUBLIC',
+  });
 }

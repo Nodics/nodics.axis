@@ -21,7 +21,6 @@ import {
   Typography,
   Tooltip,
 } from '@mui/material';
-import mermaid from 'mermaid';
 import type { ReactNode } from 'react';
 import { useEffect, useId, useState } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router';
@@ -71,12 +70,19 @@ function stringList(value: unknown, limit = MAX_LIST_ITEMS): readonly string[] {
   return Array.isArray(value) ? value.slice(0, limit).map((item) => text(item)) : [];
 }
 
-function documentationLink(value: unknown): DocumentationLink | undefined {
+function documentationLink(
+  value: unknown,
+  routes?: ReadonlySet<string>,
+): DocumentationLink | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return;
   const record = value as Readonly<Record<string, unknown>>;
   const title = text(record.title);
   const route = text(record.route);
-  return title && route.startsWith('/docs') ? { title, route } : undefined;
+  return title &&
+    route.startsWith('/docs') &&
+    (!routes || routes.has(route.split(/[?#]/u)[0] ?? ''))
+    ? { title, route }
+    : undefined;
 }
 
 function safeHref(value: string): string | undefined {
@@ -121,7 +127,7 @@ function scrollToDocumentationAnchor(anchor: string): void {
   target.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function inlineContent(value: string): ReactNode {
+function inlineContent(value: string, routes?: ReadonlySet<string>): ReactNode {
   const parts: ReactNode[] = [];
   const inlinePattern =
     /\[([^\]]+)\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)|`([^`\n]+)`|\*\*([^*\n]+)\*\*|(?<!\*)\*([^*\n]+)\*(?!\*)/g;
@@ -138,7 +144,10 @@ function inlineContent(value: string): ReactNode {
     } else {
       const label = match[1] ?? '';
       const href = safeHref(match[2] ?? '');
-      if (!href) {
+      if (
+        !href ||
+        (routes && href.startsWith('/') && !routes.has(href.split(/[?#]/u)[0] ?? ''))
+      ) {
         parts.push(label);
       } else if (href.startsWith('/')) {
         parts.push(
@@ -409,25 +418,28 @@ function DocumentationDiagramRenderer({
 
   useEffect(() => {
     let active = true;
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: 'strict',
-      theme: 'base',
-      themeVariables: {
-        background: '#ffffff',
-        fontFamily: 'Inter, Roboto, Arial, sans-serif',
-        primaryColor: '#fff7dc',
-        primaryBorderColor: '#f7c600',
-        primaryTextColor: '#242a31',
-        lineColor: '#6b7280',
-        secondaryColor: '#ecfdf5',
-        tertiaryColor: '#eff6ff',
-      },
-    });
-    mermaid
-      .render(`nodicsDocsDiagram${diagramId}`, diagramText)
+    void import('mermaid')
+      .then(async ({ default: mermaid }) => {
+        if (!active) return undefined;
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: 'strict',
+          theme: 'base',
+          themeVariables: {
+            background: '#ffffff',
+            fontFamily: 'Inter, Roboto, Arial, sans-serif',
+            primaryColor: '#fff7dc',
+            primaryBorderColor: '#f7c600',
+            primaryTextColor: '#242a31',
+            lineColor: '#6b7280',
+            secondaryColor: '#ecfdf5',
+            tertiaryColor: '#eff6ff',
+          },
+        });
+        return mermaid.render(`nodicsDocsDiagram${diagramId}`, diagramText);
+      })
       .then((result) => {
-        if (!active) return;
+        if (!active || !result) return;
         setSvg(result.svg);
         setError(undefined);
       })
@@ -592,10 +604,12 @@ function DocumentationMediaImage({
 function DocumentationBlockRenderer({
   block,
   index,
+  routes,
   media,
 }: {
   readonly block: DocumentationBlock;
   readonly index: number;
+  readonly routes?: ReadonlySet<string> | undefined;
   readonly media: CmsRendererActions['documentationMedia'];
 }) {
   const kind = text(block.kind);
@@ -613,14 +627,14 @@ function DocumentationBlockRenderer({
         sx={{ scrollMarginTop: 96 }}
         variant={headingVariant(level)}
       >
-        {inlineContent(text(block.text))}
+        {inlineContent(text(block.text), routes)}
       </Typography>
     );
   }
   if (kind === 'paragraph') {
     return (
       <Typography key={key} sx={{ lineHeight: 1.8 }}>
-        {inlineContent(text(block.text))}
+        {inlineContent(text(block.text), routes)}
       </Typography>
     );
   }
@@ -634,7 +648,7 @@ function DocumentationBlockRenderer({
             key={`${key}:${String(itemIndex)}`}
             sx={{ lineHeight: 1.8, mb: 0.75 }}
           >
-            {inlineContent(item)}
+            {inlineContent(item, routes)}
           </Typography>
         ))}
       </Box>
@@ -648,7 +662,7 @@ function DocumentationBlockRenderer({
         sx={{ borderLeft: 4, borderColor: 'primary.main', m: 0, pl: 2 }}
       >
         <Typography color="text.secondary">
-          {inlineContent(text(block.text))}
+          {inlineContent(text(block.text), routes)}
         </Typography>
       </Box>
     );
@@ -690,7 +704,7 @@ function DocumentationBlockRenderer({
             <TableRow>
               {headers.map((header, cellIndex) => (
                 <TableCell key={`${key}:header:${String(cellIndex)}`}>
-                  {inlineContent(header)}
+                  {inlineContent(header, routes)}
                 </TableCell>
               ))}
             </TableRow>
@@ -702,7 +716,7 @@ function DocumentationBlockRenderer({
                   <TableCell
                     key={`${key}:cell:${String(rowIndex)}:${String(cellIndex)}`}
                   >
-                    {inlineContent(cell)}
+                    {inlineContent(cell, routes)}
                   </TableCell>
                 ))}
               </TableRow>
@@ -765,12 +779,18 @@ export function DocumentationArticleRenderer({
       const level = typeof record.level === 'number' ? record.level : 2;
       return label && anchor && level > 1 ? [{ label, anchor, level }] : [];
     });
-  const previous = documentationLink(component.properties.previous);
-  const next = documentationLink(component.properties.next);
+  const previous = documentationLink(
+    component.properties.previous,
+    actions?.documentationTopicRoutes,
+  );
+  const next = documentationLink(
+    component.properties.next,
+    actions?.documentationTopicRoutes,
+  );
   const relatedLinks = arrayProperty(component, 'relatedLinks')
     .slice(0, 100)
     .flatMap((value) => {
-      const link = documentationLink(value);
+      const link = documentationLink(value, actions?.documentationTopicRoutes);
       return link ? [link] : [];
     });
   const blocks = arrayProperty(component, 'blocks')
@@ -818,13 +838,6 @@ export function DocumentationArticleRenderer({
           {audience.map((item) => (
             <Chip key={item} label={item} size="small" variant="outlined" />
           ))}
-          {maturityState ? <Chip label={maturityState} size="small" /> : null}
-          {accessMode ? (
-            <Chip label={accessMode} size="small" variant="outlined" />
-          ) : null}
-          {lifecycleState ? (
-            <Chip label={lifecycleState} size="small" variant="outlined" />
-          ) : null}
         </Box>
         <Typography
           component="h1"
@@ -839,30 +852,54 @@ export function DocumentationArticleRenderer({
         </Typography>
       </Stack>
       <Divider />
-      {visualRequirements.length > 0 ? (
-        <Box
-          aria-label="Visual requirements"
-          sx={{
-            alignItems: 'center',
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 1,
-          }}
-        >
-          <Typography
-            sx={{ fontWeight: axisTokens.typography.weight.bold }}
-            variant="body2"
-          >
-            Visual contract
-          </Typography>
-          {visualRequirements.map((requirement) => (
-            <Chip
-              key={requirement}
-              label={requirement}
-              size="small"
-              variant="outlined"
-            />
-          ))}
+      {maturityState || accessMode || lifecycleState || visualRequirements.length ? (
+        <Box component="details" sx={{ color: 'text.secondary' }}>
+          <Box component="summary" sx={{ cursor: 'pointer', width: 'fit-content' }}>
+            Article details
+          </Box>
+          <Stack spacing={1} sx={{ pt: 1 }}>
+            {maturityState ? (
+              <Typography variant="body2">
+                Maturity: <span>{maturityState}</span>
+              </Typography>
+            ) : null}
+            {accessMode ? (
+              <Typography variant="body2">
+                Access: <span>{accessMode}</span>
+              </Typography>
+            ) : null}
+            {lifecycleState ? (
+              <Typography variant="body2">
+                Source lifecycle: <span>{lifecycleState}</span>
+              </Typography>
+            ) : null}
+            {visualRequirements.length > 0 ? (
+              <Box
+                aria-label="Visual requirements"
+                sx={{
+                  alignItems: 'center',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 1,
+                }}
+              >
+                <Typography
+                  sx={{ fontWeight: axisTokens.typography.weight.bold }}
+                  variant="body2"
+                >
+                  Visual contract
+                </Typography>
+                {visualRequirements.map((requirement) => (
+                  <Chip
+                    key={requirement}
+                    label={requirement}
+                    size="small"
+                    variant="outlined"
+                  />
+                ))}
+              </Box>
+            ) : null}
+          </Stack>
         </Box>
       ) : null}
       {headings.length > 0 ? (
@@ -899,6 +936,7 @@ export function DocumentationArticleRenderer({
       ) : null}
       {blocks.map((block, index) => (
         <DocumentationBlockRenderer
+          routes={actions?.documentationTopicRoutes}
           media={actions?.documentationMedia}
           block={block}
           index={index}

@@ -1,3 +1,4 @@
+import type { DocumentationGuideKind } from './documentationGuides';
 import { parseApplicationSetupPlan } from '../operations/setupAccelerators/api/applicationSetupPlan';
 import {
   parseApplicationReadinessScheduling,
@@ -19,6 +20,7 @@ import {
 } from '../operations/setupAccelerators/api/applicationVisual';
 
 export interface AxisPublicBootstrap {
+  readonly invitedEmployeeRegistrationAvailable?: boolean;
   readonly contractVersion: number;
   readonly clientContractVersion: number;
   readonly endpoints: {
@@ -46,6 +48,10 @@ export interface AxisEmployeePolicy {
   readonly recentNavigationLimit: number;
   readonly revision: number;
   readonly source: 'DEFAULT' | 'PERSISTED';
+  readonly sessionRecoveryPresentation?: {
+    readonly lockedMessage: string;
+    readonly expiredMessage: string;
+  };
 }
 
 export type AxisModuleAvailability = 'UP' | 'DEGRADED' | 'UNAVAILABLE' | 'UNKNOWN';
@@ -220,6 +226,7 @@ export interface AxisBackendWorkspaceField {
   readonly type: AxisBackendWorkspaceFieldType;
   readonly required: boolean;
   readonly maximumLength?: number | undefined;
+  readonly minimumLength?: number | undefined;
   readonly defaultValue?: string | boolean | readonly string[] | undefined;
   readonly bindToPath?: boolean | undefined;
   readonly options?: readonly AxisBackendWorkspaceOption[] | undefined;
@@ -239,6 +246,16 @@ export interface AxisBackendWorkspaceEndpoint {
 }
 
 export interface AxisBackendWorkspaceSection {
+  readonly resultNavigation?:
+    | Readonly<{
+        label: string;
+        route: string;
+        parameters: Readonly<Record<string, string>>;
+      }>
+    | undefined;
+  readonly resultSummary?:
+    | readonly Readonly<{ field: string; label: string }>[]
+    | undefined;
   readonly rowNavigation?:
     | Readonly<{
         label: string;
@@ -330,6 +347,7 @@ export interface AxisNavigationItem {
   readonly perspectives?: readonly string[] | undefined;
   readonly contexts?: readonly string[] | undefined;
   readonly featureState?: AxisNavigationFeatureState | undefined;
+  readonly requiredPermissions?: readonly string[] | undefined;
   readonly badgeProvider?: AxisNavigationBadgeProvider | undefined;
   readonly workbenchTarget?: AxisWorkbenchTarget | undefined;
   readonly workbenchPresentation?: AxisWorkbenchPresentation | undefined;
@@ -517,7 +535,30 @@ export interface AxisAuthenticatedBootstrap {
   readonly documentationSources: readonly AxisDocumentationSource[];
   readonly startupValidation?: AxisStartupValidationReport | undefined;
   readonly operationalReadiness?: AxisOperationalReadinessReport | undefined;
+  readonly operationalReadinessObservation?:
+    | Readonly<{
+        contractVersion: 1;
+        mode: 'ON_DEMAND';
+        presentation?: AxisReadinessPresentation | undefined;
+      }>
+    | undefined;
   readonly tenantCode: string;
+}
+
+export interface AxisReadinessPresentation {
+  readonly openLabel: string;
+  readonly title: string;
+  readonly description: string;
+  readonly refreshLabel: string;
+  readonly closeLabel: string;
+  readonly loadingMessage: string;
+  readonly errorMessage: string;
+  readonly checkedAtLabel: string;
+  readonly receiptLabel: string;
+  readonly buildLabel: string;
+  readonly stateLabel: string;
+  readonly nextActionLabel: string;
+  readonly historicalMessage: string;
 }
 
 export interface AxisApplicationInitializationProfile {
@@ -551,36 +592,54 @@ export interface AxisApplicationInitializationProfile {
   }>;
 }
 
-export type AxisDocumentationSource =
-  | {
-      readonly id: string;
-      readonly label: string;
-      readonly type: 'CMS';
-      readonly route: string;
-      readonly order: number;
-      readonly ownerModule: string;
-      readonly connectionModule: string;
-      readonly site: string;
-      readonly catalog: string;
-      readonly defaultPage: string;
-      readonly packCode: string;
-      readonly initializationProfile?: string | undefined;
-      readonly labelKey?: string | undefined;
-      readonly dashboard: AxisDocumentationDashboardMetadata;
-    }
-  | {
-      readonly id: string;
-      readonly label: string;
-      readonly type: 'OPENAPI';
-      readonly route: string;
-      readonly order: number;
-      readonly ownerModule: string;
-      readonly connectionModule: string;
-      readonly openApiPath: string;
-      readonly swaggerPath: string;
-      readonly labelKey?: string | undefined;
-      readonly dashboard: AxisDocumentationDashboardMetadata;
-    };
+interface DocumentationChannelReference {
+  readonly sourceId: string;
+  readonly channelId: string;
+  readonly channelLabel: string;
+}
+
+interface AxisDocumentationGuideMetadata {
+  readonly channelReferences?: readonly DocumentationChannelReference[];
+  readonly guide?: DocumentationGuideKind;
+  readonly articleRoutes?: readonly string[];
+  readonly projectId?: string;
+  readonly projectLabel?: string;
+  readonly channelId?: string;
+  readonly channelLabel?: string;
+}
+
+export type AxisDocumentationSource = AxisDocumentationGuideMetadata &
+  (
+    | {
+        readonly id: string;
+        readonly label: string;
+        readonly type: 'CMS';
+        readonly route: string;
+        readonly order: number;
+        readonly ownerModule: string;
+        readonly connectionModule: string;
+        readonly site: string;
+        readonly catalog: string;
+        readonly defaultPage: string;
+        readonly packCode: string;
+        readonly initializationProfile?: string | undefined;
+        readonly labelKey?: string | undefined;
+        readonly dashboard: AxisDocumentationDashboardMetadata;
+      }
+    | {
+        readonly id: string;
+        readonly label: string;
+        readonly type: 'OPENAPI';
+        readonly route: string;
+        readonly order: number;
+        readonly ownerModule: string;
+        readonly connectionModule: string;
+        readonly openApiPath: string;
+        readonly swaggerPath: string;
+        readonly labelKey?: string | undefined;
+        readonly dashboard: AxisDocumentationDashboardMetadata;
+      }
+  );
 
 export function selectModuleConnection(
   bootstrap: AxisAuthenticatedBootstrap,
@@ -774,6 +833,19 @@ function backendWorkspaceField(
     source.maximumLength === undefined
       ? undefined
       : nonNegativeInteger(source.maximumLength, `${name} maximum length`);
+  const minimumLength =
+    source.minimumLength === undefined
+      ? undefined
+      : nonNegativeInteger(source.minimumLength, `${name} minimum length`);
+  if (
+    minimumLength !== undefined &&
+    (!['TEXT', 'EMAIL', 'PASSWORD', 'MULTILINE'].includes(type) ||
+      minimumLength < 1 ||
+      minimumLength > 4000 ||
+      (maximumLength !== undefined && minimumLength > maximumLength))
+  ) {
+    throw new Error(`${name} minimum length is invalid`);
+  }
   const defaultFromParameter =
     source.defaultFromParameter === undefined
       ? undefined
@@ -794,6 +866,7 @@ function backendWorkspaceField(
     type: type as AxisBackendWorkspaceFieldType,
     required: source.required === true,
     maximumLength,
+    minimumLength,
     defaultValue:
       typeof source.defaultValue === 'string' ||
       typeof source.defaultValue === 'boolean' ||
@@ -880,6 +953,54 @@ function backendWorkspaceSection(
       ),
     );
   };
+  let resultNavigation: AxisBackendWorkspaceSection['resultNavigation'];
+  if (source.resultNavigation !== undefined) {
+    if (type !== 'form') throw new Error('Result navigation requires a form');
+    const action = record(source.resultNavigation, 'Workspace result navigation');
+    const route = relativeRoute(action.route, 'Workspace result route');
+    const label = text(action.label, 'Result navigation label');
+    if (
+      Object.keys(action).some(
+        (key) => !['label', 'route', 'parameters'].includes(key),
+      ) ||
+      route.length > 512 ||
+      !/^\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/.test(route) ||
+      label.length > 128
+    )
+      throw new Error('Workspace result navigation is invalid');
+    resultNavigation = Object.freeze({
+      label,
+      route,
+      parameters: mapping(action.parameters, 'Result navigation parameters'),
+    });
+  }
+  let resultSummary: AxisBackendWorkspaceSection['resultSummary'];
+  if (source.resultSummary !== undefined) {
+    if (
+      type !== 'form' ||
+      !Array.isArray(source.resultSummary) ||
+      !source.resultSummary.length ||
+      source.resultSummary.length > 8
+    )
+      throw new Error('Workspace result summary is invalid');
+    const names = new Set<string>();
+    resultSummary = Object.freeze(
+      source.resultSummary.map((item: unknown) => {
+        const column = record(item, 'Result summary field');
+        const field = text(column.field, 'Result field'),
+          label = text(column.label, 'Result label');
+        if (
+          Object.keys(column).some((key) => !['field', 'label'].includes(key)) ||
+          !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(field) ||
+          names.has(field) ||
+          label.length > 128
+        )
+          throw new Error('Workspace result summary is invalid');
+        names.add(field);
+        return Object.freeze({ field, label });
+      }),
+    );
+  }
   let rowNavigation: AxisBackendWorkspaceSection['rowNavigation'];
   if (source.rowNavigation !== undefined) {
     if (type !== 'listing') throw new Error('Row navigation requires a listing');
@@ -1026,6 +1147,8 @@ function backendWorkspaceSection(
   return Object.freeze({
     rowNavigation,
     readSource,
+    ...(resultNavigation ? { resultNavigation } : {}),
+    ...(resultSummary ? { resultSummary } : {}),
     id: text(source.id, `${name} id`),
     type: type as AxisBackendWorkspaceSection['type'],
     title: text(source.title, `${name} title`),
@@ -1193,7 +1316,7 @@ function navigationFeatureState(value: unknown): AxisNavigationFeatureState {
   return value as AxisNavigationFeatureState;
 }
 
-function navigationDisplayLabel(label: string): string {
+export function navigationDisplayLabel(label: string): string {
   return label
     .replace(/\bAnd\b/g, '&')
     .replace(/\band\b/g, '&')
@@ -1868,6 +1991,13 @@ function parseNavigation(
               ? Object.freeze([])
               : stringList(item.contexts, `${moduleName} navigation contexts`),
           featureState: navigationFeatureState(item.featureState),
+          requiredPermissions:
+            item.requiredPermissions === undefined
+              ? undefined
+              : stringList(
+                  item.requiredPermissions,
+                  `${moduleName} navigation permissions`,
+                ),
           badgeProvider: parseBadgeProvider(item.badgeProvider, moduleName),
           workbenchTarget: parseWorkbenchTarget(item.workbenchTarget, moduleName),
           workbenchPresentation: parseWorkbenchPresentation(
@@ -2031,6 +2161,13 @@ function parseEffectiveNavigationComposition(
           ? Object.freeze([])
           : stringList(item.contexts, `${moduleName} effective navigation contexts`),
       featureState: navigationFeatureState(item.featureState),
+      requiredPermissions:
+        item.requiredPermissions === undefined
+          ? undefined
+          : stringList(
+              item.requiredPermissions,
+              `${moduleName} navigation permissions`,
+            ),
       badgeProvider: parseBadgeProvider(item.badgeProvider, moduleName),
       workbenchTarget: parseWorkbenchTarget(item.workbenchTarget, moduleName),
       workbenchPresentation: parseWorkbenchPresentation(
@@ -2170,6 +2307,55 @@ function parseModuleContext(modulesValue: unknown): {
   });
 }
 
+/** Older registries omit guide ownership entirely. Explicit ownership must be complete. */
+function parseDocumentationGuide(
+  source: Record<string, unknown>,
+  id: string,
+): AxisDocumentationGuideMetadata {
+  const { guide, projectId, projectLabel, channelId, channelLabel } = source;
+  if (guide === 'project') {
+    return {
+      guide,
+      ...(source.channelReferences === undefined
+        ? {}
+        : {
+            channelReferences: Object.freeze(
+              array(
+                source.channelReferences,
+                `${id} documentation channel references`,
+              ).map((candidate) => {
+                const name = `${id} documentation channel reference`;
+                const reference = record(candidate, name);
+                return Object.freeze({
+                  sourceId: text(reference.sourceId, `${name} source id`),
+                  channelId: text(reference.channelId, `${name} channel id`),
+                  channelLabel: text(reference.channelLabel, `${name} channel label`),
+                });
+              }),
+            ),
+          }),
+      projectId: text(projectId, `${id} documentation project id`),
+      projectLabel: text(projectLabel, `${id} documentation project label`),
+      ...(channelId === undefined && channelLabel === undefined
+        ? {}
+        : {
+            channelId: text(channelId, `${id} documentation channel id`),
+            channelLabel: text(channelLabel, `${id} documentation channel label`),
+          }),
+    };
+  }
+  if (
+    [projectId, projectLabel, channelId, channelLabel, source.channelReferences].some(
+      (value) => value !== undefined,
+    )
+  ) {
+    throw new Error(`${id} documentation project metadata requires a project guide`);
+  }
+  if (guide === undefined) return {};
+  if (guide === 'framework' || guide === 'axis') return { guide };
+  throw new Error(`${id} documentation guide is unsupported`);
+}
+
 function parseDocumentationSources(value: unknown): readonly AxisDocumentationSource[] {
   if (!Array.isArray(value)) {
     throw new Error('BackOffice documentation sources must be a list');
@@ -2183,6 +2369,24 @@ function parseDocumentationSources(value: unknown): readonly AxisDocumentationSo
     ids.add(id);
     const common = {
       id,
+      ...parseDocumentationGuide(source, id),
+      ...(source.articleRoutes === undefined
+        ? {}
+        : {
+            articleRoutes: Object.freeze(
+              stringList(
+                source.articleRoutes,
+                `${id} documentation article routes`,
+              ).map((route) => {
+                if (!/^\/docs(?:\/[A-Za-z0-9_-]+)+$/.test(route)) {
+                  throw new Error(
+                    `${id} documentation article routes must target canonical /docs paths`,
+                  );
+                }
+                return route;
+              }),
+            ),
+          }),
       label: text(source.label, `${id} documentation label`),
       route: relativeRoute(source.route, `${id} documentation route`),
       order: Number.isInteger(source.order) ? Number(source.order) : index,
@@ -2284,6 +2488,24 @@ function parseDocumentationCoverage(
 
 export function parseEmployeePolicy(value: unknown): AxisEmployeePolicy {
   const policy = record(value, 'BackOffice Axis employee policy');
+  const presentation =
+    policy.sessionRecoveryPresentation === undefined
+      ? undefined
+      : record(
+          policy.sessionRecoveryPresentation,
+          'Axis session recovery presentation',
+        );
+  if (
+    presentation &&
+    (Object.keys(presentation).sort().join(',') !== 'expiredMessage,lockedMessage' ||
+      !['lockedMessage', 'expiredMessage'].every(
+        (key) =>
+          typeof presentation[key] === 'string' &&
+          presentation[key].trim().length > 0 &&
+          presentation[key].length <= 1024,
+      ))
+  )
+    throw new Error('Axis session recovery presentation is incompatible');
   if (
     policy.contractVersion !== 0 ||
     typeof policy.screenLockEnabled !== 'boolean' ||
@@ -2304,7 +2526,35 @@ export function parseEmployeePolicy(value: unknown): AxisEmployeePolicy {
     recentNavigationLimit: Number(policy.recentNavigationLimit),
     revision: nonNegativeInteger(policy.revision, 'Axis policy revision'),
     source: policy.source as 'DEFAULT' | 'PERSISTED',
+    ...(presentation
+      ? {
+          sessionRecoveryPresentation: Object.freeze({
+            lockedMessage: presentation.lockedMessage as string,
+            expiredMessage: presentation.expiredMessage as string,
+          }),
+        }
+      : {}),
   });
+}
+
+/** Optional public observation; only the Profile owner may advertise registration availability. */
+function publicInvitedRegistrationAvailable(value: unknown): boolean {
+  if (value === undefined) return false;
+  const availability = record(value, 'public feature availability');
+  if (availability.profile === undefined) return false;
+  const profile = record(availability.profile, 'Profile public features');
+  const features = record(profile.features, 'Profile public feature observations');
+  if (
+    profile.contractVersion !== 1 ||
+    Object.keys(profile).length !== 2 ||
+    Object.keys(features).length > 32 ||
+    Object.entries(features).some(
+      ([key, enabled]) =>
+        !/^[A-Za-z][A-Za-z0-9]{0,63}$/.test(key) || typeof enabled !== 'boolean',
+    )
+  )
+    throw new Error('Profile public feature observations are incompatible');
+  return features.invitedEmployeeRegistration === true;
 }
 
 export function parsePublicBootstrap(
@@ -2327,6 +2577,9 @@ export function parsePublicBootstrap(
   return Object.freeze({
     contractVersion: expectedVersion,
     clientContractVersion: expectedVersion,
+    ...(publicInvitedRegistrationAvailable(data.featureAvailability)
+      ? { invitedEmployeeRegistrationAvailable: true }
+      : {}),
     endpoints: Object.freeze({
       profile: baseUrl(endpoints.profile, 'profile endpoint'),
       cms: baseUrl(endpoints.cms, 'cms endpoint'),
@@ -2812,31 +3065,157 @@ function parseOperationalReadinessReport(
   });
 }
 
-export async function loadAuthenticatedBootstrap(
+/** Normal admission reads retain fresh owner gates but request the optional diagnostic sweep separately. */
+export function loadAuthenticatedBootstrap(
   backofficeBaseUrl: string,
   clientContractVersion: number,
   accessToken: string,
   timeoutMs: number,
   fetchImplementation: typeof fetch = fetch,
 ): Promise<AxisAuthenticatedBootstrap> {
+  return loadBootstrapProjection(
+    backofficeBaseUrl,
+    clientContractVersion,
+    accessToken,
+    timeoutMs,
+    false,
+    fetchImplementation,
+  );
+}
+
+/** Observes the complete existing owner report, bound to the currently admitted tenant and BackOffice source. No retries, commands or retained authority. */
+export async function loadOperationalReadiness(
+  backofficeBaseUrl: string,
+  clientContractVersion: number,
+  accessToken: string,
+  timeoutMs: number,
+  expected: AxisAuthenticatedBootstrap,
+  signal?: AbortSignal,
+  fetchImplementation: typeof fetch = fetch,
+): Promise<AxisOperationalReadinessReport> {
+  const current = await loadBootstrapProjection(
+    backofficeBaseUrl,
+    clientContractVersion,
+    accessToken,
+    timeoutMs,
+    true,
+    fetchImplementation,
+    signal,
+  );
+  const identity = (bootstrap: AxisAuthenticatedBootstrap) => {
+    const connection = selectModuleConnection(bootstrap, 'backoffice');
+    return connection
+      ? JSON.stringify([
+          connection.moduleName,
+          connection.instanceId,
+          connection.endpoint,
+          connection.environment,
+          connection.server,
+          connection.runtimeRole?.code,
+          connection.runtimeRole?.publication,
+          connection.state,
+        ])
+      : undefined;
+  };
+  if (signal?.aborted)
+    throw new DOMException('Readiness observation was cancelled.', 'AbortError');
+  if (
+    current.tenantCode !== expected.tenantCode ||
+    !identity(expected) ||
+    identity(current) !== identity(expected)
+  )
+    throw new Error(
+      'BackOffice readiness source changed. Refresh the authenticated catalogue.',
+    );
+  if (!current.operationalReadiness)
+    throw new Error('BackOffice operational readiness is unavailable.');
+  return current.operationalReadiness;
+}
+
+/** Parses the inert observation capability; it is never a readiness result or an admission grant. */
+function parseOperationalReadinessObservation(
+  value: unknown,
+): AxisAuthenticatedBootstrap['operationalReadinessObservation'] {
+  if (value === undefined) return undefined;
+  const source = record(value, 'operational readiness observation');
+  if (
+    source.contractVersion !== 1 ||
+    source.mode !== 'ON_DEMAND' ||
+    Object.keys(source).some(
+      (key) => !['contractVersion', 'mode', 'presentation'].includes(key),
+    )
+  )
+    throw new Error('BackOffice operational readiness observation is invalid');
+  let presentation: AxisReadinessPresentation | undefined;
+  if (source.presentation !== undefined) {
+    const copy = record(source.presentation, 'readiness presentation');
+    const keys = [
+      'openLabel',
+      'title',
+      'description',
+      'refreshLabel',
+      'closeLabel',
+      'loadingMessage',
+      'errorMessage',
+      'checkedAtLabel',
+      'receiptLabel',
+      'buildLabel',
+      'stateLabel',
+      'nextActionLabel',
+      'historicalMessage',
+    ] as const;
+    if (
+      Object.keys(copy).some((key) => !keys.includes(key as (typeof keys)[number])) ||
+      keys.some(
+        (key) =>
+          typeof copy[key] !== 'string' || !copy[key].trim() || copy[key].length > 1024,
+      )
+    )
+      throw new Error('BackOffice operational readiness presentation is invalid');
+    presentation = Object.freeze(
+      Object.fromEntries(keys.map((key) => [key, copy[key]])),
+    ) as unknown as AxisReadinessPresentation;
+  }
+  return Object.freeze({
+    contractVersion: 1,
+    mode: 'ON_DEMAND',
+    ...(presentation ? { presentation } : {}),
+  });
+}
+
+async function loadBootstrapProjection(
+  backofficeBaseUrl: string,
+  clientContractVersion: number,
+  accessToken: string,
+  timeoutMs: number,
+  includeOperationalReadiness: boolean,
+  fetchImplementation: typeof fetch,
+  signal?: AbortSignal,
+): Promise<AxisAuthenticatedBootstrap> {
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  const abort = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  signal?.addEventListener('abort', abort, { once: true });
+  const url = new URL('/nodics/backoffice/v0/bootstrap', backofficeBaseUrl);
+  url.searchParams.set('projection', 'axis-client-v1');
+  url.searchParams.set(
+    'includeOperationalReadiness',
+    String(includeOperationalReadiness),
+  );
   try {
-    const response = await fetchImplementation(
-      new URL('/nodics/backoffice/v0/bootstrap', backofficeBaseUrl),
-      {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-          'x-nodics-client-contract-version': String(clientContractVersion),
-        },
-        cache: 'no-store',
-        credentials: 'omit',
-        redirect: 'error',
-        signal: controller.signal,
+    const response = await fetchImplementation(url, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+        'x-nodics-client-contract-version': String(clientContractVersion),
       },
-    ).catch(() => {
+      cache: 'no-store',
+      credentials: 'omit',
+      redirect: 'error',
+      signal: controller.signal,
+    }).catch(() => {
       throw new AuthenticatedBootstrapUnavailableError(
         'BackOffice availability is temporarily unavailable.',
       );
@@ -2859,6 +3238,13 @@ export async function loadAuthenticatedBootstrap(
       'BackOffice employee bootstrap response',
     );
     const data = record(envelope.data, 'BackOffice employee bootstrap data');
+    if (data.projection !== undefined && data.projection !== 'axis-client-v1')
+      throw new Error('BackOffice bootstrap projection is unsupported');
+    const observation = parseOperationalReadinessObservation(
+      data.operationalReadinessObservation,
+    );
+    if (observation && data.operationalReadiness != null)
+      throw new Error('BackOffice operational readiness projection is inconsistent');
     const admission = data.axisInitializationAdmission;
     if (
       admission !== undefined &&
@@ -2890,9 +3276,11 @@ export async function loadAuthenticatedBootstrap(
       documentationSources: parseDocumentationSources(data.documentationSources),
       startupValidation: parseStartupValidationReport(data.startupValidation),
       operationalReadiness: parseOperationalReadinessReport(data.operationalReadiness),
+      operationalReadinessObservation: observation,
       tenantCode: text(data.tenantCode, 'BackOffice employee tenant code'),
     });
   } finally {
     globalThis.clearTimeout(timeout);
+    signal?.removeEventListener('abort', abort);
   }
 }

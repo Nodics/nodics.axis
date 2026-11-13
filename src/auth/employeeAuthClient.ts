@@ -182,12 +182,21 @@ export async function authenticateEmployee(
       },
     );
     if (!response.ok) {
-      throw await parseAxisApiError(
+      const error = await parseAxisApiError(
         response,
         response.status === 401
           ? 'Profile could not establish a secure browser session.'
           : `Profile authentication returned HTTP ${String(response.status)}`,
       );
+      if (response.status === 401 && !error.messageExposure) {
+        throw new AxisApiError({
+          code: error.code,
+          message: error.message,
+          messageKey: 'common.authentication.rejected',
+          messageExposure: 'PUBLIC',
+        });
+      }
+      throw error;
     }
     const tokens = tokenEnvelope(await response.json());
     return Object.freeze({
@@ -235,6 +244,17 @@ export async function logoutEmployee(
     if (!response.ok) {
       throw new Error('Profile could not complete secure logout');
     }
+    // A successful transport is not proof that Profile revoked the session.
+    // Retain the locked recovery path until the owner explicitly acknowledges it.
+    const acknowledgement: unknown = await response.json().catch(() => null);
+    if (
+      !acknowledgement ||
+      typeof acknowledgement !== 'object' ||
+      Array.isArray(acknowledgement) ||
+      (acknowledgement as { code?: unknown }).code !== 'SUC_AUTH_00000' ||
+      (acknowledgement as { result?: unknown }).result !== true
+    )
+      throw new Error('Profile could not complete secure logout');
   } finally {
     globalThis.clearTimeout(timeout);
   }
@@ -287,4 +307,4 @@ export async function restoreEmployeeSession(
     globalThis.clearTimeout(timeout);
   }
 }
-import { parseAxisApiError } from '../localization/axisApiError';
+import { AxisApiError, parseAxisApiError } from '../localization/axisApiError';

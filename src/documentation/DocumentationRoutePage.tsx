@@ -17,9 +17,9 @@ import {
 import { alpha } from '@mui/material/styles';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router';
 
 import { axisTokens } from '../app/axisTheme';
-import { CmsRoutePage } from '../app/CmsRoutePage';
 import { WorkspaceHeading } from '../app/help/WorkspaceHelp';
 import { ShellIcon } from '../app/shell/ShellIcon';
 import { WorkspaceContainer } from '../app/shell/ShellPrimitives';
@@ -38,11 +38,14 @@ import {
   type DocumentationPublicationStatus,
 } from './api/documentationPublicationClient';
 import { publicationQueryPolicy } from './publicationQueryPolicy';
+import {
+  DocumentationGuidePage,
+  DocumentationUnavailable,
+} from './DocumentationGuidePage';
 import { DocumentationDashboard } from './DocumentationDashboard';
-import { DocumentationSourceNavigation } from './DocumentationSourceNavigation';
 import { OpenApiDocumentationRenderer } from './OpenApiDocumentationRenderer';
 
-interface DocumentationRoutePageProps {
+export interface DocumentationRoutePageProps {
   readonly accessToken: string;
   readonly bootstrap: AxisAuthenticatedBootstrap;
   readonly channel: string;
@@ -77,16 +80,6 @@ const documentationSecondaryActionButtonSx = {
   },
 } as const;
 
-/** Selects only a backend-declared route boundary; unknown products never borrow another Site. */
-function sourceForPath(
-  sources: readonly AxisDocumentationSource[],
-  path: string,
-): AxisDocumentationSource | undefined {
-  return sources
-    .filter((source) => path === source.route || path.startsWith(`${source.route}/`))
-    .sort((left, right) => right.route.length - left.route.length)[0];
-}
-
 const documentationLifecycleSteps = Object.freeze([
   Object.freeze({
     title: '1. Import to Staged',
@@ -111,7 +104,7 @@ function documentationPublicationReadinessLabel(
 ): string {
   switch (readiness) {
     case 'NOT_IMPORTED':
-      return 'Not initialized';
+      return 'Candidate not imported';
     case 'IMPORTING':
       return 'Importing';
     case 'BLOCKED':
@@ -146,7 +139,7 @@ function documentationPublicationColor(
   return 'default';
 }
 
-interface CmsDocumentationRoutePageProps extends DocumentationRoutePageProps {
+interface DocumentationPublicationDetailProps extends DocumentationRoutePageProps {
   readonly administrationConnection: AxisModuleConnection;
   readonly onPublicationStatusChange?:
     | ((status: DocumentationPublicationStatus) => void | Promise<void>)
@@ -154,7 +147,7 @@ interface CmsDocumentationRoutePageProps extends DocumentationRoutePageProps {
   readonly source: Extract<AxisDocumentationSource, { readonly type: 'CMS' }>;
 }
 
-function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
+function DocumentationPublicationDetail(props: DocumentationPublicationDetailProps) {
   const source = props.source;
   if (!source.initializationProfile) {
     throw new Error('Documentation initialization profile is unavailable');
@@ -201,7 +194,7 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
   const publication = useQuery({
     ...publicationQueryPolicy,
     queryKey: publicationQueryKey(props.runtime.enterpriseCode, initializationProfile),
-    queryFn: publicationClient.getStatus,
+    queryFn: ({ signal }) => publicationClient.getStatus(signal),
   });
   const pack = useQuery({
     queryKey: packQueryKey(props.runtime.enterpriseCode, source.packCode),
@@ -425,23 +418,6 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
             </Stack>
           </Collapse>
         </Paper>
-        <CmsRoutePage
-          actions={{
-            documentationMedia: {
-              bootstrap: props.bootstrap,
-              accessToken: props.accessToken,
-              enterpriseCode: props.runtime.enterpriseCode,
-              timeoutMs: props.runtime.requestTimeoutMs,
-            },
-          }}
-          channel={props.channel}
-          cmsBaseUrl={props.cmsBaseUrl}
-          enterpriseCode={props.runtime.enterpriseCode}
-          locale={props.locale}
-          path={props.path === source.route ? source.defaultPage : props.path}
-          site={source.site}
-          timeoutMs={props.runtime.requestTimeoutMs}
-        />
         <Dialog onClose={() => setConfirmation(undefined)} open={Boolean(confirmation)}>
           <DialogTitle>
             {confirmation === 'ROLLBACK'
@@ -779,8 +755,44 @@ function CmsDocumentationRoutePage(props: CmsDocumentationRoutePageProps) {
   );
 }
 
-/** Adds CMS product records to this reader view without persisting a client-side source registry. */
+/** Catalogued articles and explicitly granted publication management have separate entry paths. */
 export function DocumentationRoutePage(props: DocumentationRoutePageProps) {
+  const [query] = useSearchParams();
+  const management = props.bootstrap.navigation.find(
+    (item) =>
+      item.moduleName === 'backoffice' &&
+      item.route === '/docs' &&
+      ['UP', 'DEGRADED'].includes(item.availability) &&
+      (!item.featureState || ['ACTIVE', 'PREVIEW'].includes(item.featureState)),
+  );
+  const managementView =
+    management &&
+    props.path === '/docs' &&
+    !query.has('guide') &&
+    !query.has('project');
+  if (query.has('manage')) {
+    if (!managementView || query.getAll('manage').length !== 1) {
+      return <DocumentationUnavailable managementRoute={management?.route} />;
+    }
+    return (
+      <DocumentationProductRoute {...props} managedId={query.get('manage') ?? ''} />
+    );
+  }
+  return (
+    <Stack spacing={1}>
+      <DocumentationGuidePage
+        {...props}
+        query={query}
+        managementRoute={management?.route}
+      />
+      {managementView && <DocumentationProductRoute {...props} />}
+    </Stack>
+  );
+}
+
+function DocumentationProductRoute(
+  props: DocumentationRoutePageProps & { readonly managedId?: string },
+) {
   const profiles = (props.bootstrap.applicationInitializationProfiles ?? []).filter(
     (profile) =>
       profile.type === 'DOCUMENTATION_BUNDLE' &&
@@ -791,8 +803,10 @@ export function DocumentationRoutePage(props: DocumentationRoutePageProps) {
   );
   const needsDiscovery =
     profiles.length > 0 &&
-    (props.path === '/docs' ||
-      !sourceForPath(props.bootstrap.documentationSources, props.path));
+    (props.managedId === undefined ||
+      !props.bootstrap.documentationSources.some(
+        (item) => item.id === props.managedId,
+      ));
   const connection = selectModuleConnection(props.bootstrap, 'cms', {
     publicationRole: 'STAGED',
   });
@@ -851,90 +865,57 @@ export function DocumentationRoutePage(props: DocumentationRoutePageProps) {
       </Alert>
     );
   }
-  return (
-    <ResolvedDocumentationRoutePage
-      {...props}
-      bootstrap={{ ...props.bootstrap, documentationSources: sources }}
-    />
-  );
-}
-
-function ResolvedDocumentationRoutePage(props: DocumentationRoutePageProps) {
-  if (props.path === '/docs') {
-    return (
-      <WorkspaceContainer>
-        <DocumentationDashboard
+  if (props.managedId !== undefined) {
+    const source = sources.find((item) => item.id === props.managedId);
+    if (source?.type === 'OPENAPI') {
+      const connection = selectModuleConnection(
+        props.bootstrap,
+        source.connectionModule,
+      );
+      return connection ? (
+        <OpenApiDocumentationRenderer
           accessToken={props.accessToken}
-          bootstrap={props.bootstrap}
-          onPublicationStatusChange={props.onPublicationStatusChange}
+          connection={connection}
+          enterpriseCode={props.runtime.enterpriseCode}
+          moduleCatalog={props.bootstrap.moduleCatalog}
           runtime={props.runtime}
+          source={source}
         />
-      </WorkspaceContainer>
+      ) : (
+        <Alert severity="warning">The API reference runtime is unavailable.</Alert>
+      );
+    }
+    const administrationConnection = selectModuleConnection(
+      props.bootstrap,
+      'backoffice',
     );
-  }
-  const source = sourceForPath(props.bootstrap.documentationSources, props.path);
-  if (!source) {
+    if (
+      source?.type !== 'CMS' ||
+      !source.initializationProfile ||
+      !administrationConnection
+    ) {
+      return (
+        <Alert severity="warning">
+          Publication management is unavailable for this source.
+        </Alert>
+      );
+    }
     return (
-      <Alert severity="warning">
-        No authorized documentation source is available for this route.
-      </Alert>
-    );
-  }
-  const connection = selectModuleConnection(props.bootstrap, source.connectionModule);
-  const administrationConnection = selectModuleConnection(
-    props.bootstrap,
-    'backoffice',
-  );
-  const navigation = (
-    <DocumentationSourceNavigation
-      activeSourceId={source.id}
-      sources={props.bootstrap.documentationSources}
-    />
-  );
-  let content;
-  if (!connection) {
-    content = (
-      <WorkspaceContainer>
-        <Alert severity="warning">
-          {source.label} is unavailable because its owning runtime connection is not
-          active.
-        </Alert>
-      </WorkspaceContainer>
-    );
-  } else if (source.type === 'OPENAPI') {
-    content = (
-      <OpenApiDocumentationRenderer
-        accessToken={props.accessToken}
-        connection={connection}
-        enterpriseCode={props.runtime.enterpriseCode}
-        moduleCatalog={props.bootstrap.moduleCatalog}
-        runtime={props.runtime}
-        source={source}
-      />
-    );
-  } else if (!administrationConnection) {
-    content = (
-      <WorkspaceContainer>
-        <Alert severity="warning">
-          Documentation administration is unavailable because Platform BackOffice is not
-          active.
-        </Alert>
-      </WorkspaceContainer>
-    );
-  } else {
-    content = (
-      <CmsDocumentationRoutePage
+      <DocumentationPublicationDetail
         {...props}
-        administrationConnection={administrationConnection}
-        onPublicationStatusChange={props.onPublicationStatusChange}
         source={source}
+        administrationConnection={administrationConnection}
       />
     );
   }
   return (
-    <Stack spacing={1}>
-      <Box sx={{ minWidth: 0, width: '100%' }}>{navigation}</Box>
-      {content}
-    </Stack>
+    <WorkspaceContainer>
+      <DocumentationDashboard
+        accessToken={props.accessToken}
+        bootstrap={{ ...props.bootstrap, documentationSources: sources }}
+        onPublicationStatusChange={props.onPublicationStatusChange}
+        runtime={props.runtime}
+      />
+    </WorkspaceContainer>
   );
 }

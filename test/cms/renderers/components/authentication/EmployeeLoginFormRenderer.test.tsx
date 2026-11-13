@@ -1,3 +1,4 @@
+import { MemoryRouter } from 'react-router';
 /** Managed login transport presentation only; no live authentication or automatic retry. */
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -105,4 +106,39 @@ it('shows pending state and refuses click, Enter and direct submit until explici
   expect(onEmployeeLogin).not.toHaveBeenCalled();
   await user.click(button);
   expect(onEmployeeLogin).toHaveBeenCalledExactlyOnceWith('operator', 'test-input');
+});
+
+it('offers only admitted Profile invitation copy and hides it while sign-in is pending', () => {
+  const onEmployeeLogin = vi.fn();
+  const view = render(
+    <MemoryRouter>
+      <EmployeeLoginFormRenderer
+        component={component}
+        actions={{
+          onEmployeeLogin,
+          employeeRegistrationEntry: { label: 'Finish your invitation' },
+        }}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('link', { name: 'Finish your invitation' })).toHaveAttribute(
+    'href',
+    '/enterprise-access/register',
+  );
+  expect(onEmployeeLogin).not.toHaveBeenCalled();
+  view.rerender(
+    <MemoryRouter>
+      <EmployeeLoginFormRenderer
+        component={component}
+        actions={{
+          onEmployeeLogin,
+          employeeLoginPending: true,
+          employeeRegistrationEntry: { label: 'Finish your invitation' },
+        }}
+      />
+    </MemoryRouter>,
+  );
+  expect(
+    screen.queryByRole('link', { name: 'Finish your invitation' }),
+  ).not.toBeInTheDocument();
 });

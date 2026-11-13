@@ -78,14 +78,34 @@ it('walks backend sections, validates before continuing and saves only after rev
   const submit = vi.fn();
   const schema: WorkbenchSchema = {
     ...contact,
+    fields: [
+      ...contact.fields.map((field) =>
+        field.name === 'priority' ? { ...field, required: false } : field,
+      ),
+      {
+        name: 'notes',
+        label: 'Notes',
+        type: 'string',
+        required: false,
+        readOnly: false,
+        primary: false,
+        description: '',
+        searchable: false,
+      },
+    ],
     form: {
       contractVersion: 1,
       hiddenFields: [],
       managedCreateFields: [],
       defaultColumns: ['code'],
+      omitEmptyOptionalOnReview: true,
       sections: [
         { id: 'identity', label: 'Contact identity', fields: ['code'] },
-        { id: 'details', label: 'Contact details', fields: ['type', 'priority'] },
+        {
+          id: 'details',
+          label: 'Contact details',
+          fields: ['type', 'priority', 'notes'],
+        },
       ],
       copy: {},
     },
@@ -111,6 +131,12 @@ it('walks backend sections, validates before continuing and saves only after rev
   await user.click(screen.getByRole('button', { name: 'Continue' }));
   expect(submit).not.toHaveBeenCalled();
   expect(screen.getByText('business-contact')).toBeVisible();
+  expect(screen.getAllByRole('term').map((term) => term.textContent)).not.toContain(
+    'Notes',
+  );
+  expect(screen.getAllByRole('definition').map((value) => value.textContent)).toContain(
+    '0',
+  );
   await user.click(screen.getByRole('button', { name: 'Edit Contact identity' }));
   expect(screen.getByRole('textbox', { name: /Code/ })).toHaveValue('business-contact');
   await user.click(screen.getByRole('tab', { name: 'Review' }));
@@ -1251,4 +1277,217 @@ describe('WorkbenchRecordForm', () => {
       screen.queryByRole('button', { name: /Create related/ }),
     ).not.toBeInTheDocument();
   });
+});
+
+it('retries missing reference metadata without discarding the parent draft or creating related records', async () => {
+  const user = userEvent.setup();
+  const retrySchemas = vi.fn(),
+    createRecord = vi.fn(),
+    submit = vi.fn();
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const view = (schemas: readonly WorkbenchSchema[]) => (
+    <QueryClientProvider client={queryClient}>
+      <WorkbenchRecordForm
+        schema={address}
+        saving={false}
+        savingLabel="Saving"
+        submitLabel="Create"
+        cancelLabel="Cancel"
+        relationshipCopy={{ ...relationshipCopy, retryLabel: 'Retry reference lookup' }}
+        relationshipRuntime={{
+          schemas,
+          queryScope: ['private-actor'],
+          retrySchemas,
+          createRecord,
+          loadRecords: vi.fn().mockResolvedValue([]),
+        }}
+        onSubmit={submit}
+        onCancel={vi.fn()}
+      />
+    </QueryClientProvider>
+  );
+  const rendered = render(view([address]));
+  await user.type(
+    screen.getByRole('textbox', { name: /^Code/ }),
+    'draft-survives-schema-retry',
+  );
+  await user.click(screen.getByRole('button', { name: 'Retry reference lookup' }));
+  expect(retrySchemas).toHaveBeenCalledTimes(1);
+  expect(createRecord).not.toHaveBeenCalled();
+  expect(submit).not.toHaveBeenCalled();
+  rendered.rerender(view([address, contact]));
+  expect(
+    screen.queryByText(/referenced schema is unavailable/),
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole('textbox', { name: /^Code/ })).toHaveValue(
+    'draft-survives-schema-retry',
+  );
+  expect(screen.getByRole('button', { name: 'Select existing' })).toBeEnabled();
+  expect(createRecord).not.toHaveBeenCalled();
+  expect(submit).not.toHaveBeenCalled();
+});
+
+it('keeps create-only identity input available for creation and out of an ordinary update', async () => {
+  const schema = {
+    ...contact,
+    fields: contact.fields.map((field) =>
+      field.name === 'code' ? { ...field, readOnlyOnUpdate: true } : field,
+    ),
+  };
+  const view = render(
+    <WorkbenchRecordForm
+      schema={schema}
+      saving={false}
+      savingLabel="Saving"
+      submitLabel="Create"
+      cancelLabel="Cancel"
+      onSubmit={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole('textbox', { name: /^Code/ })).toBeVisible();
+  view.unmount();
+  const submit = vi.fn();
+  render(
+    <WorkbenchRecordForm
+      schema={schema}
+      initialModel={{ code: 'retained-code', type: 'EMAIL', priority: 0 }}
+      saving={false}
+      savingLabel="Saving"
+      submitLabel="Save"
+      cancelLabel="Cancel"
+      onSubmit={submit}
+      onCancel={vi.fn()}
+    />,
+  );
+  expect(screen.queryByRole('textbox', { name: /^Code/ })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() =>
+    expect(submit).toHaveBeenCalledWith({ type: 'EMAIL', priority: 0 }),
+  );
+});
+
+it('sends an explicit optional text clear when updating a record', async () => {
+  const schema = {
+    ...contact,
+    fields: [
+      ...contact.fields.map((field) =>
+        field.name === 'code' ? { ...field, readOnlyOnUpdate: true } : field,
+      ),
+      {
+        name: 'description',
+        label: 'Description',
+        type: 'string',
+        required: false,
+        readOnly: false,
+        primary: false,
+        description: '',
+        searchable: false,
+      },
+    ],
+  };
+  const submit = vi.fn();
+  render(
+    <WorkbenchRecordForm
+      schema={schema}
+      initialModel={{
+        code: 'existing',
+        type: 'EMAIL',
+        priority: 0,
+        description: 'Before',
+      }}
+      saving={false}
+      savingLabel="Saving"
+      submitLabel="Save"
+      cancelLabel="Cancel"
+      onSubmit={submit}
+      onCancel={vi.fn()}
+    />,
+  );
+  await userEvent.clear(screen.getByRole('textbox', { name: 'Description' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() =>
+    expect(submit).toHaveBeenCalledWith({
+      type: 'EMAIL',
+      priority: 0,
+      description: '',
+    }),
+  );
+});
+
+it('does not manufacture an absent optional text field during an update', async () => {
+  const schema = {
+    ...contact,
+    fields: [
+      ...contact.fields.map((field) =>
+        field.name === 'code' ? { ...field, readOnlyOnUpdate: true } : field,
+      ),
+      {
+        name: 'description',
+        label: 'Description',
+        type: 'string',
+        required: false,
+        readOnly: false,
+        primary: false,
+        description: '',
+        searchable: false,
+      },
+    ],
+  };
+  const submit = vi.fn();
+  render(
+    <WorkbenchRecordForm
+      schema={schema}
+      initialModel={{ code: 'existing', type: 'EMAIL', priority: 0 }}
+      saving={false}
+      savingLabel="Saving"
+      submitLabel="Save"
+      cancelLabel="Cancel"
+      onSubmit={submit}
+      onCancel={vi.fn()}
+    />,
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() =>
+    expect(submit).toHaveBeenCalledWith({ type: 'EMAIL', priority: 0 }),
+  );
+});
+
+it('shows a persisted ISO date without changing its timestamp until the user edits it', async () => {
+  const user = userEvent.setup();
+  const submit = vi.fn();
+  const schema: WorkbenchSchema = {
+    ...contact,
+    fields: [
+      {
+        ...contact.fields[0]!,
+        name: 'retentionUntil',
+        label: 'Retention until',
+        readOnly: false,
+      },
+    ],
+  };
+  render(
+    <WorkbenchRecordForm
+      schema={schema}
+      initialModel={{ retentionUntil: '2026-12-01T15:30:00.000Z' }}
+      saving={false}
+      savingLabel="Saving"
+      submitLabel="Update"
+      cancelLabel="Cancel"
+      onSubmit={submit}
+      onCancel={vi.fn()}
+    />,
+  );
+  expect(screen.getByLabelText(/Retention until/)).toHaveValue('2026-12-01');
+  await user.click(screen.getByRole('button', { name: 'Update' }));
+  expect(submit).toHaveBeenLastCalledWith({
+    retentionUntil: '2026-12-01T15:30:00.000Z',
+  });
+  await user.clear(screen.getByLabelText(/Retention until/));
+  await user.type(screen.getByLabelText(/Retention until/), '2026-12-02');
+  await user.click(screen.getByRole('button', { name: 'Update' }));
+  expect(submit).toHaveBeenLastCalledWith({ retentionUntil: '2026-12-02' });
 });

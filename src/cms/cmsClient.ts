@@ -1,3 +1,4 @@
+import { observeEmployeeSessionResponse } from '../auth/employeeSessionEvents';
 import { parseCmsResolvedPage, type CmsResolvedPageContract } from './cmsContract';
 
 interface CmsResponseEnvelope {
@@ -21,6 +22,7 @@ export interface ResolveCmsPageInput {
   readonly locale: string;
   readonly channel: string;
   readonly accessToken?: string;
+  readonly sessionGeneration?: number | undefined;
   readonly etag?: string;
   readonly timeoutMs: number;
   readonly signal?: AbortSignal;
@@ -108,6 +110,14 @@ export async function resolveCmsPage(
       redirect: 'error',
       signal: timeoutController.signal,
     });
+
+    if (timeoutController.signal.aborted)
+      throw new Error('CMS page delivery was cancelled or timed out');
+    observeEmployeeSessionResponse(
+      response,
+      input.accessToken,
+      input.sessionGeneration,
+    );
 
     if (response.status === 304) {
       return Object.freeze({

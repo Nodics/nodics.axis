@@ -1,6 +1,11 @@
 import { routePreferredServer } from './workbenchRouteModel';
 import { resolveWorkbenchRelationshipSchema } from './form/workbenchRelatedDrafts';
 import {
+  planWorkbenchRelationshipDiscovery,
+  loadWorkbenchRelationshipTarget,
+  combineWorkbenchRelationshipQueries,
+} from './form/workbenchRelationshipDiscovery';
+import {
   useMutation,
   useQueries,
   useQuery,
@@ -25,7 +30,7 @@ import {
   deleteWorkbenchRecord,
   executeWorkbenchLifecycleAction,
   loadWorkbenchRecords,
-  loadWorkbenchSchemas,
+  discoverWorkbenchSchemas,
   previewWorkbenchDeleteImpact,
   updateWorkbenchRecord,
 } from './api/workbenchClient';
@@ -37,7 +42,10 @@ import type {
 } from './api/workbenchContracts';
 import { isWorkbenchAuthoringSchema } from './api/workbenchContracts';
 import type { WorkbenchRecordDetailPanel } from './detail/workbenchRecordDetailPanels';
-import type { WorkbenchRelationshipLoadOptions } from './form/WorkbenchRelationshipRuntime';
+import {
+  workbenchRelationshipConnectionScope,
+  type WorkbenchRelationshipLoadOptions,
+} from './form/WorkbenchRelationshipRuntime';
 import {
   loadWorkbenchPreferences,
   saveWorkbenchPreferences,
@@ -46,6 +54,7 @@ import {
   type WorkbenchSavedView,
 } from './preferences/workbenchPreferences';
 import {
+  canRetainWorkbenchDiscovery,
   combineWorkbenchFilterGroups,
   currentDiscoveredWorkbenchSchema,
   relatedRecordPanelFilter,
@@ -190,33 +199,53 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
       props.bootstrap.moduleConnections[props.routeSchema.moduleName] ?? [];
     return ownerConnections.length > 0 ? [...ownerConnections] : allConnections;
   }, [props.bootstrap, props.routeSchema]);
-  const connectionKey = useMemo(
+  const connectionKeys = useMemo(
     () =>
       connections
-        .map(
-          (connection) =>
-            `${connection.moduleName}:${connection.instanceId}:${connection.endpoint}:${connection.state}`,
+        .map((connection) =>
+          JSON.stringify([
+            connection.moduleName,
+            connection.instanceId,
+            connection.endpoint,
+            connection.environment,
+            connection.server,
+            connection.state,
+            connection.runtimeRole?.code,
+            connection.runtimeRole?.publication,
+          ]),
         )
-        .sort()
-        .join('|'),
+        .sort(),
     [connections],
   );
+  const referenceActor = useMemo(
+    () => ({ token: props.accessToken, id: crypto.randomUUID() }),
+    [props.accessToken],
+  );
+  const ownerDiscovery = props.routeNavigation?.workbenchPresentation?.schemaDiscovery;
+  const discoveryScopeKey = JSON.stringify([
+    referenceActor.id,
+    props.ownerTransport?.scopeKey,
+    props.employeeId,
+    props.bootstrap.tenantCode,
+    props.runtime.enterpriseCode,
+    props.runtime.projectCode,
+    props.routeNavigation?.id,
+    props.routeSchema?.moduleName,
+    props.routeSchema?.schemaName,
+    ownerDiscovery?.path,
+    ownerDiscovery?.apiVersion,
+    ownerDiscovery ? props.routeNavigation?.moduleName : undefined,
+  ]);
   const schemas = useQuery({
-    queryKey: [
-      'schema-workbench',
-      'schemas',
-      ...(props.ownerTransport ? [props.ownerTransport.scopeKey] : []),
-      props.employeeId,
-      props.runtime.enterpriseCode,
-      connectionKey,
-      props.routeNavigation?.workbenchPresentation?.schemaDiscovery?.path ?? '/schemas',
-      props.routeNavigation?.workbenchPresentation?.schemaDiscovery?.apiVersion ?? 'v0',
-      props.routeNavigation?.workbenchPresentation?.schemaDiscovery
-        ? props.routeNavigation.moduleName
-        : '',
-    ],
+    queryKey: ['schema-workbench', 'schemas', discoveryScopeKey, connectionKeys],
+    placeholderData: (previous, query) =>
+      !props.routeSchema &&
+      !props.ownerTransport &&
+      canRetainWorkbenchDiscovery(query?.queryKey, discoveryScopeKey, connectionKeys)
+        ? previous
+        : undefined,
     queryFn: () =>
-      loadWorkbenchSchemas(
+      discoverWorkbenchSchemas(
         connections,
         configuration,
         fetch,
@@ -228,13 +257,48 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
           : undefined,
       ),
   });
-  const discoveredSelection = props.routeNavigation?.workbenchPresentation
-    ?.schemaDiscovery
-    ? currentDiscoveredWorkbenchSchema(selectedSchema, schemas.data)
-    : selectedSchema;
+  const discoveredSchemas = schemas.isError ? undefined : schemas.data?.schemas;
+  const discoveredSelection = currentDiscoveredWorkbenchSchema(
+    selectedSchema,
+    discoveredSchemas,
+  );
   const normalizedSelectedSchema = discoveredSelection
     ? schemaWithValidQueryCapabilities(discoveredSelection)
     : undefined;
+  const referenceTargets = props.ownerTransport
+    ? []
+    : planWorkbenchRelationshipDiscovery(
+        normalizedSelectedSchema,
+        discoveredSchemas ?? [],
+        props.bootstrap,
+      );
+  const referenceSchemas = useQueries({
+    queries: referenceTargets.map((target) => ({
+      queryKey: [
+        'schema-workbench',
+        'related-schemas',
+        referenceActor.id,
+        props.bootstrap.tenantCode,
+        props.runtime.enterpriseCode,
+        props.runtime.projectCode,
+        normalizedSelectedSchema?.connectionInstanceId,
+        normalizedSelectedSchema?.connectionServer,
+        normalizedSelectedSchema?.connectionEnvironment,
+        target.moduleName,
+        target.schemaName,
+        target.connection.instanceId,
+        target.connection.endpoint,
+        target.connection.runtimeRole?.publication,
+      ],
+      queryFn: () => loadWorkbenchRelationshipTarget(target, configuration),
+      retry: false,
+    })),
+    combine: combineWorkbenchRelationshipQueries,
+  });
+  const relationshipSchemas = useMemo(
+    () => [...(discoveredSchemas ?? []), ...referenceSchemas],
+    [discoveredSchemas, referenceSchemas],
+  );
   const fixedRecordFilters = normalizedSelectedSchema
     ? workbenchFixedFilterGroup(
         normalizedSelectedSchema,
@@ -289,7 +353,11 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
   ];
   const records = useQuery({
     enabled: Boolean(
-      normalizedSelectedSchema && recordConnection && !createOpen && !editOpen,
+      normalizedSelectedSchema &&
+      normalizedSelectedSchema.operations.includes('search') &&
+      recordConnection &&
+      !createOpen &&
+      !editOpen,
     ),
     queryKey: [
       ...recordQueryPrefix,
@@ -323,7 +391,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
   const detailPanelQueryInputs = useMemo(
     () =>
       (props.routeNavigation?.detailPanels ?? []).map((panel) => {
-        const schema = (schemas.data ?? []).find(
+        const schema = (discoveredSchemas ?? []).find(
           (candidate) =>
             candidate.moduleName === panel.target.moduleName &&
             candidate.schemaName === panel.target.schemaName,
@@ -352,7 +420,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
     [
       props.bootstrap,
       props.routeNavigation?.detailPanels,
-      schemas.data,
+      discoveredSchemas,
       selectedRecord,
     ],
   );
@@ -637,11 +705,11 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
     return (
       resolveWorkbenchDeepLinkTarget(
         location.search,
-        (schemas.data ?? []).filter(isWorkbenchAuthoringSchema),
+        (discoveredSchemas ?? []).filter(isWorkbenchAuthoringSchema),
       ) ??
       resolveWorkbenchRouteTarget(
         props.routeSchema,
-        (schemas.data ?? []).filter(isWorkbenchAuthoringSchema),
+        (discoveredSchemas ?? []).filter(isWorkbenchAuthoringSchema),
         {
           environment: routeOwnerConnection?.environment,
           server: routePreferredServer(props.routeNavigation, routeOwnerConnection),
@@ -654,7 +722,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
     props.routeNavigation,
     props.routeSchema,
     routeOwnerConnection,
-    schemas.data,
+    discoveredSchemas,
   ]);
   useEffect(() => {
     if (!deepLinkTarget || consumedDeepLinkKey.current === deepLinkTarget.key) return;
@@ -678,8 +746,19 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
   }, [deepLinkTarget, props.routeSchema, schemas.isLoading]);
   const relationshipRuntime = useMemo(
     () => ({
-      schemas: schemas.data ?? [],
-      queryScope: [props.runtime.enterpriseCode],
+      schemas: relationshipSchemas,
+      retrySchemas: () => {
+        void queryClient.refetchQueries({
+          queryKey: ['schema-workbench', 'related-schemas', referenceActor.id],
+          type: 'active',
+        });
+      },
+      queryScope: [
+        referenceActor.id,
+        props.bootstrap.tenantCode,
+        props.runtime.enterpriseCode,
+        workbenchRelationshipConnectionScope(props.bootstrap.moduleConnections),
+      ],
       createRecord: (
         schema: WorkbenchSchema,
         model: Readonly<Record<string, unknown>>,
@@ -728,7 +807,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
         const source = sourceSchema ?? selectedSchema;
         if (!source) return undefined;
         const schema = resolveWorkbenchRelationshipSchema(
-          schemas.data ?? [],
+          relationshipSchemas,
           source,
           relationship,
         );
@@ -783,7 +862,8 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
       configuration,
       props.bootstrap,
       props.runtime.enterpriseCode,
-      schemas.data,
+      relationshipSchemas,
+      referenceActor.id,
       selectedSchema,
       queryClient,
     ],
@@ -815,6 +895,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
 
   return (
     <CmsRoutePage
+      embedded
       accessToken={props.accessToken}
       actions={{
         workbench: {
@@ -839,9 +920,13 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
                   : undefined,
               }
             : { kind: 'global' },
-          schemas: schemas.data ?? [],
+          schemas: discoveredSchemas ?? [],
           schemasError: schemas.error?.message,
-          schemasLoading: schemas.isLoading,
+          unavailableSchemaSources: schemas.isError
+            ? []
+            : schemas.data?.unavailableSources,
+          schemasLoading:
+            schemas.isLoading || Boolean(deepLinkTarget && !normalizedSelectedSchema),
           selectedSchema: normalizedSelectedSchema,
           records: records.data?.records ?? [],
           recordSearch: recordSearchInput,
@@ -883,7 +968,12 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
           bulkDeleteError: bulkDelete.error?.message,
           bulkDeleting: bulkDelete.isPending,
           lifecycleActionError: lifecycleAction.error?.message,
-          lifecycleActionPendingId: lifecycleAction.variables?.action.id,
+          clearLifecycleFeedback: () => {
+            if (!lifecycleAction.isPending) lifecycleAction.reset();
+          },
+          lifecycleActionPendingId: lifecycleAction.isPending
+            ? lifecycleAction.variables?.action.id
+            : undefined,
           lifecycleActionResult: lifecycleAction.data,
           tenantCode: props.bootstrap.tenantCode,
           enterpriseCode: props.runtime.enterpriseCode,

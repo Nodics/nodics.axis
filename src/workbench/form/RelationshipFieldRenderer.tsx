@@ -1,4 +1,8 @@
 import {
+  workbenchRelationshipLabelScope,
+  type WorkbenchReferenceLabelSnapshot,
+} from './WorkbenchRelationshipRuntime';
+import {
   Alert,
   Box,
   Button,
@@ -12,7 +16,7 @@ import {
   Typography,
 } from '@mui/material';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 
 import type {
   WorkbenchRecord,
@@ -37,6 +41,10 @@ import {
 } from './workbenchRelationshipLabels';
 
 interface RelationshipFieldRendererProps {
+  readonly referenceView?: WorkbenchReferenceLabelSnapshot | undefined;
+  readonly onReferenceLabel?:
+    | ((scope: string, reference: string, label: string) => void)
+    | undefined;
   readonly copy: WorkbenchRelationshipCopy;
   readonly disabled: boolean;
   readonly draft: WorkbenchRelationshipDraft;
@@ -106,6 +114,17 @@ function relationshipResultsLabel(
 }
 
 export function RelationshipFieldRenderer(props: RelationshipFieldRendererProps) {
+  // Labels are view-only snapshots from explicit choices, never fields in the saved draft.
+  const descriptionId = useId();
+  const labelScope = workbenchRelationshipLabelScope(
+    props.runtime,
+    props.relationship,
+    props.targetSchema,
+  );
+  const [referenceLabels, setReferenceLabels] = useState<{
+    readonly scope: string;
+    readonly labels: ReadonlyMap<string, string>;
+  }>();
   const [selectOpen, setSelectOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -193,6 +212,7 @@ export function RelationshipFieldRenderer(props: RelationshipFieldRendererProps)
   return (
     <Box
       component="fieldset"
+      aria-describedby={props.relationship.description ? descriptionId : undefined}
       sx={{
         border: 1,
         borderColor: props.error ? 'error.main' : 'divider',
@@ -208,8 +228,21 @@ export function RelationshipFieldRenderer(props: RelationshipFieldRendererProps)
         {props.relationship.required ? ' *' : ''}
       </Typography>
       <Stack spacing={1.5}>
+        {props.relationship.description ? (
+          <Typography id={descriptionId} color="text.secondary" variant="body2">
+            {props.relationship.description}
+          </Typography>
+        ) : null}
         {props.error ? <Alert severity="error">{props.error}</Alert> : null}
         <RelationshipReferenceChips
+          key={labelScope}
+          referenceLabels={
+            referenceLabels?.scope === labelScope
+              ? referenceLabels.labels
+              : props.referenceView?.scope === labelScope
+                ? props.referenceView.labels
+                : undefined
+          }
           copy={props.copy}
           disabled={props.disabled}
           draftReferences={props.draft.references}
@@ -360,6 +393,19 @@ export function RelationshipFieldRenderer(props: RelationshipFieldRendererProps)
                         checked={checked}
                         disabled={props.disabled}
                         onChange={() => {
+                          if (!checked)
+                            props.onReferenceLabel?.(
+                              labelScope,
+                              reference,
+                              optionLabel,
+                            );
+                          if (!checked)
+                            setReferenceLabels((previous) => ({
+                              scope: labelScope,
+                              labels: new Map(
+                                previous?.scope === labelScope ? previous.labels : [],
+                              ).set(reference, optionLabel),
+                            }));
                           if (props.relationship.cardinality === 'ONE') {
                             props.onChange({
                               ...props.draft,

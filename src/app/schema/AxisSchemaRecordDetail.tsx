@@ -1,5 +1,7 @@
+import { useAxisLocalization } from '../../localization/AxisLocalizationContext';
 import {
   Alert,
+  Box,
   Dialog,
   DialogContent,
   DialogTitle,
@@ -79,6 +81,7 @@ function schemaDetailFields(
   record: WorkbenchRecord,
   trueLabel: string,
   falseLabel: string,
+  locale: string,
   forbiddenFieldNames: readonly string[],
   referenceResolver: AxisSchemaRecordReferenceResolver | undefined,
   referenceDepth: number,
@@ -103,6 +106,14 @@ function schemaDetailFields(
       const references = relationshipCanOpen
         ? axisSchemaRelationshipReferences(rawValue, relationship)
         : Object.freeze([]);
+      // A declared structured value is data, not a relationship merely because
+      // it is an object. Keep the full saved value inspectable without entering
+      // Edit. React renders the serialization as text; no HTML or links execute.
+      const structuredValue =
+        !relationship &&
+        rawValue !== null &&
+        typeof rawValue === 'object' &&
+        !(rawValue instanceof Date);
       const value =
         relationship && references.length > 0 ? (
           <AxisSchemaReferenceValues
@@ -110,14 +121,29 @@ function schemaDetailFields(
             variant="outlined"
             onReferenceClick={onReferenceOpen}
           />
+        ) : structuredValue ? (
+          <Box
+            component="pre"
+            sx={{
+              m: 0,
+              maxHeight: 320,
+              overflow: 'auto',
+              whiteSpace: 'pre-wrap',
+              overflowWrap: 'anywhere',
+              font: 'inherit',
+            }}
+          >
+            {JSON.stringify(rawValue, null, 2)}
+          </Box>
         ) : (
-          axisSchemaRecordDisplayValue(rawValue, field, trueLabel, falseLabel)
+          axisSchemaRecordDisplayValue(rawValue, field, trueLabel, falseLabel, locale)
         );
       return {
         key: field.name,
         label: field.label,
         value,
         fullWidth:
+          structuredValue ||
           references.length > 2 ||
           (typeof value === 'string' && isLongSchemaDetailField(field, value)),
         monospace: /checksum|token|signature/i.test(field.name),
@@ -139,6 +165,7 @@ export function AxisSchemaRecordDetail({
   trueLabel = 'Yes',
   variant,
 }: AxisSchemaRecordDetailProps) {
+  const { locale } = useAxisLocalization();
   const [loadedReference, setLoadedReference] = useState<AxisSchemaLoadedReference>();
   const [loadingReference, setLoadingReference] = useState(false);
   const [referenceError, setReferenceError] = useState<string>();
@@ -191,6 +218,7 @@ export function AxisSchemaRecordDetail({
         record,
         trueLabel,
         falseLabel,
+        locale,
         forbiddenFieldNames,
         canOpenReferences ? referenceResolver : undefined,
         referenceDepth,

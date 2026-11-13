@@ -8,6 +8,7 @@ import {
   loadGeneratedSchemaCapabilities,
   loadWorkbenchRecords,
   loadWorkbenchSchemas,
+  discoverWorkbenchSchemas,
   previewWorkbenchDeleteImpact,
   updateWorkbenchRecord,
 } from '../../../src/workbench/api/workbenchClient';
@@ -113,6 +114,48 @@ function json(result: unknown, status = 200): Response {
     headers: { 'Content-Type': 'application/json' },
   });
 }
+
+it('preserves explicit owner-disabled record API metadata and blocks requests without treating it as zero', async () => {
+  const recordApi = {
+    available: false,
+    reason: 'SCHEMA_ROUTERS_DISABLED',
+    message: 'Record APIs are disabled; inspect the schema.',
+  };
+  const schema = parseWorkbenchSchema({
+    ...address,
+    operations: [],
+    mutationMode: 'READ_ONLY',
+    recordApi,
+  });
+  expect(schema.recordApi).toEqual(recordApi);
+  expect(() => parseWorkbenchSchema({ ...address, recordApi })).toThrow(/contradicts/);
+  expect(() =>
+    parseWorkbenchSchema({
+      ...address,
+      operations: [],
+      recordApi: { ...recordApi, available: true },
+    }),
+  ).toThrow();
+  const fetcher = vi.fn<typeof fetch>();
+  await expect(
+    loadWorkbenchRecords(
+      connection,
+      schema,
+      configuration,
+      {
+        search: '',
+        pageNumber: 1,
+        pageSize: 10,
+        sort: { field: 'code', direction: 'ASC' },
+      },
+      fetcher,
+    ),
+  ).rejects.toThrow(/disabled/);
+  await expect(
+    createWorkbenchRecord(connection, schema, { code: 'test' }, configuration, fetcher),
+  ).rejects.toThrow(/does not allow/);
+  expect(fetcher).not.toHaveBeenCalled();
+});
 
 describe('owner-governed Workbench discovery', () => {
   const productConnection = {
@@ -604,6 +647,58 @@ describe('Schema Workbench API client', () => {
     expect(headers.get('Authorization')).toBe('Bearer memory-only-token');
     expect(headers.get('x-enterprise-code')).toBe('default');
     expect(url.href).not.toContain('memory-only-token');
+  });
+
+  it.each([403, 404, 405])(
+    'keeps confirmed non-schema or unreadable connections out of transport failure coverage (%s)',
+    async (status) => {
+      const other = {
+        ...connection,
+        moduleName: 'other',
+        instanceId: 'other-one',
+        endpoint: 'https://other.example.test/nodics/other',
+      };
+      const request = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(json({ schemas: [address] }))
+        .mockResolvedValueOnce(new Response('{}', { status }));
+      const result = await discoverWorkbenchSchemas(
+        [connection, other],
+        configuration,
+        request,
+      );
+      expect(result.schemas).toHaveLength(1);
+      expect(result.unavailableSources).toEqual([]);
+      expect(request).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('reports incomplete owner discovery without hiding healthy types or returning private failure details', async () => {
+    const failed = {
+      ...connection,
+      moduleName: 'cms',
+      instanceId: 'cms-one',
+      server: 'cmsServer',
+      endpoint: 'https://cms.example.test/nodics/cms',
+    };
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json({ schemas: [address] }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ message: 'private diagnostic must stay private' }),
+          { status: 503 },
+        ),
+      );
+    const result = await discoverWorkbenchSchemas(
+      [connection, failed],
+      configuration,
+      request,
+    );
+    expect(result.schemas).toHaveLength(1);
+    expect(result.unavailableSources).toEqual(['cms / cmsServer / local']);
+    expect(JSON.stringify(result)).not.toContain('private diagnostic');
+    expect(request).toHaveBeenCalledTimes(2);
   });
 
   it('keeps runtime-specific schema discovery for the same business schema', async () => {
@@ -1650,4 +1745,108 @@ describe('canonical schema discovery', () => {
     ).rejects.toThrow();
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
+});
+
+it('retains one in-form idempotency identity for generated updates without automatic replay', async () => {
+  const model = Object.freeze({ name: 'Changed once' });
+  const request = vi
+    .fn<typeof fetch>()
+    .mockRejectedValueOnce(new TypeError('response lost'))
+    .mockResolvedValueOnce(json({ models: [{ code: 'DXB', name: 'Changed once' }] }));
+  await expect(
+    updateWorkbenchRecord(
+      connection,
+      address,
+      { code: 'DXB' },
+      model,
+      configuration,
+      request,
+    ),
+  ).rejects.toThrow(/inspect the saved records before submitting again/);
+  expect(request).toHaveBeenCalledTimes(1);
+  await updateWorkbenchRecord(
+    connection,
+    address,
+    { code: 'DXB' },
+    model,
+    configuration,
+    request,
+  );
+  const first = new Headers(request.mock.calls[0]?.[1]?.headers).get('Idempotency-Key');
+  expect(first).toMatch(/^[a-f0-9-]{36}$/);
+  expect(new Headers(request.mock.calls[1]?.[1]?.headers).get('Idempotency-Key')).toBe(
+    first,
+  );
+  expect(parseRequestBody(request.mock.calls[1]?.[1]?.body)).toMatchObject({
+    query: { code: 'DXB' },
+    model,
+  });
+});
+
+it('retains original identity in the update query while omitting create-only fields from its model', async () => {
+  const schema = {
+    ...address,
+    fields: [
+      { ...address.fields[0]!, readOnlyOnUpdate: true },
+      {
+        ...address.fields[0]!,
+        name: 'name',
+        primary: false,
+        label: 'Name',
+        readOnlyOnUpdate: false,
+      },
+    ],
+  };
+  const fetcher = vi
+    .fn<typeof fetch>()
+    .mockResolvedValue(json({ models: [{ code: 'original', name: 'Changed' }] }));
+  await updateWorkbenchRecord(
+    connection,
+    schema,
+    { code: 'original' },
+    { code: 'forged', name: 'Changed' },
+    configuration,
+    fetcher,
+  );
+  expect(parseRequestBody(fetcher.mock.calls[0]?.[1]?.body)).toMatchObject({
+    query: { code: 'original' },
+    model: { name: 'Changed' },
+  });
+  expect(
+    (parseRequestBody(fetcher.mock.calls[0]?.[1]?.body) as { model: unknown }).model,
+  ).not.toHaveProperty('code');
+});
+it('parses optional update-only field protection and refuses malformed protection metadata', () => {
+  const schema = {
+    ...address,
+    fields: address.fields.map((field) => ({ ...field, readOnlyOnUpdate: true })),
+  };
+  expect(parseWorkbenchSchema(schema).fields[0]?.readOnlyOnUpdate).toBe(true);
+  expect(() =>
+    parseWorkbenchSchema({
+      ...schema,
+      fields: schema.fields.map((field) => ({ ...field, readOnlyOnUpdate: 'yes' })),
+    }),
+  ).toThrow();
+});
+
+it('explains a failed record read without reporting an empty result or replaying it', async () => {
+  const request = vi
+    .fn<typeof fetch>()
+    .mockRejectedValue(new TypeError('Failed to fetch'));
+  await expect(
+    loadWorkbenchRecords(
+      connection,
+      address,
+      configuration,
+      {
+        search: 'DXB',
+        pageNumber: 1,
+        pageSize: 25,
+        sort: { field: 'code', direction: 'ASC' },
+      },
+      request,
+    ),
+  ).rejects.toThrow('The requested data could not be loaded. Try again to reconnect.');
+  expect(request).toHaveBeenCalledTimes(1);
 });

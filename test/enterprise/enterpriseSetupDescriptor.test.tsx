@@ -337,6 +337,39 @@ describe('authorized descriptor transport', () => {
   });
 });
 
+it.each([360000, 600000])(
+  'accepts the configured %i ms timeout without changing setup qualification',
+  async (requestTimeoutMs) => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(JSON.stringify({ data: payload })));
+    vi.stubGlobal('fetch', fetchMock);
+    const owner = createEnterpriseSetupOwnerAdapter(
+      descriptor,
+      connection,
+      { ...runtime, requestTimeoutMs },
+      'test-session',
+    );
+    await owner.inspect('business');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const unqualified = parseEnterpriseSetupDescriptor({
+      ...rawDescriptor,
+      actions: {
+        ...rawDescriptor.actions,
+        resume: { ...rawDescriptor.actions.resume, qualified: false },
+      },
+    });
+    expect(
+      createEnterpriseSetupOwnerAdapter(
+        unqualified,
+        connection,
+        { ...runtime, requestTimeoutMs },
+        'test-session',
+      ).resume,
+    ).toBeUndefined();
+  },
+);
+
 describe('generic workspace integration', () => {
   it.each(['complete', 'uncertain'] as const)(
     'preserves a pending command and its %s result through equivalent catalogue refreshes without replay',
@@ -518,7 +551,7 @@ describe('generic workspace integration', () => {
   );
 
   it.each([undefined, {}, { inspect: rawDescriptor.actions.inspect }])(
-    'renders unavailable missing-action metadata inert %# without fallback requests',
+    'omits idle unavailable missing-action metadata %# without fallback requests',
     (actions) => {
       const disabled = { ...rawDescriptor, available: false, actions };
       const parsed = workspace(disabled);
@@ -534,8 +567,10 @@ describe('generic workspace integration', () => {
           />
         </MemoryRouter>,
       );
-      expect(screen.getByRole('heading', { name: copy.title })).toBeVisible();
-      expect(screen.getByText(copy.unavailableMessage)).toBeVisible();
+      expect(
+        screen.queryByRole('heading', { name: copy.title }),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText(copy.unavailableMessage)).not.toBeInTheDocument();
       expect(
         screen.queryByRole('button', { name: copy.inspectLabel }),
       ).not.toBeInTheDocument();
@@ -643,7 +678,7 @@ describe('generic workspace integration', () => {
         />
       </MemoryRouter>,
     );
-    expect(screen.getByText(copy.unavailableMessage)).toBeVisible();
+    expect(screen.queryByText(copy.unavailableMessage)).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: copy.inspectLabel }),
     ).not.toBeInTheDocument();

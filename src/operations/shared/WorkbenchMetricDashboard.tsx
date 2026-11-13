@@ -66,10 +66,9 @@ function MetricCard({
           <ShellIcon name={metric.icon} />
         </Box>
         <Box sx={{ minWidth: 0 }}>
-          <Typography color="text.secondary" variant="body2">
-            {metric.moduleName}.{metric.schemaName}
+          <Typography component="h3" variant="h5">
+            {metric.label}
           </Typography>
-          <Typography variant="h5">{metric.label}</Typography>
         </Box>
       </Stack>
 
@@ -81,16 +80,29 @@ function MetricCard({
 
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
         <Chip
-          color={metric.status === 'ready' ? 'success' : 'warning'}
-          label={metric.status === 'ready' ? 'Live' : 'Unavailable'}
+          color={
+            loading ? 'default' : metric.status === 'ready' ? 'success' : 'warning'
+          }
+          label={
+            loading
+              ? 'Checking availability'
+              : metric.status === 'ready'
+                ? 'Available'
+                : 'Unavailable'
+          }
           size="small"
-          variant={metric.status === 'ready' ? 'filled' : 'outlined'}
+          variant={!loading && metric.status === 'ready' ? 'filled' : 'outlined'}
         />
-        {metricReady ? (
-          <Button component={RouterLink} size="small" to={metric.route} variant="text">
+        {metricReady && metric.canOpen ? (
+          <Button
+            component={RouterLink}
+            size="small"
+            to={metric.href ?? metric.route}
+            variant="text"
+          >
             Open
           </Button>
-        ) : (
+        ) : metricReady ? null : (
           <Button disabled size="small" variant="text">
             Unavailable
           </Button>
@@ -114,7 +126,9 @@ export function DashboardSection({
   return (
     <Stack spacing={dashboardComponentGap}>
       <Box>
-        <Typography variant="h4">{title}</Typography>
+        <Typography component="h2" variant="h4">
+          {title}
+        </Typography>
         <Typography color="text.secondary">{description}</Typography>
       </Box>
       <Box

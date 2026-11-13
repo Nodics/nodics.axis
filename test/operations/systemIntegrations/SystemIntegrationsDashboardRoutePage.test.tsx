@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -237,14 +238,19 @@ describe('SystemIntegrationsDashboardRoutePage', () => {
     expect(
       within(systemSection!).getByRole('link', { name: 'Module Registry' }),
     ).toBeVisible();
-    expect(within(systemSection!).getByText('Runtime topology')).toBeVisible();
-    expect(within(systemSection!).getByText('Load Balancer')).toBeVisible();
-    expect(within(systemSection!).getByText('Node 0 · platformServer')).toBeVisible();
-    expect(within(systemSection!).getByText('CPU utilization')).toBeVisible();
-    expect(within(systemSection!).getByText('Memory utilization')).toBeVisible();
-    expect(within(systemSection!).getByText('Thread overview')).toBeVisible();
-    expect(within(systemSection!).getByText('Task queue overview')).toBeVisible();
-    expect(within(systemSection!).getByText('Database health')).toBeVisible();
+    expect(
+      within(systemSection!).getByRole('heading', {
+        name: 'Runtime participation',
+        level: 3,
+      }),
+    ).toBeVisible();
+    expect(
+      within(screen.getByText('Runtime servers').closest('article')!).getByText(
+        'platformServer',
+      ),
+    ).toBeVisible();
+    expect(within(systemSection!).queryByText('Load Balancer')).toBeNull();
+    expect(within(systemSection!).queryByText('CPU utilization')).toBeNull();
     expect(
       within(systemSection!).getByRole('button', { name: 'Refresh health' }),
     ).toBeVisible();
@@ -270,6 +276,33 @@ describe('SystemIntegrationsDashboardRoutePage', () => {
     expect(
       within(schemaSection!).getByRole('link', { name: 'Schema Workbench' }),
     ).toBeVisible();
+  });
+
+  it('keeps failed health totals unknown and recovers only from a successful observation', async () => {
+    clients.loadModuleHealth
+      .mockRejectedValueOnce(new Error('Failed to fetch'))
+      .mockResolvedValue([]);
+    clients.loadRegisteredFunctionalModules.mockResolvedValue([]);
+    clients.loadAvailableFunctionalModules.mockResolvedValue([]);
+    clients.loadWorkbenchSchemas.mockResolvedValue([]);
+    renderPage();
+    expect(
+      await screen.findByText(/Health totals are unknown until a read succeeds/),
+    ).toBeVisible();
+    expect(screen.getByText('Registry unavailable')).toBeVisible();
+    expect(screen.queryByText('Live registry')).toBeNull();
+    const card = screen.getByText('Health alerts').closest('article')!;
+    expect(within(card).getByText('—')).toBeVisible();
+    expect(within(card).queryByText('0')).toBeNull();
+    expect(screen.queryByText('Load Balancer')).toBeNull();
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'Refresh health' }));
+    expect(await screen.findByText('Live registry')).toBeVisible();
+    expect(within(card).getByText('0')).toBeVisible();
+    expect(
+      screen.queryByText(/Health totals are unknown until a read succeeds/),
+    ).toBeNull();
   });
 
   it('keeps schema discovery failure isolated from system metrics', async () => {

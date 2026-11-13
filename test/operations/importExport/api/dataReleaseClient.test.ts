@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AxisModuleConnection } from '../../../../src/bootstrap/publicBootstrap';
 import { subscribeEmployeeSessionExpired } from '../../../../src/auth/employeeSessionEvents';
 import {
+  DataAdministrationRequestError,
   installDataReleases,
   installMediaImport,
   loadDataReleases,
@@ -96,6 +97,176 @@ function response(data: unknown, status = 200): Response {
 }
 
 describe('data release client', () => {
+  it('never accepts browser transport provenance from an owner JSON payload', async () => {
+    const request = vi.fn<typeof fetch>().mockImplementation((input) =>
+      Promise.resolve(
+        response({
+          data: (input as URL).pathname.endsWith('/core')
+            ? [
+                {
+                  ...release,
+                  catalogueSource: {
+                    endpoint: 'https://untrusted.invalid',
+                    instanceId: 'injected',
+                  },
+                },
+              ]
+            : [],
+        }),
+      ),
+    );
+    const rows = await loadDataReleases(connection, configuration, request);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).not.toHaveProperty('catalogueSource');
+  });
+  it.each([
+    { success: false },
+    { acknowledged: false },
+    { error: 'denied' },
+    { errors: [{ code: 'ERR_IMP_00004', message: 'denied' }] },
+    { code: 'ERR_AUTH_00003' },
+  ])(
+    'rejects contradictory HTTP 200 owner envelopes without repeating the request: %j',
+    async (negative) => {
+      const request = vi.fn<typeof fetch>().mockResolvedValue(
+        response({
+          ...negative,
+          data: { dataType: 'core', tenant: 'default', releases: [release] },
+        }),
+      );
+      await expect(
+        installDataReleases(
+          connection,
+          configuration,
+          {
+            dataType: 'core',
+            modules: [release.moduleName],
+            expectedReleases: { [release.moduleName]: release.version },
+          },
+          request,
+        ),
+      ).rejects.toThrow();
+      expect(request).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('parses and freezes canonical owner selection without expanding the submitted plan', async () => {
+    const selection = {
+      contractVersion: 1,
+      requestedReleaseCodes: ['profile:core'],
+      prerequisites: [
+        {
+          releaseCode: 'reference:base',
+          moduleName: 'reference',
+          dataType: 'core',
+          version: '0.0.1',
+          checksum: 'b'.repeat(64),
+        },
+      ],
+    };
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      response({
+        data: { dataType: 'core', tenant: 'default', releases: [release], selection },
+      }),
+    );
+    const plan = {
+      dataType: 'core' as const,
+      releaseCodes: ['profile:core'],
+      expectedReleases: { 'profile:core': release.version },
+    };
+    const result = await preflightDataReleases(
+      connection,
+      configuration,
+      plan,
+      request,
+    );
+    expect(result.selection).toEqual(selection);
+    expect(Object.isFrozen(result.selection?.prerequisites)).toBe(true);
+    expect(request.mock.calls[0]?.[1]?.body).toBe(JSON.stringify(plan));
+    expect(request).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { contractVersion: 2, requestedReleaseCodes: ['profile:core'], prerequisites: [] },
+    { contractVersion: 1, requestedReleaseCodes: [], prerequisites: [] },
+    {
+      contractVersion: 1,
+      requestedReleaseCodes: ['profile:core', 'profile:core'],
+      prerequisites: [],
+    },
+    {
+      contractVersion: 1,
+      requestedReleaseCodes: ['profile:core'],
+      prerequisites: [
+        {
+          releaseCode: 'profile:core',
+          moduleName: 'profile',
+          dataType: 'core',
+          version: '0.0.1',
+          checksum: 'b'.repeat(64),
+        },
+      ],
+    },
+    {
+      contractVersion: 1,
+      requestedReleaseCodes: ['profile:core'],
+      prerequisites: [
+        {
+          releaseCode: 'reference:base',
+          moduleName: 'foreign',
+          dataType: 'core',
+          version: '0.0.1',
+          checksum: 'b'.repeat(64),
+        },
+      ],
+    },
+    {
+      contractVersion: 1,
+      requestedReleaseCodes: ['profile:core'],
+      prerequisites: [
+        {
+          releaseCode: 'reference:base',
+          moduleName: 'reference',
+          dataType: 'init',
+          version: '0.0.1',
+          checksum: 'b'.repeat(64),
+        },
+      ],
+    },
+  ])('rejects malformed owner plan membership without retry', async (selection) => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      response({
+        data: { dataType: 'core', tenant: 'default', releases: [release], selection },
+      }),
+    );
+    await expect(
+      preflightDataReleases(
+        connection,
+        configuration,
+        {
+          dataType: 'core',
+          modules: ['profile'],
+          expectedReleases: { profile: release.version },
+        },
+        request,
+      ),
+    ).rejects.toThrow();
+    expect(request).toHaveBeenCalledOnce();
+  });
+
+  it('retains stable HTTP status and owner code without classifying English messages', async () => {
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response({ code: 'ERR_IMP_00004', message: 'غير متاح' }, 404));
+    await expect(
+      loadInitializationProfiles(connection, configuration, request),
+    ).rejects.toMatchObject({
+      name: 'DataAdministrationRequestError',
+      status: 404,
+      code: 'ERR_IMP_00004',
+      message: 'غير متاح',
+    } satisfies Partial<DataAdministrationRequestError>);
+  });
   it('correlates a delayed 401 to the exact issued identity, not a later configuration', async () => {
     const listener = vi.fn();
     const unsubscribe = subscribeEmployeeSessionExpired(listener);
@@ -246,7 +417,22 @@ describe('data release client', () => {
 
     expect(result[0]?.moduleIndex).toBe('60.99');
     expect(result[0]?.profileCode).toBe('localPlatformFoundation');
+    expect(result[0]?.allowedActions).toEqual([]);
   });
+
+  it.each([[['unknown']], [['install', 'install']], ['install'], [null]])(
+    'rejects malformed owner action eligibility (%j)',
+    async (allowedActions) => {
+      const fetchImplementation = vi
+        .fn<typeof fetch>()
+        .mockImplementation(() =>
+          Promise.resolve(response({ data: [{ ...release, allowedActions }] })),
+        );
+      await expect(
+        loadDataReleases(connection, configuration, fetchImplementation),
+      ).rejects.toThrow('Data operation actions are incompatible');
+    },
+  );
 
   it('sends the same immutable selection to preflight and typed execution', async () => {
     const fetchImplementation = vi.fn<typeof fetch>().mockImplementation(() =>

@@ -1,4 +1,13 @@
-import { Box, IconButton, Paper, Stack, Tooltip } from '@mui/material';
+import {
+  Box,
+  Button,
+  IconButton,
+  Paper,
+  Stack,
+  Tooltip,
+  useMediaQuery,
+} from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router';
@@ -16,6 +25,7 @@ export interface DocumentationArticleTemplateSlots {
 
 interface DocumentationArticleTemplateRendererProps {
   readonly embedded?: boolean | undefined;
+  readonly readerLayout?: boolean | undefined;
   readonly page: CmsPageContract;
   readonly slots: DocumentationArticleTemplateSlots;
 }
@@ -44,11 +54,23 @@ function initialDocumentationNavigationWidth(): number {
 
 export function DocumentationArticleTemplateRenderer({
   embedded = false,
+  readerLayout = false,
   page,
   slots,
 }: DocumentationArticleTemplateRendererProps) {
   const location = useLocation();
-  const [navigationOpen, setNavigationOpen] = useState(true);
+  const wideLayout = useMediaQuery(useTheme().breakpoints.up('lg'));
+  const [desktopNavigationOpen, setDesktopNavigationOpen] = useState(true);
+  const [mobileNavigationPath, setMobileNavigationPath] = useState<string>();
+  const navigationOpen =
+    !readerLayout || wideLayout
+      ? desktopNavigationOpen
+      : mobileNavigationPath === location.pathname;
+  // Narrow readers reach the article first; choosing a new topic closes its directory.
+  const setNavigationOpen = (open: boolean) => {
+    if (!readerLayout || wideLayout) setDesktopNavigationOpen(open);
+    else setMobileNavigationPath(open ? location.pathname : undefined);
+  };
   const [navigationWidth, setNavigationWidth] = useState(
     initialDocumentationNavigationWidth,
   );
@@ -101,7 +123,7 @@ export function DocumentationArticleTemplateRenderer({
               xs: 'minmax(0, 1fr)',
               lg: `${String(navigationWidth)}px 10px minmax(0, 1fr)`,
             }
-          : { xs: '56px minmax(0, 1fr)', lg: '56px minmax(0, 1fr)' },
+          : { xs: 'minmax(0, 1fr)', lg: '56px minmax(0, 1fr)' },
         gridTemplateRows: { xs: 'auto', lg: 'minmax(0, 1fr)' },
         height: {
           xs: 'auto',
@@ -162,16 +184,26 @@ export function DocumentationArticleTemplateRenderer({
             </Box>
           </Stack>
         ) : (
-          <Stack sx={{ alignItems: 'center' }}>
-            <Tooltip title="Show documentation navigation">
-              <IconButton
+          <Stack sx={{ alignItems: { xs: 'flex-start', lg: 'center' } }}>
+            {readerLayout && !wideLayout ? (
+              <Button
                 aria-label="Show documentation navigation"
                 onClick={() => setNavigationOpen(true)}
+                startIcon={<ShellIcon name="content" />}
               >
-                <ShellIcon name="chevron-right" />
-              </IconButton>
-            </Tooltip>
-            <ShellIcon color="disabled" name="content" sx={{ mt: 1 }} />
+                Browse topics
+              </Button>
+            ) : (
+              <Tooltip title="Show documentation navigation">
+                <IconButton
+                  aria-label="Show documentation navigation"
+                  onClick={() => setNavigationOpen(true)}
+                >
+                  <ShellIcon name="chevron-right" />
+                </IconButton>
+              </Tooltip>
+            )}
+            {wideLayout && <ShellIcon color="disabled" name="content" sx={{ mt: 1 }} />}
           </Stack>
         )}
       </Paper>

@@ -27,6 +27,10 @@ export interface CronJobDefinition {
   readonly start: string | undefined;
   readonly state: string | undefined;
   readonly status: string | undefined;
+  readonly startTime?: string | undefined;
+  readonly endTime?: string | undefined;
+  readonly lastSkippedAt?: string | undefined;
+  readonly failure?: Readonly<{ code: string; target: string }> | undefined;
   readonly jobDetail: Record<string, unknown> | undefined;
 }
 
@@ -58,6 +62,52 @@ export interface CronJobLifecycleActionPolicy {
   readonly variant: 'contained' | 'outlined';
 }
 
+/** Presence reserves lifecycle changes for Cron's reviewed schedule protocol, including malformed markers. It grants no authority. */
+export function usesReviewedCronSchedule(job: CronJobDefinition): boolean {
+  return Boolean(job.jobDetail && Object.hasOwn(job.jobDetail, 'scheduleDraft'));
+}
+
+export type CronJobExecutionEvidence =
+  | Readonly<{
+      kind: 'completed';
+      status: 'SUCCESS' | 'ERROR';
+      startedAt: string;
+      finishedAt: string;
+    }>
+  | Readonly<{ kind: 'none' | 'unconfirmed' }>;
+
+/** Only persisted terminal status and consistent owner timestamps confirm a completed run; request acknowledgements never do. */
+export function cronJobExecutionEvidence(
+  job: CronJobDefinition,
+): CronJobExecutionEvidence {
+  if (normalizedState(job.state) === 'RUNNING') return { kind: 'unconfirmed' };
+  if (!job.startTime && !job.endTime && (!job.status || job.status === 'NEW'))
+    return { kind: 'none' };
+  const time = (value: string | undefined) =>
+    typeof value === 'string' &&
+    value.length <= 64 &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(
+      value,
+    )
+      ? Date.parse(value)
+      : NaN;
+  const start = time(job.startTime),
+    end = time(job.endTime);
+  if (
+    (job.status === 'SUCCESS' || job.status === 'ERROR') &&
+    Number.isFinite(start) &&
+    Number.isFinite(end) &&
+    end >= start
+  )
+    return {
+      kind: 'completed',
+      status: job.status,
+      startedAt: new Date(start).toISOString(),
+      finishedAt: new Date(end).toISOString(),
+    };
+  return { kind: 'unconfirmed' };
+}
+
 const cronJobLifecycleLabels: Readonly<Record<CronJobLifecycleAction, string>> =
   Object.freeze({
     create: 'Create in scheduler',
@@ -85,6 +135,12 @@ export function cronJobLifecycleActionPolicies(
   const running = ['RUNNING', 'STARTED', 'ACTIVE'].includes(state);
   const paused = ['PAUSED', 'SUSPENDED'].includes(state);
   const inactive = job.active === false;
+  const started = Date.parse(job.startTime ?? ''),
+    finished = Date.parse(job.endTime ?? '');
+  const executionPending =
+    state === 'RUNNING' ||
+    normalizedState(job.status) === 'RUNNING' ||
+    (Number.isFinite(started) && (!Number.isFinite(finished) || finished < started));
   const schedulerMissing = ['NEW', 'CREATED', 'SAVED', ''].includes(state);
   const policy = (
     action: CronJobLifecycleAction,
@@ -110,10 +166,12 @@ export function cronJobLifecycleActionPolicies(
     ),
     policy(
       'run',
-      inactive,
+      inactive || executionPending,
       inactive
         ? 'Inactive Cron jobs must be enabled before they can run.'
-        : 'Run this job once through the Cron scheduler authority.',
+        : executionPending
+          ? 'The current run must finish before another run is requested.'
+          : 'Run this job once through the Cron scheduler authority.',
       'contained',
     ),
     policy(
@@ -151,7 +209,14 @@ export function cronJobLifecycleActionPolicies(
 
 function endpoint(connection: AxisModuleConnection, path: string): string {
   const base = new URL(connection.endpoint);
-  if (!['http:', 'https:'].includes(base.protocol)) {
+  if (
+    connection.moduleName !== 'cronjob' ||
+    !['http:', 'https:'].includes(base.protocol) ||
+    base.username ||
+    base.password ||
+    base.search ||
+    base.hash
+  ) {
     throw new Error('Cron module endpoint is invalid');
   }
   return new URL(`${base.toString().replace(/\/$/, '')}/v0${path}`).toString();
@@ -179,8 +244,59 @@ function bool(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
-function envelopeData(value: unknown): unknown {
+/** A transport acknowledgement is not execution evidence. Reject negative owner envelopes even on HTTP 200. */
+function positiveEnvelope(value: unknown): Record<string, unknown> {
   const envelope = record(value, 'Cron response');
+  const ownerCode = envelope.code;
+  const httpCode = envelope.responseCode;
+  // Nodics returns a domain success code plus a separate HTTP responseCode (normally "200").
+  const compatibleResponseCode =
+    httpCode === undefined ||
+    ((typeof httpCode === 'string' || typeof httpCode === 'number') &&
+      /^2[0-9]{2}$/.test(String(httpCode))) ||
+    httpCode === ownerCode;
+  if (
+    typeof ownerCode !== 'string' ||
+    !/^SUC_[A-Za-z0-9_]+$/.test(ownerCode) ||
+    !compatibleResponseCode ||
+    ['success', 'acknowledged'].some(
+      (key) => envelope[key] !== undefined && envelope[key] !== true,
+    ) ||
+    (envelope.error !== undefined &&
+      envelope.error !== null &&
+      envelope.error !== false) ||
+    (envelope.errors !== undefined &&
+      (!Array.isArray(envelope.errors) || envelope.errors.length > 0))
+  )
+    throw new Error(
+      'Cron owner acknowledgement is unverified. Inspect current owner evidence before another operation.',
+    );
+  for (const payload of [envelope.result, envelope.data]) {
+    if (payload === false)
+      throw new Error(
+        'Cron owner result is unverified. Inspect its current evidence before another operation.',
+      );
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      const nested = payload as Record<string, unknown>;
+      if (
+        ['success', 'acknowledged'].some(
+          (key) => nested[key] !== undefined && nested[key] !== true,
+        ) ||
+        (nested.error !== undefined &&
+          nested.error !== null &&
+          nested.error !== false) ||
+        (nested.errors !== undefined &&
+          (!Array.isArray(nested.errors) || nested.errors.length > 0))
+      )
+        throw new Error(
+          'Cron owner result is unverified. Inspect its current evidence before another operation.',
+        );
+    }
+  }
+  return envelope;
+}
+function envelopeData(value: unknown): unknown {
+  const envelope = positiveEnvelope(value);
   if ('result' in envelope) return envelope.result;
   if ('data' in envelope) return envelope.data;
   return envelope;
@@ -194,11 +310,20 @@ function listPayload(value: unknown): readonly unknown[] {
     if (Array.isArray(nested.result)) return nested.result;
     if (Array.isArray(nested.data)) return nested.data;
   }
-  return Object.freeze([]);
+  throw new Error(
+    'Cron job list is incompatible. No empty inventory has been confirmed.',
+  );
 }
 
 function parseCronJob(value: unknown): CronJobDefinition {
   const data = record(value, 'Cron job');
+  const code = optionalText(data.code);
+  if (
+    !code ||
+    !/^[A-Za-z][A-Za-z0-9._-]{0,127}$/.test(code) ||
+    typeof data.active !== 'boolean'
+  )
+    throw new Error('Cron job identity or active state is unverified');
   const trigger =
     typeof data.trigger === 'object' &&
     data.trigger !== null &&
@@ -211,17 +336,37 @@ function parseCronJob(value: unknown): CronJobDefinition {
     !Array.isArray(data.jobDetail)
       ? (data.jobDetail as Record<string, unknown>)
       : undefined;
+  const entry =
+    Array.isArray(data.log) && data.log.length === 1
+      ? (data.log[0] as Record<string, unknown>)
+      : undefined;
+  const failure =
+    entry &&
+    typeof entry.code === 'string' &&
+    /^ERR_[A-Z0-9_]{1,64}$/.test(entry.code) &&
+    typeof entry.target === 'string' &&
+    ['processTrigger', 'startNode', 'internal', 'external', 'unknown'].includes(
+      entry.target,
+    )
+      ? Object.freeze({ code: entry.code, target: entry.target })
+      : undefined;
+  const startTime = optionalText(data.startTime),
+    endTime = optionalText(data.endTime);
   return Object.freeze({
-    code: optionalText(data.code) ?? 'cronJob',
+    code,
     name: optionalText(data.name),
     description: optionalText(data.description),
-    active: bool(data.active, true),
+    active: data.active,
     runOnNode: optionalText(data.runOnNode),
     runOnInit: bool(data.runOnInit, false),
     trigger: trigger ? Object.freeze({ ...trigger }) : undefined,
     start: optionalText(data.start),
     state: optionalText(data.state),
     status: optionalText(data.status),
+    ...(startTime ? { startTime } : {}),
+    ...(endTime ? { endTime } : {}),
+    lastSkippedAt: optionalText(data.lastSkippedAt),
+    failure,
     jobDetail: jobDetail ? Object.freeze({ ...jobDetail }) : undefined,
   });
 }
@@ -260,7 +405,9 @@ export async function cronRequest(
     try {
       body = text ? JSON.parse(text) : undefined;
     } catch {
-      throw new Error(`Cron returned non-JSON response: ${text.slice(0, 160)}`);
+      throw new Error(
+        'Cron returned an incompatible response. Inspect the owner before retrying an operation.',
+      );
     }
     if (!response.ok) {
       const errorBody =
@@ -268,9 +415,9 @@ export async function cronRequest(
           ? (body as Record<string, unknown>)
           : {};
       throw new Error(
-        typeof errorBody.message === 'string'
-          ? errorBody.message
-          : `Cron request returned HTTP ${String(response.status)}`,
+        response.status === 401 || response.status === 403
+          ? 'You do not have access to this Cron operation.'
+          : `Cron request returned HTTP ${String(response.status)}${typeof errorBody.code === 'string' && /^ERR_[A-Za-z0-9_]+$/.test(errorBody.code) ? `. Support code: ${errorBody.code}` : ''}`,
       );
     }
     return body;
@@ -286,11 +433,13 @@ export async function loadCronJobs(
   connection: AxisModuleConnection,
   configuration: CronJobClientConfiguration,
 ): Promise<readonly CronJobDefinition[]> {
-  return Object.freeze(
-    listPayload(await cronRequest(connection, '/cronjob', configuration)).map(
-      parseCronJob,
-    ),
-  );
+  const rows = listPayload(await cronRequest(connection, '/cronjob', configuration));
+  if (rows.length > 500)
+    throw new Error('Cron job list exceeds the supported inspection limit');
+  const jobs = rows.map(parseCronJob);
+  if (new Set(jobs.map((job) => job.code)).size !== jobs.length)
+    throw new Error('Cron job identities are ambiguous');
+  return Object.freeze(jobs);
 }
 
 export async function saveCronJob(
@@ -325,7 +474,16 @@ export async function saveCronJob(
     body: JSON.stringify(model),
   });
   const data = envelopeData(body);
-  return parseCronJob(Array.isArray(data) ? data[0] : data);
+  if (Array.isArray(data) && data.length !== 1)
+    throw new Error(
+      'Cron save did not confirm exactly one persisted job. Inspect the original code before another save.',
+    );
+  const saved = parseCronJob(Array.isArray(data) ? data[0] : data);
+  if (saved.code !== input.code || saved.active !== input.active)
+    throw new Error(
+      'Cron save identity or active state does not match. Inspect the original code before another save.',
+    );
+  return saved;
 }
 
 export async function applyCronJobAction(
@@ -334,10 +492,12 @@ export async function applyCronJobAction(
   jobCode: string,
   action: CronJobLifecycleAction,
 ): Promise<void> {
-  await cronRequest(
-    connection,
-    `/job/${action}/${safeSegment(jobCode, 'Cron job code')}`,
-    configuration,
-    { method: 'POST' },
+  positiveEnvelope(
+    await cronRequest(
+      connection,
+      `/job/${action}/${safeSegment(jobCode, 'Cron job code')}`,
+      configuration,
+      { method: 'POST' },
+    ),
   );
 }

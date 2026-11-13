@@ -1,4 +1,4 @@
-import { alpha, createTheme, type PaletteMode } from '@mui/material/styles';
+import { alpha, createTheme, lighten, type PaletteMode } from '@mui/material/styles';
 
 const axisFontFamily =
   'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
@@ -28,7 +28,7 @@ export const axisTokens = {
     gold,
     charcoal,
     signatureGold: gold[500],
-    success: '#147a55',
+    success: '#136f4e',
     warning: '#a95808',
     error: '#bd3347',
     info: '#1769aa',
@@ -90,11 +90,25 @@ export const axisTokens = {
   },
 } as const;
 
-/** Builds the Axis theme; composed text tokens govern light primary action/state labels without changing brand fills, indicators or outlines. */
+/** Builds the shared Axis theme. Brand fills remain fixed; semantic hues adapt to Dark surfaces while text and hover retain readable contrast. */
 export function createAxisTheme(mode: PaletteMode) {
   const surface = axisTokens.color.surface[mode];
+  const keyboardFocus = {
+    outline: `3px solid ${mode === 'light' ? gold[700] : gold[300]}`,
+    outlineOffset: 2,
+  };
   const primaryText = mode === 'light' ? charcoal[900] : '#f7f8f8';
   const secondaryText = mode === 'light' ? charcoal[500] : '#aeb5bc';
+  /** Keeps semantic tone order and contained-button foreground readable on both normal and hover fills. Projects extend the composed theme rather than forking feature colors. */
+  const semanticPalette = (base: string) =>
+    mode === 'dark'
+      ? {
+          main: lighten(base, 0.4),
+          light: lighten(base, 0.55),
+          dark: lighten(base, 0.35),
+          contrastText: charcoal[900],
+        }
+      : { main: base };
 
   return createTheme({
     cssVariables: true,
@@ -102,6 +116,7 @@ export function createAxisTheme(mode: PaletteMode) {
       mode,
       primary: {
         main: axisTokens.color.signatureGold,
+        dark: gold[600],
         contrastText: charcoal[900],
       },
       secondary: {
@@ -124,10 +139,13 @@ export function createAxisTheme(mode: PaletteMode) {
         disabled: alpha(primaryText, 0.34),
         disabledBackground: alpha(primaryText, 0.08),
       },
-      success: { main: axisTokens.color.success },
-      warning: { main: axisTokens.color.warning },
-      error: { main: axisTokens.color.error },
-      info: { main: axisTokens.color.info },
+      success: {
+        ...semanticPalette(axisTokens.color.success),
+        ...(mode === 'light' ? { contrastText: '#ffffff' } : {}),
+      },
+      warning: semanticPalette(axisTokens.color.warning),
+      error: semanticPalette(axisTokens.color.error),
+      info: semanticPalette(axisTokens.color.info),
     },
     typography: {
       fontFamily: axisFontFamily,
@@ -230,10 +248,7 @@ export function createAxisTheme(mode: PaletteMode) {
           '::selection': {
             backgroundColor: mode === 'light' ? gold[100] : gold[700],
           },
-          ':focus-visible': {
-            outline: `3px solid ${mode === 'light' ? gold[500] : gold[300]}`,
-            outlineOffset: 2,
-          },
+          ':focus-visible': keyboardFocus,
           '@media (prefers-reduced-motion: reduce)': {
             '*, *::before, *::after': {
               scrollBehavior: 'auto !important',
@@ -241,6 +256,25 @@ export function createAxisTheme(mode: PaletteMode) {
               animationDuration: '0.01ms !important',
               animationIterationCount: '1 !important',
             },
+          },
+        },
+      },
+      MuiLink: {
+        styleOverrides: {
+          root: ({ theme, ownerState }) =>
+            theme.palette.mode === 'light' &&
+            (ownerState.color === undefined || ownerState.color === 'primary')
+              ? {
+                  color: theme.palette.text.primary,
+                  textDecorationColor: 'currentColor',
+                }
+              : {},
+        },
+      },
+      MuiButtonBase: {
+        styleOverrides: {
+          root: {
+            '&&.Mui-focusVisible': keyboardFocus,
           },
         },
       },
@@ -254,8 +288,8 @@ export function createAxisTheme(mode: PaletteMode) {
           root: ({ theme }) => ({
             borderRadius: axisTokens.radius.small,
             minHeight: 42,
-            '&.MuiButton-containedPrimary:hover': {
-              backgroundColor: gold[600],
+            '&.MuiButton-contained.MuiButton-colorPrimary:hover': {
+              backgroundColor: theme.palette.primary.dark,
             },
             ...(theme.palette.mode === 'light'
               ? {
@@ -300,14 +334,15 @@ export function createAxisTheme(mode: PaletteMode) {
       },
       MuiTab: {
         styleOverrides: {
-          root: ({ theme }) =>
-            theme.palette.mode === 'light'
-              ? {
-                  '&.MuiTab-textColorPrimary.Mui-selected:not(.Mui-disabled)': {
-                    color: theme.palette.text.primary,
-                  },
-                }
-              : {},
+          root: ({ theme }) => ({
+            '&:not(.Mui-disabled)': { opacity: 1 },
+            '&.MuiTab-textColorPrimary:not(.Mui-disabled)': {
+              color: theme.palette.text.secondary,
+            },
+            '&.MuiTab-textColorPrimary.Mui-selected:not(.Mui-disabled)': {
+              color: theme.palette.text.primary,
+            },
+          }),
         },
       },
       MuiFormHelperText: {

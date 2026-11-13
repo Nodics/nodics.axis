@@ -136,9 +136,17 @@ export function ApplicationArtwork({
       ) : (
         <Box
           component="img"
-          src="/brand/application-fallback-v1.png"
+          src="/brand/favicon.svg"
+          loading="lazy"
+          decoding="async"
           alt="Nodics"
-          sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          sx={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'contain',
+            p: 1,
+            display: 'block',
+          }}
         />
       )}
     </Box>

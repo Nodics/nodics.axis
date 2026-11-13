@@ -1,3 +1,7 @@
+import {
+  parseRuntimeConfigurationSchemas,
+  parseRuntimeConfigurationEffective,
+} from './runtimeConfigurationContracts';
 import type { AxisAuthenticatedBootstrap } from '../../../bootstrap/publicBootstrap';
 import { invokeOperationalOwner as invoke } from '../../shared/operationalOwnerClient';
 import type { OperationalOwnerConfiguration } from '../../shared/operationalOwnerClient';
@@ -45,7 +49,7 @@ export interface RuntimeConfigurationSchemaSummary {
 
 export interface RuntimeConfigurationEffectiveValue {
   readonly configured: boolean;
-  readonly value?: string;
+  readonly value?: string | number | boolean;
   readonly sensitive?: boolean;
   readonly restartRequired?: boolean;
 }
@@ -88,25 +92,23 @@ const owner = 'system';
 const schemaPath = (schemaCode: string) =>
   '/config/runtime/schema/' + encodeURIComponent(schemaCode);
 
-export function loadRuntimeConfigurationSchemas(
+export async function loadRuntimeConfigurationSchemas(
   configuration: RuntimeConfigurationClientConfiguration,
 ) {
-  return invoke<RuntimeConfigurationSchemaSummary[]>(
-    configuration,
-    owner,
-    '/config/runtime/schema',
-  );
+  const result = await invoke<unknown>(configuration, owner, '/config/runtime/schema');
+  return parseRuntimeConfigurationSchemas(result);
 }
 
-export function loadRuntimeConfigurationEffective(
+export async function loadRuntimeConfigurationEffective(
   configuration: RuntimeConfigurationClientConfiguration,
   schemaCode: string,
 ) {
-  return invoke<RuntimeConfigurationEffective>(
+  const result = await invoke<unknown>(
     configuration,
     owner,
     schemaPath(schemaCode) + '/effective',
   );
+  return parseRuntimeConfigurationEffective(result, schemaCode);
 }
 
 export function validateRuntimeConfigurationUpdate(

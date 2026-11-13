@@ -1,3 +1,4 @@
+import { MemoryRouter } from 'react-router';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
@@ -82,4 +83,36 @@ it('shows pending state and refuses click, Enter and direct submit without autom
   expect(login).not.toHaveBeenCalled();
   await user.click(button);
   expect(login).toHaveBeenCalledExactlyOnceWith('operator', 'test-input');
+});
+
+it('keeps the admitted invitation entry available in the bundled sign-in fallback', () => {
+  const login = vi.fn();
+  const view = render(
+    <MemoryRouter>
+      <BundledLoginPage
+        onLogin={login}
+        registrationEntry={{ label: 'Finish your invitation' }}
+      />
+    </MemoryRouter>,
+  );
+  expect(
+    screen.getByText('Sign in with your employee account to continue.'),
+  ).toBeVisible();
+  expect(screen.getByRole('link', { name: 'Finish your invitation' })).toHaveAttribute(
+    'href',
+    '/enterprise-access/register',
+  );
+  expect(login).not.toHaveBeenCalled();
+  view.rerender(
+    <MemoryRouter>
+      <BundledLoginPage
+        onLogin={login}
+        pending
+        registrationEntry={{ label: 'Finish your invitation' }}
+      />
+    </MemoryRouter>,
+  );
+  expect(
+    screen.queryByRole('link', { name: 'Finish your invitation' }),
+  ).not.toBeInTheDocument();
 });

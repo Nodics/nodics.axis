@@ -183,6 +183,12 @@ Frontend startup is independent of backend health. Keep unavailable/retry UI and
 frontend tests in this application. Backend API acceptance must never start or
 test this frontend. Container deployment is owned by [docker/README.md](docker/README.md).
 
+Normal authenticated bootstrap requests may omit only the optional operational
+diagnostic aggregate through the owner-supported projection. Preserve every fresh
+admission check. Observe the full report only in an explicitly opened Technical
+view or visible CMS operational summary; loading/failed/source-replaced evidence
+never becomes READY or repair authority. Follow `src/bootstrap/README.md`.
+
 Applications dashboard observation reuses Setup's bounded readiness scheduler.
 Setup status transport consumes BackOffice's versioned
 `applicationReadinessScheduling` projection, with no frontend scheduling default.

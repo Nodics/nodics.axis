@@ -15,6 +15,10 @@ describe('bundled Axis initialization experience', () => {
     };
     const view = render(
       <AxisInitializationWorkspace
+        approvalEligibility={{
+          eligible: true,
+          message: 'Process confirmed eligibility',
+        }}
         {...actions}
         busy={false}
         reconnecting
@@ -44,17 +48,32 @@ describe('bundled Axis initialization experience', () => {
       .setup()
       .click(screen.getByRole('button', { name: 'Refresh status' }));
     expect(actions.onRefresh).toHaveBeenCalledOnce();
-    view.rerender(<AxisInitializationWorkspace {...actions} busy statusUnavailable />);
+    view.rerender(
+      <AxisInitializationWorkspace
+        approvalEligibility={{
+          eligible: true,
+          message: 'Process confirmed eligibility',
+        }}
+        {...actions}
+        busy
+        statusUnavailable
+      />,
+    );
     expect(
       screen.getByRole('heading', { level: 1, name: 'Checking your workspace' }),
     ).toBeVisible();
     expect(screen.queryByText('First-run setup')).not.toBeInTheDocument();
     view.rerender(
       <AxisInitializationWorkspace
+        approvalEligibility={{
+          eligible: true,
+          message: 'Process confirmed eligibility',
+        }}
         {...actions}
         busy={false}
         status={{
           baselineCode: 'axis',
+          allowedActions: ['INITIALIZE'] as const,
           releaseCode: 'axis:axisBaseline',
           releaseVersion: '0.0.0',
           releaseStatus: 'NOT_INSTALLED',
@@ -81,6 +100,7 @@ describe('bundled Axis initialization experience', () => {
       onReviewWorkflow,
       status: {
         baselineCode: 'axis',
+        allowedActions: ['INITIALIZE'] as const,
         releaseCode: 'axis:axisBaseline',
         releaseVersion: '0.0.0',
         releaseStatus: 'CURRENT',
@@ -93,17 +113,41 @@ describe('bundled Axis initialization experience', () => {
         },
       },
     } as const;
-    const view = render(<AxisInitializationWorkspace {...props} />);
+    const view = render(
+      <AxisInitializationWorkspace
+        approvalEligibility={{
+          eligible: true,
+          message: 'Process confirmed eligibility',
+        }}
+        {...props}
+      />,
+    );
     await userEvent
       .setup()
       .click(screen.getByRole('button', { name: 'Review setup workflow' }));
     expect(onReviewWorkflow).toHaveBeenCalledOnce();
-    view.rerender(<AxisInitializationWorkspace {...props} statusUnavailable />);
+    view.rerender(
+      <AxisInitializationWorkspace
+        approvalEligibility={{
+          eligible: true,
+          message: 'Process confirmed eligibility',
+        }}
+        {...props}
+        statusUnavailable
+      />,
+    );
     expect(
       screen.getByRole('button', { name: 'Review setup workflow' }),
     ).toBeDisabled();
     view.rerender(
-      <AxisInitializationWorkspace {...props} onReviewWorkflow={undefined} />,
+      <AxisInitializationWorkspace
+        approvalEligibility={{
+          eligible: true,
+          message: 'Process confirmed eligibility',
+        }}
+        {...props}
+        onReviewWorkflow={undefined}
+      />,
     );
     expect(screen.queryByRole('button', { name: 'Review setup workflow' })).toBeNull();
   });
@@ -116,6 +160,7 @@ describe('bundled Axis initialization experience', () => {
     };
     const status = {
       baselineCode: 'axis',
+      allowedActions: ['INITIALIZE'] as const,
       releaseCode: 'axis:axisBaseline',
       releaseVersion: '0.0.0',
       releaseStatus: 'CURRENT',
@@ -123,6 +168,10 @@ describe('bundled Axis initialization experience', () => {
     } as const;
     const view = render(
       <AxisInitializationWorkspace
+        approvalEligibility={{
+          eligible: true,
+          message: 'Process confirmed eligibility',
+        }}
         {...actions}
         busy={false}
         status={status}
@@ -133,6 +182,10 @@ describe('bundled Axis initialization experience', () => {
     expect(screen.getByRole('button', { name: 'Refresh status' })).toBeEnabled();
     view.rerender(
       <AxisInitializationWorkspace
+        approvalEligibility={{
+          eligible: true,
+          message: 'Process confirmed eligibility',
+        }}
         {...actions}
         busy={false}
         status={{ ...status, releaseStatus: 'INVALID_RELEASE' }}
@@ -140,7 +193,15 @@ describe('bundled Axis initialization experience', () => {
     );
     expect(screen.queryByRole('button', { name: 'Resume setup' })).toBeNull();
     view.rerender(
-      <AxisInitializationWorkspace {...actions} busy={false} status={status} />,
+      <AxisInitializationWorkspace
+        approvalEligibility={{
+          eligible: true,
+          message: 'Process confirmed eligibility',
+        }}
+        {...actions}
+        busy={false}
+        status={status}
+      />,
     );
     expect(screen.getByRole('button', { name: 'Resume setup' })).toBeEnabled();
     expect(actions.onInitiate).not.toHaveBeenCalled();
@@ -149,6 +210,10 @@ describe('bundled Axis initialization experience', () => {
   it('does not resubmit an existing pending publication even when readiness reports failure', () => {
     render(
       <AxisInitializationWorkspace
+        approvalEligibility={{
+          eligible: true,
+          message: 'Process confirmed eligibility',
+        }}
         busy={false}
         onApprove={vi.fn()}
         onInitiate={vi.fn()}
@@ -156,6 +221,7 @@ describe('bundled Axis initialization experience', () => {
         onLogout={vi.fn()}
         status={{
           baselineCode: 'axis',
+          allowedActions: ['INITIALIZE'] as const,
           releaseCode: 'axis:axisBaseline',
           releaseVersion: '0.0.0',
           releaseStatus: 'CURRENT',
@@ -179,12 +245,30 @@ describe('bundled Axis initialization experience', () => {
       onLogout: vi.fn(),
       onRefresh: vi.fn(),
     };
-    const view = render(<AxisInitializationWorkspace {...props} busy={false} />);
+    const view = render(
+      <AxisInitializationWorkspace
+        approvalEligibility={{
+          eligible: true,
+          message: 'Process confirmed eligibility',
+        }}
+        {...props}
+        busy={false}
+      />,
+    );
     expect(
       screen.queryByRole('button', { name: 'Prepare required modules' }),
     ).toBeNull();
     expect(screen.getByRole('button', { name: 'Refresh status' })).toBeEnabled();
-    view.rerender(<AxisInitializationWorkspace {...props} busy />);
+    view.rerender(
+      <AxisInitializationWorkspace
+        approvalEligibility={{
+          eligible: true,
+          message: 'Process confirmed eligibility',
+        }}
+        {...props}
+        busy
+      />,
+    );
     expect(
       screen.queryByRole('button', { name: 'Prepare required modules' }),
     ).toBeNull();
@@ -207,12 +291,17 @@ describe('bundled Axis initialization experience', () => {
     const onApprove = vi.fn();
     const base = {
       baselineCode: 'axis',
+      allowedActions: ['INITIALIZE'] as const,
       releaseCode: 'axis:axisBaseline',
       releaseVersion: '0.0.0',
       releaseStatus: 'CURRENT',
     } as const;
     const view = render(
       <AxisInitializationWorkspace
+        approvalEligibility={{
+          eligible: true,
+          message: 'Process confirmed eligibility',
+        }}
         busy={false}
         onApprove={onApprove}
         onInitiate={onInitiate}
@@ -225,6 +314,10 @@ describe('bundled Axis initialization experience', () => {
     expect(onInitiate).toHaveBeenCalledOnce();
     view.rerender(
       <AxisInitializationWorkspace
+        approvalEligibility={{
+          eligible: true,
+          message: 'Process confirmed eligibility',
+        }}
         busy={false}
         onApprove={onApprove}
         onInitiate={onInitiate}
@@ -323,10 +416,76 @@ describe('bundled Axis initialization experience', () => {
     expect(onApprove).toHaveBeenCalledOnce();
   });
 
+  it.each(['WORKFLOW_DEFINITION_MISSING', 'TASK_REFERENCE_MISSING'])(
+    'offers explicit request recovery for %s',
+    async (missing) => {
+      const props = {
+        busy: false,
+        onApprove: vi.fn(),
+        onInitiate: vi.fn(),
+        onRefresh: vi.fn(),
+        onLogout: vi.fn(),
+      };
+      const pending = (status: string) => ({
+        baselineCode: 'axis',
+        allowedActions: ['INITIALIZE'] as const,
+        releaseCode: 'axis:axisBaseline',
+        releaseVersion: '0.0.1',
+        releaseStatus: 'CURRENT',
+        readiness: 'PUBLICATION_PENDING' as const,
+        publication: {
+          code: 'axis-publication',
+          state: 'PENDING_APPROVAL',
+          revision: 3,
+          workflowRef: 'axis-review',
+          approvalDiagnostic: {
+            status,
+            message: status,
+            suggestedAction: 'Check Process.',
+          },
+        },
+      });
+      const view = render(
+        <AxisInitializationWorkspace
+          approvalEligibility={{
+            eligible: true,
+            message: 'Process confirmed eligibility',
+          }}
+          {...props}
+          status={pending(missing)}
+        />,
+      );
+      expect(screen.getByText(new RegExp(missing))).toBeVisible();
+      expect(props.onInitiate).not.toHaveBeenCalled();
+      await userEvent
+        .setup()
+        .click(screen.getByRole('button', { name: 'Retry approval request' }));
+      expect(props.onInitiate).toHaveBeenCalledOnce();
+      expect(props.onApprove).not.toHaveBeenCalled();
+      view.rerender(
+        <AxisInitializationWorkspace
+          approvalEligibility={{
+            eligible: true,
+            message: 'Process confirmed eligibility',
+          }}
+          {...props}
+          status={pending('WAITING_REVIEWER')}
+        />,
+      );
+      expect(
+        screen.queryByRole('button', { name: 'Retry approval request' }),
+      ).toBeNull();
+    },
+  );
+
   it('renders first-run setup as expandable guidance cards', async () => {
     const user = userEvent.setup();
     render(
       <AxisInitializationWorkspace
+        approvalEligibility={{
+          eligible: true,
+          message: 'Process confirmed eligibility',
+        }}
         busy={false}
         onApprove={vi.fn()}
         onInitiate={vi.fn()}
@@ -334,6 +493,7 @@ describe('bundled Axis initialization experience', () => {
         onRefresh={vi.fn()}
         status={{
           baselineCode: 'axis',
+          allowedActions: ['INITIALIZE'] as const,
           releaseCode: 'axis:axisBaseline',
           releaseVersion: '0.0.0',
           releaseStatus: 'NOT_INSTALLED',
@@ -381,6 +541,10 @@ describe('bundled Axis initialization experience', () => {
   it('shows import progress without offering duplicate initialization', () => {
     render(
       <AxisInitializationWorkspace
+        approvalEligibility={{
+          eligible: true,
+          message: 'Process confirmed eligibility',
+        }}
         busy={false}
         onApprove={vi.fn()}
         onInitiate={vi.fn()}
@@ -388,6 +552,7 @@ describe('bundled Axis initialization experience', () => {
         onRefresh={vi.fn()}
         status={{
           baselineCode: 'axis',
+          allowedActions: ['INITIALIZE'] as const,
           releaseCode: 'axis:axisBaseline',
           releaseVersion: '0.0.0',
           releaseStatus: 'RUNNING',
@@ -403,6 +568,10 @@ describe('bundled Axis initialization experience', () => {
   it('fails closed when the authoritative review is missing or does not match the workflow', () => {
     render(
       <AxisInitializationWorkspace
+        approvalEligibility={{
+          eligible: true,
+          message: 'Process confirmed eligibility',
+        }}
         busy={false}
         onApprove={vi.fn()}
         onInitiate={vi.fn()}
@@ -410,6 +579,7 @@ describe('bundled Axis initialization experience', () => {
         onRefresh={vi.fn()}
         status={{
           baselineCode: 'axis',
+          allowedActions: ['INITIALIZE'] as const,
           releaseCode: 'axis:axisBaseline',
           releaseVersion: '0.0.0',
           releaseStatus: 'CURRENT',
@@ -428,4 +598,83 @@ describe('bundled Axis initialization experience', () => {
       screen.queryByRole('button', { name: 'Review publication details' }),
     ).toBeNull();
   });
+});
+
+it('keeps inspection available while revoked or absent actor rights disable every mutation', async () => {
+  const actions = {
+    onInitiate: vi.fn(),
+    onApprove: vi.fn(),
+    onRefresh: vi.fn(),
+    onLogout: vi.fn(),
+  };
+  const baseline = {
+    baselineCode: 'axis',
+    releaseCode: 'axis:axisBaseline',
+    releaseVersion: '1.0.0',
+    releaseStatus: 'CURRENT',
+  };
+  const view = render(
+    <AxisInitializationWorkspace
+      {...actions}
+      busy={false}
+      status={{ ...baseline, readiness: 'NOT_IMPORTED' }}
+    />,
+  );
+  expect(screen.queryByRole('button', { name: 'Initialize and submit' })).toBeNull();
+  const pending = {
+    ...baseline,
+    readiness: 'PUBLICATION_PENDING' as const,
+    publication: {
+      code: 'exact',
+      revision: 2,
+      state: 'PENDING_APPROVAL',
+      workflowRef: 'review',
+    },
+    review: {
+      title: 'Exact review',
+      summary: 'Frozen baseline',
+      sourceRole: 'STAGED',
+      targetRole: 'ONLINE',
+      siteCode: 'axis',
+      catalogCode: 'axis',
+      impactMessage: 'Activate this reviewed version',
+      rollbackMessage: 'Restore previous version',
+      releaseChecksum: 'hash',
+      publicationCode: 'exact',
+      workflowRef: 'review',
+      validation: { status: 'PASSED', warnings: [] },
+      entities: [],
+      postPublicationCapabilities: [],
+    },
+  };
+  view.rerender(
+    <AxisInitializationWorkspace
+      {...actions}
+      busy={false}
+      status={pending}
+      approvalEligibility={{ eligible: true, message: 'Process confirmed' }}
+    />,
+  );
+  await userEvent
+    .setup()
+    .click(screen.getByRole('button', { name: 'Review publication details' }));
+  expect(screen.getByRole('button', { name: 'Approve and publish' })).toBeEnabled();
+  view.rerender(
+    <AxisInitializationWorkspace
+      {...actions}
+      busy={false}
+      status={pending}
+      approvalEligibility={{
+        eligible: false,
+        message: 'Your current role cannot approve this task',
+      }}
+    />,
+  );
+  expect(screen.getByRole('button', { name: 'Approve and publish' })).toBeDisabled();
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'Your current role cannot approve',
+  );
+  await userEvent.setup().keyboard('{Enter}');
+  expect(actions.onApprove).not.toHaveBeenCalled();
+  expect(screen.getByText(/Immutable release checksum: hash/)).toBeVisible();
 });

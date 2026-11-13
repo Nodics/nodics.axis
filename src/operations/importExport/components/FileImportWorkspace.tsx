@@ -24,15 +24,17 @@ import {
   Typography,
   alpha,
 } from '@mui/material';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { AxisModuleConnection } from '../../../bootstrap/publicBootstrap';
+import { loadMediaSourceContexts } from '../../mediaManagement/api/mediaStoragePolicyClient';
 import {
   loadWorkbenchSchemas,
   type WorkbenchClientConfiguration,
 } from '../../../workbench/api/workbenchClient';
 import type { WorkbenchSchema } from '../../../workbench/api/workbenchContracts';
 import {
+  DataAdministrationRequestError,
   installMediaImport,
   type DataReleaseClientConfiguration,
   uploadImportMedia,
@@ -45,12 +47,22 @@ import type {
   MediaImportOperationResult,
   MediaUploadSummary,
 } from '../api/dataReleaseContracts';
+import {
+  fileImportTargets,
+  fileImportTargetDestination,
+} from '../api/fileImportTargets';
 
 interface FileImportWorkspaceProps {
+  readonly scope: string;
+  readonly onPendingChange: (pending: boolean) => void;
+  readonly onInspectHistory?: (
+    connection: AxisModuleConnection,
+    reference: { runId?: string; mediaCode?: string },
+  ) => void;
   readonly configuration: DataReleaseClientConfiguration;
   readonly enterpriseCode: string;
-  readonly importConnection: AxisModuleConnection | undefined;
-  readonly mediaConnection: AxisModuleConnection | undefined;
+  readonly importConnections: readonly AxisModuleConnection[];
+  readonly mediaConnections: readonly AxisModuleConnection[];
   readonly schemaConnections: readonly AxisModuleConnection[];
   readonly tenantCode: string;
 }
@@ -244,7 +256,11 @@ function FileImportWorkspaceContent(props: FileImportWorkspaceProps) {
 
   const hasTargetEnterprise = selectedEnterpriseCode.length > 0;
   const schemas = useQuery({
-    queryKey: ['file-import-schemas', selectedClientConfiguration.enterpriseCode],
+    queryKey: [
+      'file-import-schemas',
+      props.scope,
+      selectedClientConfiguration.enterpriseCode,
+    ],
     queryFn: () => {
       if (props.schemaConnections.length === 0) {
         throw new Error('Schema discovery is unavailable');
@@ -254,37 +270,87 @@ function FileImportWorkspaceContent(props: FileImportWorkspaceProps) {
     enabled: props.schemaConnections.length > 0 && hasTargetEnterprise,
   });
   const schemaOptions = useMemo(() => {
-    const byKey = new Map<string, WorkbenchSchema>();
-    for (const schema of schemas.data ?? []) {
-      byKey.set(`${schema.moduleName}/${schema.schemaName}`, schema);
-    }
-    return Object.freeze([...byKey.values()]);
-  }, [schemas.data]);
-  const selectedSchema = useMemo(
-    () =>
-      schemaOptions.find(
-        (schema) => `${schema.moduleName}/${schema.schemaName}` === schemaKey,
-      ),
+    return fileImportTargets(
+      schemas.data ?? [],
+      props.schemaConnections,
+      props.importConnections,
+      props.mediaConnections,
+    );
+  }, [
+    schemas.data,
+    props.schemaConnections,
+    props.importConnections,
+    props.mediaConnections,
+  ]);
+  const selectedTarget = useMemo(
+    () => schemaOptions.find((target) => target.key === schemaKey),
     [schemaKey, schemaOptions],
   );
+  const selectedSchema = selectedTarget?.schema;
+  const importConnection = selectedTarget?.importConnection;
+  const mediaConnection = selectedTarget?.mediaConnection;
+  const filePolicy = useQuery({
+    queryKey: [
+      'file-import-media-policy',
+      props.scope,
+      mediaConnection?.instanceId,
+      mediaConnection?.endpoint,
+    ],
+    enabled: Boolean(mediaConnection),
+    retry: false,
+    queryFn: async () => {
+      if (!mediaConnection) return null;
+      const contexts = await loadMediaSourceContexts(
+        mediaConnection,
+        selectedClientConfiguration,
+      );
+      return (
+        contexts
+          .flatMap((context) => context.allowedFolders)
+          .find((folder) => folder.folderCode === 'importSources') ?? null
+      );
+    },
+  });
+  const formats = filePolicy.isError ? undefined : filePolicy.data?.allowedExtensions;
+  const maximumSize = filePolicy.isError
+    ? undefined
+    : filePolicy.data?.maxFileSizeBytes;
+  const fileExtension = file?.name.includes('.')
+    ? file.name.split('.').at(-1)?.toLowerCase()
+    : undefined;
+  const filePolicyProblem =
+    file && maximumSize && file.size > maximumSize
+      ? `This file exceeds the owner’s ${formatBytes(maximumSize)} size limit.`
+      : file &&
+          formats?.length &&
+          !formats.includes('*') &&
+          !formats.includes(fileExtension ?? '')
+        ? `Choose one of the owner’s allowed file types: ${formats.join(', ').toUpperCase()}.`
+        : undefined;
+  const sourceFields =
+    selectedSchema?.fields.filter(
+      (field) =>
+        !field.readOnly &&
+        (field.primary ||
+          (field.required &&
+            field.default === undefined &&
+            field.fixedValue === undefined)),
+    ) ?? [];
   const upload = useMutation({
+    retry: false,
     mutationFn: async () => {
-      if (!props.mediaConnection) throw new Error('Media service is unavailable');
+      if (!mediaConnection)
+        throw new Error('Media service is unavailable for this model');
       if (!hasTargetEnterprise)
         throw new Error('Select the target enterprise before uploading');
       if (!selectedSchema) throw new Error('Choose a target model before uploading');
       if (!file) throw new Error('Select a file before uploading');
-      return uploadImportMedia(
-        props.mediaConnection,
-        selectedClientConfiguration,
-        file,
-        {
-          enterpriseCode: selectedEnterpriseCode,
-          moduleName: selectedSchema.moduleName,
-          schemaName: selectedSchema.schemaName,
-          tenantCode: props.tenantCode,
-        },
-      );
+      return uploadImportMedia(mediaConnection, selectedClientConfiguration, file, {
+        enterpriseCode: selectedEnterpriseCode,
+        moduleName: selectedSchema.moduleName,
+        schemaName: selectedSchema.schemaName,
+        tenantCode: props.tenantCode,
+      });
     },
     onSuccess: (media) => {
       setUploadedMedia(media);
@@ -292,13 +358,15 @@ function FileImportWorkspaceContent(props: FileImportWorkspaceProps) {
     },
   });
   const validate = useMutation({
+    retry: false,
     mutationFn: async () => {
-      if (!props.importConnection) throw new Error('Import service is unavailable');
+      if (!importConnection)
+        throw new Error('Import service is unavailable for this model');
       if (!hasTargetEnterprise)
         throw new Error('Select the target enterprise before validation');
       if (!uploadedMedia || !selectedSchema)
         throw new Error('Upload a file and select a target model first');
-      return validateMediaImport(props.importConnection, selectedClientConfiguration, {
+      return validateMediaImport(importConnection, selectedClientConfiguration, {
         mediaCode: uploadedMedia.mediaCode,
         moduleName: selectedSchema.moduleName,
         schemaName: selectedSchema.schemaName,
@@ -307,18 +375,25 @@ function FileImportWorkspaceContent(props: FileImportWorkspaceProps) {
     },
     onSuccess: (result) => {
       setValidatedMediaCode(
-        hasValidationIssues(result) ? undefined : uploadedMedia?.mediaCode,
+        result.validationOnly &&
+          result.validationPassed === true &&
+          !hasValidationIssues(result)
+          ? uploadedMedia?.mediaCode
+          : undefined,
       );
     },
   });
   const install = useMutation({
+    retry: false,
+    onMutate: () => setValidatedMediaCode(undefined),
     mutationFn: async () => {
-      if (!props.importConnection) throw new Error('Import service is unavailable');
+      if (!importConnection)
+        throw new Error('Import service is unavailable for this model');
       if (!hasTargetEnterprise)
         throw new Error('Select the target enterprise before importing');
       if (!uploadedMedia || !selectedSchema)
         throw new Error('Upload a file and select a target model first');
-      return installMediaImport(props.importConnection, selectedClientConfiguration, {
+      return installMediaImport(importConnection, selectedClientConfiguration, {
         mediaCode: uploadedMedia.mediaCode,
         moduleName: selectedSchema.moduleName,
         schemaName: selectedSchema.schemaName,
@@ -327,8 +402,8 @@ function FileImportWorkspaceContent(props: FileImportWorkspaceProps) {
     },
   });
   const missingServices = [
-    !props.importConnection ? 'Import service' : undefined,
-    !props.mediaConnection ? 'Media upload' : undefined,
+    props.importConnections.length === 0 ? 'Import service' : undefined,
+    props.mediaConnections.length === 0 ? 'Media upload' : undefined,
     props.schemaConnections.length === 0 ? 'Schema discovery' : undefined,
   ].filter((value): value is string => Boolean(value));
   const operationError =
@@ -367,13 +442,24 @@ function FileImportWorkspaceContent(props: FileImportWorkspaceProps) {
     validationPage * validationRowsPerPage + validationRowsPerPage,
   );
   const canChooseModel = hasTargetEnterprise;
-  const canChooseFile = Boolean(selectedSchema);
-  const canValidate = Boolean(hasTargetEnterprise && uploadedMedia && selectedSchema);
+  const canChooseFile = Boolean(selectedSchema && importConnection && mediaConnection);
+  const canValidate = Boolean(
+    hasTargetEnterprise &&
+    uploadedMedia &&
+    canChooseFile &&
+    !install.isSuccess &&
+    !install.isError,
+  );
   const canInstall =
     canValidate &&
     validatedMediaCode === uploadedMedia?.mediaCode &&
     !hasValidationIssues(validate.data);
   const busy = upload.isPending || validate.isPending || install.isPending;
+  const { onPendingChange } = props;
+  useEffect(() => {
+    onPendingChange(busy);
+    return () => onPendingChange(false);
+  }, [busy, onPendingChange]);
   const hasFileSelection = Boolean(file || uploadedMedia);
   const clearSelectedFile = () => {
     setFile(undefined);
@@ -441,7 +527,7 @@ function FileImportWorkspaceContent(props: FileImportWorkspaceProps) {
                         fullWidth
                         label="Target enterprise"
                         select
-                        disabled={!workspaceEnterpriseCode}
+                        disabled={busy || !workspaceEnterpriseCode}
                         value={targetEnterpriseCode}
                         onChange={(event) => {
                           setTargetEnterpriseCode(event.target.value);
@@ -529,19 +615,17 @@ function FileImportWorkspaceContent(props: FileImportWorkspaceProps) {
                     fullWidth
                     autoHighlight
                     disablePortal
-                    groupBy={(schema) => titleCase(schema.moduleName)}
-                    getOptionLabel={schemaLabel}
-                    isOptionEqualToValue={(option, value) =>
-                      option.moduleName === value.moduleName &&
-                      option.schemaName === value.schemaName
+                    groupBy={(target) => titleCase(target.schema.moduleName)}
+                    getOptionLabel={(target) => schemaLabel(target.schema)}
+                    isOptionEqualToValue={(option, value) => option.key === value.key}
+                    getOptionDisabled={(target) =>
+                      !target.importConnection || !target.mediaConnection
                     }
                     options={schemaOptions}
-                    disabled={!canChooseModel}
-                    value={selectedSchema ?? null}
-                    onChange={(_event, schema) => {
-                      setSchemaKey(
-                        schema ? `${schema.moduleName}/${schema.schemaName}` : '',
-                      );
+                    disabled={busy || !canChooseModel}
+                    value={selectedTarget ?? null}
+                    onChange={(_event, target) => {
+                      setSchemaKey(target?.key ?? '');
                       setFile(undefined);
                       setUploadedMedia(undefined);
                       upload.reset();
@@ -565,23 +649,29 @@ function FileImportWorkspaceContent(props: FileImportWorkspaceProps) {
                         }
                       />
                     )}
-                    renderOption={(optionProps, schema) => (
-                      <Box
-                        component="li"
-                        {...optionProps}
-                        key={`${schema.moduleName}/${schema.schemaName}`}
-                      >
+                    renderOption={(optionProps, target) => (
+                      <Box component="li" {...optionProps} key={target.key}>
                         <Stack spacing={0.25}>
                           <Typography component="span" sx={{ fontWeight: 700 }}>
-                            {schema.label}
+                            {target.schema.label}
                           </Typography>
                           <Typography
                             color="text.secondary"
                             component="span"
                             variant="body2"
                           >
-                            {schema.description ||
-                              `${titleCase(schema.moduleName)} schema: ${schema.schemaName}`}
+                            {target.schema.description ||
+                              `${titleCase(target.schema.moduleName)} schema: ${target.schema.schemaName}`}
+                          </Typography>
+                          <Typography
+                            color="text.secondary"
+                            component="span"
+                            variant="body2"
+                          >
+                            {fileImportTargetDestination(target)}
+                            {!target.importConnection || !target.mediaConnection
+                              ? ' · File import unavailable: this destination needs a unique available Import and Media service.'
+                              : ''}
                           </Typography>
                         </Stack>
                       </Box>
@@ -621,6 +711,11 @@ function FileImportWorkspaceContent(props: FileImportWorkspaceProps) {
                         {selectedSchema.description ||
                           `Import records into the ${selectedSchema.label} model.`}
                       </Typography>
+                      {selectedTarget ? (
+                        <Typography color="text.secondary">
+                          Destination: {fileImportTargetDestination(selectedTarget)}
+                        </Typography>
+                      ) : null}
                       <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 0.75 }}>
                         <Chip
                           label={`Data owner: ${titleCase(selectedSchema.moduleName)}`}
@@ -657,16 +752,40 @@ function FileImportWorkspaceContent(props: FileImportWorkspaceProps) {
                 </Typography>
               </Stack>
               <Stack spacing={1.25}>
+                {formats?.length ? (
+                  <Typography color="text.secondary" variant="body2">
+                    Allowed files: {formats.join(', ').toUpperCase()}.
+                    {maximumSize ? ` Maximum size: ${formatBytes(maximumSize)}.` : ''}{' '}
+                    Use model field names as column headers or JSON object keys. Include
+                    one record per row and use each record code once.
+                  </Typography>
+                ) : null}
+                {sourceFields.length ? (
+                  <Typography color="text.secondary" variant="body2">
+                    Fields to supply for this model:{' '}
+                    {sourceFields
+                      .map((field) => `${field.label} (${field.name})`)
+                      .join(', ')}
+                    .
+                  </Typography>
+                ) : null}
+                {formats?.includes('json') &&
+                sourceFields.some((field) => field.name === 'code') ? (
+                  <Typography color="text.secondary" variant="body2">
+                    JSON structure example <code>{'[{"code":"example-record"}]'}</code>.
+                    Add the other required fields listed above.
+                  </Typography>
+                ) : null}
                 <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ gap: 1 }}>
                   <Button
                     component="label"
-                    disabled={!canChooseFile}
+                    disabled={busy || !canChooseFile}
                     variant="outlined"
                   >
                     Choose file
                     <input
                       hidden
-                      disabled={!canChooseFile}
+                      disabled={busy || !canChooseFile}
                       ref={fileInputRef}
                       type="file"
                       onChange={(event) => {
@@ -681,13 +800,24 @@ function FileImportWorkspaceContent(props: FileImportWorkspaceProps) {
                     />
                   </Button>
                   <Button
-                    disabled={busy || !canChooseFile || !file || !props.mediaConnection}
+                    disabled={
+                      busy ||
+                      !canChooseFile ||
+                      !file ||
+                      !mediaConnection ||
+                      Boolean(uploadedMedia) ||
+                      Boolean(filePolicyProblem) ||
+                      upload.isError
+                    }
                     variant="contained"
                     onClick={() => upload.mutate()}
                   >
                     {upload.isPending ? 'Uploading…' : 'Upload to media'}
                   </Button>
                 </Stack>
+                {filePolicyProblem ? (
+                  <Alert severity="warning">{filePolicyProblem}</Alert>
+                ) : null}
                 <Paper
                   elevation={0}
                   sx={{
@@ -771,7 +901,7 @@ function FileImportWorkspaceContent(props: FileImportWorkspaceProps) {
       <Divider />
       <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ gap: 1.5 }}>
         <Button
-          disabled={busy || !canValidate || !props.importConnection}
+          disabled={busy || !canValidate || !importConnection}
           variant="outlined"
           onClick={() => {
             install.reset();
@@ -781,7 +911,7 @@ function FileImportWorkspaceContent(props: FileImportWorkspaceProps) {
           {validate.isPending ? 'Validating…' : 'Validate file import'}
         </Button>
         <Button
-          disabled={busy || !canInstall || !props.importConnection}
+          disabled={busy || !canInstall || !importConnection}
           variant="contained"
           onClick={() => {
             setValidationPage(0);
@@ -798,9 +928,55 @@ function FileImportWorkspaceContent(props: FileImportWorkspaceProps) {
         </Alert>
       ) : null}
       {operationError ? <Alert severity="error">{operationError}</Alert> : null}
+      {upload.isError &&
+      (!(upload.error instanceof DataAdministrationRequestError) ||
+        upload.error.status === 408 ||
+        upload.error.status >= 500) ? (
+        <Alert severity="warning">
+          The upload result is unconfirmed. Inspect Import Sources before selecting a
+          file for another attempt.
+        </Alert>
+      ) : null}
+      {install.isError ? (
+        <Alert
+          severity="warning"
+          action={
+            importConnection && uploadedMedia && props.onInspectHistory ? (
+              <Button
+                onClick={() =>
+                  props.onInspectHistory?.(importConnection, {
+                    mediaCode: uploadedMedia.mediaCode,
+                  })
+                }
+              >
+                Inspect file attempts
+              </Button>
+            ) : undefined
+          }
+        >
+          Inspect the original file attempts to determine whether the install completed.
+        </Alert>
+      ) : null}
       {validate.isSuccess && !install.isSuccess ? (
         hasValidationIssues(validate.data) ? (
-          <Alert severity="warning">
+          <Alert
+            severity="warning"
+            action={
+              importConnection &&
+              validate.data.importRun?.runId &&
+              props.onInspectHistory ? (
+                <Button
+                  onClick={() =>
+                    props.onInspectHistory?.(importConnection, {
+                      runId: validate.data.importRun?.runId ?? '',
+                    })
+                  }
+                >
+                  Open validation run
+                </Button>
+              ) : undefined
+            }
+          >
             File import validation completed for {uploadName(uploadedMedia)}, but{' '}
             {(
               currentValidationReport?.invalidRecords ??
@@ -837,7 +1013,7 @@ function FileImportWorkspaceContent(props: FileImportWorkspaceProps) {
             >
               <Box>
                 <Typography component="h3" sx={{ fontWeight: 800 }}>
-                  Validation report
+                  {install.isError ? 'Last validation report' : 'Validation report'}
                 </Typography>
                 <Typography color="text.secondary" variant="body2">
                   Review record-level results before importing data into Nodics.
@@ -1225,9 +1401,25 @@ function FileImportWorkspaceContent(props: FileImportWorkspaceProps) {
         </Paper>
       ) : null}
       {install.isSuccess ? (
-        <Alert severity="success">
-          File import completed. {installationSummaryText(install.data)}. Refresh
-          history to review the backend run record.
+        <Alert
+          severity="success"
+          action={
+            importConnection &&
+            install.data.importRun?.runId &&
+            props.onInspectHistory ? (
+              <Button
+                onClick={() =>
+                  props.onInspectHistory?.(importConnection, {
+                    runId: install.data.importRun?.runId ?? '',
+                  })
+                }
+              >
+                Open import run
+              </Button>
+            ) : undefined
+          }
+        >
+          File import completed. {installationSummaryText(install.data)}.
         </Alert>
       ) : null}
     </Stack>

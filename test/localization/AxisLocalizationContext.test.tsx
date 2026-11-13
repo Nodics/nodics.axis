@@ -1,4 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
+import TextField from '@mui/material/TextField';
+import { useTheme } from '@mui/material/styles';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -26,7 +29,7 @@ vi.mock('../../src/localization/localizationBundleClient', () => ({
           namespaces: ['auth', 'common'],
           releaseVersion: `${locale}-1`,
           entries: {
-            'auth.invalidCredentials':
+            'auth.invalid_credentials':
               locale === 'ar'
                 ? 'معرّف الموظف أو كلمة المرور غير صحيحة.'
                 : 'The employee identifier or password is incorrect.',
@@ -75,7 +78,7 @@ function Probe() {
   const error = new AxisApiError({
     code: 'ERR_AUTH_00002',
     message: 'Invalid authentication parameters',
-    messageKey: 'auth.invalidCredentials',
+    messageKey: 'auth.invalid_credentials',
     messageParameters: {},
     messageExposure: 'PUBLIC',
   });
@@ -89,8 +92,8 @@ function Probe() {
   );
 }
 
-function Harness() {
-  const localization = useAxisLocalizationController(bootstrap, runtime);
+function Harness({ currentRuntime = runtime }: { currentRuntime?: AxisRuntimeConfig }) {
+  const localization = useAxisLocalizationController(bootstrap, currentRuntime);
   return (
     <AxisLocalizationBoundary value={localization}>
       <Probe />
@@ -105,6 +108,73 @@ describe('Axis localization context', () => {
     window.localStorage.setItem('nodics-axis-locale-v1', 'ar');
     document.documentElement.lang = 'en';
     document.documentElement.dir = 'ltr';
+  });
+
+  it('switches the component theme direction without discarding an unsaved field', async () => {
+    function DraftProbe() {
+      const locale = useAxisLocalization();
+      const theme = useTheme();
+      const [draft, setDraft] = useState('');
+      return (
+        <>
+          <output>{theme.direction}</output>
+          <TextField
+            label="Unsaved draft"
+            placeholder="Keep drafting"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+          <button onClick={() => locale.setLocale('en')}>Change to English</button>
+        </>
+      );
+    }
+    function DraftHarness() {
+      const localization = useAxisLocalizationController(bootstrap, runtime);
+      return (
+        <AxisLocalizationBoundary value={localization}>
+          <DraftProbe />
+        </AxisLocalizationBoundary>
+      );
+    }
+    const user = userEvent.setup();
+    render(<DraftHarness />);
+    expect(await screen.findByText('rtl')).toBeVisible();
+    await user.type(screen.getByLabelText('Unsaved draft'), 'Keep this draft');
+    await user.click(screen.getByRole('button', { name: 'Change to English' }));
+    expect(await screen.findByText('ltr')).toBeVisible();
+    expect(screen.getByLabelText('Unsaved draft')).toHaveValue('Keep this draft');
+  });
+
+  it('reads the live Localization owner result envelope', async () => {
+    const client = await vi.importActual<
+      typeof import('../../src/localization/localizationBundleClient')
+    >('../../src/localization/localizationBundleClient');
+    const ownerBundle = {
+      contractVersion: 0,
+      locale: 'ar',
+      scopeCode: 'axisCmsSite',
+      channel: 'web',
+      releaseVersion: 'live-owner-release',
+      namespaces: ['common'],
+      entries: { 'common.skip-to-main-content': 'انتقل إلى المحتوى الرئيسي' },
+    };
+    const result = await client.loadLocalizationBundle(
+      'https://localization.example.com',
+      'enterprise-a',
+      'ar',
+      'axisCmsSite',
+      'web',
+      ['common'],
+      1_000,
+      undefined,
+      () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({ code: 'SUC_LAPI_00000', result: { bundle: ownerBundle } }),
+          ),
+        ),
+    );
+    expect(result.bundle).toEqual(ownerBundle);
   });
 
   it('renders a structured backend error in Arabic and applies document direction', async () => {
@@ -123,7 +193,7 @@ describe('Axis localization context', () => {
     });
   });
 
-  it('does not localize internal or unstructured backend errors', async () => {
+  it('uses the caller locale fallback for internal or unstructured errors', async () => {
     function InternalProbe() {
       const localization = useAxisLocalization();
       return (
@@ -147,7 +217,7 @@ describe('Axis localization context', () => {
       );
     }
     render(<InternalHarness />);
-    expect(await screen.findByText('Safe existing fallback')).toBeVisible();
+    expect(await screen.findByText('Transport fallback')).toBeVisible();
   });
 
   it('does not request a remote bundle for a single-locale fallback shell without a cached bundle', async () => {
@@ -168,7 +238,7 @@ describe('Axis localization context', () => {
       );
       return (
         <AxisLocalizationBoundary value={localization}>
-          <output>{localization.format('auth.invalidCredentials', 'Fallback')}</output>
+          <output>{localization.format('auth.invalid_credentials', 'Fallback')}</output>
         </AxisLocalizationBoundary>
       );
     }
@@ -179,27 +249,67 @@ describe('Axis localization context', () => {
     expect(loadLocalizationBundle).not.toHaveBeenCalled();
   });
 
-  it('does not request a remote bundle for the default fallback locale without a cached bundle', async () => {
+  it('loads the owner bundle for the default locale of a multilingual site', async () => {
     window.localStorage.setItem('nodics-axis-locale-v1', 'en');
 
     function DefaultLocaleHarness() {
       const localization = useAxisLocalizationController(bootstrap, runtime);
       return (
         <AxisLocalizationBoundary value={localization}>
-          <output>{localization.format('auth.invalidCredentials', 'Fallback')}</output>
+          <output>{localization.format('auth.invalid_credentials', 'Fallback')}</output>
         </AxisLocalizationBoundary>
       );
     }
 
     render(<DefaultLocaleHarness />);
 
-    expect(await screen.findByText('Fallback')).toBeVisible();
-    expect(loadLocalizationBundle).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText('The employee identifier or password is incorrect.'),
+    ).toBeVisible();
+    expect(loadLocalizationBundle).toHaveBeenCalledWith(
+      expect.any(String),
+      'enterprise-a',
+      'en',
+      expect.any(String),
+      'web',
+      expect.any(Array),
+      expect.any(Number),
+      undefined,
+    );
+  });
+
+  it('does not render or revalidate another enterprise’s bundle when the owner is unavailable', async () => {
+    const view = render(<Harness />);
+    expect(
+      await screen.findByText('معرّف الموظف أو كلمة المرور غير صحيحة.'),
+    ).toBeVisible();
+    vi.mocked(loadLocalizationBundle).mockRejectedValueOnce(new Error('offline'));
+    view.rerender(
+      <Harness currentRuntime={{ ...runtime, enterpriseCode: 'enterprise-b' }} />,
+    );
+    expect(await screen.findByText('Invalid authentication parameters')).toBeVisible();
+    expect(loadLocalizationBundle).toHaveBeenLastCalledWith(
+      expect.any(String),
+      'enterprise-b',
+      'ar',
+      expect.any(String),
+      'web',
+      expect.any(Array),
+      expect.any(Number),
+      undefined,
+    );
   });
 
   it('retains a last-known-good bundle during an outage and fails closed on markup-like messages', async () => {
     window.localStorage.setItem(
-      'nodics-axis-localization-bundle-v1:ar',
+      'nodics-axis-localization-bundle-v3:' +
+        JSON.stringify([
+          'https://localization.example.com',
+          'enterprise-a',
+          'axisCmsSite',
+          'web',
+          'ar',
+        ]),
       JSON.stringify({
         etag: '"ar-cached"',
         bundle: {
@@ -210,7 +320,7 @@ describe('Axis localization context', () => {
           namespaces: ['auth'],
           releaseVersion: '0',
           entries: {
-            'auth.invalidCredentials': "'<img src=x onerror=alert(1)>'",
+            'auth.invalid_credentials': "'<img src=x onerror=alert(1)>'",
           },
         },
       }),

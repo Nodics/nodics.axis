@@ -18,11 +18,31 @@ const configuration = {
 };
 
 describe('Navigation composition owner transport', () => {
+  it('explains an uncertain transport result and never repeats a lifecycle command', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new TypeError('network unavailable'));
+    await expect(
+      executeNavigationCompositionAction(
+        connection,
+        configuration,
+        'submit',
+        undefined,
+        fetcher,
+        {
+          expectedVersion: 1,
+          expectedChecksum: 'a'.repeat(64),
+          expectedDraftId: 'nav-draft-1',
+        },
+      ),
+    ).rejects.toThrow(/Refresh lifecycle to inspect the owner state/);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   it('exports the native snapshot with current context and no candidate payload', async () => {
     const data = { checksum: 'native-checksum', sources: [], items: [] };
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValue(new Response(JSON.stringify({ data })));
+      .mockResolvedValue(new Response(JSON.stringify({ code: 'SUC_BOF_00018', data })));
     await expect(
       executeNavigationCompositionAction(
         connection,
@@ -69,7 +89,9 @@ describe('Navigation composition owner transport', () => {
   it('retains the native preview path and never turns preview into export or publish', async () => {
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValue(new Response(JSON.stringify({ data: { valid: true } })));
+      .mockResolvedValue(
+        new Response(JSON.stringify({ code: 'SUC_BOF_00017', data: { valid: true } })),
+      );
     await executeNavigationCompositionAction(
       connection,
       configuration,
@@ -83,4 +105,45 @@ describe('Navigation composition owner transport', () => {
     expect(fetcher.mock.calls[0]![1]?.method).toBe('POST');
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
+});
+
+it.each([
+  'https://person:password@platform.example/nodics/backoffice',
+  'https://platform.example/nodics/backoffice?redirect=other',
+  'https://platform.example/nodics/backoffice#foreign',
+])(
+  'rejects ambiguous endpoint coordinates before credentials are attached: %s',
+  async (endpoint) => {
+    const fetcher = vi.fn<typeof fetch>();
+    await expect(
+      executeNavigationCompositionAction(
+        { ...connection, endpoint },
+        configuration,
+        'export',
+        undefined,
+        fetcher,
+      ),
+    ).rejects.toThrow(/endpoint/);
+    expect(fetcher).not.toHaveBeenCalled();
+  },
+);
+it.each([
+  { code: 'ERR_AUTH_00003', data: {} },
+  { code: 'SUC_BOF_00026', data: {} },
+  { data: {} },
+  { code: 'SUC_BOF_00018', data: {}, result: {} },
+])('refuses nonmatching success envelopes without retry', async (body) => {
+  const fetcher = vi
+    .fn<typeof fetch>()
+    .mockResolvedValue(new Response(JSON.stringify(body)));
+  await expect(
+    executeNavigationCompositionAction(
+      connection,
+      configuration,
+      'export',
+      undefined,
+      fetcher,
+    ),
+  ).rejects.toThrow(/acknowledgement/);
+  expect(fetcher).toHaveBeenCalledTimes(1);
 });

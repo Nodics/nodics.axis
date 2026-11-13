@@ -217,6 +217,16 @@ export function isDefiniteEnterpriseDuplicate(error: unknown): boolean {
   );
 }
 
+/** Only registered owner refusals issued before dispatch may release an editable draft. */
+export function isDefiniteEnterpriseCreationRefusal(error: unknown): boolean {
+  return (
+    isDefiniteEnterpriseDuplicate(error) ||
+    (error instanceof BackendWorkspaceHttpError &&
+      error.status === 503 &&
+      error.code === 'ERR_PROFILE_ENTERPRISE_SETUP_NOT_READY')
+  );
+}
+
 /** Profile model create returns a scalar tenant reference; the public projection uses tenantCode. Neither admits counts or conflicting identities. */
 export function isEnterpriseCreationAcknowledgement(
   response: unknown,
@@ -243,7 +253,7 @@ export function isEnterpriseCreationAcknowledgement(
   );
 }
 
-/** Only the existing owner-declared tab selector survives lock; arbitrary query values and fragments never do. */
+/** Projects only the existing owner-declared tab selector into the stored lock marker. Other detail context may survive a verified unlock in App memory only. */
 export function enterpriseCreationReturnPath(
   pathname: string,
   search: string,

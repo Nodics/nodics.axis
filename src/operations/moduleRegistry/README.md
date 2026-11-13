@@ -93,3 +93,23 @@ build and scoped lint. Tests cover backend-provided reasons, blocked readiness,
 registration remaining available, and legacy response compatibility. Browser
 checks should cover multiple blockers, a narrow viewport, and no activation as
 a side effect of opening or expanding a module.
+
+## Read-only access and actor retirement
+
+BackOffice's `allowedActions` is the only permission-eligibility source for
+selection, lifecycle and sample-import presentation. Missing metadata is
+read-only; unknown or repeated action names reject the response. Do not decode
+tokens, introduce frontend role maps or grant permissions to repair the screen.
+The callbacks recheck owner eligibility before dispatch; the backend still
+authorizes every command and applies current revision/readiness safeguards.
+
+The current session generation, tenant, Enterprise and selected BackOffice
+instance scope Registry queries. App remounts the workspace for a new session;
+old pending reads, selections and detail intentions cannot become the new actor's
+state. Unavailable owner data may retain same-actor cached observations, with
+commands disabled. A late mutation acknowledgment from an unmounted workspace
+must not refresh the next actor's bootstrap or update its interface.
+
+Customize presentation in the existing component and keep the owner-projected
+action vocabulary and lifecycle client. The Registry tests cover read-only
+inspection, denied controls, missing/invalid metadata and pending actor changes.

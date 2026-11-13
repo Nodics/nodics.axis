@@ -141,6 +141,7 @@ function SubmissionRow({
           disabled={disabled}
           onClick={() => onOpen(record.code)}
           aria-label={`${labels.openDetails || 'Open details'}: ${name}`}
+          data-submission-focus={record.code}
           sx={{
             flex: 1,
             minWidth: 0,

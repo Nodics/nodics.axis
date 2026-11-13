@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AxisThemeProvider } from '../../../../src/app/AxisThemeProvider';
+import { releaseKey } from '../../../../src/operations/importExport/importExportPresentation';
 import { DataReleaseWorkbench } from '../../../../src/operations/importExport/components/DataReleaseWorkbench';
 import type {
   DataRelease,
@@ -13,6 +14,7 @@ import type {
 function release(releaseCode: string, status: DataRelease['status']): DataRelease {
   const sectionCode = releaseCode.split(':')[1] ?? releaseCode;
   return {
+    allowedActions: ['validate', 'install'],
     releaseCode,
     sectionCode,
     moduleName: 'circa.ewaste',
@@ -72,13 +74,17 @@ describe('DataReleaseWorkbench', () => {
       catalogueIsSuccess: true,
       connectionAvailable: true,
       executableReleaseCount: 1,
+      canValidateSelected: true,
+      canInstallSelected: true,
       operationErrorMessage: undefined,
       operationIsError: false,
       operationIsPending: false,
       operationIsSuccess: false,
       releaseType: 'sample',
       selectedReleaseCount: 1,
-      selectedReleaseKeys: new Set(),
+      selectedReleaseKeys: new Set([
+        releaseKey(release('circa.ewaste:content', 'NOT_INSTALLED')),
+      ]),
       successMessage: '',
       summary: { current: 0, installable: 1, selected: 1, total: 1 },
       visibleReleases: [release('circa.ewaste:content', 'NOT_INSTALLED')],
@@ -98,12 +104,77 @@ describe('DataReleaseWorkbench', () => {
     return props;
   }
 
+  it('keeps unfinished read-only packs informative without claiming that no import action is required', () => {
+    const pending = {
+      ...release('circa.ewaste:content', 'NOT_INSTALLED'),
+      allowedActions: [],
+    };
+    renderWorkbench({
+      visibleReleases: [pending],
+      selectedReleaseCount: 0,
+      executableReleaseCount: 0,
+      selectedReleaseKeys: new Set(),
+      canValidateSelected: false,
+      canInstallSelected: false,
+      summary: { current: 0, installable: 1, selected: 0, total: 1 },
+    });
+    expect(
+      screen.getByText('Read-only access. Review the release details for this pack.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('No import action required for this pack')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Validate selected' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Install or update selected' }),
+    ).toBeDisabled();
+  });
+
+  it.each([
+    {
+      filterActive: true,
+      catalogueIsPartial: false,
+      message: 'No releases match this search.',
+    },
+    {
+      filterActive: false,
+      catalogueIsPartial: false,
+      message:
+        'No releases of this type were returned by the available source workspaces.',
+    },
+    {
+      filterActive: true,
+      catalogueIsPartial: true,
+      message: 'No releases could be verified for this view yet.',
+    },
+  ])(
+    'distinguishes empty search, available-source absence and incomplete evidence: $message',
+    ({ message, ...state }) => {
+      const props = renderWorkbench({
+        ...state,
+        visibleReleases: [],
+        summary: { current: 0, installable: 0, selected: 0, total: 0 },
+        executableReleaseCount: 0,
+        selectedReleaseCount: 0,
+      });
+      expect(screen.getByText((text) => text.startsWith(message))).toBeVisible();
+      expect(
+        screen.queryByText('No active module publishes this data release type.'),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText(/^[0-9]+% current$/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Install or update selected' }),
+      ).toBeDisabled();
+      expect(props.onInstallSelected).not.toHaveBeenCalled();
+      expect(props.onValidateSelected).not.toHaveBeenCalled();
+    },
+  );
+
   it('keeps every selection and command locked while an operation is pending', () => {
     const props = renderWorkbench({ operationIsPending: true });
     for (const checkbox of screen.getAllByRole('checkbox')) {
       expect(checkbox).toBeDisabled();
     }
-    for (const name of ['Select pack', 'Select 1', 'Validate selected', 'Working…']) {
+    for (const name of ['Pack selected', 'Selected', 'Validate selected', 'Working…']) {
       const button = screen.getByRole('button', { name });
       expect(button).toBeDisabled();
     }
@@ -111,6 +182,30 @@ describe('DataReleaseWorkbench', () => {
     expect(props.onSelectReleases).not.toHaveBeenCalled();
     expect(props.onInstallSelected).not.toHaveBeenCalled();
   });
+
+  it.each([{ rows: [] }, { rows: [release('circa.ewaste:content', 'CURRENT')] }])(
+    'does not claim no action is required when coverage is incomplete',
+    ({ rows }) => {
+      renderWorkbench({
+        catalogueIsPartial: true,
+        visibleReleases: rows,
+        summary: {
+          current: rows.length,
+          installable: 0,
+          selected: 0,
+          total: rows.length,
+        },
+        executableReleaseCount: 0,
+        selectedReleaseCount: 0,
+      });
+      expect(screen.getByText('Action availability unverified')).toBeVisible();
+      expect(screen.queryByText('No action required')).toBeNull();
+      expect(
+        screen.getByRole('button', { name: 'Install or update selected' }),
+      ).toBeDisabled();
+      expect(screen.queryByText('100% current')).toBeNull();
+    },
+  );
 
   it('shows raw release evidence without inventing missing readiness or repair authority', () => {
     renderWorkbench({
@@ -137,6 +232,7 @@ describe('DataReleaseWorkbench', () => {
     };
     renderWorkbench({
       visibleReleases: [current, incoming],
+      selectedReleaseKeys: new Set([releaseKey(incoming)]),
       summary: { current: 1, installable: 1, selected: 0, total: 2 },
     });
     const readiness = screen
@@ -195,7 +291,7 @@ describe('DataReleaseWorkbench', () => {
           operationIsSuccess={false}
           releaseType="sample"
           selectedReleaseCount={0}
-          selectedReleaseKeys={new Set()}
+          selectedReleaseKeys={new Set([releaseKey(actionable)])}
           successMessage=""
           summary={{ current: 1, installable: 1, selected: 0, total: 2 }}
           visibleReleases={[actionable, current]}
@@ -212,7 +308,7 @@ describe('DataReleaseWorkbench', () => {
     expect(screen.getByText('Preparation readiness')).toBeInTheDocument();
     expect(screen.getByText('Business packs')).toBeInTheDocument();
     expect(screen.getByText(/Start from the business outcome/iu)).toBeInTheDocument();
-    expect(screen.getByText('Select pack')).toBeInTheDocument();
+    expect(screen.getByText('Pack selected')).toBeInTheDocument();
     expect(
       screen.getByLabelText('Recommended preparation sequence'),
     ).toBeInTheDocument();
@@ -233,10 +329,79 @@ describe('DataReleaseWorkbench', () => {
       screen.getByText(/PREPARE_CAPABILITY · dataRelease\.install/u),
     ).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Select 1' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Selected' }));
 
     expect(onSelectReleases).toHaveBeenCalledTimes(1);
     expect(onSelectReleases).toHaveBeenCalledWith([actionable]);
+  });
+
+  it('keeps unselected optional releases reviewable without global preparation warnings', () => {
+    const optional = release('circa.ewaste:optional', 'NOT_INSTALLED');
+    renderWorkbench({
+      visibleReleases: [optional],
+      selectedReleaseCount: 0,
+      selectedReleaseKeys: new Set(),
+    });
+    expect(screen.getByRole('heading', { name: optional.displayName })).toBeVisible();
+    expect(screen.getByText('Select pack')).toBeVisible();
+    expect(screen.queryByText('Preparation readiness')).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText('Recommended preparation sequence'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps equal capability names separate by owner on the same runtime', () => {
+    const first = release('publish:accessGroups', 'NOT_INSTALLED');
+    const second = release('editorial:accessGroups', 'NOT_INSTALLED');
+    const rows = [first, second].map((row, index) => ({
+      ...row,
+      readiness: {
+        ...row.readiness!,
+        capabilityCode: 'accessGroups',
+        owningModule: index === 0 ? 'publish' : 'editorial',
+        displayName: index === 0 ? 'Publish access' : 'Editorial access',
+      },
+    }));
+    renderWorkbench({
+      visibleReleases: rows,
+      selectedReleaseKeys: new Set(rows.map(releaseKey)),
+    });
+    const readiness = screen.getByLabelText('Capability preparation readiness');
+    expect(within(readiness).getByText('Publish access')).toBeVisible();
+    expect(within(readiness).getByText('Editorial access')).toBeVisible();
+    expect(within(readiness).getByText('2 capability group(s)')).toBeVisible();
+  });
+
+  it('retains unselected non-selectable owner fault diagnostics', () => {
+    const invalid = release('circa.ewaste:invalid', 'INVALID_RELEASE');
+    renderWorkbench({
+      visibleReleases: [invalid],
+      selectedReleaseCount: 0,
+      executableReleaseCount: 0,
+    });
+    expect(screen.getByRole('heading', { name: 'Requires repair' })).toBeVisible();
+    expect(screen.getByText('Preparation readiness')).toBeVisible();
+    expect(
+      screen.getByText('Data release has not been installed for this runtime.'),
+    ).toBeVisible();
+    for (const checkbox of screen.getAllByRole('checkbox'))
+      expect(checkbox).toBeDisabled();
+  });
+
+  it('retains unselected retryable failure diagnostics without selecting or executing them', () => {
+    const failed = release('circa.ewaste:failed', 'FAILED');
+    const props = renderWorkbench({
+      visibleReleases: [failed],
+      executableReleaseCount: 0,
+      selectedReleaseCount: 0,
+      selectedReleaseKeys: new Set(),
+    });
+    expect(screen.getByText('Preparation readiness')).toBeVisible();
+    expect(screen.getByRole('heading', { name: failed.displayName })).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Install or update selected' }),
+    ).toBeDisabled();
+    expect(props.onInstallSelected).not.toHaveBeenCalled();
   });
 
   it('shows backend dry-run guidance after validation', () => {

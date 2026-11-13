@@ -173,10 +173,17 @@ function WorkspaceSection({
 }) {
   const enabledActions = actions.filter(
     (item) =>
-      (item.featureState ?? 'ACTIVE') !== 'DISABLED' &&
-      item.availability !== 'UNAVAILABLE',
+      !['DISABLED', 'HIDDEN'].includes(item.featureState ?? 'ACTIVE') &&
+      ['UP', 'DEGRADED'].includes(item.availability),
   );
-  const plannedActions = actions.length - enabledActions.length;
+  const plannedActions = actions.filter(
+    (item) => item.featureState === 'DISABLED',
+  ).length;
+  const unavailableActions = actions.filter(
+    (item) =>
+      !['DISABLED', 'HIDDEN'].includes(item.featureState ?? 'ACTIVE') &&
+      !['UP', 'DEGRADED'].includes(item.availability),
+  ).length;
   return (
     <Paper
       component="section"
@@ -216,7 +223,9 @@ function WorkspaceSection({
               <ShellIcon name={icon} />
             </Box>
             <Box sx={{ minWidth: 0 }}>
-              <Typography variant="h5">{title}</Typography>
+              <Typography component="h2" variant="h5">
+                {title}
+              </Typography>
               <Typography color="text.secondary" sx={{ maxWidth: 680 }} variant="body2">
                 {description}
               </Typography>
@@ -238,6 +247,14 @@ function WorkspaceSection({
                 {item.label}
               </Button>
             ))}
+            {unavailableActions > 0 ? (
+              <Chip
+                color="warning"
+                label={`${String(unavailableActions)} unavailable`}
+                size="small"
+                variant="outlined"
+              />
+            ) : null}
             {plannedActions > 0 ? (
               <Chip
                 label={`${String(plannedActions)} planned`}
@@ -408,9 +425,10 @@ export function SystemIntegrationsDashboardRoutePage({
   const integrationAttention = integrationActions.filter((item) =>
     ['DEGRADED', 'UNAVAILABLE'].includes(item.availability),
   ).length;
-  const healthAlerts =
-    (systemDashboard.data?.degradedModules ?? 0) +
-    (systemDashboard.data?.unhealthyRuntimeInstances ?? 0);
+  const healthAlerts = systemDashboard.data
+    ? systemDashboard.data.degradedModules +
+      systemDashboard.data.unhealthyRuntimeInstances
+    : undefined;
 
   return (
     <WorkspaceContainer>
@@ -439,8 +457,36 @@ export function SystemIntegrationsDashboardRoutePage({
               headingVariant="h3"
               title="Runtime Dashboard"
             />
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
-              <Chip color="success" label="Live registry" size="small" />
+            <Stack
+              direction="row"
+              spacing={1}
+              useFlexGap
+              sx={{
+                alignItems: 'flex-start',
+                flexWrap: 'wrap',
+                minWidth: 0,
+                maxWidth: '100%',
+              }}
+            >
+              <Chip
+                color={
+                  systemDashboard.isError
+                    ? 'warning'
+                    : systemDashboard.data
+                      ? 'success'
+                      : 'default'
+                }
+                label={
+                  systemDashboard.isError
+                    ? systemDashboard.data
+                      ? 'Last known registry'
+                      : 'Registry unavailable'
+                    : systemDashboard.data
+                      ? 'Live registry'
+                      : 'Loading registry'
+                }
+                size="small"
+              />
               <Chip label={runtime.projectCode} size="small" />
               <Chip label={runtime.enterpriseCode} size="small" variant="outlined" />
             </Stack>
@@ -455,9 +501,10 @@ export function SystemIntegrationsDashboardRoutePage({
         >
           {systemDashboard.isError ? (
             <Alert severity="warning">
-              {systemDashboard.error instanceof Error
-                ? systemDashboard.error.message
-                : 'System metrics are currently unavailable.'}
+              Runtime observations are unavailable. Refresh health to try again.{' '}
+              {systemDashboard.data
+                ? 'Displayed values are from the last successful observation.'
+                : 'Health totals are unknown until a read succeeds.'}
             </Alert>
           ) : null}
           <Box sx={metricsGrid(280)}>
@@ -498,8 +545,14 @@ export function SystemIntegrationsDashboardRoutePage({
               detail="Degraded modules and unhealthy runtime instances."
               label="Health alerts"
               loading={systemDashboard.isPending}
-              tone={healthAlerts > 0 ? 'warning' : 'success'}
-              value={systemDashboard.isPending ? '—' : healthAlerts}
+              tone={
+                healthAlerts === undefined
+                  ? 'default'
+                  : healthAlerts > 0
+                    ? 'warning'
+                    : 'success'
+              }
+              value={healthAlerts ?? '—'}
             />
             <MetricCard
               detail="Module owners reporting degraded availability."
@@ -528,11 +581,11 @@ export function SystemIntegrationsDashboardRoutePage({
                 sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
               >
                 <Stack spacing={0.25}>
-                  <Typography variant="subtitle1">Runtime topology</Typography>
+                  <Typography component="h3" variant="subtitle1">
+                    Runtime participation
+                  </Typography>
                   <Typography color="text.secondary" variant="body2">
-                    Load Balancer → Nodes. Single-server runtimes are displayed as Node
-                    0 so operators have the same mental model locally and in multi-node
-                    environments.
+                    Servers reported by authorized module health observations.
                   </Typography>
                 </Stack>
                 <Button
@@ -547,50 +600,13 @@ export function SystemIntegrationsDashboardRoutePage({
                 </Button>
               </Stack>
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
-                <Chip color="primary" label="Load Balancer" variant="outlined" />
                 {(systemDashboard.data?.runtimeServers.length
                   ? systemDashboard.data.runtimeServers
                   : ['No runtime observations yet']
-                ).map((server, index) => (
-                  <Chip
-                    key={server}
-                    label={`Node ${String(index)} · ${server}`}
-                    variant="outlined"
-                  />
+                ).map((server) => (
+                  <Chip key={server} label={server} variant="outlined" />
                 ))}
               </Stack>
-              <Box sx={metricsGrid(210)}>
-                <MetricCard
-                  detail="Awaiting CPU utilization in the backend health contract."
-                  label="CPU utilization"
-                  loading={systemDashboard.isPending}
-                  value="Not reported"
-                />
-                <MetricCard
-                  detail="Awaiting memory utilization in the backend health contract."
-                  label="Memory utilization"
-                  loading={systemDashboard.isPending}
-                  value="Not reported"
-                />
-                <MetricCard
-                  detail="Awaiting thread-pool metrics in the backend health contract."
-                  label="Thread overview"
-                  loading={systemDashboard.isPending}
-                  value="Not reported"
-                />
-                <MetricCard
-                  detail="Awaiting task-queue metrics in the backend health contract."
-                  label="Task queue overview"
-                  loading={systemDashboard.isPending}
-                  value="Not reported"
-                />
-                <MetricCard
-                  detail="Awaiting database pool and ping health in the backend health contract."
-                  label="Database health"
-                  loading={systemDashboard.isPending}
-                  value="Not reported"
-                />
-              </Box>
             </Stack>
           </Paper>
         </WorkspaceSection>
@@ -696,7 +712,7 @@ export function SystemIntegrationsDashboardRoutePage({
                 p: 1.5,
               }}
             >
-              <Typography sx={{ mb: 1 }} variant="subtitle1">
+              <Typography component="h3" sx={{ mb: 1 }} variant="subtitle1">
                 Schemas by module
               </Typography>
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>

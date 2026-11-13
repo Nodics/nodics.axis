@@ -1,8 +1,10 @@
 # Location map rendering in Axis
 
 Location owns provider settings, viewport, enabled controls, marker categories
-and wheel behavior. Axis edits one shared configuration per map usage and renders
-its versioned projection. Circa and later consumers use the same backend record.
+and wheel behavior. Axis shows which layer supplied the effective selection. Operators can edit
+the project default or select the Axis or Circa application view. Collection
+Centres requests the AXIS projection. Provider choices and style defaults come
+from Location Map, which supplies OSM HOT on a fresh tenant.
 Collection-point data and visibility remain owned by the corresponding APIs.
 
 The map setup form waits for the persisted configuration before initializing the

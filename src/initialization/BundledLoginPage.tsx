@@ -1,3 +1,6 @@
+import { AxisMark } from '../app/shell/AxisMark';
+import { InvitedEmployeeRegistrationLink } from '../auth/InvitedEmployeeRegistrationLink';
+import type { InvitedEmployeeRegistrationEntry } from '../auth/useInvitedEmployeeRegistrationEntry';
 import {
   Alert,
   Box,
@@ -12,6 +15,7 @@ import { useState, type FormEvent } from 'react';
 import { getSignInErrorMessage } from '../app/recoveryState';
 
 interface BundledLoginPageProps {
+  readonly registrationEntry?: InvitedEmployeeRegistrationEntry | undefined;
   readonly error?: string | undefined;
   readonly pending?: boolean;
   readonly enterpriseCode?: string;
@@ -28,6 +32,7 @@ interface BundledLoginPageProps {
  */
 export function BundledLoginPage({
   error,
+  registrationEntry,
   pending = false,
   enterpriseCode,
   onLogin,
@@ -64,12 +69,13 @@ export function BundledLoginPage({
         sx={{ maxWidth: 420, p: 4, width: '100%' }}
       >
         <Stack spacing={3}>
+          <AxisMark />
           <Box>
             <Typography component="h1" variant="h4">
-              Nodics Axis
+              Sign in
             </Typography>
             <Typography color="text.secondary" sx={{ mt: 1 }}>
-              Sign in to initialize or recover the managed Axis experience.
+              Sign in with your employee account to continue.
             </Typography>
           </Box>
           {error ? (
@@ -117,6 +123,10 @@ export function BundledLoginPage({
           >
             Sign in
           </Button>
+          <InvitedEmployeeRegistrationLink
+            entry={registrationEntry}
+            pending={pending}
+          />
         </Stack>
       </Paper>
     </Box>

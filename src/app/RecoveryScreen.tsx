@@ -18,22 +18,31 @@ import {
 } from './recoveryState';
 
 interface RecoveryScreenProps {
+  readonly embedded?: boolean;
   readonly state: RecoveryState;
   readonly onRetry: () => void;
+  readonly onSignOut?: (() => void) | undefined;
+  readonly authenticationError?: string | undefined;
 }
 
 /** Generic unavailable-backend presentation; domain copy remains CMS-owned. */
-export function RecoveryScreen({ state, onRetry }: RecoveryScreenProps) {
+export function RecoveryScreen({
+  state,
+  embedded = false,
+  onRetry,
+  onSignOut,
+  authenticationError,
+}: RecoveryScreenProps) {
   const content = getRecoveryContent(state.kind);
   const detail = getRecoveryDetailContent(state.kind, state.detail);
 
   return (
     <Box
-      component="main"
+      component={embedded ? 'div' : 'main'}
       sx={{
         alignItems: 'center',
         display: 'flex',
-        minHeight: '100dvh',
+        minHeight: embedded ? '12rem' : '100dvh',
         py: 4,
       }}
     >
@@ -50,7 +59,7 @@ export function RecoveryScreen({ state, onRetry }: RecoveryScreenProps) {
               <Chip label={content.eyebrow} size="small" variant="outlined" />
             </Stack>
             <Stack spacing={1.5}>
-              <Typography component="h1" variant="h3">
+              <Typography component={embedded ? 'h2' : 'h1'} variant="h3">
                 {state.reconnecting ? 'Connecting to your workspace' : content.title}
               </Typography>
               <Typography
@@ -91,11 +100,19 @@ export function RecoveryScreen({ state, onRetry }: RecoveryScreenProps) {
                 Support reference: <strong>{state.correlationId}</strong>
               </Typography>
             ) : null}
-            <Box>
+            {authenticationError ? (
+              <Alert severity="warning">{authenticationError}</Alert>
+            ) : null}
+            <Stack direction="row" spacing={1}>
               <Button variant="contained" onClick={onRetry}>
                 {state.retryable ? content.action : 'Return to workspace'}
               </Button>
-            </Box>
+              {onSignOut ? (
+                <Button variant="outlined" onClick={onSignOut}>
+                  Retry secure sign-out
+                </Button>
+              ) : null}
+            </Stack>
           </Stack>
         </Paper>
       </Container>

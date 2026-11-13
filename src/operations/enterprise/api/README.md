@@ -79,3 +79,15 @@ across enterprises. Extend DTOs only with a matched, versioned owner contract.
 `test/enterprise/enterpriseMembershipClient.test.ts` contains independent DTO
 fixtures. Transport, default/override authorization, timeout/recovery and browser
 workflows remain separate, deferred acceptance.
+
+Setup transport uses the same maximum request timeout admitted by the runtime
+parser, including the supported six-minute deployment value. Customize the
+existing `AXIS_REQUEST_TIMEOUT_MS`, not a separate feature ceiling. This changes
+no descriptor availability, resume qualification, target scope or retry policy.
+`enterpriseSetupDescriptor.test.tsx` covers the admitted upper bound and keeps
+unqualified continuation unavailable.
+
+Current Enterprise display reuses the existing Profile self-read, without an
+Enterprise-directory request or additional grants. The application retains only
+its exact current code and displayName for labels. Authentication, membership,
+scope and all business decisions remain in the original Profile owners.

@@ -10,8 +10,10 @@ import {
 } from '@mui/material';
 
 import type { InitializationProfile } from '../api/dataReleaseContracts';
+import { dataCatalogueRuntimeLabel } from '../api/dataCatalogueSources';
 import {
   isInstallableStatus,
+  initializationProfileKey as profileKey,
   typeCopy,
   type ImportExportArea,
 } from '../importExportPresentation';
@@ -34,10 +36,6 @@ interface Props {
     mode: 'validate' | 'install',
   ) => void;
   readonly onOpenArea?: ((area: ImportExportArea) => void) | undefined;
-}
-
-function profileKey(profile: InitializationProfile): string {
-  return `${profile.destinationRole ?? 'DEFAULT'}:${profile.profileCode}`;
 }
 
 function profileRequiresAction(profile: InitializationProfile): boolean {
@@ -117,10 +115,10 @@ export function GuidedInitializationWorkspace(props: Props) {
   const groupedProfiles = [
     {
       id: 'needs-action',
-      title: 'Needs action',
-      help: 'Validate and initialize these profiles before dependent journeys can run.',
+      title: 'Available to review',
+      help: 'Review plans for the capabilities you intend to use. Initialize a plan only when its listed releases are needed for this installation.',
       profiles: [...props.profiles.filter(profileRequiresAction)].sort(compareProfiles),
-      tone: 'warning',
+      tone: 'info' as const,
     },
     {
       id: 'current',
@@ -129,7 +127,7 @@ export function GuidedInitializationWorkspace(props: Props) {
       profiles: [
         ...props.profiles.filter((profile) => !profileRequiresAction(profile)),
       ].sort(compareProfiles),
-      tone: 'success',
+      tone: 'success' as const,
     },
   ].filter((group) => group.profiles.length > 0);
 
@@ -140,7 +138,13 @@ export function GuidedInitializationWorkspace(props: Props) {
       .flatMap((step) => step.releases)
       .filter((release) => isInstallableStatus(release.status)).length;
     return (
-      <Paper key={key} variant="outlined" sx={{ p: 2 }}>
+      <Paper
+        key={key}
+        component="section"
+        aria-label={`${profile.label}${dataCatalogueRuntimeLabel(profile) ? ` · ${dataCatalogueRuntimeLabel(profile)}` : ''}`}
+        variant="outlined"
+        sx={{ p: 2 }}
+      >
         <Stack spacing={1.5}>
           <Stack
             direction="row"
@@ -160,9 +164,12 @@ export function GuidedInitializationWorkspace(props: Props) {
                     : 'default'
               }
             />
-            {profile.destinationRole ? (
+            {dataCatalogueRuntimeLabel(profile) || profile.destinationRole ? (
               <Chip
-                label={`Target ${profile.destinationRole}`}
+                label={
+                  dataCatalogueRuntimeLabel(profile) ??
+                  `Target ${profile.destinationRole}`
+                }
                 size="small"
                 variant="outlined"
               />
@@ -180,15 +187,29 @@ export function GuidedInitializationWorkspace(props: Props) {
           {profile.status === 'CURRENT' ? (
             <Alert severity="success">{profile.completionMessage}</Alert>
           ) : null}
-          {props.successMessage?.profileKey === key ? (
+          {props.successMessage?.profileKey === key &&
+          !(
+            profile.status === 'CURRENT' &&
+            props.successMessage.message === profile.completionMessage
+          ) ? (
             <Alert severity="success">{props.successMessage.message}</Alert>
           ) : null}
           {props.operationError?.profileKey === key ? (
             <Alert severity="error">{props.operationError.message}</Alert>
           ) : null}
+          {!profile.allowedActions?.length ? (
+            <Alert severity="info">
+              Your current access is read-only. You can review this plan, but cannot
+              validate or initialize it.
+            </Alert>
+          ) : null}
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
             <Button
-              disabled={props.operationIsPending || profile.blocked}
+              disabled={
+                props.operationIsPending ||
+                profile.blocked ||
+                !profile.allowedActions?.includes('validate')
+              }
               onClick={() => props.onRun(profile, 'validate')}
               variant="outlined"
             >
@@ -198,7 +219,10 @@ export function GuidedInitializationWorkspace(props: Props) {
             </Button>
             <Button
               disabled={
-                props.operationIsPending || profile.blocked || installable === 0
+                props.operationIsPending ||
+                profile.blocked ||
+                installable === 0 ||
+                !profile.allowedActions?.includes('install')
               }
               onClick={() => props.onRun(profile, 'install')}
               variant="contained"
@@ -216,8 +240,9 @@ export function GuidedInitializationWorkspace(props: Props) {
   return (
     <Stack spacing={2}>
       <Alert severity="info">
-        Profiles are defined by the backend. Nodics validates immutable releases and
-        executes their steps in the declared order.
+        Setup status describes each plan, not the readiness of the whole application.
+        Nothing is initialized until you explicitly start an initialization operation.
+        The Import owner validates its releases and executes their declared steps.
       </Alert>
       {groupedProfiles.map((group) => (
         <Paper
@@ -225,10 +250,7 @@ export function GuidedInitializationWorkspace(props: Props) {
           component="section"
           variant="outlined"
           sx={(theme) => ({
-            borderColor:
-              group.tone === 'warning'
-                ? alpha(theme.palette.warning.main, 0.35)
-                : alpha(theme.palette.success.main, 0.3),
+            borderColor: alpha(theme.palette[group.tone].main, 0.3),
             overflow: 'hidden',
           })}
         >
@@ -251,7 +273,7 @@ export function GuidedInitializationWorkspace(props: Props) {
                 <Chip
                   label={`${group.profiles.length} profile${group.profiles.length === 1 ? '' : 's'}`}
                   size="small"
-                  color={group.tone === 'success' ? 'success' : 'warning'}
+                  color={group.tone}
                 />
               </Stack>
               <Typography color="text.secondary" sx={{ maxWidth: 760 }}>

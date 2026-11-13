@@ -97,4 +97,57 @@ describe('Axis Phase 2 foundation', () => {
 
     expect(canRenderWorkbenchNavigation(bootstrap, navigation)).toBe(false);
   });
+  it.each(['DISABLED', 'HIDDEN'] as const)(
+    'refuses a healthy schema workbench with feature state %s',
+    (featureState) => {
+      const bootstrap = {
+        moduleConnections: {
+          example: [
+            {
+              moduleName: 'example',
+              instanceId: 'example:one',
+              endpoint: 'https://example.test/nodics/example',
+              environment: 'local',
+              server: 'one',
+              state: 'UP',
+            },
+          ],
+        },
+      } as never;
+      const navigation = {
+        moduleName: 'example',
+        featureState,
+        availability: 'UP',
+        workbenchTarget: { moduleName: 'example', schemaName: 'record' },
+      } as never;
+      expect(canRenderWorkbenchNavigation(bootstrap, navigation)).toBe(false);
+    },
+  );
+
+  it.each(['ACTIVE', 'PREVIEW'] as const)(
+    'preserves a healthy schema workbench with feature state %s',
+    (featureState) => {
+      const bootstrap = {
+        moduleConnections: {
+          example: [
+            {
+              moduleName: 'example',
+              instanceId: 'example:one',
+              endpoint: 'https://example.test/nodics/example',
+              environment: 'local',
+              server: 'one',
+              state: 'UP',
+            },
+          ],
+        },
+      } as never;
+      const navigation = {
+        moduleName: 'example',
+        featureState,
+        availability: 'UP',
+        workbenchTarget: { moduleName: 'example', schemaName: 'record' },
+      } as never;
+      expect(canRenderWorkbenchNavigation(bootstrap, navigation)).toBe(true);
+    },
+  );
 });

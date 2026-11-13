@@ -60,11 +60,11 @@ const recoveryContent: Record<RecoveryKind, RecoveryContent> = {
     action: 'Retry discovery',
   },
   cms: {
-    eyebrow: 'Content delivery',
-    title: 'CMS content is unavailable',
+    eyebrow: 'Workspace recovery',
+    title: 'Your Axis workspace is unavailable',
     description:
-      'Axis is using its static recovery experience because governed CMS presentation content could not be loaded.',
-    action: 'Retry CMS',
+      'Axis could not load the content needed to display your workspace. Try again to reconnect. If this continues, contact your administrator.',
+    action: 'Try again',
   },
   contract: {
     eyebrow: 'Compatibility',
@@ -117,8 +117,11 @@ function isNetworkFetchFailure(detail: string): boolean {
   );
 }
 
-/** Both login renderers use the existing transport classification without changing auth decisions or retrying credentials. */
-export function getSignInErrorMessage(detail?: string): string | undefined {
+/** Authentication forms share transport recovery without changing owner decisions or retrying credentials. */
+function getAuthenticationErrorMessage(
+  detail: string | undefined,
+  action: 'Sign-in' | 'Unlock',
+): string | undefined {
   if (!detail) return undefined;
   if (
     [
@@ -130,10 +133,18 @@ export function getSignInErrorMessage(detail?: string): string | undefined {
       'signal timed out',
     ].includes(detail.trim().toLowerCase())
   )
-    return 'Sign-in took too long or was interrupted. Please try again.';
+    return `${action} took too long or was interrupted. Please try again.`;
   return isNetworkFetchFailure(detail)
-    ? 'Sign-in is temporarily unavailable. Check your connection and try again when the service is available.'
+    ? `${action} is temporarily unavailable. Check your connection and try again when the service is available.`
     : detail;
+}
+
+export function getSignInErrorMessage(detail?: string): string | undefined {
+  return getAuthenticationErrorMessage(detail, 'Sign-in');
+}
+
+export function getUnlockErrorMessage(detail?: string): string | undefined {
+  return getAuthenticationErrorMessage(detail, 'Unlock');
 }
 
 function networkRecoveryMessage(kind: RecoveryKind): string {

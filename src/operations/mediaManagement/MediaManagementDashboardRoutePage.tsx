@@ -5,13 +5,12 @@ import { useMemo } from 'react';
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
 import { WorkspaceContainer } from '../../app/shell/ShellPrimitives';
 import {
-  selectModuleConnection,
   type AxisAuthenticatedBootstrap,
+  type AxisModuleConnection,
   type AxisNavigationItem,
 } from '../../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
-  activeConnections,
   connectionKey,
   dashboardCardPadding,
   dashboardComponentGap,
@@ -25,6 +24,7 @@ import {
 } from '../shared/workbenchMetricDashboardModel';
 import { DashboardSection } from '../shared/WorkbenchMetricDashboard';
 import { loadMediaSourceContexts } from './api/mediaStoragePolicyClient';
+import { selectMediaAuthoringConnection } from './mediaAuthoringAuthority';
 
 interface MediaManagementDashboardRoutePageProps {
   readonly accessToken: string;
@@ -35,7 +35,7 @@ interface MediaManagementDashboardRoutePageProps {
 
 interface MediaDashboardData {
   readonly metrics: readonly WorkbenchMetric[];
-  readonly sourceContextCount: number;
+  readonly sourceContextCount: number | undefined;
 }
 
 const mediaMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
@@ -374,7 +374,7 @@ const mediaReplicationOperations = Object.freeze([
 ]);
 
 async function loadMediaDashboardData(
-  connections: ReturnType<typeof activeConnections>,
+  connections: readonly AxisModuleConnection[],
   bootstrap: AxisAuthenticatedBootstrap,
   configuration: {
     readonly accessToken: string;
@@ -388,15 +388,15 @@ async function loadMediaDashboardData(
     configuration,
     allMetrics,
   );
-  const mediaConnection = selectModuleConnection(bootstrap, 'media');
+  const mediaConnection = selectMediaAuthoringConnection(bootstrap);
   const sourceContexts = mediaConnection
-    ? await loadMediaSourceContexts(mediaConnection, configuration).catch(() =>
-        Object.freeze([]),
+    ? await loadMediaSourceContexts(mediaConnection, configuration).catch(
+        () => undefined,
       )
-    : Object.freeze([]);
+    : undefined;
   return Object.freeze({
     metrics,
-    sourceContextCount: sourceContexts.length,
+    sourceContextCount: sourceContexts?.length,
   });
 }
 
@@ -406,7 +406,10 @@ export function MediaManagementDashboardRoutePage({
   routeNavigation,
   runtime,
 }: MediaManagementDashboardRoutePageProps) {
-  const connections = useMemo(() => activeConnections(bootstrap), [bootstrap]);
+  const connections = useMemo(() => {
+    const source = selectMediaAuthoringConnection(bootstrap);
+    return source ? [source] : [];
+  }, [bootstrap]);
   const configuration = useMemo(
     () => ({
       accessToken,
@@ -426,7 +429,7 @@ export function MediaManagementDashboardRoutePage({
   const metrics = data.data?.metrics;
   const readyCount = totalReadyMetrics(metrics);
   const unavailableCount = (metrics?.length ?? allMetrics.length) - readyCount;
-  const sourceContextCount = data.data?.sourceContextCount ?? 0;
+  const sourceContextCount = data.data?.sourceContextCount;
   const totalRecords = totalMetricValue(metrics);
 
   return (
@@ -450,12 +453,22 @@ export function MediaManagementDashboardRoutePage({
                 headingVariant="h3"
                 title="Media Management"
               />
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
+              <Stack
+                direction="row"
+                spacing={1}
+                useFlexGap
+                sx={{
+                  alignItems: 'flex-start',
+                  flexWrap: 'wrap',
+                  minWidth: 0,
+                  maxWidth: '100%',
+                }}
+              >
                 <Chip label={`${String(allMetrics.length)} metrics`} />
                 <Chip
                   label={`${new Intl.NumberFormat().format(totalRecords)} records`}
                 />
-                <Chip color="success" label={`${String(readyCount)} live`} />
+                <Chip color="success" label={`${String(readyCount)} available`} />
                 {unavailableCount > 0 ? (
                   <Chip
                     color="warning"
@@ -463,7 +476,13 @@ export function MediaManagementDashboardRoutePage({
                     variant="outlined"
                   />
                 ) : null}
-                <Chip label={`${String(sourceContextCount)} media contexts`} />
+                <Chip
+                  label={
+                    sourceContextCount === undefined
+                      ? 'Media contexts unavailable'
+                      : `${sourceContextCount} media contexts`
+                  }
+                />
               </Stack>
             </Stack>
 
@@ -500,6 +519,7 @@ export function MediaManagementDashboardRoutePage({
             <WorkspaceHeading
               description="Replacement media for Agora and other storefronts must pass upload, checksum, reviewer approval, and media-reference activation before production use."
               eyebrow="Production intake"
+              headingComponent="h2"
               headingVariant="h4"
               title="Approved media activation flow"
             />
@@ -508,7 +528,13 @@ export function MediaManagementDashboardRoutePage({
                 <Paper
                   component="article"
                   key={lane.title}
-                  sx={{ minWidth: 260, p: 1.5 }}
+                  sx={{
+                    minWidth: 0,
+                    maxWidth: '100%',
+                    flex: '1 1 260px',
+                    overflowWrap: 'anywhere',
+                    p: 1.5,
+                  }}
                   variant="outlined"
                 >
                   <strong>{lane.title}</strong>
@@ -537,7 +563,13 @@ export function MediaManagementDashboardRoutePage({
                 <Paper
                   component="article"
                   key={control.title}
-                  sx={{ minWidth: 240, p: 1.5 }}
+                  sx={{
+                    minWidth: 0,
+                    maxWidth: '100%',
+                    flex: '1 1 240px',
+                    overflowWrap: 'anywhere',
+                    p: 1.5,
+                  }}
                   variant="outlined"
                 >
                   <strong>{control.title}</strong>
@@ -548,6 +580,7 @@ export function MediaManagementDashboardRoutePage({
             <WorkspaceHeading
               description="Operator checklist for replacing reference assets with approved Nodics media while preserving audit and rollback evidence."
               eyebrow="Media governance"
+              headingComponent="h3"
               headingVariant="h5"
               title="Media intake approval checklist"
             />
@@ -556,7 +589,13 @@ export function MediaManagementDashboardRoutePage({
                 <Paper
                   component="article"
                   key={item.title}
-                  sx={{ minWidth: 240, p: 1.5 }}
+                  sx={{
+                    minWidth: 0,
+                    maxWidth: '100%',
+                    flex: '1 1 240px',
+                    overflowWrap: 'anywhere',
+                    p: 1.5,
+                  }}
                   variant="outlined"
                 >
                   <strong>{item.title}</strong>
@@ -572,6 +611,7 @@ export function MediaManagementDashboardRoutePage({
             <WorkspaceHeading
               description="Axis surfaces these as Media-owned lifecycle operations; it does not approve rights or activate files by itself."
               eyebrow="Executable backend actions"
+              headingComponent="h3"
               headingVariant="h5"
               title="Media reference lifecycle operations"
             />
@@ -580,7 +620,13 @@ export function MediaManagementDashboardRoutePage({
                 <Paper
                   component="article"
                   key={action.label}
-                  sx={{ minWidth: 260, p: 1.5 }}
+                  sx={{
+                    minWidth: 0,
+                    maxWidth: '100%',
+                    flex: '1 1 260px',
+                    overflowWrap: 'anywhere',
+                    p: 1.5,
+                  }}
                   variant="outlined"
                 >
                   <strong>{action.label}</strong>
@@ -597,6 +643,7 @@ export function MediaManagementDashboardRoutePage({
             <WorkspaceHeading
               description="Publishing needs media hooks that are safe for CMS, products, accelerators, rollback, and missing-asset recovery."
               eyebrow="Publication readiness"
+              headingComponent="h3"
               headingVariant="h5"
               title="Media publication safety"
             />
@@ -605,7 +652,13 @@ export function MediaManagementDashboardRoutePage({
                 <Paper
                   component="article"
                   key={policy.title}
-                  sx={{ minWidth: 260, p: 1.5 }}
+                  sx={{
+                    minWidth: 0,
+                    maxWidth: '100%',
+                    flex: '1 1 260px',
+                    overflowWrap: 'anywhere',
+                    p: 1.5,
+                  }}
                   variant="outlined"
                 >
                   <strong>{policy.title}</strong>
@@ -614,13 +667,13 @@ export function MediaManagementDashboardRoutePage({
               ))}
             </Stack>
             <Alert severity="info">
-              Media provider qualification remains a release gate outside this local
-              Axis check. Local validation can prove the operator journey and policy
-              visibility, not CDN/DAM production readiness.
+              Before publishing, check that the delivery provider for your environment
+              is ready.
             </Alert>
             <WorkspaceHeading
               description="Active and replication media locations are role-based, so DR failover can reverse the serving and replication direction without manual file copying."
               eyebrow="PROD and DR"
+              headingComponent="h3"
               headingVariant="h5"
               title="Replication operations"
             />
@@ -629,21 +682,38 @@ export function MediaManagementDashboardRoutePage({
                 <Paper
                   component="article"
                   key={operation.label}
-                  sx={{ minWidth: 280, p: 1.5 }}
+                  sx={{
+                    minWidth: 0,
+                    maxWidth: '100%',
+                    flex: '1 1 280px',
+                    overflowWrap: 'anywhere',
+                    p: 1.5,
+                  }}
                   variant="outlined"
                 >
                   <strong>{operation.label}</strong>
                   <p>{operation.detail}</p>
-                  <Chip label={operation.route} size="small" variant="outlined" />
+                  <Chip
+                    label={<bdi>{operation.route}</bdi>}
+                    size="small"
+                    variant="outlined"
+                    sx={{
+                      maxWidth: '100%',
+                      height: 'auto',
+                      '& .MuiChip-label': {
+                        py: 0.25,
+                        whiteSpace: 'normal',
+                        overflowWrap: 'anywhere',
+                      },
+                    }}
+                  />
                 </Paper>
               ))}
             </Stack>
             <Alert severity="warning">
-              If Online activation succeeds while replication is unavailable, Axis must
-              show the pending replication queue until the governed retry workflow marks
-              the target synchronized. Cleanup follows the same governed pattern:
-              preview, candidate review, passive marking, approval, then provider-owned
-              deletion.
+              If media is live but its backup has not synchronized, check the pending
+              replication queue. For cleanup, preview and review the candidate list
+              before approving removal.
             </Alert>
           </Stack>
         </Paper>

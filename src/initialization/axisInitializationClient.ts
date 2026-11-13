@@ -47,6 +47,7 @@ export interface AxisPublicationReview {
 }
 
 export interface AxisInitializationStatus {
+  readonly allowedActions?: readonly 'INITIALIZE'[];
   readonly baselineCode: string;
   readonly releaseCode: string;
   readonly releaseVersion: string;
@@ -60,6 +61,11 @@ export interface AxisInitializationStatus {
     readonly targetVersion?: string;
     readonly workflowRef?: string;
     readonly correlationId?: string;
+    readonly approvalDiagnostic?: {
+      readonly status: string;
+      readonly message: string;
+      readonly suggestedAction: string;
+    };
   };
 }
 
@@ -177,9 +183,40 @@ function parseStatus(value: unknown): AxisInitializationStatus {
   ) {
     throw new Error('Axis initialization contract is incompatible');
   }
+  if (
+    data.allowedActions !== undefined &&
+    (!Array.isArray(data.allowedActions) ||
+      data.allowedActions.some((action) => action !== 'INITIALIZE') ||
+      new Set(data.allowedActions).size !== data.allowedActions.length)
+  )
+    throw new Error('Axis initialization action eligibility is invalid');
   const publication = data.publication
     ? record(data.publication, 'Axis initialization publication')
     : undefined;
+  const diagnostic = publication?.approvalDiagnostic;
+  let approvalDiagnostic: NonNullable<
+    AxisInitializationStatus['publication']
+  >['approvalDiagnostic'];
+  if (diagnostic && publication) {
+    const evidence = record(diagnostic, 'Axis approval diagnostic');
+    if (
+      evidence.source === 'PUBLICATION_APPROVAL' &&
+      evidence.owner === 'PROCESS' &&
+      evidence.publicationCode === publication.code &&
+      evidence.publicationRevision === publication.revision &&
+      typeof publication.workflowRef === 'string' &&
+      evidence.workflowRef === publication.workflowRef
+    ) {
+      approvalDiagnostic = {
+        status: text(evidence.status, 'Axis approval diagnostic status'),
+        message: text(evidence.message, 'Axis approval diagnostic message'),
+        suggestedAction: text(
+          evidence.suggestedAction,
+          'Axis approval diagnostic action',
+        ),
+      };
+    }
+  }
   const review = parseReview(data.review);
   return Object.freeze({
     baselineCode: data.baselineCode,
@@ -187,6 +224,11 @@ function parseStatus(value: unknown): AxisInitializationStatus {
     releaseVersion: data.releaseVersion,
     releaseStatus: data.releaseStatus,
     readiness: readiness as AxisInitializationReadiness,
+    allowedActions: Object.freeze(
+      Array.isArray(data.allowedActions) && data.allowedActions.includes('INITIALIZE')
+        ? ['INITIALIZE' as const]
+        : [],
+    ),
     ...(review ? { review } : {}),
     ...(publication
       ? {
@@ -194,6 +236,7 @@ function parseStatus(value: unknown): AxisInitializationStatus {
             code: typeof publication.code === 'string' ? publication.code : '',
             state: typeof publication.state === 'string' ? publication.state : '',
             revision: Number(publication.revision ?? 0),
+            ...(approvalDiagnostic ? { approvalDiagnostic } : {}),
             ...(typeof publication.targetVersion === 'string'
               ? { targetVersion: publication.targetVersion }
               : {}),

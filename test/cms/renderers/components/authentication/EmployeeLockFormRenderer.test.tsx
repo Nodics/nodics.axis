@@ -59,3 +59,49 @@ it('shows progress, rejects duplicate submits, and retains explicit retry after 
   await user.click(button);
   expect(onEmployeeUnlock).toHaveBeenCalledExactlyOnceWith('fixture-password');
 });
+
+/** Owner copy explains retained checkpoints without promising that unsaved forms or submitted commands are restored. */
+it('presents owner recovery guidance without turning it into an action', () => {
+  const onEmployeeUnlock = vi.fn();
+  render(
+    <EmployeeLockFormRenderer
+      component={component}
+      actions={{
+        onEmployeeUnlock,
+        employeeSessionRecoveryMessage:
+          'Only saved records and explicit checkpoints can be recovered. Other unsaved edits may be lost; inspect submitted actions before retrying.',
+      }}
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'Other unsaved edits may be lost',
+  );
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'inspect submitted actions before retrying',
+  );
+  expect(onEmployeeUnlock).not.toHaveBeenCalled();
+});
+
+/** Browser transport errors need actionable recovery while Profile denial remains authoritative. */
+it.each([
+  [
+    'Failed to fetch',
+    'Unlock is temporarily unavailable. Check your connection and try again when the service is available.',
+  ],
+  [
+    'The operation was aborted.',
+    'Unlock took too long or was interrupted. Please try again.',
+  ],
+  ['Profile denied this unlock.', 'Profile denied this unlock.'],
+])('announces safe unlock recovery for %s without replay', (detail, message) => {
+  const onEmployeeUnlock = vi.fn();
+  render(
+    <EmployeeLockFormRenderer
+      component={component}
+      actions={{ onEmployeeUnlock, authenticationError: detail }}
+    />,
+  );
+  expect(screen.getByRole('alert')).toHaveTextContent(message);
+  expect(screen.getByRole('button', { name: 'Unlock' })).toBeEnabled();
+  expect(onEmployeeUnlock).not.toHaveBeenCalled();
+});

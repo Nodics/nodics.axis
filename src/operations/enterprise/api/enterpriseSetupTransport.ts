@@ -1,6 +1,9 @@
 /** Single-attempt transport for the validated Profile contribution on its authorized catalogue connection. */
 import type { AxisModuleConnection } from '../../../bootstrap/publicBootstrap';
-import type { AxisRuntimeConfig } from '../../../runtime/runtimeConfig';
+import {
+  MAXIMUM_TIMEOUT_MS,
+  type AxisRuntimeConfig,
+} from '../../../runtime/runtimeConfig';
 import { envelopeData } from '../../../app/backendWorkspaceClient';
 import { observeEmployeeSessionResponse } from '../../../auth/employeeSessionEvents';
 import {
@@ -38,7 +41,7 @@ export function createEnterpriseSetupOwnerAdapter(
     !accessToken ||
     !Number.isSafeInteger(runtime.requestTimeoutMs) ||
     runtime.requestTimeoutMs < 1 ||
-    runtime.requestTimeoutMs > 120000
+    runtime.requestTimeoutMs > MAXIMUM_TIMEOUT_MS
   )
     throw new Error('Enterprise setup connection is unavailable.');
   const baseSegments = base.pathname.split('/').filter(Boolean);

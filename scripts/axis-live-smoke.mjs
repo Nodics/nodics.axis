@@ -10,11 +10,11 @@
  * root LICENSE file or a separate written agreement with Nodics.
  */
 
-const axisUrl = process.env.AXIS_URL || 'http://127.0.0.1:3100';
+const axisUrl = process.env.AXIS_URL || 'http://localhost:3100';
 const platformUrl = process.env.AXIS_PLATFORM_URL || 'http://127.0.0.1:4300';
 const processUrl = process.env.AXIS_PROCESS_URL || 'http://127.0.0.1:4330';
 const wasteUrl = process.env.AXIS_WASTE_URL || 'http://127.0.0.1:4370';
-const locationUrl = process.env.AXIS_LOCATION_URL || 'http://127.0.0.1:4380';
+const locationUrl = process.env.AXIS_LOCATION_URL || 'http://127.0.0.1:4370';
 const enterpriseCode = process.env.AXIS_ENTERPRISE || 'default';
 const projectCode = process.env.AXIS_PROJECT || 'nodics.kickoff';
 const loginId = process.env.AXIS_LOGIN_ID || 'admin';

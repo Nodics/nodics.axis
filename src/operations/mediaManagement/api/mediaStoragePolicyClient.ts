@@ -258,7 +258,9 @@ function parseMediaSourceContext(value: unknown): MediaSourceContext {
   });
 }
 
-function parseMediaSourceContexts(value: unknown): readonly MediaSourceContext[] {
+export function parseMediaSourceContexts(
+  value: unknown,
+): readonly MediaSourceContext[] {
   const data = record(value, 'Media source context response');
   const contexts = data.contexts;
   if (!Array.isArray(contexts)) {

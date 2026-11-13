@@ -59,6 +59,8 @@ export interface LocationMapConfigurationDraft {
 }
 
 export interface LocationMapProviderOption {
+  readonly stylePresetCode?: string;
+  readonly styleUrl?: string;
   readonly code: string;
   readonly name: Record<string, unknown>;
   readonly providerType: string;
@@ -83,6 +85,8 @@ export interface LocationMapRenderDescriptor {
 }
 
 export interface LocationMapConfiguration {
+  readonly configurationScope?: string;
+  readonly providerScope?: string;
   readonly contractVersion?: number | undefined;
   readonly revision?: number | undefined;
   readonly refreshIntervalMs?: number | undefined;
@@ -202,6 +206,8 @@ function parseProviderOptions(value: unknown): readonly LocationMapProviderOptio
           code: text(item.code),
           name: Object.freeze(objectRecord(item.name)),
           providerType: text(item.providerType),
+          stylePresetCode: text(item.stylePresetCode),
+          styleUrl: text(item.styleUrl),
           rendererCode: text(item.rendererCode),
           rendererType: text(item.rendererType),
           requiresPublicAccessToken: item.requiresPublicAccessToken === true,
@@ -232,6 +238,8 @@ function parseLocationMapConfiguration(value: unknown): LocationMapConfiguration
       5000,
       Math.min(60000, finiteNumber(record.refreshIntervalMs, 15000)),
     ),
+    configurationScope: text(record.configurationScope),
+    providerScope: text(record.providerScope),
     fallbackAllowed: record.fallbackAllowed === true,
     presentation: parseMapPresentation(record.presentation),
     interaction: parseMapInteraction(record.interaction),

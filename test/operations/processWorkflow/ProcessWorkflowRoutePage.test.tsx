@@ -1,4 +1,5 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router';
+import { onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   act,
   fireEvent,
@@ -8,7 +9,7 @@ import {
   within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AxisThemeProvider } from '../../../src/app/AxisThemeProvider';
 import type {
@@ -16,6 +17,8 @@ import type {
   AxisNavigationItem,
 } from '../../../src/bootstrap/publicBootstrap';
 import { ProcessWorkflowRoutePage } from '../../../src/operations/processWorkflow/ProcessWorkflowRoutePage';
+import * as commandCapabilitiesClient from '../../../src/operations/processWorkflow/api/processCommandCapabilitiesClient';
+import * as triggerCommandClient from '../../../src/operations/processWorkflow/api/processTriggerCommandClient';
 import type { AxisRuntimeConfig } from '../../../src/runtime/runtimeConfig';
 
 const runtime: AxisRuntimeConfig = {
@@ -117,9 +120,10 @@ const bootstrapWithDocumentationSource: AxisAuthenticatedBootstrap = {
   ],
 };
 
-function jsonResponse(data: unknown): Response {
+function jsonResponse(data: unknown, code = 'SUC_PROCESS_00000'): Response {
   return new Response(
     JSON.stringify({
+      code,
       data,
       ...(Array.isArray(data)
         ? {
@@ -146,30 +150,960 @@ function requestUrl(input: RequestInfo | URL): string {
   return input.url;
 }
 
+function ProcessHistoryProbe() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <aside aria-label="Test router history">
+      <output aria-label="Test current location">
+        {location.pathname}
+        {location.search}
+        {location.hash}
+      </output>
+      <button
+        onClick={() => {
+          void navigate(-1);
+        }}
+      >
+        Test history back
+      </button>
+      <button
+        onClick={() => {
+          void navigate(1);
+        }}
+      >
+        Test history forward
+      </button>
+      <button
+        onClick={() => {
+          void navigate(`${location.pathname}?instanceCode=%2Fother`);
+        }}
+      >
+        Test invalid record
+      </button>
+    </aside>
+  );
+}
+
 function renderPage(
   path = '/process',
   pageBootstrap: AxisAuthenticatedBootstrap = bootstrap,
+  historyProbe = false,
 ) {
   window.history.pushState({}, '', path);
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
   const rendered = render(
-    <AxisThemeProvider>
-      <QueryClientProvider client={queryClient}>
-        <ProcessWorkflowRoutePage
-          accessToken="employee-token"
-          bootstrap={pageBootstrap}
-          navigation={navigation}
-          runtime={runtime}
-        />
-      </QueryClientProvider>
-    </AxisThemeProvider>,
+    <MemoryRouter initialEntries={[path]}>
+      {historyProbe ? <ProcessHistoryProbe /> : null}
+      <AxisThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <ProcessWorkflowRoutePage
+            accessToken="employee-token"
+            bootstrap={pageBootstrap}
+            navigation={navigation}
+            runtime={runtime}
+          />
+        </QueryClientProvider>
+      </AxisThemeProvider>
+    </MemoryRouter>,
   );
   return { ...rendered, queryClient };
 }
 
 describe('ProcessWorkflowRoutePage', () => {
+  const authorizedCommand = {
+    authorization: 'AUTHORIZED',
+    receiptInspection: 'AUTHORIZED',
+  } as const;
+  const authorizedCommands = {
+    contractVersion: 1,
+    newRecording: 'DISABLED',
+    triggerCommands: {
+      create: authorizedCommand,
+      update: authorizedCommand,
+      archive: authorizedCommand,
+      execute: authorizedCommand,
+    },
+  } as const;
+  beforeEach(() => {
+    // These route fixtures exercise real native clients. Only the independent
+    // metadata read has an explicit default contract; its HTTP/parser has its own suite.
+    vi.spyOn(
+      commandCapabilitiesClient,
+      'loadProcessCommandCapabilities',
+    ).mockResolvedValue(authorizedCommands);
+  });
+
+  it('withholds only the denied trigger action without inferring authority from an active record', async () => {
+    vi.mocked(
+      commandCapabilitiesClient.loadProcessCommandCapabilities,
+    ).mockResolvedValue({
+      ...authorizedCommands,
+      triggerCommands: {
+        ...authorizedCommands.triggerCommands,
+        execute: { authorization: 'DENIED', receiptInspection: 'DENIED' },
+      },
+    });
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      Promise.resolve(
+        jsonResponse(
+          requestUrl(input).includes('/triggers')
+            ? [
+                {
+                  code: 'review-job',
+                  definitionCode: 'review',
+                  triggerType: 'CRON',
+                  version: 3,
+                  status: 'ACTIVE',
+                },
+              ]
+            : [],
+        ),
+      ),
+    );
+    renderPage('/process/triggers');
+    await screen.findByText('review-job');
+    expect(
+      screen.getByText('Some actions are unavailable for this session.'),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Execute now' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Archive trigger' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Execute now' }));
+    expect(fetcher.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  });
+
+  it('keeps failed command metadata read-only and recovers through an explicit metadata refresh', async () => {
+    vi.mocked(commandCapabilitiesClient.loadProcessCommandCapabilities)
+      .mockRejectedValueOnce(new Error('metadata unavailable'))
+      .mockResolvedValue(authorizedCommands);
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      Promise.resolve(
+        jsonResponse(
+          requestUrl(input).includes('/triggers')
+            ? [
+                {
+                  code: 'review-job',
+                  definitionCode: 'review',
+                  triggerType: 'CRON',
+                  version: 3,
+                  status: 'DRAFT',
+                },
+              ]
+            : [],
+        ),
+      ),
+    );
+    renderPage('/process/triggers');
+    await screen.findByText(
+      'Command availability could not be verified. Refresh to check again.',
+    );
+    expect(screen.getByRole('button', { name: 'Activate' })).toBeDisabled();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Refresh relationships' }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Activate' })).toBeEnabled(),
+    );
+    expect(
+      commandCapabilitiesClient.loadProcessCommandCapabilities,
+    ).toHaveBeenCalledTimes(2);
+    expect(
+      fetcher.mock.calls.some(([, init]) =>
+        ['POST', 'PATCH'].includes(init?.method ?? 'GET'),
+      ),
+    ).toBe(false);
+  });
+
+  it('withholds cached command authority while a refresh is pending and after its grant is removed', async () => {
+    let finish:
+      | ((data: commandCapabilitiesClient.ProcessCommandCapabilities) => void)
+      | undefined;
+    vi.mocked(commandCapabilitiesClient.loadProcessCommandCapabilities)
+      .mockResolvedValueOnce(authorizedCommands)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      Promise.resolve(
+        jsonResponse(
+          requestUrl(input).includes('/triggers')
+            ? [
+                {
+                  code: 'review-job',
+                  definitionCode: 'review',
+                  triggerType: 'CRON',
+                  version: 3,
+                  status: 'DRAFT',
+                },
+              ]
+            : [],
+        ),
+      ),
+    );
+    renderPage('/process/triggers');
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Activate' })).toBeEnabled(),
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Refresh relationships' }),
+    );
+    expect(await screen.findByText('Checking command availability.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Activate' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Activate' }));
+    act(() =>
+      finish?.({
+        ...authorizedCommands,
+        triggerCommands: {
+          ...authorizedCommands.triggerCommands,
+          update: { authorization: 'DENIED', receiptInspection: 'DENIED' },
+        },
+      }),
+    );
+    await screen.findByText('Some actions are unavailable for this session.');
+    expect(screen.getByRole('button', { name: 'Activate' })).toBeDisabled();
+    expect(fetcher.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false);
+  });
+  it('withholds cached command authority while an explicitly requested read is paused offline', async () => {
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      Promise.resolve(
+        jsonResponse(
+          requestUrl(input).includes('/triggers')
+            ? [
+                {
+                  code: 'review-job',
+                  definitionCode: 'review',
+                  triggerType: 'CRON',
+                  version: 3,
+                  status: 'DRAFT',
+                },
+              ]
+            : [],
+        ),
+      ),
+    );
+    renderPage('/process/triggers');
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Activate' })).toBeEnabled(),
+    );
+    act(() => onlineManager.setOnline(false));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Refresh relationships' }),
+    );
+    expect(await screen.findByText('Checking command availability.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Activate' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Activate' }));
+    expect(
+      commandCapabilitiesClient.loadProcessCommandCapabilities,
+    ).toHaveBeenCalledTimes(1);
+    act(() => onlineManager.setOnline(true));
+    await waitFor(() =>
+      expect(
+        commandCapabilitiesClient.loadProcessCommandCapabilities,
+      ).toHaveBeenCalledTimes(2),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Activate' })).toBeEnabled(),
+    );
+    expect(
+      fetcher.mock.calls.some(([, init]) =>
+        ['POST', 'PATCH'].includes(init?.method ?? 'GET'),
+      ),
+    ).toBe(false);
+  });
+
+  it('holds a lost response through current-record refresh and unknown receipt, then releases only its original completed receipt even after recording shutdown', async () => {
+    vi.mocked(commandCapabilitiesClient.loadProcessCommandCapabilities)
+      .mockResolvedValueOnce({ ...authorizedCommands, newRecording: 'ENABLED' })
+      .mockResolvedValue(authorizedCommands);
+    const inspect = vi
+      .spyOn(triggerCommandClient, 'inspectProcessTriggerCommandReceipt')
+      .mockResolvedValueOnce({ state: 'OUTCOME_UNKNOWN', triggerCode: 'review-job' })
+      .mockResolvedValueOnce({ state: 'COMPLETED', triggerCode: 'review-job' });
+    let status = 'DRAFT';
+    let sentBody: string | undefined;
+    let sentKey: string | undefined;
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      if (init?.method === 'PATCH') {
+        status = 'ACTIVE';
+        sentBody = init.body as string;
+        sentKey = new Headers(init.headers).get('Idempotency-Key') ?? undefined;
+        return Promise.reject(new TypeError('response lost'));
+      }
+      return Promise.resolve(
+        jsonResponse(
+          requestUrl(input).includes('/triggers')
+            ? [
+                {
+                  code: 'review-job',
+                  definitionCode: 'review',
+                  triggerType: 'CRON',
+                  version: 3,
+                  status,
+                },
+              ]
+            : [],
+        ),
+      );
+    });
+    renderPage('/process/triggers');
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Activate' })).toBeEnabled(),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Activate' }));
+    await screen.findByText(/The trigger request is unconfirmed/);
+    expect(inspect).not.toHaveBeenCalled();
+    expect(sentKey).toMatch(/^axis-trigger-/);
+    expect(document.body.textContent).not.toContain(sentKey);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Refresh relationships' }),
+    );
+    await screen.findByText('ACTIVE', { exact: true });
+    expect(screen.getByRole('button', { name: 'Execute now' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Archive trigger' })).toBeDisabled();
+    expect(inspect).not.toHaveBeenCalled();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Inspect original receipt' }),
+    );
+    await screen.findByText(
+      'The original receipt does not confirm completion. The request remains held.',
+    );
+    expect(screen.getByRole('button', { name: 'Execute now' })).toBeDisabled();
+    const originalIntent = inspect.mock.calls[0]?.[2];
+    expect(originalIntent?.bodyJson).toBe(sentBody);
+    expect(originalIntent?.idempotencyKey).toBe(sentKey);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Inspect original receipt' }),
+    );
+    await screen.findByText('Trigger request acknowledged by Process.');
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Execute now' })).toBeEnabled(),
+    );
+    expect(inspect.mock.calls[1]?.[2]).toBe(originalIntent);
+    expect(screen.queryByText('response lost')).not.toBeInTheDocument();
+    expect(
+      fetcher.mock.calls.filter(([, init]) => init?.method === 'PATCH'),
+    ).toHaveLength(1);
+    expect(fetcher.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  });
+
+  it('dispatches a repeated activation click once before React updates its controls', async () => {
+    let status = 'DRAFT';
+    let finish: ((value: Response) => void) | undefined;
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      if (init?.method === 'PATCH')
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      return Promise.resolve(
+        jsonResponse(
+          requestUrl(input).includes('/triggers')
+            ? [
+                {
+                  code: 'review-job',
+                  definitionCode: 'review',
+                  triggerType: 'CRON',
+                  version: 3,
+                  status,
+                },
+              ]
+            : [],
+        ),
+      );
+    });
+    renderPage('/process/triggers');
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Activate' })).toBeEnabled(),
+    );
+    const activate = screen.getByRole('button', { name: 'Activate' });
+    act(() => {
+      fireEvent.click(activate);
+      fireEvent.click(activate);
+    });
+    await screen.findByText('Submitting the trigger request.');
+    await waitFor(() =>
+      expect(
+        fetcher.mock.calls.filter(([, init]) => init?.method === 'PATCH'),
+      ).toHaveLength(1),
+    );
+    act(() => {
+      status = 'ACTIVE';
+      finish?.(jsonResponse({ code: 'review-job', status }, 'SUC_PROCESS_00010'));
+    });
+    await screen.findByText('Trigger request acknowledged by Process.');
+    expect(
+      screen.queryByText('Another trigger request is pending or unconfirmed'),
+    ).not.toBeInTheDocument();
+    expect(
+      fetcher.mock.calls.filter(([, init]) => init?.method === 'PATCH'),
+    ).toHaveLength(1);
+  });
+
+  it.each([false, true])(
+    'retains exact trigger-workflow inquiry without automatic navigation or claiming completion; lost response=%s',
+    async (loseResponse) => {
+      let requestedInstance: string | undefined;
+      const fetcher = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((input, init) => {
+          if (init?.method === 'POST') {
+            const body = JSON.parse(init.body as string) as {
+              instanceCode: string;
+              version: number;
+            };
+            expect(body.version).toBe(3);
+            requestedInstance = body.instanceCode;
+            if (loseResponse) return Promise.reject(new TypeError('response lost'));
+            return Promise.resolve(
+              jsonResponse(
+                {
+                  trigger: { code: 'review-job', definitionCode: 'review' },
+                  execution: {
+                    instance: {
+                      code: requestedInstance,
+                      definitionCode: 'review',
+                      version: 3,
+                      startCompleted: true,
+                      status: 'WAITING',
+                    },
+                  },
+                },
+                'SUC_PROCESS_00011',
+              ),
+            );
+          }
+          return Promise.resolve(
+            jsonResponse(
+              requestUrl(input).includes('/triggers')
+                ? [
+                    {
+                      code: 'review-job',
+                      definitionCode: 'review',
+                      triggerType: 'CRON',
+                      version: 3,
+                      status: 'ACTIVE',
+                    },
+                  ]
+                : [],
+            ),
+          );
+        });
+      renderPage('/process/triggers', bootstrap, true);
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Execute now' })).toBeEnabled(),
+      );
+      await userEvent.click(screen.getByRole('button', { name: 'Execute now' }));
+      const link = await screen.findByRole('link', {
+        name: loseResponse ? 'Inspect requested workflow' : 'Open triggered workflow',
+      });
+      if (loseResponse) {
+        expect(screen.getByRole('button', { name: 'Execute now' })).toBeDisabled();
+        expect(
+          screen.queryByText('Trigger request acknowledged by Process.'),
+        ).not.toBeInTheDocument();
+      }
+      expect(requestedInstance).toMatch(/^axis-trigger-/);
+      expect(link).toHaveAttribute(
+        'href',
+        `/process/tasks?instanceCode=${requestedInstance ?? ''}`,
+      );
+      expect(screen.getByLabelText('Test current location')).toHaveTextContent(
+        '/process/triggers',
+      );
+      expect(
+        fetcher.mock.calls.filter(([, init]) => init?.method === 'POST'),
+      ).toHaveLength(1);
+    },
+  );
+
+  it.each(['actor', 'owner'] as const)(
+    'retires the private unknown intent and receipt read after %s replacement',
+    async (change) => {
+      vi.mocked(
+        commandCapabilitiesClient.loadProcessCommandCapabilities,
+      ).mockResolvedValue({ ...authorizedCommands, newRecording: 'ENABLED' });
+      let finishInspection:
+        | ((value: triggerCommandClient.ProcessTriggerCommandReceipt) => void)
+        | undefined;
+      const inspect = vi
+        .spyOn(triggerCommandClient, 'inspectProcessTriggerCommandReceipt')
+        .mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              finishInspection = resolve;
+            }),
+        );
+      let status = 'DRAFT';
+      const fetcher = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((input, init) => {
+          if (init?.method === 'PATCH') {
+            status = 'ACTIVE';
+            return Promise.reject(new TypeError('response lost'));
+          }
+          return Promise.resolve(
+            jsonResponse(
+              requestUrl(input).includes('/triggers')
+                ? [
+                    {
+                      code: 'review-job',
+                      definitionCode: 'review',
+                      triggerType: 'CRON',
+                      version: 3,
+                      status,
+                    },
+                  ]
+                : [],
+            ),
+          );
+        });
+      const page = renderPage('/process/triggers');
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Activate' })).toBeEnabled(),
+      );
+      await userEvent.click(screen.getByRole('button', { name: 'Activate' }));
+      await screen.findByText(/The trigger request is unconfirmed/);
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Inspect original receipt' }),
+      );
+      await waitFor(() => expect(inspect).toHaveBeenCalledTimes(1));
+      const originalSignal = inspect.mock.calls[0]?.[4];
+      const nextBootstrap =
+        change === 'owner'
+          ? {
+              ...bootstrap,
+              moduleConnections: {
+                ...bootstrap.moduleConnections,
+                workflow: (bootstrap.moduleConnections.workflow ?? []).map(
+                  (connection) => ({
+                    ...connection,
+                    endpoint: 'http://replacement.example/nodics/process',
+                  }),
+                ),
+              },
+            }
+          : bootstrap;
+      page.rerender(
+        <MemoryRouter initialEntries={['/process/triggers']}>
+          <AxisThemeProvider>
+            <QueryClientProvider client={page.queryClient}>
+              <ProcessWorkflowRoutePage
+                accessToken={
+                  change === 'actor' ? 'replacement-token' : 'employee-token'
+                }
+                bootstrap={nextBootstrap}
+                navigation={navigation}
+                runtime={runtime}
+              />
+            </QueryClientProvider>
+          </AxisThemeProvider>
+        </MemoryRouter>,
+      );
+      expect(originalSignal?.aborted).toBe(true);
+      act(() => finishInspection?.({ state: 'COMPLETED', triggerCode: 'review-job' }));
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Execute now' })).toBeEnabled(),
+      );
+      expect(
+        screen.queryByRole('button', { name: 'Inspect original receipt' }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByText('Trigger request acknowledged by Process.'),
+      ).not.toBeInTheDocument();
+      expect(
+        fetcher.mock.calls.filter(([, init]) => init?.method === 'PATCH'),
+      ).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    {
+      group: 'Other workflow tasks',
+      title: 'Inspect service request',
+      task: {
+        code: 'ordinary-review',
+        name: 'Inspect service request',
+        instanceCode: 'review-instance',
+        nodeCode: 'review',
+        status: 'OPEN',
+      },
+    },
+    {
+      group: 'CMS publication approvals',
+      title: 'CMS publication',
+      task: {
+        code: 'legacy-cms-review',
+        instanceCode: 'cmsPublicationApproval-review',
+        nodeCode: 'publicationReview',
+        status: 'OPEN',
+      },
+    },
+  ])(
+    'keeps the task queue heading outline ordered for $group',
+    async ({ group, title, task }) => {
+      const fetcher = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((input) =>
+          Promise.resolve(
+            jsonResponse(requestUrl(input).includes('/tasks?') ? [task] : []),
+          ),
+        );
+      renderPage('/process/tasks');
+      expect(
+        await screen.findByRole('heading', { level: 3, name: group }),
+      ).toBeVisible();
+      expect(
+        screen.getByRole('heading', { level: 2, name: 'Approval task queue' }),
+      ).toBeVisible();
+      expect(screen.getByRole('heading', { level: 4, name: title })).toBeVisible();
+      expect(
+        fetcher.mock.calls.some(([, init]) =>
+          ['POST', 'PATCH'].includes(init?.method ?? 'GET'),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it.each(['actor', 'tenant', 'owner', 'publication', 'documentation-owner'] as const)(
+    'retires private drafts and cache identity after %s changes while equivalent metadata preserves them',
+    async (change) => {
+      const request = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(() => Promise.resolve(jsonResponse([])));
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      });
+      const tree = (current: AxisAuthenticatedBootstrap, token = 'private-actor-a') => (
+        <MemoryRouter initialEntries={['/process/definitions']}>
+          <AxisThemeProvider>
+            <QueryClientProvider client={client}>
+              <ProcessWorkflowRoutePage
+                accessToken={token}
+                bootstrap={current}
+                navigation={navigation}
+                runtime={runtime}
+              />
+            </QueryClientProvider>
+          </AxisThemeProvider>
+        </MemoryRouter>
+      );
+      const initial: AxisAuthenticatedBootstrap = {
+        ...bootstrapWithDocumentationSource,
+        moduleConnections: {
+          ...bootstrapWithDocumentationSource.moduleConnections,
+          workflow: bootstrapWithDocumentationSource.moduleConnections.workflow!.map(
+            (connection) => ({
+              ...connection,
+              runtimeRole: { code: 'PROCESS', publication: 'OPERATIONAL' as const },
+            }),
+          ),
+        },
+      };
+      const view = render(tree(initial));
+      const input = await screen.findByLabelText('Draft name');
+      fireEvent.change(input, { target: { value: 'Private unsaved workflow title' } });
+      const equivalent = {
+        ...initial,
+        moduleConnections: { ...initial.moduleConnections },
+      };
+      view.rerender(tree(equivalent));
+      expect(screen.getByLabelText('Draft name')).toHaveValue(
+        'Private unsaved workflow title',
+      );
+      view.rerender(
+        tree({
+          ...equivalent,
+          moduleConnections: {
+            ...equivalent.moduleConnections,
+            workflow: equivalent.moduleConnections.workflow!.map((connection) => ({
+              ...connection,
+              state: 'DEGRADED' as const,
+            })),
+          },
+        }),
+      );
+      expect(screen.getByLabelText('Draft name')).toHaveValue(
+        'Private unsaved workflow title',
+      );
+
+      const moduleName = change === 'documentation-owner' ? 'backoffice' : 'workflow';
+      const current =
+        change === 'tenant'
+          ? { ...equivalent, tenantCode: 'other-tenant' }
+          : ['owner', 'publication', 'documentation-owner'].includes(change)
+            ? {
+                ...equivalent,
+                moduleConnections: {
+                  ...equivalent.moduleConnections,
+                  [moduleName]: equivalent.moduleConnections[moduleName]!.map(
+                    (connection) =>
+                      change === 'publication'
+                        ? {
+                            ...connection,
+                            runtimeRole: {
+                              code: 'PROCESS',
+                              publication: 'STAGED' as const,
+                            },
+                          }
+                        : { ...connection, endpoint: connection.endpoint + '/changed' },
+                  ),
+                },
+              }
+            : equivalent;
+      view.rerender(
+        tree(current, change === 'actor' ? 'private-actor-b' : 'private-actor-a'),
+      );
+      expect(screen.getByLabelText('Draft name')).toHaveValue(
+        'Sample approval process',
+      );
+      await waitFor(() => expect(request).toHaveBeenCalled());
+      expect(
+        JSON.stringify(
+          client
+            .getQueryCache()
+            .getAll()
+            .map((query) => query.queryKey),
+        ),
+      ).not.toMatch(/private-actor-[ab]/);
+      expect(
+        request.mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
+      ).toBe(true);
+    },
+  );
+
+  it.each(['/process', '/process/tasks'])(
+    'keeps explicit timeline selection and router history aligned on %s',
+    async (path) => {
+      const instances = ['first-record', 'second-record'].map((code) => ({
+        code,
+        definitionCode: 'review-workflow',
+        status: 'COMPLETED',
+        currentNode: 'end',
+        version: 1,
+      }));
+      const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+        const url = requestUrl(input);
+        const selected = instances.find((item) =>
+          url.endsWith(`/instances/${item.code}/detail`),
+        );
+        if (selected)
+          return Promise.resolve(
+            jsonResponse({ instance: selected, tasks: [], auditEvents: [] }),
+          );
+        return Promise.resolve(
+          jsonResponse(url.includes('/instances?') ? instances : []),
+        );
+      });
+      const user = userEvent.setup();
+      renderPage(`${path}?view=recent#work`, bootstrap, true);
+      const timeline = () => screen.getByRole('region', { name: 'Instance timeline' });
+      const location = () => screen.getByLabelText('Test current location');
+      const select = async (code: string) => {
+        const heading = await screen.findByRole('heading', { name: code, level: 3 });
+        const card = heading.closest('article');
+        if (!card) throw new Error('Instance card missing');
+        await user.click(within(card).getByRole('button', { name: 'View timeline' }));
+        await within(timeline()).findByText(code);
+      };
+      await select('first-record');
+      expect(location()).toHaveTextContent(
+        `${path}?view=recent&instanceCode=first-record#work`,
+      );
+      await select('second-record');
+      expect(location()).toHaveTextContent(
+        `${path}?view=recent&instanceCode=second-record#work`,
+      );
+      await user.click(screen.getByRole('button', { name: 'Test history back' }));
+      expect(location()).toHaveTextContent(
+        `${path}?view=recent&instanceCode=first-record#work`,
+      );
+      await within(timeline()).findByText('first-record');
+      expect(within(timeline()).queryByText('second-record')).toBeNull();
+      await user.click(screen.getByRole('button', { name: 'Test history back' }));
+      expect(location()).toHaveTextContent(`${path}?view=recent#work`);
+      expect(
+        screen.queryByText('first-record', {
+          selector: '[aria-label="Instance timeline"] *',
+        }),
+      ).toBeNull();
+      await user.click(screen.getByRole('button', { name: 'Test history forward' }));
+      await within(timeline()).findByText('first-record');
+      await user.click(screen.getByRole('button', { name: 'Test invalid record' }));
+      expect(
+        screen.queryByText('first-record', {
+          selector: '[aria-label="Instance timeline"] *',
+        }),
+      ).toBeNull();
+      expect(
+        fetcher.mock.calls.some(([input]) =>
+          requestUrl(input).includes('/instances/%2Fother/detail'),
+        ),
+      ).toBe(false);
+      expect(
+        fetcher.mock.calls.every(
+          ([, options]) => !options?.method || options.method === 'GET',
+        ),
+      ).toBe(true);
+    },
+  );
+  it.each(['DRAFT', 'PUBLISHED'])(
+    'shows actual connections and keeps %s graph edits within draft save',
+    async (status) => {
+      const graph = {
+        nodes: [
+          { code: 'end', name: 'End', type: 'END' },
+          { code: 'review', name: 'Request review', type: 'TASK' },
+          { code: 'start', name: 'Start', type: 'START' },
+        ],
+        transitions: [
+          { code: 'enter', source: 'start', target: 'review' },
+          {
+            code: 'finish',
+            source: 'review',
+            target: 'end',
+            name: 'Accepted',
+            condition: { approved: true },
+          },
+          { code: 'back', source: 'review', target: 'start', default: true },
+        ],
+      };
+      const definition = {
+        code: 'local-review',
+        name: 'Local review',
+        status,
+        currentVersion: status === 'PUBLISHED' ? 1 : 0,
+        draftRevision: 1,
+        graph,
+      };
+      const fetcher = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((input, init) => {
+          const path = new URL(requestUrl(input)).pathname;
+          if (init?.method === 'PATCH')
+            return Promise.resolve(
+              jsonResponse({
+                ...definition,
+                graph: (
+                  JSON.parse(typeof init.body === 'string' ? init.body : '{}') as {
+                    graph?: unknown;
+                  }
+                ).graph,
+              }),
+            );
+          if (path.endsWith('/versions')) return Promise.resolve(jsonResponse([]));
+          if (path.endsWith('/definitions'))
+            return Promise.resolve(jsonResponse([definition]));
+          return Promise.reject(new Error('Unexpected operation'));
+        });
+      renderPage('/process/designer');
+      await screen.findByText('Local review');
+      await waitFor(() =>
+        expect(
+          screen.getAllByRole('list', { name: 'Workflow connections' }),
+        ).toHaveLength(2),
+      );
+      expect(screen.getAllByText('Start → Request review')).toHaveLength(2);
+      expect(screen.queryByText('End → Request review')).toBeNull();
+      if (status === 'PUBLISHED') {
+        expect(
+          screen.queryByRole('button', { name: 'Remove connection back' }),
+        ).toBeNull();
+        expect(
+          screen.getByRole('button', { name: 'Save designer draft' }),
+        ).toBeDisabled();
+      } else {
+        await userEvent.click(
+          screen.getByRole('button', { name: 'Remove connection back' }),
+        );
+        const lists = screen.getAllByRole('list', { name: 'Workflow connections' });
+        expect(within(lists[0]!).getAllByRole('listitem')).toHaveLength(3);
+        expect(within(lists[1]!).getAllByRole('listitem')).toHaveLength(2);
+        expect(
+          fetcher.mock.calls.every(
+            ([, init]) => !init?.method || init.method === 'GET',
+          ),
+        ).toBe(true);
+        await userEvent.click(
+          screen.getByRole('button', { name: 'Save designer draft' }),
+        );
+        await waitFor(() =>
+          expect(fetcher.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(
+            true,
+          ),
+        );
+        const writes = fetcher.mock.calls.filter(
+          ([, init]) => init?.method === 'PATCH',
+        );
+        expect(writes).toHaveLength(1);
+        expect(requestUrl(writes[0]![0])).toContain('/definitions/local-review/draft');
+        const body = writes[0]![1]?.body;
+        if (typeof body !== 'string') throw new Error('Expected JSON draft body');
+        const saved = JSON.parse(body) as { graph?: unknown };
+        expect(saved.graph).toEqual({
+          nodes: graph.nodes,
+          transitions: graph.transitions
+            .slice(0, 2)
+            .map((transition) => ({ ...transition, default: false })),
+        });
+      }
+      expect(
+        fetcher.mock.calls.some(([, init]) =>
+          ['POST', 'DELETE'].includes(init?.method ?? ''),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it('opens focused authoring on a renamed registered Workflow host without unrelated operational panels', async () => {
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = new URL(requestUrl(input));
+      if (url.pathname.endsWith('/definitions'))
+        return Promise.resolve(jsonResponse([]));
+      return Promise.reject(new Error('Other reads unavailable in this fixture'));
+    });
+    renderPage('/process/definitions', {
+      ...bootstrap,
+      moduleConnections: {
+        workflow: [
+          {
+            ...bootstrap.moduleConnections.workflow![0]!,
+            server: 'customer-automation-host',
+            endpoint: 'http://workflow.example/nodics/process',
+          },
+        ],
+      },
+    });
+    await waitFor(() =>
+      expect(
+        fetcher.mock.calls.some(([input]) =>
+          requestUrl(input).startsWith(
+            'http://workflow.example/nodics/process/v0/definitions',
+          ),
+        ),
+      ).toBe(true),
+    );
+    expect(
+      screen.getByRole('navigation', { name: 'Process workspaces' }),
+    ).toBeVisible();
+    expect(screen.getByLabelText('Draft name')).toBeVisible();
+    expect(screen.queryByText('Runtime operations overview')).toBeNull();
+    expect(screen.queryByText('Process instances')).toBeNull();
+    expect(screen.queryByText('Task inbox')).toBeNull();
+    expect(screen.queryByLabelText('Workflow designer canvas')).toBeNull();
+    expect(
+      screen.getByRole('link', { name: 'Open workflow designer' }),
+    ).toHaveAttribute('href', '/process/designer');
+    expect(screen.queryByText('API unavailable')).toBeNull();
+    await userEvent.click(screen.getByRole('link', { name: 'Operations' }));
+    expect(
+      await screen.findByRole('heading', { name: 'Approval tasks' }),
+    ).toBeVisible();
+  });
+
   it('navigates owner pages beyond 25 tasks, disables stale decisions on failure and recovers by GET', async () => {
     const user = userEvent.setup();
     let failSecondPage = false;
@@ -436,9 +1370,14 @@ describe('ProcessWorkflowRoutePage', () => {
         await screen.findByRole('button', { name: 'Approve owner request' }),
       ).toBeVisible();
       expect(screen.getByText('1 approval decisions')).toBeVisible();
-      expect(screen.getByText('Approval decisions')).toBeVisible();
       expect(
-        screen.getByRole('heading', { name: 'Review enterprise employee application' }),
+        screen.getByRole('heading', { level: 3, name: 'Approval decisions' }),
+      ).toBeVisible();
+      expect(
+        screen.getByRole('heading', {
+          level: 4,
+          name: 'Review enterprise employee application',
+        }),
       ).toBeVisible();
       expect(screen.getByText('declared-review')).toBeVisible();
       expect(screen.queryByRole('heading', { name: 'declared-review' })).toBeNull();
@@ -473,15 +1412,26 @@ describe('ProcessWorkflowRoutePage', () => {
           jsonResponse(url.includes('/instances?') ? [instance] : []),
         );
       });
-      renderPage('/process/tasks');
-      await userEvent
-        .setup()
-        .click(await screen.findByRole('button', { name: 'View timeline' }));
-      const timeline = screen.getByRole('region', { name: 'Instance timeline' });
+      renderPage(
+        outcome === 'success'
+          ? '/process/tasks?instanceCode=completed-instance'
+          : '/process/tasks',
+      );
+      if (outcome !== 'success')
+        await userEvent
+          .setup()
+          .click(await screen.findByRole('button', { name: 'View timeline' }));
+      const timeline = await screen.findByRole('region', { name: 'Instance timeline' });
+      const queue = screen.getByRole('heading', { name: 'Approval task queue' });
+      expect(
+        timeline.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
       expect(within(timeline).getByRole('status')).toHaveTextContent(
         'Loading timeline',
       );
-      expect(screen.getByRole('button', { name: 'Cancel instance' })).toBeDisabled();
+      expect(
+        await screen.findByRole('button', { name: 'Cancel instance' }),
+      ).toBeDisabled();
       await act(async () => {
         await Promise.resolve();
         resolveDetail(
@@ -522,6 +1472,113 @@ describe('ProcessWorkflowRoutePage', () => {
           requestUrl(input).endsWith('/instances/completed-instance/detail'),
         ),
       ).toHaveLength(1);
+      expect(fetcher.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(
+        false,
+      );
+    },
+  );
+  it.each([
+    {
+      decision: { approved: false, reason: 'Retain the published image.' },
+      declared: true,
+      status: 'COMPLETED',
+      choice: 'Decline captured replacement',
+    },
+    {
+      decision: { approved: true },
+      declared: true,
+      status: 'COMPLETED',
+      choice: 'Accept captured replacement',
+    },
+    {
+      decision: { approved: 'false', reason: 'Retain the published image.' },
+      declared: true,
+      status: 'COMPLETED',
+      choice: undefined,
+    },
+    {
+      decision: { approved: false },
+      declared: true,
+      status: 'COMPLETED',
+      choice: undefined,
+    },
+    {
+      decision: { approved: false, reason: 'x'.repeat(101) },
+      declared: true,
+      status: 'COMPLETED',
+      choice: undefined,
+    },
+    {
+      decision: { approved: false, reason: 'Retain the published image.' },
+      declared: false,
+      status: 'COMPLETED',
+      choice: undefined,
+    },
+    { decision: { approved: true }, declared: true, status: 'OPEN', choice: undefined },
+  ])(
+    'shows only valid recorded approval history: $status / $choice',
+    async ({ decision, declared, status, choice }) => {
+      const instance = {
+        code: 'recorded-instance',
+        definitionCode: 'review-policy',
+        status: 'COMPLETED',
+        currentNode: 'end',
+        version: 1,
+      };
+      const task = {
+        code: 'recorded-task',
+        name: 'Review captured replacement',
+        instanceCode: instance.code,
+        nodeCode: 'review',
+        status,
+        decision,
+        ...(declared
+          ? {
+              decisionContract: {
+                contractVersion: 1,
+                kind: 'APPROVAL',
+                approveLabel: 'Accept captured replacement',
+                rejectLabel: 'Decline captured replacement',
+                reasonLabel: 'Recorded explanation',
+                rejectionReasonRequired: true,
+                maximumReasonLength: 100,
+              },
+            }
+          : {}),
+      };
+      const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+        const url = requestUrl(input);
+        return Promise.resolve(
+          jsonResponse(
+            url.endsWith('/instances/recorded-instance/detail')
+              ? { instance, tasks: [task], auditEvents: [] }
+              : url.includes('/instances?')
+                ? [instance]
+                : [],
+          ),
+        );
+      });
+      renderPage('/process/tasks?instanceCode=recorded-instance');
+      const timeline = await screen.findByRole('region', { name: 'Instance timeline' });
+      expect(
+        await within(timeline).findByText('Review captured replacement'),
+      ).toBeVisible();
+      if (choice) expect(within(timeline).getByText(choice)).toBeVisible();
+      else {
+        expect(within(timeline).queryByText('Accept captured replacement')).toBeNull();
+        expect(within(timeline).queryByText('Decline captured replacement')).toBeNull();
+      }
+      if (choice === 'Decline captured replacement')
+        expect(
+          within(timeline).getByText(
+            'Recorded explanation: Retain the published image.',
+          ),
+        ).toBeVisible();
+      expect(
+        within(timeline).queryByRole('button', {
+          name: /Accept captured|Decline captured|Complete/,
+        }),
+      ).toBeNull();
       expect(fetcher.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(
         false,
       );
@@ -704,12 +1761,14 @@ describe('ProcessWorkflowRoutePage', () => {
     },
   );
   afterEach(() => {
+    onlineManager.setOnline(true);
     window.history.pushState({}, '', '/');
     vi.restoreAllMocks();
   });
 
   it('guides business users through backend-owned process lifecycle steps', async () => {
     const user = userEvent.setup();
+    let admittedStartCode: string | undefined;
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation((input, init) => {
@@ -734,21 +1793,25 @@ describe('ProcessWorkflowRoutePage', () => {
           );
         }
         if (method === 'POST' && url.endsWith('/v0/instances')) {
+          if (typeof init?.body !== 'string') throw new Error('Expected a JSON body');
+          admittedStartCode = (JSON.parse(init.body) as { instanceCode: string })
+            .instanceCode;
+          return Promise.reject(new TypeError('response lost after admission'));
+        }
+        if (
+          admittedStartCode &&
+          url.endsWith(`/instances/${admittedStartCode}/detail`)
+        ) {
           return Promise.resolve(
             jsonResponse({
               instance: {
-                code: 'published-onboarding-process-001',
+                code: admittedStartCode,
                 definitionCode: 'published-onboarding-process',
                 version: 1,
                 status: 'WAITING',
-                currentNode: 'businessReview',
               },
-              task: {
-                code: 'task-1',
-                instanceCode: 'published-onboarding-process-001',
-                nodeCode: 'businessReview',
-                status: 'OPEN',
-              },
+              tasks: [],
+              auditEvents: [],
             }),
           );
         }
@@ -795,22 +1858,29 @@ describe('ProcessWorkflowRoutePage', () => {
         }
         if (method === 'POST' && url.endsWith('/v0/triggers')) {
           return Promise.resolve(
-            jsonResponse({
-              code: 'sample-approval-process-nightlyapprovaljob',
-              definitionCode: 'sample-approval-process',
-              triggerType: 'CRON',
-              cronJobCode: 'nightlyApprovalJob',
-              status: 'DRAFT',
-              schedule: { expression: '0 1 * * *' },
-            }),
+            jsonResponse(
+              {
+                code: 'published-onboarding-process-nightlyapprovaljob',
+                definitionCode: 'published-onboarding-process',
+                version: 1,
+                triggerType: 'CRON',
+                cronJobCode: 'nightlyApprovalJob',
+                status: 'DRAFT',
+                schedule: { expression: '0 1 * * *' },
+              },
+              'SUC_PROCESS_00010',
+            ),
           );
         }
         if (method === 'PATCH' && url.includes('/triggers/daily-content-approval')) {
           return Promise.resolve(
-            jsonResponse({
-              code: 'daily-content-approval',
-              status: 'ACTIVE',
-            }),
+            jsonResponse(
+              {
+                code: 'daily-content-approval',
+                status: 'ACTIVE',
+              },
+              'SUC_PROCESS_00010',
+            ),
           );
         }
         if (
@@ -818,10 +1888,14 @@ describe('ProcessWorkflowRoutePage', () => {
           url.includes('/triggers/daily-content-approval/archive')
         ) {
           return Promise.resolve(
-            jsonResponse({
-              code: 'daily-content-approval',
-              status: 'ARCHIVED',
-            }),
+            jsonResponse(
+              {
+                code: 'daily-content-approval',
+                status: 'ARCHIVED',
+                active: false,
+              },
+              'SUC_PROCESS_00010',
+            ),
           );
         }
         if (url.includes('/instances/instance-1/detail')) {
@@ -993,7 +2067,7 @@ describe('ProcessWorkflowRoutePage', () => {
         );
       });
 
-    renderPage();
+    renderPage('/process', bootstrap, true);
 
     expect(screen.getByText('Process & Automation')).toBeInTheDocument();
     expect(screen.getByText('Model')).toBeInTheDocument();
@@ -1003,9 +2077,7 @@ describe('ProcessWorkflowRoutePage', () => {
     expect(
       screen.getByText(/business users can model and review/i),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText('Create a beginner-safe process draft'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Create a workflow draft')).toBeInTheDocument();
     expect(screen.getByText('Process workspace focus')).toBeInTheDocument();
     expect(screen.getByText('Operations')).toBeInTheDocument();
     expect(screen.getByText('Designer')).toBeInTheDocument();
@@ -1027,10 +2099,8 @@ describe('ProcessWorkflowRoutePage', () => {
     expect(screen.getByText('Process instances')).toBeInTheDocument();
     expect(screen.getByText('Task inbox')).toBeInTheDocument();
     expect(screen.getAllByText('Scheduled triggers').length).toBeGreaterThan(0);
-    expect(screen.getByText('Visual workflow designer foundation')).toBeInTheDocument();
-    expect(
-      screen.getByLabelText('Visual workflow designer MVP canvas'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Workflow designer')).toBeInTheDocument();
+    expect(screen.getByLabelText('Workflow designer canvas')).toBeInTheDocument();
     expect(screen.getByText(/dailyContentApprovalJob/i)).toBeInTheDocument();
     expect(screen.getByText('Edit selected draft')).toBeInTheDocument();
     expect(screen.getByText('Version history')).toBeInTheDocument();
@@ -1094,6 +2164,28 @@ describe('ProcessWorkflowRoutePage', () => {
       ).toBe(true),
     );
 
+    expect(await screen.findByText(/start outcome is uncertain/)).toBeVisible();
+    expect(
+      screen
+        .getAllByRole('button', { name: 'Start process' })
+        .every((button) => (button as HTMLButtonElement).disabled),
+    ).toBe(true);
+    await user.click(screen.getByRole('button', { name: 'Inspect original start' }));
+    expect(
+      await screen.findByRole('link', { name: 'Open started workflow' }),
+    ).toHaveAttribute('href', `/process/tasks?instanceCode=${admittedStartCode}`);
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input, init]) =>
+          init?.method === 'POST' && requestUrl(input).endsWith('/v0/instances'),
+      ),
+    ).toHaveLength(1);
+    expect(screen.getByLabelText('Test current location')).toHaveTextContent(
+      '/process',
+    );
+    expect(screen.getByLabelText('Test current location')).not.toHaveTextContent(
+      'instanceCode',
+    );
     await user.click(screen.getByRole('button', { name: 'View timeline' }));
     await waitFor(() =>
       expect(
@@ -1163,10 +2255,21 @@ describe('ProcessWorkflowRoutePage', () => {
       ).toBe(true),
     );
 
-    await user.type(
-      screen.getByLabelText('Process definition code'),
-      'sample-approval-process',
+    await user.click(screen.getByRole('combobox', { name: 'Published workflow' }));
+    await user.click(
+      screen.getByRole('option', { name: /published-onboarding-process/ }),
     );
+    await waitFor(() =>
+      expect(
+        screen.getByRole('combobox', {
+          name: 'Published workflow version',
+        }),
+      ).toBeEnabled(),
+    );
+    await user.click(
+      screen.getByRole('combobox', { name: 'Published workflow version' }),
+    );
+    await user.click(await screen.findByRole('option', { name: 'Version 1' }));
     await user.type(screen.getByLabelText('Cron job code'), 'nightlyApprovalJob');
     await user.clear(screen.getByLabelText('Schedule expression'));
     await user.type(screen.getByLabelText('Schedule expression'), '0 1 * * *');
@@ -1191,6 +2294,240 @@ describe('ProcessWorkflowRoutePage', () => {
       ).toBe(true),
     );
   }, 30_000);
+
+  it('shows a retrieved trigger and prevents creating its same relationship again', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      Promise.resolve(
+        jsonResponse(
+          requestUrl(input).includes('/triggers')
+            ? [
+                {
+                  code: 'sample-process-job',
+                  definitionCode: 'sample-process',
+                  cronJobCode: 'job',
+                  status: 'DRAFT',
+                  triggerType: 'CRON',
+                },
+              ]
+            : [],
+        ),
+      ),
+    );
+    renderPage('/process/triggers');
+    await screen.findByText('sample-process-job');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Choose workflow version' }),
+    );
+    expect(screen.getByText('1 relationship retrieved')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Add trigger' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Add trigger' }));
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(
+      false,
+    );
+  });
+
+  it.each([undefined, { expression: '0 * * * * *', timeZone: 'Asia/Dubai' }])(
+    'activates only relationship status without replacing saved schedule %j',
+    async (schedule) => {
+      let status = 'DRAFT';
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((input, init) => {
+          if (init?.method === 'PATCH') {
+            expect(requestUrl(input)).toMatch(/\/triggers\/local-review-job$/);
+            expect(JSON.parse(init.body as string)).toEqual({ status: 'ACTIVE' });
+            status = 'ACTIVE';
+            return Promise.resolve(
+              jsonResponse({ code: 'local-review-job', status }, 'SUC_PROCESS_00010'),
+            );
+          }
+          return Promise.resolve(
+            jsonResponse(
+              requestUrl(input).includes('/triggers')
+                ? [
+                    {
+                      code: 'local-review-job',
+                      definitionCode: 'local-review',
+                      cronJobCode: 'job',
+                      triggerType: 'CRON',
+                      version: 3,
+                      status,
+                      ...(schedule ? { schedule } : {}),
+                    },
+                  ]
+                : [],
+            ),
+          );
+        });
+      renderPage('/process/triggers');
+      await screen.findByText('local-review-job');
+      await userEvent.click(screen.getByRole('button', { name: /^Activate$/ }));
+      await screen.findByText('ACTIVE', { exact: true });
+      expect(
+        fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH'),
+      ).toHaveLength(1);
+      expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(
+        false,
+      );
+    },
+  );
+
+  it.each([403, 503])(
+    'shows an explicit trigger execution failure (%s) without replay on refresh',
+    async (status) => {
+      const message =
+        status === 403
+          ? 'Owner denied this trigger execution'
+          : 'Owner execution service is unavailable';
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((input, init) => {
+          if (init?.method === 'POST')
+            return Promise.resolve(
+              new Response(JSON.stringify({ message }), {
+                status,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            );
+          return Promise.resolve(
+            jsonResponse(
+              requestUrl(input).includes('/triggers')
+                ? [
+                    {
+                      code: 'local-review-job',
+                      definitionCode: 'local-review',
+                      cronJobCode: 'job',
+                      triggerType: 'CRON',
+                      version: 3,
+                      status: 'ACTIVE',
+                    },
+                  ]
+                : [],
+            ),
+          );
+        });
+      renderPage('/process/triggers');
+      await screen.findByText('local-review-job');
+      await userEvent.click(screen.getByRole('button', { name: 'Execute now' }));
+      expect(await screen.findByText(message, { exact: true })).toBeVisible();
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Refresh relationships' }),
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', { name: 'Refresh relationships' }),
+        ).toBeEnabled(),
+      );
+      expect(
+        fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST'),
+      ).toHaveLength(1);
+    },
+  );
+
+  it.each([false, true])(
+    'pins an existing relationship explicitly and holds uncertain acknowledgement=%s without replay',
+    async (loseResponse) => {
+      let version: number | undefined;
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((input, init) => {
+          const url = requestUrl(input);
+          if (init?.method === 'PATCH') {
+            expect(url).toMatch(/\/triggers\/local-review-job$/);
+            expect(JSON.parse(init.body as string)).toEqual({ version: 3 });
+            version = 3;
+            if (loseResponse) return Promise.reject(new TypeError('response lost'));
+            return Promise.resolve(
+              jsonResponse(
+                { code: 'local-review-job', version: 3 },
+                'SUC_PROCESS_00010',
+              ),
+            );
+          }
+          if (url.endsWith('/versions'))
+            return Promise.resolve(
+              jsonResponse([
+                {
+                  code: 'local-review-v3',
+                  definitionCode: 'local-review',
+                  version: 3,
+                  status: 'PUBLISHED',
+                  checksum: 'owner-checksum',
+                },
+              ]),
+            );
+          if (url.endsWith('/definitions'))
+            return Promise.resolve(
+              jsonResponse([
+                {
+                  code: 'local-review',
+                  name: 'Local review',
+                  status: 'PUBLISHED',
+                  currentVersion: 3,
+                  draftRevision: 3,
+                },
+              ]),
+            );
+          if (url.includes('/triggers'))
+            return Promise.resolve(
+              jsonResponse([
+                {
+                  code: 'local-review-job',
+                  definitionCode: 'local-review',
+                  cronJobCode: 'job',
+                  triggerType: 'CRON',
+                  status: 'ACTIVE',
+                  schedule: { expression: '0 * * * * *' },
+                  ...(version ? { version } : {}),
+                },
+              ]),
+            );
+          return Promise.resolve(jsonResponse([]));
+        });
+      renderPage('/process/triggers');
+      await screen.findByText('local-review-job');
+      expect(screen.getByRole('button', { name: 'Execute now' })).toBeDisabled();
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Choose workflow version' }),
+      );
+      const chooser = screen.getByRole('combobox', {
+        name: 'Published workflow version',
+      });
+      await waitFor(() => expect(chooser).toBeEnabled());
+      expect(
+        screen.getByRole('button', { name: 'Set published version' }),
+      ).toBeDisabled();
+      expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(
+        false,
+      );
+      await userEvent.click(chooser);
+      await userEvent.click(screen.getByRole('option', { name: 'Version 3' }));
+      expect(screen.getByRole('button', { name: 'Add trigger' })).toBeDisabled();
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Set published version' }),
+      );
+      if (loseResponse) {
+        await screen.findByText(/version update is unconfirmed/i);
+        expect(
+          screen.getByRole('button', { name: 'Set published version' }),
+        ).toBeDisabled();
+        await userEvent.click(
+          screen.getByRole('button', { name: 'Refresh relationships' }),
+        );
+        await screen.findByText('Published workflow version 3');
+        expect(screen.getByRole('button', { name: 'Execute now' })).toBeDisabled();
+      } else {
+        await screen.findByText('Published workflow version 3');
+        expect(screen.getByRole('button', { name: 'Execute now' })).toBeEnabled();
+      }
+      expect(
+        fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH'),
+      ).toHaveLength(1);
+      expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(
+        false,
+      );
+    },
+  );
 
   it('respects explicit owner reviewer denial on legacy CMS tasks without a decision contract', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
@@ -1365,6 +2702,52 @@ describe('ProcessWorkflowRoutePage', () => {
     );
   });
 
+  it('shows authored CMS review without inventing initialization profile or release requirements', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      Promise.resolve(
+        jsonResponse(
+          requestUrl(input).includes('/tasks')
+            ? [
+                {
+                  code: 'authored-page-task',
+                  instanceCode: 'cmsPublicationApproval-authored-page',
+                  nodeCode: 'publicationReview',
+                  status: 'OPEN',
+                  reviewContext: {
+                    contractVersion: 1,
+                    owner: 'cms',
+                    publicationCode: 'authored-page-publication',
+                    rootType: 'site',
+                    rootCode: 'businessWebsite',
+                    sourceVersion: '7',
+                    requestedBy: 'contentAuthor',
+                  },
+                },
+              ]
+            : [],
+        ),
+      ),
+    );
+    renderPage('/process/tasks', {
+      ...bootstrapWithDocumentationSource,
+      documentationSources: [],
+      applicationInitializationProfiles: [],
+    });
+    await screen.findByText('CMS publication approvals');
+    await userEvent.click(screen.getByRole('button', { name: 'Review evidence' }));
+    expect(screen.getByText('businessWebsite · Source version 7')).toBeVisible();
+    expect(screen.getByText('authored-page-publication')).toBeVisible();
+    expect(screen.getByText('7', { selector: 'p' })).toBeVisible();
+    expect(screen.queryByText('Staged profile')).toBeNull();
+    expect(screen.queryByText('Release version')).toBeNull();
+    expect(screen.queryByText('Release status')).toBeNull();
+    expect(screen.queryByText(/Profile not available/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(
+      false,
+    );
+  });
+
   it('shows documentation approvals as a focused work queue on the tasks route', async () => {
     const user = userEvent.setup();
     const fetchMock = vi
@@ -1469,5 +2852,177 @@ describe('ProcessWorkflowRoutePage', () => {
         }),
       ).toBe(true),
     );
+  });
+  it('does not claim empty queues or zero work before first owner evidence', async () => {
+    const pending: ((response: Response) => void)[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      requestUrl(input).includes('/tasks?')
+        ? new Promise((resolve) => pending.push(resolve))
+        : Promise.resolve(jsonResponse([])),
+    );
+    renderPage('/process/tasks');
+    expect(
+      await screen.findByText('Loading approval tasks from Process.'),
+    ).toBeVisible();
+    expect(screen.getByText('Checking API')).toBeVisible();
+    expect(screen.queryByText('UP')).not.toBeInTheDocument();
+    expect(screen.queryByText('No tasks on this page.')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/No workflow instances were returned/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('No workflow recovery incidents need action.'),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('0 awaiting review')).not.toBeInTheDocument();
+    expect(screen.queryByText('0 approval decisions')).not.toBeInTheDocument();
+    await act(() => Promise.resolve(pending[0]!(jsonResponse([]))));
+    expect(await screen.findByText('No tasks on this page.')).toBeVisible();
+    expect(screen.getByText(/No workflow instances were returned/)).toBeVisible();
+    expect(
+      screen.getByText('No workflow recovery incidents need action.'),
+    ).toBeVisible();
+    expect(screen.getByText('0 awaiting review')).toBeVisible();
+  });
+
+  it('keeps approval tasks actionable when the independent incident read is forbidden', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = requestUrl(input);
+      if (url.includes('/incidents'))
+        return Promise.resolve(new Response(null, { status: 403 }));
+      if (url.includes('/tasks?'))
+        return Promise.resolve(
+          jsonResponse([
+            { code: 'limited-review-task', status: 'OPEN', instanceCode: 'review-1' },
+          ]),
+        );
+      return Promise.resolve(jsonResponse([]));
+    });
+
+    renderPage('/process/tasks');
+
+    expect(await screen.findByText('limited-review-task')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Claim' })).toBeEnabled();
+    expect(screen.queryByText('API unavailable')).not.toBeInTheDocument();
+    expect(screen.queryByText('Recovery incidents')).not.toBeInTheDocument();
+  });
+
+  it('keeps failed task reads unconfirmed and recovers with GET only', async () => {
+    let taskReads = 0;
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const failed = requestUrl(input).includes('/tasks?') && ++taskReads === 1;
+      return Promise.resolve(
+        failed
+          ? new Response(
+              JSON.stringify({ message: 'Task queue temporarily unavailable' }),
+              { status: 503 },
+            )
+          : jsonResponse([]),
+      );
+    });
+    const user = userEvent.setup();
+    renderPage('/process/tasks');
+    expect(await screen.findByText('Task queue temporarily unavailable')).toBeVisible();
+    expect(screen.getByText('API unavailable')).toBeVisible();
+    expect(screen.queryByText('UP')).not.toBeInTheDocument();
+    expect(screen.queryByText('No tasks on this page.')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/No workflow instances were returned/),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('0 awaiting review')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Refresh task evidence' }));
+    expect(await screen.findByText('No tasks on this page.')).toBeVisible();
+    expect(screen.getByText('UP')).toBeVisible();
+    expect(taskReads).toBe(2);
+    expect(
+      fetcher.mock.calls.every(
+        ([, init]) => (init?.method ?? 'GET') === 'GET' && init?.body === undefined,
+      ),
+    ).toBe(true);
+  });
+
+  it('reports an unavailable owner without a fake loading or empty result', () => {
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse([]));
+    renderPage('/process/tasks', { ...bootstrap, moduleConnections: {} });
+    expect(
+      screen.getByText('The work queue is unavailable in the current workspace.'),
+    ).toBeVisible();
+    expect(
+      screen.queryByText('Loading approval tasks from Process.'),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('No tasks on this page.')).not.toBeInTheDocument();
+    expect(screen.queryByText('0 awaiting review')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Refresh task evidence' }),
+    ).toBeDisabled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('gives safe network recovery guidance and restores current API evidence after an explicit GET refresh', async () => {
+    let taskReads = 0;
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      if (requestUrl(input).includes('/tasks?') && ++taskReads === 1)
+        return Promise.reject(
+          new TypeError('Failed to fetch private-provider-address'),
+        );
+      return Promise.resolve(jsonResponse([]));
+    });
+    const user = userEvent.setup();
+    renderPage('/process/tasks');
+    expect(
+      await screen.findByText(
+        'The Process service could not be reached. Refresh its current evidence before trying again.',
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText(/private-provider-address/)).not.toBeInTheDocument();
+    expect(screen.queryByText('UP')).not.toBeInTheDocument();
+    expect(screen.getByText('API unavailable')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Refresh task evidence' }));
+    expect(await screen.findByText('No tasks on this page.')).toBeVisible();
+    expect(screen.getByText('UP')).toBeVisible();
+    expect(taskReads).toBe(2);
+    expect(
+      fetcher.mock.calls.every(
+        ([, init]) => (init?.method ?? 'GET') === 'GET' && init?.body === undefined,
+      ),
+    ).toBe(true);
+  });
+
+  it('retains previous owner evidence while a failed refresh holds instance commands', async () => {
+    let taskReads = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = requestUrl(input);
+      if (url.includes('/tasks?') && ++taskReads > 1)
+        return Promise.resolve(
+          new Response(JSON.stringify({ message: 'Refresh could not be confirmed' }), {
+            status: 503,
+          }),
+        );
+      return Promise.resolve(
+        jsonResponse(
+          url.includes('/instances?')
+            ? [
+                {
+                  code: 'prior-instance',
+                  definitionCode: 'review',
+                  version: 1,
+                  status: 'WAITING',
+                },
+              ]
+            : [],
+        ),
+      );
+    });
+    const user = userEvent.setup();
+    renderPage('/process/tasks');
+    expect(
+      await screen.findByRole('heading', { name: 'prior-instance' }),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Cancel instance' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Refresh task evidence' }));
+    expect(await screen.findByText('Refresh could not be confirmed')).toBeVisible();
+    expect(screen.getByText('API unavailable')).toBeVisible();
+    expect(screen.queryByText('UP')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'prior-instance' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Cancel instance' })).toBeDisabled();
   });
 });

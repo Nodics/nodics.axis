@@ -136,7 +136,140 @@ const publication: AxisBackendWorkspace = {
   ],
 };
 
+describe('bounded owner result presentation', () => {
+  const section = publication.tabs[0]!.sections[0]!;
+  const parse = (extra: Record<string, unknown>) =>
+    parseBackendWorkspace({
+      ...publication,
+      tabs: [{ ...publication.tabs[0], sections: [{ ...section, ...extra }] }],
+    });
+  it('admits scalar summaries and an inert local handoff without executable authority', () => {
+    expect(
+      parse({
+        resultSummary: [{ field: 'versionId', label: 'Source version' }],
+        resultNavigation: {
+          label: 'Review',
+          route: '/process/tasks',
+          parameters: { instanceCode: 'workflowRef' },
+        },
+      }).tabs[0]!.sections[0],
+    ).toMatchObject({
+      resultSummary: [{ field: 'versionId', label: 'Source version' }],
+    });
+  });
+  it.each([
+    {
+      resultNavigation: {
+        label: 'Review',
+        route: 'https://external.test',
+        parameters: { instanceCode: 'workflowRef' },
+      },
+    },
+    {
+      resultNavigation: {
+        label: 'Review',
+        route: '//external.test',
+        parameters: { instanceCode: 'workflowRef' },
+      },
+    },
+    {
+      resultNavigation: {
+        label: 'Review',
+        route: '/process/../tasks',
+        parameters: { instanceCode: 'workflowRef' },
+      },
+    },
+    {
+      resultNavigation: {
+        label: 'Review',
+        route: '/process/tasks',
+        method: 'POST',
+        parameters: { instanceCode: 'workflowRef' },
+      },
+    },
+    {
+      resultNavigation: {
+        label: 'Review',
+        route: '/process/tasks',
+        parameters: { instanceCode: 'workflow.ref' },
+      },
+    },
+    {
+      resultSummary: [
+        { field: 'versionId', label: 'Version' },
+        { field: 'versionId', label: 'Again' },
+      ],
+    },
+    {
+      resultSummary: Array.from({ length: 9 }, (_, i) => ({
+        field: 'field' + String(i),
+        label: 'Field',
+      })),
+    },
+    { resultSummary: [{ field: 'workflow.ref', label: 'Workflow' }] },
+    { resultSummary: [{ field: 'state', label: 'x'.repeat(129) }] },
+  ])('rejects unsafe or unbounded presentation %j', (extra) => {
+    expect(() => parse(extra)).toThrow();
+  });
+});
+
 describe('owner-declared row inspection', () => {
+  it.each([
+    ['', 'Enterprises'],
+    ['?mediaCode=asset-a', 'Request'],
+    ['?mediaCode=asset-a&tab=enterprises', 'Enterprises'],
+  ])(
+    'uses the owner picker until a declared record context selects inspection (%s)',
+    async (query, expectedTab) => {
+      const original = window.location.href;
+      window.history.replaceState({}, '', '/media/publication' + query);
+      const fetcher = vi.fn<typeof fetch>().mockImplementation(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: { code: 'asset-a', versionId: 3, commands: [] },
+              items: [],
+            }),
+            { status: 200 },
+          ),
+        ),
+      );
+      vi.stubGlobal('fetch', fetcher);
+      try {
+        render(
+          <MemoryRouter>
+            <BackendOperationsWorkspaceRoutePage
+              runtime={runtime}
+              accessToken="employee"
+              workspace={{
+                ...publication,
+                defaultTab: 'enterprises',
+                tabs: [...workspace.tabs, ...publication.tabs],
+              }}
+            />
+          </MemoryRouter>,
+        );
+        expect(screen.getByRole('tab', { name: expectedTab })).toHaveAttribute(
+          'aria-selected',
+          'true',
+        );
+        await waitFor(() => expect(fetcher).toHaveBeenCalled());
+        expect(
+          fetcher.mock.calls.every(
+            ([, options]) => !options?.method || options.method === 'GET',
+          ),
+        ).toBe(true);
+        expect(
+          screen
+            .queryByRole('button', { name: 'Request Approval' })
+            ?.hasAttribute('disabled') ?? true,
+        ).toBe(true);
+      } finally {
+        window.history.replaceState({}, '', original);
+      }
+    },
+  );
+
   it.each([
     {
       code: 'asset-a',
@@ -263,7 +396,7 @@ describe('owner-declared row inspection', () => {
     });
     vi.stubGlobal('fetch', fetcher);
     try {
-      render(
+      const rendered = render(
         <BackendOperationsWorkspaceRoutePage
           runtime={runtime}
           accessToken="employee"
@@ -280,6 +413,17 @@ describe('owner-declared row inspection', () => {
       await screen.findByText('Acknowledgement unavailable');
       expect(submit).toBeDisabled();
       expect(commands).toHaveLength(1);
+      const readsBeforeRefresh = fetcher.mock.calls.length;
+      rendered.rerender(
+        <BackendOperationsWorkspaceRoutePage
+          runtime={runtime}
+          accessToken="employee"
+          workspace={JSON.parse(JSON.stringify(publication)) as AxisBackendWorkspace}
+        />,
+      );
+      expect(submit).toBeDisabled();
+      expect(fetcher).toHaveBeenCalledTimes(readsBeforeRefresh);
+      expect(reference).toHaveValue(originalReference);
       await user.click(screen.getByRole('button', { name: 'Refresh inspection' }));
       await waitFor(() => expect(submit).toBeEnabled());
       expect(commands).toHaveLength(1);
@@ -291,6 +435,113 @@ describe('owner-declared row inspection', () => {
       window.history.replaceState({}, '', original);
     }
   });
+  it.each([true, false])(
+    'retains one acknowledged command through metadata refresh (authorized handoff %s)',
+    async (authorized) => {
+      const original = window.location.href;
+      window.history.replaceState({}, '', '?mediaCode=asset-a');
+      const enhanced: AxisBackendWorkspace = {
+        ...publication,
+        tabs: publication.tabs.map((tab) => ({
+          ...tab,
+          sections: tab.sections.map((section) => ({
+            ...section,
+            resultSummary: [
+              { field: 'publicationCode', label: 'Approval reference' },
+              { field: 'versionId', label: 'Source version' },
+              { field: 'state', label: 'Request status' },
+            ],
+            resultNavigation: {
+              label: 'Review this approval',
+              route: '/process/tasks',
+              parameters: { instanceCode: 'workflowRef' },
+            },
+          })),
+        })),
+      };
+      const fetcher = vi.fn<typeof fetch>().mockImplementation((_input, options) =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data:
+                options?.method === 'POST'
+                  ? {
+                      publicationCode: 'request-one',
+                      versionId: 0,
+                      state: 'PENDING_APPROVAL',
+                      workflowRef: 'approval-1',
+                    }
+                  : {
+                      code: 'asset-a',
+                      versionId: 0,
+                      commands: [
+                        {
+                          id: 'requestPublication',
+                          method: 'POST',
+                          mediaCode: 'asset-a',
+                          versionId: 0,
+                        },
+                      ],
+                    },
+            }),
+            { status: 200 },
+          ),
+        ),
+      );
+      vi.stubGlobal('fetch', fetcher);
+      const view = (candidate: AxisBackendWorkspace, token = 'employee') => (
+        <MemoryRouter>
+          <BackendOperationsWorkspaceRoutePage
+            runtime={runtime}
+            accessToken={token}
+            workspace={candidate}
+            authorizedRoutes={authorized ? ['/process/tasks'] : []}
+          />
+        </MemoryRouter>
+      );
+      try {
+        const rendered = render(view(enhanced));
+        const user = userEvent.setup();
+        await waitFor(() =>
+          expect(
+            screen.getByRole('button', { name: 'Request Approval' }),
+          ).toBeEnabled(),
+        );
+        const reference = screen.getByRole<HTMLInputElement>('textbox', {
+          name: 'Reference',
+        }).value;
+        await user.click(screen.getByRole('button', { name: 'Request Approval' }));
+        expect(await screen.findByText('request-one')).toBeVisible();
+        expect(screen.getByText('0', { selector: 'dd' })).toBeVisible();
+        if (authorized)
+          expect(
+            screen.getByRole('link', { name: 'Review this approval' }),
+          ).toHaveAttribute('href', '/process/tasks?instanceCode=approval-1');
+        else
+          expect(
+            screen.queryByRole('link', { name: 'Review this approval' }),
+          ).toBeNull();
+        rendered.rerender(
+          view(JSON.parse(JSON.stringify(enhanced)) as AxisBackendWorkspace),
+        );
+        expect(screen.getByRole('button', { name: 'Request Approval' })).toBeDisabled();
+        expect(screen.getByRole('textbox', { name: 'Reference' })).toHaveValue(
+          reference,
+        );
+        expect(screen.getByText('request-one')).toBeVisible();
+        expect(fetcher).toHaveBeenCalledTimes(2);
+        rendered.rerender(view(enhanced, 'another-employee'));
+        await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(3));
+        expect(screen.queryByText('request-one')).toBeNull();
+        expect(screen.queryByRole('link', { name: 'Review this approval' })).toBeNull();
+        expect(
+          fetcher.mock.calls.filter(([, options]) => options?.method === 'POST'),
+        ).toHaveLength(1);
+      } finally {
+        window.history.replaceState({}, '', original);
+      }
+    },
+  );
   it('links only authorized workspace routes without executing row commands', async () => {
     const fetcher = vi
       .fn<typeof fetch>()

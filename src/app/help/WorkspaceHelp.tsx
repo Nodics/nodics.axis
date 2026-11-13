@@ -5,10 +5,15 @@ import {
   Typography,
   type TypographyProps,
 } from '@mui/material';
-import type { ReactNode } from 'react';
+import { useContext, type ReactNode } from 'react';
 
+import { useAxisLocalization } from '../../localization/AxisLocalizationContext';
 import { ShellIcon } from '../shell/ShellIcon';
-import { documentationHref, type AxisHelpMetadata } from './workspaceHelpModel';
+import {
+  documentationHref,
+  OnlineHelpPathsContext,
+  type AxisHelpMetadata,
+} from './workspaceHelpModel';
 
 export interface WorkspaceHelpActionsProps {
   readonly label: string;
@@ -21,14 +26,24 @@ export function WorkspaceHelpActions({
   help,
   documentationIcon = 'content',
 }: WorkspaceHelpActionsProps) {
-  const href = documentationHref(help);
+  const { format } = useAxisLocalization();
+  const onlinePaths = useContext(OnlineHelpPathsContext);
+  const publishedHref = documentationHref(help);
+  const useCatalogue =
+    onlinePaths !== undefined &&
+    help?.documentationRoute !== undefined &&
+    !onlinePaths.has(help.documentationRoute);
+  const href = useCatalogue ? '/docs' : publishedHref;
+  const linkLabel = useCatalogue
+    ? format('common.help.browse', `Browse documentation for ${label}`, { label })
+    : format('common.help.open', `Open ${label} documentation`, { label });
   if (!help?.summary && !href) return null;
   return (
     <Stack direction="row" spacing={0.25} sx={{ alignItems: 'center' }}>
       {help?.summary ? (
         <Tooltip arrow enterTouchDelay={0} title={help.summary}>
           <IconButton
-            aria-label={`${label} help`}
+            aria-label={format('common.help.summary', `${label} help`, { label })}
             size="small"
             sx={{ color: 'text.secondary' }}
           >
@@ -37,14 +52,14 @@ export function WorkspaceHelpActions({
         </Tooltip>
       ) : null}
       {href ? (
-        <Tooltip arrow title={`Open ${label} documentation`}>
+        <Tooltip arrow title={linkLabel}>
           <IconButton
-            aria-label={`Open ${label} documentation`}
+            aria-label={linkLabel}
             component="a"
             href={href}
             rel="noreferrer"
             size="small"
-            sx={{ color: 'primary.main' }}
+            sx={{ color: 'text.primary' }}
             target="_blank"
           >
             <ShellIcon fontSize="small" name={documentationIcon} />
@@ -96,7 +111,7 @@ export function WorkspaceHeading({
           <Typography
             component={headingComponent}
             id={id}
-            sx={{ minWidth: 0 }}
+            sx={{ minWidth: 0, overflowWrap: 'anywhere' }}
             variant={headingVariant}
           >
             {title}

@@ -15,7 +15,8 @@ export interface AxisRuntimeConfig {
 }
 
 const MINIMUM_TIMEOUT_MS = 1_000;
-const MAXIMUM_TIMEOUT_MS = 600_000;
+/** Shared upper bound for runtime parsing and clients consuming admitted deployment timeouts. */
+export const MAXIMUM_TIMEOUT_MS = 600_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

@@ -323,7 +323,13 @@ describe('authenticated navigation availability recovery', () => {
     const refresh = vi.fn();
     render(
       <NavigationAvailabilityRecoveryContext.Provider
-        value={{ itemId: item.id, route: item.route, refreshing: false, refresh }}
+        value={{
+          itemId: item.id,
+          moduleName: item.moduleName,
+          route: item.route,
+          refreshing: false,
+          refresh,
+        }}
       >
         <ModuleWorkspacePlaceholder item={item} />
       </NavigationAvailabilityRecoveryContext.Provider>,

@@ -34,6 +34,11 @@ identity for reuse across Nodics applications:
   application name, such as `AXIS`, beneath it;
 - `public/brand/favicon.svg` is the approved browser/favicon form of the mark.
 
+`AxisMark` chooses the approved reverse mark on Dark surfaces by default.
+Callers on a deliberately fixed surface may still set `reverse` explicitly.
+Bundled sign-in reuses this component and its accessible lockup; it never redraws
+the identity when CMS presentation is unavailable.
+
 Do not redraw, embolden, skew, recolor, or change the proportions of the
 brackets or `N` in an individual application. Until a dedicated shared frontend
 brand package is approved, new Nodics applications should reproduce this exact
@@ -284,3 +289,17 @@ module connection and version contract. Workbench discovery is no longer a
 fallback; the backend discovery adapters are removed. Deploy backend discovery routes before upgrading Axis; partial successes
 retain exact connection identity and cannot replace a missing Staged authority.
 See [the feature contract](src/workbench/README.md#canonical-schema-discovery).
+
+Content Designer leads with the page draft. Website setup and reusable-record links remain available in a collapsed reference section; saving and publication guidance uses business language, while the same owner validation and approval gates remain required.
+
+Setup & Accelerators supports business-description search across the authenticated profile catalogue, matching application/documentation titles, descriptions and owners. Search filters recovery guidance as well as cards, exposes a result count and Clear search, and never selects or initializes a profile.
+
+Unavailable workspace recovery binds to the authenticated module and route so two authorized menu aliases for one screen share the same bounded metadata refresh. Another module/route cannot borrow that control. Healthy disabled, hidden and unknown-state admission rules remain unchanged; refresh never repeats a business command or grants module availability.
+
+Publication Requests lists bounded owner-search results from the explicitly selected source. Content and Publishing dashboard links carry public source coordinates, so selecting a request opens its exact version, workflow and audit without copying an identifier. Search and paging remain in that source; direct request handoffs skip collection reads. Session/context changes retire private browser state and cached responses. The list performs no lifecycle commands.
+
+Media administration and its dashboard bind discovery and operations to the same single available non-Online Media source. Online delivery is never an authoring fallback; ambiguous sources remain unavailable. Session, tenant, enterprise, project or source changes retire private form state and query evidence. Failed reads show an unavailable count. Existing owner routes, permissions and publication gates remain unchanged.
+
+Media folder records and runtime intake policies are separate resources. The folder workspace reads configured source contexts before offering policy changes, uses actual policy values and holds updates for missing, denied or conflicting evidence. A saved folder record does not automatically enable uploads or change source-context configuration.
+
+Content group links open focused inventory for websites/catalogs, templates/layout, pages/routes, components/media bindings, navigation, visibility/experience rules or type/renderer contracts. Each view reads only its metric selection, shows a loading state while counts are pending and offers All content to return to the full workspace. Unknown fragments keep the complete overview.

@@ -1,6 +1,8 @@
+import { subscribeEmployeeSessionExpired } from '../../../src/auth/employeeSessionEvents';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  inspectGuidedExperience,
   loadWcmsExperienceIndexStatus,
   parseWcmsExperienceResolveResult,
   previewWcmsExperience,
@@ -21,6 +23,69 @@ describe('wcmsExperienceClient', () => {
     enterpriseCode: 'default',
     timeoutMs: 1_000,
   };
+
+  it('bounds network failures, localizes uncertainty and never retries the request', async () => {
+    const transport = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new TypeError('private transport diagnostic'));
+    await expect(
+      loadWcmsExperienceIndexStatus(connection, configuration, transport),
+    ).rejects.toMatchObject({
+      status: 0,
+      messageKey: 'common.request-unconfirmed',
+      messageExposure: 'PUBLIC',
+      message:
+        'The request could not be confirmed. Inspect the current state before another change.',
+    });
+    expect(transport).toHaveBeenCalledOnce();
+  });
+  it('admits the bounded target catalogue plus its default fallback and rejects overflow', async () => {
+    const selection = { catalogCode: 'catalog', siteCode: 'site', pageCode: 'page' };
+    const row = {
+      contractVersion: 1,
+      ...selection,
+      sourceVersion: 'a'.repeat(64),
+      pageSourceVersion: 'b'.repeat(64),
+      pageName: 'Page',
+      canEdit: true,
+      maximumAbsolutePriority: 100000,
+      pageTypes: ['HOME'],
+      slots: ['hero'],
+      components: [],
+      placements: [],
+      competingPlacements: [],
+      presentation: { targetHelp: 'Choose a target' },
+      targets: [
+        { targetType: 'DEFAULT', targetCode: '*', label: 'Default' },
+        ...Array.from({ length: 100 }, (_, i) => ({
+          targetType: 'COLLECTION',
+          targetCode: String(i),
+          label: String(i),
+        })),
+      ],
+    };
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(new Response(JSON.stringify({ result: row }))),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      expect(
+        (await inspectGuidedExperience(connection, configuration, selection)).targets,
+      ).toHaveLength(101);
+      row.targets.push({
+        targetType: 'COLLECTION',
+        targetCode: 'overflow',
+        label: 'Overflow',
+      });
+      await expect(
+        inspectGuidedExperience(connection, configuration, selection),
+      ).rejects.toThrow(/incomplete/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 
   it('posts preview context to the backend authoring preview endpoint', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
@@ -118,5 +183,43 @@ describe('wcmsExperienceClient', () => {
         diagnostics: {},
       }),
     ).toThrow(/renderer identity/i);
+  });
+  it('preserves owner denial and signals only the exact authenticated expired session', async () => {
+    const observed = vi.fn();
+    const unsubscribe = subscribeEmployeeSessionExpired(observed);
+    try {
+      const expired = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ message: 'Session expired' }), { status: 401 }),
+        );
+      await expect(
+        loadWcmsExperienceIndexStatus(
+          connection,
+          { ...configuration, sessionGeneration: 7 },
+          expired,
+        ),
+      ).rejects.toMatchObject({ status: 401 });
+      expect(observed).toHaveBeenCalledWith({
+        accessToken: 'employee-token',
+        generation: 7,
+      });
+      observed.mockClear();
+      const denied = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ message: 'Preview permission required' }), {
+          status: 403,
+        }),
+      );
+      await expect(
+        loadWcmsExperienceIndexStatus(
+          connection,
+          { ...configuration, sessionGeneration: 7 },
+          denied,
+        ),
+      ).rejects.toMatchObject({ status: 403 });
+      expect(observed).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+    }
   });
 });

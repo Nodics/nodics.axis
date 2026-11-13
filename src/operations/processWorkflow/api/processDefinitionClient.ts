@@ -1,8 +1,10 @@
+import { observeEmployeeSessionResponse } from '../../../auth/employeeSessionEvents';
 import type { AxisModuleConnection } from '../../../bootstrap/publicBootstrap';
 
 export interface ProcessDefinitionClientConfiguration {
   readonly accessToken: string;
   readonly enterpriseCode: string;
+  readonly sessionGeneration?: number | undefined;
   readonly timeoutMs: number;
 }
 
@@ -98,6 +100,14 @@ export interface ProcessTaskDecisionContract {
 }
 
 export interface ProcessHumanTask {
+  readonly rulesReviewContext?:
+    | Readonly<{
+        contractVersion: 1;
+        owner: 'rulesApi';
+        ruleSetCode: string;
+        draftRevision: number;
+      }>
+    | undefined;
   readonly reviewerEligibility?:
     | Readonly<{
         eligible: boolean;
@@ -121,6 +131,9 @@ export interface ProcessHumanTask {
       }>
     | undefined;
   readonly decisionContract?: ProcessTaskDecisionContract | undefined;
+  readonly recordedDecision?:
+    | Readonly<{ approved: boolean; reason?: string }>
+    | undefined;
   readonly code: string;
   readonly name?: string | undefined;
   readonly instanceCode: string | undefined;
@@ -139,10 +152,12 @@ export interface ProcessAuditEvent {
 
 export interface ProcessTrigger {
   readonly code: string;
+  readonly name?: string;
   readonly definitionCode: string | undefined;
   readonly triggerType: string;
   readonly cronJobCode: string | undefined;
   readonly status: string;
+  readonly version?: number;
   readonly schedule: Record<string, unknown> | undefined;
 }
 
@@ -154,6 +169,7 @@ export interface ProcessInstanceDetail {
 
 export interface ProcessOperationsSummary {
   readonly taskPagination?: ProcessTaskPagination;
+  readonly incidentsAccessDenied?: true;
   readonly instances: readonly ProcessRuntimeInstance[];
   readonly tasks: readonly ProcessHumanTask[];
   readonly auditEvents: readonly ProcessAuditEvent[];
@@ -193,6 +209,7 @@ export interface UpdateProcessDraftInput {
 export interface CreateProcessTriggerInput {
   readonly code: string;
   readonly definitionCode: string;
+  readonly version: number;
   readonly triggerType: string;
   readonly cronJobCode: string;
   readonly status: string;
@@ -200,9 +217,10 @@ export interface CreateProcessTriggerInput {
 }
 
 export interface UpdateProcessTriggerInput {
-  readonly status: string;
+  readonly status?: string;
+  readonly version?: number;
   readonly cronJobCode?: string;
-  readonly schedule: Record<string, unknown>;
+  readonly schedule?: Record<string, unknown>;
 }
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -422,6 +440,27 @@ function parseHumanTask(value: unknown): ProcessHumanTask {
       message: eligibility.message,
     });
   }
+  let rulesReviewContext: ProcessHumanTask['rulesReviewContext'];
+  if (data.rulesReviewContext !== undefined) {
+    const context = record(data.rulesReviewContext, 'Process Rules review context');
+    if (
+      Object.keys(context).sort().join() !==
+        'contractVersion,draftRevision,owner,ruleSetCode' ||
+      context.contractVersion !== 1 ||
+      context.owner !== 'rulesApi' ||
+      typeof context.ruleSetCode !== 'string' ||
+      !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(context.ruleSetCode) ||
+      !Number.isSafeInteger(context.draftRevision) ||
+      Number(context.draftRevision) < 1
+    )
+      throw new Error('Process Rules review context is invalid');
+    rulesReviewContext = Object.freeze({
+      contractVersion: 1,
+      owner: 'rulesApi',
+      ruleSetCode: context.ruleSetCode,
+      draftRevision: Number(context.draftRevision),
+    });
+  }
   let reviewContext: ProcessHumanTask['reviewContext'];
   if (data.reviewContext !== undefined) {
     const context = record(data.reviewContext, 'Process publication review context');
@@ -502,10 +541,35 @@ function parseHumanTask(value: unknown): ProcessHumanTask {
       maximumReasonLength: contract.maximumReasonLength,
     });
   }
+  let recordedDecision: ProcessHumanTask['recordedDecision'];
+  const decision = data.decision;
+  if (
+    data.status === 'COMPLETED' &&
+    decisionContract &&
+    decision &&
+    typeof decision === 'object' &&
+    !Array.isArray(decision)
+  ) {
+    const result = decision as Record<string, unknown>;
+    const reason = typeof result.reason === 'string' ? result.reason.trim() : undefined;
+    if (
+      typeof result.approved === 'boolean' &&
+      (result.reason === undefined ||
+        (reason !== undefined &&
+          reason.length <= decisionContract.maximumReasonLength)) &&
+      (result.approved || Boolean(reason))
+    )
+      recordedDecision = Object.freeze({
+        approved: result.approved,
+        ...(reason ? { reason } : {}),
+      });
+  }
   return Object.freeze({
     reviewerEligibility,
     reviewContext,
+    rulesReviewContext,
     decisionContract,
+    recordedDecision,
     code: text(data.code, 'unknown-task'),
     name:
       typeof data.name === 'string' &&
@@ -535,12 +599,20 @@ function parseAuditEvent(value: unknown): ProcessAuditEvent {
 
 function parseTrigger(value: unknown): ProcessTrigger {
   const data = record(value, 'Process trigger');
+  const name = optionalText(data.name);
+  if (
+    data.version !== undefined &&
+    (!Number.isSafeInteger(data.version) || Number(data.version) < 1)
+  )
+    throw new Error('Process trigger published version is invalid');
   return Object.freeze({
     code: text(data.code, 'unknown-trigger'),
+    ...(name ? { name } : {}),
     definitionCode: optionalText(data.definitionCode),
     triggerType: text(data.triggerType, 'UNKNOWN'),
     cronJobCode: optionalText(data.cronJobCode),
     status: text(data.status, 'UNKNOWN'),
+    ...(data.version !== undefined ? { version: data.version as number } : {}),
     schedule:
       typeof data.schedule === 'object' &&
       data.schedule !== null &&
@@ -578,7 +650,18 @@ async function errorMessage(response: Response): Promise<string> {
   return `Process request returned HTTP ${String(response.status)}`;
 }
 
-async function request(
+export class ProcessHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ProcessHttpError';
+  }
+}
+
+/** Shared feature transport for typed, static Process APIs. Never supply a path from a record or command response. Commands remain single-attempt; caller cancellation is for scoped inspection reads. */
+export async function request(
   connection: AxisModuleConnection,
   path: string,
   configuration: ProcessDefinitionClientConfiguration,
@@ -589,7 +672,11 @@ async function request(
   if (!['http:', 'https:'].includes(endpoint.protocol)) {
     throw new Error('Process endpoint is invalid');
   }
+  if (options.signal?.aborted)
+    throw new DOMException('Process inspection was canceled', 'AbortError');
   const controller = new AbortController();
+  const cancel = () => controller.abort();
+  options.signal?.addEventListener('abort', cancel, { once: true });
   const timeout = globalThis.setTimeout(
     () => controller.abort(),
     configuration.timeoutMs,
@@ -612,13 +699,26 @@ async function request(
         },
       },
     );
-    if (!response.ok) throw new Error(await errorMessage(response));
+    observeEmployeeSessionResponse(
+      response,
+      configuration.accessToken,
+      configuration.sessionGeneration,
+    );
+    if (!response.ok)
+      throw new ProcessHttpError(response.status, await errorMessage(response));
     return response.status === 204 ? undefined : await response.json();
   } catch (error: unknown) {
+    if (options.signal?.aborted)
+      throw new DOMException('Process inspection was canceled', 'AbortError');
     if (controller.signal.aborted) throw new Error('Process request timed out');
+    if (error instanceof TypeError)
+      throw new Error(
+        'The Process service could not be reached. Refresh its current evidence before trying again.',
+      );
     throw error instanceof Error ? error : new Error('Process request failed');
   } finally {
     globalThis.clearTimeout(timeout);
+    options.signal?.removeEventListener('abort', cancel);
   }
 }
 
@@ -665,6 +765,57 @@ export async function loadProcessDefinitionVersions(
       ),
     ).map(parseDefinitionVersion),
   );
+}
+
+/** Reads exact immutable choices for a schedule; incomplete or contradictory owner evidence cannot supply a pin. */
+export async function loadPublishedProcessScheduleVersions(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  definitionCode: string,
+): Promise<readonly ProcessDefinitionVersion[]> {
+  const envelope = record(
+    await request(
+      connection,
+      `/definitions/${encodeURIComponent(definitionCode)}/versions`,
+      configuration,
+    ),
+    'Published workflow versions',
+  );
+  const rows = envelopeData(envelope);
+  if (
+    typeof envelope.code !== 'string' ||
+    !envelope.code.startsWith('SUC_') ||
+    envelope.error ||
+    envelope.success === false ||
+    envelope.acknowledged === false ||
+    (envelope.errors !== undefined &&
+      (!Array.isArray(envelope.errors) || envelope.errors.length)) ||
+    !Array.isArray(rows)
+  )
+    throw new Error('Published workflow versions are unavailable');
+  const parsed = rows.map((value: unknown) => {
+    const row = record(value, 'Published workflow version');
+    if (
+      row.definitionCode !== definitionCode ||
+      !Number.isSafeInteger(row.version) ||
+      Number(row.version) < 1 ||
+      typeof row.code !== 'string' ||
+      !row.code.trim() ||
+      row.error ||
+      row.success === false ||
+      row.acknowledged === false
+    )
+      throw new Error(
+        'Published workflow version does not match the selected workflow',
+      );
+    return parseDefinitionVersion(row);
+  });
+  if (
+    new Set(parsed.map((row) => row.version)).size !== parsed.length ||
+    new Set(parsed.map((row) => row.code)).size !== parsed.length
+  )
+    throw new Error('Published workflow versions are ambiguous');
+  return Object.freeze(parsed.filter((row) => row.status === 'PUBLISHED'));
 }
 
 export async function createProcessDefinition(
@@ -737,19 +888,36 @@ export async function startProcessInstance(
   connection: AxisModuleConnection,
   configuration: ProcessDefinitionClientConfiguration,
   definitionCode: string,
-): Promise<unknown> {
-  return envelopeData(
-    await request(connection, '/instances', configuration, {
-      method: 'POST',
-      body: JSON.stringify({
-        definitionCode,
-        context: {
-          source: 'axis',
-          intent: 'business-user-smoke',
-        },
+  instanceCode?: string,
+): Promise<ProcessRuntimeInstance> {
+  const data = record(
+    envelopeData(
+      await request(connection, '/instances', configuration, {
+        method: 'POST',
+        body: JSON.stringify({
+          definitionCode,
+          ...(instanceCode ? { instanceCode } : {}),
+          context: { source: 'axis', intent: 'business-user-start' },
+        }),
       }),
-    }),
+    ),
+    'Process start acknowledgement',
   );
+  const instance = parseRuntimeInstance(data.instance);
+  if (
+    !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/.test(instance.code) ||
+    instance.code === 'unknown-instance' ||
+    instance.definitionCode !== definitionCode ||
+    (instanceCode !== undefined && instance.code !== instanceCode) ||
+    !Number.isSafeInteger(instance.version) ||
+    instance.version < 1 ||
+    instance.status === 'UNKNOWN'
+  ) {
+    throw new Error(
+      'Process start acknowledgement is incompatible. Inspect Process evidence before starting again.',
+    );
+  }
+  return instance;
 }
 
 export async function prepareNextProcessDraft(
@@ -951,6 +1119,52 @@ export async function updateProcessTrigger(
   );
 }
 
+/** Pins an explicitly selected immutable version through the existing Process CAS command. No activation or execution is implied. */
+export async function pinProcessTriggerVersion(
+  connection: AxisModuleConnection,
+  configuration: ProcessDefinitionClientConfiguration,
+  triggerCode: string,
+  version: number,
+): Promise<void> {
+  if (!Number.isSafeInteger(version) || version < 1)
+    throw new Error('Select a published workflow version');
+  const envelope = record(
+    await request(
+      connection,
+      `/triggers/${encodeURIComponent(triggerCode)}`,
+      configuration,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ version }),
+      },
+    ),
+    'Process trigger version response',
+  );
+  const saved = record(
+    envelopeData(envelope),
+    'Process trigger version acknowledgement',
+  );
+  if (
+    typeof envelope.code !== 'string' ||
+    !envelope.code.startsWith('SUC_') ||
+    envelope.success === false ||
+    envelope.acknowledged === false ||
+    envelope.error ||
+    (envelope.errors !== undefined &&
+      (!Array.isArray(envelope.errors) || envelope.errors.length)) ||
+    saved.success === false ||
+    saved.acknowledged === false ||
+    saved.error ||
+    (saved.errors !== undefined &&
+      (!Array.isArray(saved.errors) || saved.errors.length)) ||
+    saved.code !== triggerCode ||
+    saved.version !== version
+  )
+    throw new Error(
+      'Workflow version update is unconfirmed. Inspect the relationship without repeating the command.',
+    );
+}
+
 export async function archiveProcessTrigger(
   connection: AxisModuleConnection,
   configuration: ProcessDefinitionClientConfiguration,
@@ -1007,6 +1221,7 @@ export async function loadProcessOperationsSummary(
   configuration: ProcessDefinitionClientConfiguration,
   taskPage = 1,
 ): Promise<ProcessOperationsSummary> {
+  const incidentAccessDenied = Symbol('incident access denied');
   const [instances, taskQueue, auditEvents, triggers, incidents] = await Promise.all([
     request(connection, '/instances?limit=25', configuration),
     loadProcessTaskPage(connection, configuration, {
@@ -1015,7 +1230,13 @@ export async function loadProcessOperationsSummary(
     }),
     request(connection, '/audit-events?limit=25', configuration),
     request(connection, '/triggers?limit=25', configuration),
-    request(connection, '/incidents?limit=25', configuration),
+    request(connection, '/incidents?limit=25', configuration).catch(
+      (error: unknown) => {
+        if (error instanceof ProcessHttpError && error.status === 403)
+          return incidentAccessDenied;
+        throw error;
+      },
+    ),
   ]);
   return Object.freeze({
     instances: Object.freeze(listPayload(instances).map(parseRuntimeInstance)),
@@ -1023,7 +1244,14 @@ export async function loadProcessOperationsSummary(
     taskPagination: taskQueue.pagination,
     auditEvents: Object.freeze(listPayload(auditEvents).map(parseAuditEvent)),
     triggers: Object.freeze(listPayload(triggers).map(parseTrigger)),
-    incidents: Object.freeze(listPayload(incidents).map(parseIncident)),
+    incidents: Object.freeze(
+      incidents === incidentAccessDenied
+        ? []
+        : listPayload(incidents).map(parseIncident),
+    ),
+    ...(incidents === incidentAccessDenied
+      ? { incidentsAccessDenied: true as const }
+      : {}),
   });
 }
 

@@ -13,6 +13,7 @@ import type {
 } from './WorkbenchRelationshipRuntime';
 
 interface RelationshipReferenceChipsProps {
+  readonly referenceLabels?: ReadonlyMap<string, string> | undefined;
   readonly copy: WorkbenchRelationshipCopy;
   readonly disabled: boolean;
   readonly draftReferences: readonly string[];
@@ -103,12 +104,12 @@ export function RelationshipReferenceChips(props: RelationshipReferenceChipsProp
               onClick={canOpenReference ? () => openReference(reference) : undefined}
             >
               <Typography component="span" noWrap variant="body2">
-                {reference}
+                {props.referenceLabels?.get(reference) ?? reference}
               </Typography>
             </Button>
             {props.disabled || !props.relationship.actions.includes('UNLINK') ? null : (
               <Button
-                aria-label={`${props.copy.removeReferenceLabel} ${reference}`}
+                aria-label={`${props.copy.removeReferenceLabel} ${props.referenceLabels?.get(reference) ?? reference}`}
                 color="error"
                 size="small"
                 onClick={() => props.onRemove(reference)}

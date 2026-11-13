@@ -19,6 +19,7 @@ it('uses the existing operational renderer for Overview without mounting the app
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={['/dashboard?view=overview']}>
         <AxisDashboardRoutePage
+          employeeId="test-employee"
           composition={mergedDashboardFixture}
           accessToken="test-token"
           bootstrap={

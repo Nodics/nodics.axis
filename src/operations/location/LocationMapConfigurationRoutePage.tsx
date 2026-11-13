@@ -46,7 +46,7 @@ interface LocationMapConfigurationRoutePageProps {
 
 const schemaGuidance: Readonly<Record<string, string>> = Object.freeze({
   locationMapProviderConfiguration:
-    'Maintain one shared configuration per map usage. Provider, viewport, controls, marker appearance and zoom behavior apply to every connected application. Mapbox requires a frontend-safe public pk.* token.',
+    'Maintain project or application settings per map usage. Applications inherit the project selection until overridden. Mapbox requires a frontend-safe public pk.* token.',
   locationMapProvider:
     'Manage map provider records that render Location maps. Create providers, open a provider to edit its renderer and token rules, or remove providers that are no longer allowed.',
   locationMapUsage:
@@ -59,105 +59,31 @@ const schemaGuidance: Readonly<Record<string, string>> = Object.freeze({
 
 const mapSurfaceCode = 'SHARED';
 const mapUsageCode = 'COLLECTION_CENTRE_MAP';
-const defaultControls = Object.freeze([
-  'FILTERS',
-  'ZOOM',
-  'SCALE',
-  'GEOLOCATE',
-  'DIRECTIONS',
-]);
-const defaultProviderOptions: readonly LocationMapProviderOption[] = Object.freeze([
-  Object.freeze({
-    code: 'MAPBOX',
-    name: Object.freeze({ en: 'Mapbox' }),
-    providerType: 'MAPBOX',
-    rendererCode: 'axis.location.mapbox',
-    rendererType: 'MAPBOX_GL',
-    requiresPublicAccessToken: true,
-    frontendSafeTokenPrefix: 'pk.',
-    status: 'ACTIVE',
-  }),
-  Object.freeze({
-    code: 'OSM',
-    name: Object.freeze({ en: 'OpenStreetMap' }),
-    providerType: 'OSM',
-    rendererCode: 'axis.location.tile',
-    rendererType: 'XYZ_TILE',
-    requiresPublicAccessToken: false,
-    frontendSafeTokenPrefix: '',
-    status: 'ACTIVE',
-  }),
-]);
-const osmHotStyleUrl = 'https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png';
-
-function initialDraft(): LocationMapConfigurationDraft {
-  return {
-    code: 'AXIS_COLLECTION_CENTRE_MAPBOX_STREETS',
-    providerCode: 'MAPBOX',
-    surfaceCode: mapSurfaceCode,
-    usageCode: mapUsageCode,
-    stylePresetCode: 'MAPBOX_STREETS',
-    styleUrl: 'mapbox://styles/mapbox/streets-v12',
-    publicAccessToken: '',
-    fallbackProviderCode: 'OSM',
-    fallbackPolicy: 'SETUP_REQUIRED',
-    defaultCenterLatitude: 25.2048,
-    defaultCenterLongitude: 55.2708,
-    defaultZoom: 9,
-    minimumZoom: 3,
-    maximumZoom: 18,
-    enabledControls: defaultControls,
-    setupStatus: 'SETUP_REQUIRED',
-    status: 'ACTIVE',
-  };
-}
-
 function draftFromConfiguration(
   configuration: LocationMapConfiguration,
 ): LocationMapConfigurationDraft {
-  const defaults = initialDraft();
   return {
     expectedRevision: configuration.revision,
     presentation: configuration.presentation,
     interaction: configuration.interaction,
-    code: configuration.code || defaults.code,
-    providerCode: configuration.providerCode || defaults.providerCode,
-    surfaceCode: configuration.surfaceCode || defaults.surfaceCode,
-    usageCode: configuration.usageCode || defaults.usageCode,
-    stylePresetCode: configuration.stylePresetCode || defaults.stylePresetCode,
-    styleUrl: configuration.styleUrl || defaults.styleUrl,
+    code: configuration.code || '',
+    providerCode: configuration.providerCode || '',
+    surfaceCode: configuration.surfaceCode || '',
+    usageCode: configuration.usageCode || '',
+    stylePresetCode: configuration.stylePresetCode || '',
+    styleUrl: configuration.styleUrl || '',
     publicAccessToken: configuration.publicAccessToken || '',
-    fallbackProviderCode:
-      configuration.fallbackProviderCode || defaults.fallbackProviderCode,
-    fallbackPolicy: configuration.fallbackPolicy || defaults.fallbackPolicy,
+    fallbackProviderCode: configuration.fallbackProviderCode,
+    fallbackPolicy: configuration.fallbackPolicy || '',
     defaultCenterLatitude: configuration.defaultCenter.latitude,
     defaultCenterLongitude: configuration.defaultCenter.longitude,
     defaultZoom: configuration.defaultZoom,
-    minimumZoom: configuration.minimumZoom ?? defaults.minimumZoom,
-    maximumZoom: configuration.maximumZoom ?? defaults.maximumZoom,
+    minimumZoom: configuration.minimumZoom ?? 0,
+    maximumZoom: configuration.maximumZoom ?? 24,
     enabledControls: configuration.enabledControls,
-    setupStatus: configuration.setupStatus || defaults.setupStatus,
-    status: configuration.status || defaults.status,
+    setupStatus: configuration.setupStatus || '',
+    status: configuration.status || '',
   };
-}
-
-function stylePresetForProvider(
-  provider: LocationMapProviderOption | undefined,
-): string {
-  if (provider?.rendererType === 'XYZ_TILE') return 'OSM_HOT';
-  if (provider?.providerType === 'MAPBOX') return 'MAPBOX_STREETS';
-  return '';
-}
-
-function styleUrlForProvider(
-  provider: LocationMapProviderOption | undefined,
-  currentStyleUrl: string,
-): string {
-  if (provider?.rendererType === 'XYZ_TILE') return osmHotStyleUrl;
-  if (provider?.providerType === 'MAPBOX') {
-    return currentStyleUrl || 'mapbox://styles/mapbox/streets-v12';
-  }
-  return currentStyleUrl;
 }
 
 function setupStatusForProvider(
@@ -239,7 +165,6 @@ interface LocationMapSetupFormProps {
   readonly accessToken: string;
   readonly bootstrap: AxisAuthenticatedBootstrap;
   readonly initialConfiguration: LocationMapConfigurationDraft;
-  readonly loadError: unknown;
   readonly providerOptions: readonly LocationMapProviderOption[];
   readonly runtime: AxisRuntimeConfig;
 }
@@ -250,8 +175,7 @@ function LocationMapSetupForm(props: LocationMapSetupFormProps) {
     props.initialConfiguration,
   );
   const [successMessage, setSuccessMessage] = useState('');
-  const providerOptions =
-    props.providerOptions.length > 0 ? props.providerOptions : defaultProviderOptions;
+  const providerOptions = props.providerOptions;
   const selectedProvider = providerOptions.find(
     (provider) => provider.code === draft.providerCode,
   );
@@ -273,7 +197,9 @@ function LocationMapSetupForm(props: LocationMapSetupFormProps) {
     onSuccess: (configuration) => {
       setDraft(draftFromConfiguration(configuration));
       setSuccessMessage(
-        'Shared map configuration saved. Connected applications refresh automatically.',
+        configuration.surfaceCode === 'SHARED'
+          ? 'Shared map configuration saved. Connected applications refresh automatically.'
+          : configuration.surfaceCode + ' map configuration saved.',
       );
       void queryClient.invalidateQueries({ queryKey: ['location-map-configuration'] });
     },
@@ -326,10 +252,15 @@ function LocationMapSetupForm(props: LocationMapSetupFormProps) {
           >
             <Box>
               <Typography variant="overline">Map provider setup</Typography>
-              <Typography variant="h5">Shared collection-centre map</Typography>
+              <Typography variant="h5">
+                {draft.surfaceCode === 'SHARED'
+                  ? 'Shared collection-centre map'
+                  : draft.surfaceCode + ' collection-centre map'}
+              </Typography>
               <Typography color="text.secondary">
-                Changes apply to Axis, Circa and every application using this map.
-                Location owns the provider, viewport, controls, pins and zoom behavior.
+                Shared settings apply to applications that inherit them. Application
+                edits apply only to the selected view. Location owns the provider,
+                viewport, controls, pins and zoom behavior.
               </Typography>
             </Box>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
@@ -343,13 +274,6 @@ function LocationMapSetupForm(props: LocationMapSetupFormProps) {
             </Stack>
           </Stack>
 
-          {props.loadError ? (
-            <Alert severity="warning">
-              Current configuration could not be loaded from Location backend. You can
-              still prepare the values here; save requires the Location Map
-              configuration API to be running.
-            </Alert>
-          ) : null}
           {successMessage ? <Alert severity="success">{successMessage}</Alert> : null}
           {saveMutation.error ? (
             <Alert severity="error">
@@ -390,7 +314,7 @@ function LocationMapSetupForm(props: LocationMapSetupFormProps) {
               label="Configuration code"
               required
               value={draft.code}
-              onChange={(event) => updateText('code', event.target.value)}
+              slotProps={{ input: { readOnly: true } }}
             />
             <TextField
               label="Provider"
@@ -404,13 +328,10 @@ function LocationMapSetupForm(props: LocationMapSetupFormProps) {
                 setDraft((current) => ({
                   ...current,
                   providerCode: event.target.value,
-                  publicAccessToken: providerRequiresToken(provider)
-                    ? current.publicAccessToken
-                    : '',
+                  publicAccessToken: '',
                   setupStatus: setupStatusForProvider(provider, current.setupStatus),
-                  stylePresetCode:
-                    stylePresetForProvider(provider) || current.stylePresetCode,
-                  styleUrl: styleUrlForProvider(provider, current.styleUrl),
+                  stylePresetCode: provider?.stylePresetCode || '',
+                  styleUrl: provider?.styleUrl || '',
                 }));
               }}
             >
@@ -482,6 +403,7 @@ function LocationMapSetupForm(props: LocationMapSetupFormProps) {
                 updateText('fallbackProviderCode', event.target.value)
               }
             >
+              <MenuItem value="">None</MenuItem>
               {providerOptions.map((provider) => (
                 <MenuItem key={provider.code} value={provider.code}>
                   {providerName(provider)} ({provider.rendererType})
@@ -494,7 +416,7 @@ function LocationMapSetupForm(props: LocationMapSetupFormProps) {
               value={
                 selectedFallbackProvider?.rendererCode ||
                 draft.fallbackProviderCode ||
-                'OSM'
+                'None'
               }
             />
             <TextField
@@ -503,6 +425,7 @@ function LocationMapSetupForm(props: LocationMapSetupFormProps) {
               value={draft.fallbackPolicy}
               onChange={(event) => updateText('fallbackPolicy', event.target.value)}
             >
+              <MenuItem value="NONE">NONE</MenuItem>
               <MenuItem value="SETUP_REQUIRED">SETUP_REQUIRED</MenuItem>
               <MenuItem value="ALLOW_BASIC_MAP">ALLOW_BASIC_MAP</MenuItem>
               <MenuItem value="NON_PRODUCTION_ONLY">NON_PRODUCTION_ONLY</MenuItem>
@@ -753,12 +676,13 @@ export function LocationMapConfigurationRoutePage(
     (activeSchema ? schemaGuidance[activeSchema] : undefined) ??
     props.navigation.help?.summary ??
     'Maintain backend-owned Location Map configuration records.';
+  const [surface, setSurface] = useState(mapSurfaceCode);
   const setupQuery = useQuery({
     queryKey: [
       'location-map-configuration',
       props.bootstrap.tenantCode,
       props.runtime.enterpriseCode,
-      mapSurfaceCode,
+      surface,
       mapUsageCode,
     ],
     queryFn: () =>
@@ -766,7 +690,7 @@ export function LocationMapConfigurationRoutePage(
         accessToken: props.accessToken,
         enterpriseCode: props.runtime.enterpriseCode,
         locationBaseUrl: props.runtime.locationBaseUrl,
-        surfaceCode: mapSurfaceCode,
+        surfaceCode: surface,
         timeoutMs: props.runtime.requestTimeoutMs,
         usageCode: mapUsageCode,
       }),
@@ -774,7 +698,7 @@ export function LocationMapConfigurationRoutePage(
   });
   const setupConfiguration = setupQuery.data
     ? draftFromConfiguration(setupQuery.data)
-    : initialDraft();
+    : undefined;
 
   return (
     <Stack spacing={2}>
@@ -831,18 +755,37 @@ export function LocationMapConfigurationRoutePage(
         </Stack>
       </Paper>
 
+      {isConfigurationRoot && (
+        <TextField
+          select
+          label="Configuration scope"
+          value={surface}
+          onChange={(event) => setSurface(event.target.value)}
+        >
+          <MenuItem value="SHARED">Project default</MenuItem>
+          <MenuItem value="AXIS">Axis</MenuItem>
+          <MenuItem value="CIRCA">Circa</MenuItem>
+        </TextField>
+      )}
+      {setupQuery.data?.configurationScope && (
+        <Typography>Resolved from {setupQuery.data.configurationScope}</Typography>
+      )}
+      {setupQuery.data?.providerScope && (
+        <Typography>Provider selected by {setupQuery.data.providerScope}</Typography>
+      )}
       {isConfigurationRoot && setupQuery.isPending ? (
         <Alert severity="info">Loading shared map configuration…</Alert>
-      ) : isConfigurationRoot ? (
+      ) : isConfigurationRoot && setupConfiguration ? (
         <LocationMapSetupForm
-          key={setupConfiguration.code}
+          key={surface + setupConfiguration.code}
           accessToken={props.accessToken}
           bootstrap={props.bootstrap}
           initialConfiguration={setupConfiguration}
-          loadError={setupQuery.error}
-          providerOptions={setupQuery.data?.providerOptions ?? defaultProviderOptions}
+          providerOptions={setupQuery.data?.providerOptions ?? []}
           runtime={props.runtime}
         />
+      ) : isConfigurationRoot ? (
+        <Alert severity="error">Map configuration could not be loaded.</Alert>
       ) : props.navigation.workbenchTarget ? (
         <WorkbenchRoutePage
           accessToken={props.accessToken}

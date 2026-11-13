@@ -27,6 +27,7 @@ import type {
 } from '../api/workbenchContracts';
 import type { WorkbenchRelationshipRuntime } from '../form/WorkbenchRelationshipRuntime';
 import { workbenchRecordValue } from '../record/workbenchRecordPaths';
+import { workbenchRelationshipRecordLabel } from '../form/workbenchRelationshipLabels';
 import { lifecycleActionsForRecord } from '../workbenchRouteModel';
 import type { WorkbenchRecordDetailPanel } from './workbenchRecordDetailPanels';
 import { WorkbenchModelDialog } from './WorkbenchModelDialog';
@@ -422,12 +423,17 @@ export function WorkbenchRecordDetail(props: WorkbenchRecordDetailProps) {
   const titleField = props.schema.fields.find(
     (field) => field.name === props.schema.displayProperty,
   );
-  const title = axisSchemaRecordDisplayValue(
+  const identityTitle = axisSchemaRecordDisplayValue(
     workbenchRecordValue(props.record, props.schema.displayProperty) ??
       props.schema.label,
     titleField,
     props.trueLabel,
     props.falseLabel,
+  );
+  const title = workbenchRelationshipRecordLabel(
+    props.record,
+    props.schema,
+    identityTitle,
   );
   return (
     <Stack spacing={1.5}>

@@ -8,12 +8,19 @@ export interface Entry {
     | {
         readonly data?: ApplicationInitializationStatus | undefined;
         readonly isPending: boolean;
+        readonly isFetching?: boolean;
         readonly isError: boolean;
       }
     | undefined;
 }
 /** Readiness is a current snapshot, not a fabricated business-activity series. */
 export function overviewState(entry: Entry) {
+  if (
+    entry.query &&
+    !entry.query.isError &&
+    (entry.query.isPending || entry.query.isFetching)
+  )
+    return 'checking';
   if (!entry.query?.data || entry.query.isError || entry.query.data.capability?.stale)
     return 'unknown';
   const state = entry.query.data.readiness;

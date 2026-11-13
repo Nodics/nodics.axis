@@ -5,7 +5,10 @@ import {
   backendWorkspaceResponseError,
   loadPublicBackendWorkspacePayload,
 } from '../../../app/backendWorkspaceClient';
-import type { AxisRuntimeConfig } from '../../../runtime/runtimeConfig';
+import {
+  MAXIMUM_TIMEOUT_MS,
+  type AxisRuntimeConfig,
+} from '../../../runtime/runtimeConfig';
 
 /** Profile owns these states. Axis renders outcomes and never grants access. */
 export type RegistrationStage =
@@ -549,7 +552,11 @@ export async function sendRegistrationAction(
   if (url.origin !== base.origin)
     throw new Error('Registration connection is invalid.');
   const timeoutMs = runtime.requestTimeoutMs;
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120000)
+  if (
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs < 1 ||
+    timeoutMs > MAXIMUM_TIMEOUT_MS
+  )
     throw new Error('Registration timeout is invalid.');
   const controller = new AbortController();
   const abort = () => controller.abort();

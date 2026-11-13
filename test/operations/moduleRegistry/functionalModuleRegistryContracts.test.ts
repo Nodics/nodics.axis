@@ -129,4 +129,22 @@ describe('functionalModuleRegistryContracts', () => {
       }),
     ).toThrow('Functional-module runtime state is unsupported');
   });
+  it('defaults missing action eligibility to read-only and refuses unknown or repeated owner actions', () => {
+    expect(
+      parseFunctionalModuleRegistration(registration('ACTIVE')).allowedActions,
+    ).toEqual([]);
+    expect(
+      parseFunctionalModuleRegistration({
+        ...registration('ACTIVE'),
+        allowedActions: ['activate'],
+      }).allowedActions,
+    ).toEqual(['activate']);
+    for (const allowedActions of [['admin'], ['activate', 'activate'], '*', null])
+      expect(() =>
+        parseFunctionalModuleRegistration({
+          ...registration('ACTIVE'),
+          allowedActions,
+        }),
+      ).toThrow(/action eligibility/);
+  });
 });

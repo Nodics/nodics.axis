@@ -78,11 +78,11 @@ describe('employee authentication client', () => {
 
   it('revokes the HttpOnly browser session during logout', async () => {
     document.cookie = 'nodics_axis_csrf=csrf-token; Path=/';
-    const request = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(
-        new Response(JSON.stringify({ result: true }), { status: 200 }),
-      );
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ code: 'SUC_AUTH_00000', result: true }), {
+        status: 200,
+      }),
+    );
     await logoutEmployee(
       'https://profile.example.com',
       'enterprise-a',
@@ -99,11 +99,11 @@ describe('employee authentication client', () => {
 
   it('still asks Profile to acknowledge logout after another application removed the cookie', async () => {
     document.cookie = 'nodics_axis_csrf=; Max-Age=0; Path=/';
-    const request = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(
-        new Response(JSON.stringify({ result: true }), { status: 200 }),
-      );
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ code: 'SUC_AUTH_00000', result: true }), {
+        status: 200,
+      }),
+    );
     await logoutEmployee(
       'https://profile.example.com',
       'enterprise-a',
@@ -127,6 +127,34 @@ describe('employee authentication client', () => {
     ).rejects.toThrow('secure logout');
     expect(request).toHaveBeenCalledTimes(2);
   });
+
+  it.each([
+    { code: 'SUC_AUTH_00000', result: false },
+    { code: 'ERR_AUTH_00001', result: true },
+    { result: true },
+    {},
+    null,
+    '<html>upstream unavailable</html>',
+  ])(
+    'retains uncertain logout on a contradictory HTTP200 response: %j',
+    async (body) => {
+      const request = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(typeof body === 'string' ? body : JSON.stringify(body), {
+          status: 200,
+        }),
+      );
+      await expect(
+        logoutEmployee(
+          'https://profile.example.com',
+          'enterprise-a',
+          'nodics_axis_csrf',
+          10000,
+          request,
+        ),
+      ).rejects.toThrow('secure logout');
+      expect(request).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('does not misreport browser-session failures as invalid credentials', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(

@@ -1,3 +1,4 @@
+import { useAxisLocalization } from '../../localization/AxisLocalizationContext';
 import {
   Badge,
   Box,
@@ -28,14 +29,15 @@ const iconSx = {
 } as const;
 
 export function RecentPagesMenu({ items, onNavigate }: RecentPagesMenuProps) {
+  const { format: workflowText, locale } = useAxisLocalization();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
 
   return (
     <>
-      <Tooltip title="Recent pages">
+      <Tooltip title={workflowText('axis.ui.recent-pages', 'Recent pages')}>
         <span>
           <IconButton
-            aria-label="Recent pages"
+            aria-label={`${workflowText('axis.ui.recent-pages', 'Recent pages')}: ${new Intl.NumberFormat(locale).format(items.length)}`}
             disabled={items.length === 0}
             sx={actionSx}
             onClick={(event: MouseEvent<HTMLElement>) => {
@@ -43,7 +45,7 @@ export function RecentPagesMenu({ items, onNavigate }: RecentPagesMenuProps) {
             }}
           >
             <Badge
-              badgeContent={items.length}
+              badgeContent={new Intl.NumberFormat(locale).format(items.length)}
               color="primary"
               invisible={items.length === 0}
               slotProps={{
@@ -78,10 +80,13 @@ export function RecentPagesMenu({ items, onNavigate }: RecentPagesMenuProps) {
       >
         <Box sx={{ px: 2, py: 1 }}>
           <Typography sx={{ fontWeight: 700 }} variant="subtitle2">
-            Recent pages
+            {workflowText('axis.ui.recent-pages', 'Recent pages')}
           </Typography>
           <Typography color="text.secondary" variant="caption">
-            Shortcuts recorded from authorized navigation.
+            {workflowText(
+              'axis.ui.shortcuts-recorded-from-authorized-navigation',
+              'Shortcuts recorded from authorized navigation.',
+            )}
           </Typography>
         </Box>
         {items.map((item) => (

@@ -128,7 +128,7 @@ export function EmployeeRegistrationRoutePage({
   }, [runtime, profileBaseUrl, loadAttempt, cancelPending, journey]);
   useEffect(() => {
     heading.current?.focus();
-  }, [progress?.stage]);
+  }, [progress?.stage, workspace?.presentation.title]);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
@@ -147,6 +147,9 @@ export function EmployeeRegistrationRoutePage({
     stage === 'SIGN_IN' ||
     stage === 'NO_INVITATION' ||
     stage === 'ACCOUNT_UNAVAILABLE';
+  const deliveryUnconfirmed = ['UNAVAILABLE', 'UNCERTAIN', 'RETRY_PENDING'].includes(
+    progress?.deliveryStatus ?? '',
+  );
   const resendReady = Boolean(progress && Date.parse(progress.resendAt) <= now);
   const restart = () => {
     sequence.current++;
@@ -268,13 +271,47 @@ export function EmployeeRegistrationRoutePage({
             : 'complete',
     );
   };
+  const goToSignIn = () => {
+    if (busy) return;
+    const enterprise =
+      stage === 'COMPLETE' || stage === 'SIGN_IN'
+        ? progress?.signInEnterpriseCode
+        : undefined;
+    cancelPending();
+    if (onSignIn) {
+      onSignIn(enterprise);
+      return;
+    }
+    void navigate(copy?.signInPath ?? '/login', {
+      state: enterprise
+        ? { registrationSignIn: { enterpriseCode: enterprise } }
+        : undefined,
+    });
+  };
   if (!workspace || !copy)
     return (
       <WorkspaceContainer>
-        <Box sx={{ maxWidth: 640, mx: 'auto', p: { xs: 2, md: 4 } }}>
+        <Box component="main" sx={{ maxWidth: 640, mx: 'auto', p: { xs: 2, md: 4 } }}>
           {error ? (
             <Stack spacing={2}>
-              <Alert severity="error">{error}</Alert>
+              <Typography component="h1" variant="h4">
+                Account access is unavailable
+              </Typography>
+              <Alert severity="error">
+                Try again, or contact your administrator if the problem continues.
+              </Alert>
+              <Box component="details">
+                <Typography component="summary" variant="body2">
+                  Technical details
+                </Typography>
+                <Typography
+                  color="text.secondary"
+                  sx={{ overflowWrap: 'anywhere' }}
+                  variant="body2"
+                >
+                  {error}
+                </Typography>
+              </Box>
               <Button onClick={() => setLoadAttempt((value) => value + 1)}>
                 Retry
               </Button>
@@ -282,9 +319,12 @@ export function EmployeeRegistrationRoutePage({
           ) : (
             <Stack sx={{ alignItems: 'center' }} spacing={2} role="status">
               <CircularProgress />
-              <Typography>Loading registration…</Typography>
+              <Typography>Loading your account options…</Typography>
             </Stack>
           )}
+          <Button disabled={busy} onClick={goToSignIn}>
+            Sign in
+          </Button>
         </Box>
       </WorkspaceContainer>
     );
@@ -302,7 +342,7 @@ export function EmployeeRegistrationRoutePage({
               ? copy.resolvingMessage
               : progress?.notice === 'INVALID_CODE'
                 ? copy.invalidCodeMessage
-                : progress?.deliveryStatus === 'UNAVAILABLE'
+                : deliveryUnconfirmed
                   ? copy.deliveryMessage
                   : progress && ['LOCKED', 'EXPIRED'].includes(progress.codeState)
                     ? copy.lockedCodeMessage
@@ -310,6 +350,7 @@ export function EmployeeRegistrationRoutePage({
   return (
     <WorkspaceContainer>
       <Box
+        component="main"
         sx={{
           maxWidth: 680,
           width: '100%',
@@ -353,8 +394,7 @@ export function EmployeeRegistrationRoutePage({
                     severity={
                       stage === 'COMPLETE'
                         ? 'success'
-                        : stage === 'RECOVERY' ||
-                            progress.deliveryStatus === 'UNAVAILABLE'
+                        : stage === 'RECOVERY' || deliveryUnconfirmed
                           ? 'warning'
                           : 'info'
                     }
@@ -675,26 +715,21 @@ export function EmployeeRegistrationRoutePage({
                 </DialogActions>
               </Dialog>
             )}
+            {(!progress ||
+              stage === 'VERIFY_EMAIL' ||
+              stage === 'NO_INVITATION' ||
+              stage === 'ACCOUNT_UNAVAILABLE') && (
+              <Button disabled={busy} onClick={goToSignIn}>
+                {copy.signInLabel}
+              </Button>
+            )}
             {(stage === 'COMPLETE' || stage === 'SIGN_IN') && (
               <Stack spacing={1.5}>
                 <Button
                   variant="contained"
                   size="large"
-                  onClick={() => {
-                    if (onSignIn) {
-                      onSignIn(progress?.signInEnterpriseCode);
-                      return;
-                    }
-                    void navigate(copy.signInPath, {
-                      state: progress?.signInEnterpriseCode
-                        ? {
-                            registrationSignIn: {
-                              enterpriseCode: progress.signInEnterpriseCode,
-                            },
-                          }
-                        : undefined,
-                    });
-                  }}
+                  disabled={busy}
+                  onClick={goToSignIn}
                 >
                   {copy.signInLabel}
                 </Button>

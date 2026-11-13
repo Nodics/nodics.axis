@@ -5,7 +5,10 @@ import {
   WorkspaceHeading,
   WorkspaceHelpActions,
 } from '../../../src/app/help/WorkspaceHelp';
-import { documentationHref } from '../../../src/app/help/workspaceHelpModel';
+import {
+  documentationHref,
+  OnlineHelpPathsContext,
+} from '../../../src/app/help/workspaceHelpModel';
 
 describe('Workspace help affordances', () => {
   it('builds bounded documentation links with optional fragments', () => {
@@ -38,6 +41,34 @@ describe('Workspace help affordances', () => {
       'href',
       '/docs/capabilities/content-publishing/wcms-authoring-model',
     );
+  });
+
+  it('offers the reader catalogue for an unpublished article and preserves published anchors', () => {
+    render(
+      <OnlineHelpPathsContext.Provider value={new Set(['/docs/framework/task'])}>
+        <WorkspaceHelpActions
+          label="Websites"
+          help={{
+            summary: 'Manage CMS websites.',
+            documentationRoute: '/docs/retired',
+          }}
+        />
+        <WorkspaceHelpActions
+          label="Tasks"
+          help={{
+            documentationRoute: '/docs/framework/task',
+            documentationFragment: 'claim-task',
+          }}
+        />
+      </OnlineHelpPathsContext.Provider>,
+    );
+    expect(screen.getByRole('button', { name: 'Websites help' })).toBeVisible();
+    expect(
+      screen.getByRole('link', { name: 'Browse documentation for Websites' }),
+    ).toHaveAttribute('href', '/docs');
+    expect(
+      screen.getByRole('link', { name: 'Open Tasks documentation' }),
+    ).toHaveAttribute('href', '/docs/framework/task#claim-task');
   });
 
   it('renders a complete workspace heading when pages want the standard block', () => {

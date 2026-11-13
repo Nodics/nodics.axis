@@ -34,7 +34,7 @@ function BrandLogo({
   );
 }
 
-export function BrandRenderer({ component }: CmsComponentRendererProps) {
+export function BrandRenderer({ component, actions }: CmsComponentRendererProps) {
   const displayMode = stringProperty(component, 'displayMode', 'workspace');
   const productName = stringProperty(component, 'productName');
   const tagline = stringProperty(component, 'tagline');
@@ -44,10 +44,29 @@ export function BrandRenderer({ component }: CmsComponentRendererProps) {
     BRAND_ASSET_ALIASES,
     'axis-brand-mark',
   );
+  // A scoped business workspace owns its heading; keep the generic discovery brand for global Workbench.
+  if (
+    displayMode === 'workspace' &&
+    actions?.workbench?.scope?.kind === 'navigation' &&
+    actions.workbench.scope.label
+  )
+    return null;
   if (displayMode === 'workspace') {
     return (
       <Stack spacing={0.25} sx={{ alignItems: 'flex-start' }}>
-        <Typography color="text.secondary" variant="overline">
+        <Typography
+          component={
+            actions?.workbench && !actions.workbench.ownerHeader ? 'h1' : 'div'
+          }
+          color={
+            actions?.workbench && !actions.workbench.ownerHeader
+              ? 'text.primary'
+              : 'text.secondary'
+          }
+          variant={
+            actions?.workbench && !actions.workbench.ownerHeader ? 'h5' : 'overline'
+          }
+        >
           {productName}
         </Typography>
         <Typography color="text.secondary" variant="body2">

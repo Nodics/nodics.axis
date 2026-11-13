@@ -82,12 +82,22 @@ export async function loadLocalizationBundle(
     if (!response.ok)
       throw new Error(`Localization returned HTTP ${String(response.status)}`);
     const envelope: unknown = await response.json();
-    const data =
+    const ownerResponse =
       envelope && typeof envelope === 'object' && !Array.isArray(envelope)
-        ? ((envelope as Record<string, unknown>).data ?? envelope)
-        : envelope;
-    const record = data as Record<string, unknown>;
+        ? (envelope as Record<string, unknown>)
+        : undefined;
+    const record = (ownerResponse?.result ?? ownerResponse?.data ?? envelope) as Record<
+      string,
+      unknown
+    >;
     const bundle = parseBundle(record.bundle ?? record);
+    if (
+      bundle.locale !== locale ||
+      bundle.scopeCode !== site ||
+      bundle.channel !== channel
+    ) {
+      throw new Error('Localization returned a bundle for another scope');
+    }
     return {
       bundle,
       ...(response.headers.get('etag')

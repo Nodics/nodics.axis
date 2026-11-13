@@ -91,7 +91,12 @@ function response(value: unknown, status = 200) {
     JSON.stringify(
       status === 200
         ? { code: 'SUC_SYS_00000', result: value }
-        : { code: 'ERR_SYNTHETIC', message: 'Synthetic owner refused the request.' },
+        : {
+            code: 'ERR_SYNTHETIC',
+            message: 'Synthetic owner refused the request.',
+            messageKey: 'common.test.safe-owner-message',
+            messageExposure: 'AUTHENTICATED',
+          },
     ),
     { status },
   );

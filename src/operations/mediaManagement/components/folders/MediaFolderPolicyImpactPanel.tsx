@@ -20,17 +20,16 @@ export function MediaFolderPolicyImpactPanel(props: {
           sx={{ alignItems: 'center', flexWrap: 'wrap' }}
         >
           <Typography sx={{ fontWeight: 700 }}>
-            Folder policy affects future uploads for {folderCode}.
+            Folder record for {folderCode}.
           </Typography>
           <Chip label={`Visibility: ${access}`} size="small" />
           <Chip label={`Max size: ${maxSize}`} size="small" />
           <Chip label={`Retention: ${retention}`} size="small" />
         </Stack>
         <Typography variant="body2">
-          nMedia owns upload validation, default visibility, retention, and
-          provider-relative routing. Axis can review and submit authorized policy
-          changes, but must not expose provider secrets, raw storage paths, or alternate
-          browser-side upload rules.
+          These are the saved folder details. The configured intake policy determines
+          upload visibility, limits and retention. Creating or editing a folder record
+          does not enable it for uploads.
         </Typography>
       </Stack>
     </Alert>

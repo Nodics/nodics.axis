@@ -31,6 +31,7 @@ export function WorkbenchFormReview({
   sections,
   draft,
   relationships,
+  referenceLabels,
   onEdit,
 }: {
   readonly schema: WorkbenchSchema;
@@ -41,6 +42,9 @@ export function WorkbenchFormReview({
   }[];
   readonly draft: Readonly<Record<string, unknown>>;
   readonly relationships: Readonly<Record<string, WorkbenchRelationshipDraft>>;
+  readonly referenceLabels?:
+    | Readonly<Record<string, ReadonlyMap<string, string>>>
+    | undefined;
   readonly onEdit: (index: number) => void;
 }) {
   const copy = schema.form?.copy ?? {};
@@ -89,13 +93,24 @@ export function WorkbenchFormReview({
               const relation = relationships[name];
               const value = relation
                 ? [
-                    ...relation.references,
+                    ...relation.references.map(
+                      (reference) =>
+                        referenceLabels?.[name]?.get(reference) ?? reference,
+                    ),
                     ...relation.pending.map(
                       (record) =>
                         `${copy.pendingLabel ?? 'New'}: ${displayValue(field, record.name ?? record.value ?? record.code ?? field.label, copy.emptyValueLabel ?? 'Not provided', copy)}`,
                     ),
                   ]
                 : draft[name];
+              if (
+                schema.form?.omitEmptyOptionalOnReview &&
+                !field.required &&
+                (value == null ||
+                  value === '' ||
+                  (Array.isArray(value) && value.length === 0))
+              )
+                return null;
               return (
                 <Box key={name} sx={{ display: 'contents' }}>
                   <Typography component="dt" variant="body2" color="text.secondary">

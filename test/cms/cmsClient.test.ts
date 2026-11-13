@@ -1,3 +1,4 @@
+import { subscribeEmployeeSessionExpired } from '../../src/auth/employeeSessionEvents';
 import { describe, expect, it, vi } from 'vitest';
 
 import { resolveCmsPage } from '../../src/cms/cmsClient';
@@ -119,5 +120,65 @@ describe('resolveCmsPage', () => {
       'The requested CMS route is not available for this Site. ' +
         'Install or update the owning content pack, then try again.',
     );
+  });
+  it('signals authenticated401 with exact session generation; public401 and permission403 do not expire an actor', async () => {
+    const observed = vi.fn();
+    const unsubscribe = subscribeEmployeeSessionExpired(observed);
+    try {
+      for (const status of [401, 403]) {
+        await expect(
+          resolveCmsPage(
+            {
+              ...baseInput,
+              path: '/lock-screen',
+              accessToken: 'existing-session-token',
+              sessionGeneration: 7,
+            },
+            vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status })),
+          ),
+        ).rejects.toThrow();
+      }
+      await expect(
+        resolveCmsPage(
+          baseInput,
+          vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 401 })),
+        ),
+      ).rejects.toThrow();
+      expect(observed).toHaveBeenCalledTimes(1);
+      expect(observed).toHaveBeenCalledWith({
+        accessToken: 'existing-session-token',
+        generation: 7,
+      });
+    } finally {
+      unsubscribe();
+    }
+  });
+  it('ignores a late401 after caller retirement, even when the transport ignores abort', async () => {
+    const observed = vi.fn(),
+      controller = new AbortController();
+    const unsubscribe = subscribeEmployeeSessionExpired(observed);
+    let finish: ((value: Response) => void) | undefined;
+    const pending = resolveCmsPage(
+      {
+        ...baseInput,
+        accessToken: 'old-session-token',
+        sessionGeneration: 1,
+        signal: controller.signal,
+      },
+      vi.fn<typeof fetch>(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      ),
+    );
+    controller.abort();
+    finish?.(new Response(null, { status: 401 }));
+    try {
+      await expect(pending).rejects.toThrow(/cancelled/);
+      expect(observed).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+    }
   });
 });

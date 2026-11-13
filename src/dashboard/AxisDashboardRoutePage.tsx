@@ -1,10 +1,12 @@
+import { useOperationalReadinessObservation } from '../bootstrap/useOperationalReadinessObservation';
 import type { CmsComponentContract } from '../cms/cmsContract';
 import { CopilotWorkspaceRoutePage } from '../assistant/CopilotWorkspaceRoutePage';
 import { dashboardComposition, dashboardText } from './dashboardComposition';
 import { AxisOverviewDashboard } from './AxisOverviewDashboard';
 import { isDocumentation } from './overviewStatus';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { useQueries, type Query } from '@tanstack/react-query';
+import { useQueries, useQueryClient, type Query } from '@tanstack/react-query';
+import { useApplicationReadinessQueue } from '../operations/setupAccelerators/useApplicationReadinessQueue';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
   Accordion,
@@ -56,7 +58,12 @@ const FrameworkOverview = lazy(async () => {
   return { default: module.AxisFrameworkOverview };
 });
 
+import { useOnlineDocumentationGuides } from '../bootstrap/onlineDocumentationGuides';
+
 interface Props {
+  readonly employeeId: string;
+  readonly site?: string | undefined;
+  readonly catalog?: string | undefined;
   readonly composition: CmsComponentContract;
   readonly accessToken: string;
   readonly bootstrap: AxisAuthenticatedBootstrap;
@@ -80,6 +87,20 @@ function statusLabel(status?: ApplicationInitializationStatus): string {
 
 /** Application-first entry point. BackOffice remains plan, state and operation authority. */
 export function AxisDashboardRoutePage(props: Props) {
+  const guides = useOnlineDocumentationGuides(
+    props.bootstrap,
+    props.runtime,
+    props.accessToken,
+    props.employeeId,
+  );
+  const online = selectModuleConnection(props.bootstrap, 'cms', {
+    publicationRole: 'ONLINE',
+  });
+  const guideIndex = {
+    guides: guides.data?.guides ?? [],
+    loading: Boolean(online) && guides.isPending,
+    unavailable: !online || guides.isError,
+  };
   const artworkContext = {
     bootstrap: props.bootstrap,
     accessToken: props.accessToken,
@@ -111,26 +132,48 @@ export function AxisDashboardRoutePage(props: Props) {
     [props.bootstrap.applicationInitializationProfiles],
   );
   const connection = selectModuleConnection(props.bootstrap, 'backoffice');
+  const statusReadsActive = tab?.layout === 'summary';
+  const observedProfiles =
+    view === 'applications'
+      ? profiles.filter(
+          (profile) =>
+            profile.kind !== 'DOCUMENTATION' && profile.type !== 'DOCUMENTATION_BUNDLE',
+        )
+      : profiles;
+  const { queue: statusQueue, scope: statusScope } = useApplicationReadinessQueue({
+    accessToken: props.accessToken,
+    tenantCode: props.bootstrap.tenantCode,
+    enterpriseCode: props.runtime.enterpriseCode,
+    projectCode: props.runtime.projectCode,
+    connection,
+    policy: props.bootstrap.applicationReadinessScheduling,
+    active: statusReadsActive,
+    preferredKey: selectedCode ?? undefined,
+  });
+  const overviewReadinessActive =
+    statusReadsActive &&
+    Boolean(tab?.sections.some((section) => section.properties.kind === 'operations'));
+  const overviewObservation = useOperationalReadinessObservation({
+    ...props,
+    scope: statusScope,
+    active: overviewReadinessActive,
+  });
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!statusReadsActive)
+      void queryClient.cancelQueries({
+        queryKey: ['dashboard-application-status', statusScope],
+      });
+  }, [statusReadsActive, statusScope, queryClient]);
   const [pollingStarted] = useState(() => new Map<string, number>());
   useEffect(() => {
     pollingStarted.clear();
-  }, [
-    props.accessToken,
-    props.runtime.enterpriseCode,
-    connection?.instanceId,
-    profiles,
-    pollingStarted,
-  ]);
+  }, [statusScope, pollingStarted]);
   const queries = useQueries({
-    queries: profiles.map((profile) => ({
-      queryKey: [
-        'setup-accelerators',
-        props.runtime.enterpriseCode,
-        connection?.instanceId,
-        profile.code,
-      ],
-      enabled: Boolean(connection) && tab?.layout === 'summary',
-      queryFn: () => {
+    queries: observedProfiles.map((profile) => ({
+      queryKey: ['dashboard-application-status', statusScope, profile.code],
+      enabled: Boolean(connection) && statusReadsActive,
+      queryFn: ({ signal }) => {
         if (!connection) throw new Error('Application status is unavailable');
         return createApplicationInitializationClient({
           connection,
@@ -138,10 +181,13 @@ export function AxisDashboardRoutePage(props: Props) {
           accessToken: props.accessToken,
           timeoutMs: props.runtime.requestTimeoutMs,
           profileCode: profile.code,
-        }).getStatus();
+          statusQueue,
+        }).getStatus(signal);
       },
       staleTime: 15_000,
       retry: false,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
       refetchInterval: (
         query: Query<
           ApplicationInitializationStatus,
@@ -168,9 +214,12 @@ export function AxisDashboardRoutePage(props: Props) {
       refetchIntervalInBackground: false,
     })),
   });
-  const entries = profiles.map((profile, index) => ({
+  const queriesByProfile = new Map(
+    observedProfiles.map((profile, index) => [profile.code, queries[index]]),
+  );
+  const entries = profiles.map((profile) => ({
     profile,
-    query: queries[index],
+    query: queriesByProfile.get(profile.code),
   }));
   const selected = entries.find(({ profile }) => profile.code === selectedCode);
   const applications = entries.filter((entry) => !isDocumentation(entry));
@@ -193,7 +242,9 @@ export function AxisDashboardRoutePage(props: Props) {
   const findings = props.bootstrap.startupValidation?.findings ?? [];
   const selectedStatus = selected?.query?.data;
   const plan = selectedStatus?.profile?.setupPlan ?? selected?.profile.setupPlan;
-  const refreshing = queries.some((query) => query.isFetching);
+  const refreshing =
+    queries.some((query) => query.isFetching) ||
+    (overviewReadinessActive && overviewObservation.query.isFetching);
 
   const updateParam = (key: string, value?: string) => {
     setParams((previous) => {
@@ -225,6 +276,10 @@ export function AxisDashboardRoutePage(props: Props) {
                 aria-label="Refresh application status"
                 disabled={refreshing || !connection}
                 onClick={() => {
+                  if (overviewReadinessActive && overviewObservation.onDemand)
+                    void overviewObservation.query.refetch();
+                  for (const profile of observedProfiles)
+                    pollingStarted.delete(profile.code);
                   for (const query of queries) void query.refetch();
                 }}
               >
@@ -298,8 +353,10 @@ export function AxisDashboardRoutePage(props: Props) {
           aria-labelledby="overview-tab"
         >
           <AxisOverviewDashboard
+            guideIndex={guideIndex}
+            currentProjectId={props.runtime.projectCode}
             media={artworkContext}
-            bootstrap={props.bootstrap}
+            bootstrap={overviewObservation.bootstrap}
             entries={entries}
             findings={findings}
             sections={tab.sections}
@@ -313,8 +370,10 @@ export function AxisDashboardRoutePage(props: Props) {
       ) : (
         <Box role="tabpanel" id="applications-panel" aria-labelledby="applications-tab">
           <AxisOverviewDashboard
+            guideIndex={guideIndex}
+            currentProjectId={props.runtime.projectCode}
             media={artworkContext}
-            bootstrap={props.bootstrap}
+            bootstrap={overviewObservation.bootstrap}
             entries={entries}
             findings={findings}
             sections={tab.sections}
@@ -703,6 +762,8 @@ export function AxisDashboardRoutePage(props: Props) {
                                   aria-label="Refresh selected application"
                                   disabled={selected.query?.isFetching || !connection}
                                   onClick={() => {
+                                    statusQueue.prioritize(selected.profile.code);
+                                    pollingStarted.delete(selected.profile.code);
                                     void selected.query?.refetch();
                                   }}
                                 >

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useAxisLocalization } from '../../../../localization/AxisLocalizationContext';
 
 import {
   Box,
@@ -28,12 +29,17 @@ export function AuthenticationField({
   placeholder,
   type = 'text',
 }: AuthenticationFieldProps) {
+  const { format } = useAxisLocalization();
   const [passwordVisible, setPasswordVisible] = useState(false);
   const isPassword = type === 'password';
   const effectiveType = isPassword && passwordVisible ? 'text' : type;
   const passwordToggleLabel = passwordVisible
-    ? `Hide ${label.toLowerCase()}`
-    : `Show ${label.toLowerCase()}`;
+    ? format('common.authentication.hide-field', 'Hide {label}', {
+        label: label.toLowerCase(),
+      })
+    : format('common.authentication.show-field', 'Show {label}', {
+        label: label.toLowerCase(),
+      });
   const slotProps = {
     htmlInput: {
       'aria-label': label,

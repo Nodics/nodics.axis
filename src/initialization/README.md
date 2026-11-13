@@ -106,3 +106,27 @@ for employees without detailed setup inspection rights. Only `READY` admits the
 workspace. `NOT_READY` and `UNAVAILABLE` show a read-only refresh/sign-out screen,
 without requesting setup status or exposing initialization actions. Employees
 with setup inspection rights retain the existing detailed initialization flow.
+
+The bundled approval step describes an authorized reviewer decision. Whether a
+different actor is required belongs to the published Process policy; generic
+first-run copy does not promise maker-checker separation or grant review rights.
+
+Bundled sign-in uses neutral employee-account copy during CMS unavailability.
+When Profile's admitted public invitation entry is available, it renders the same
+owner-labelled link as managed sign-in. Pending authentication hides the link;
+opening it follows the existing registration route without a registration/email
+command. Customize the label through Profile's registration title, keeping the
+existing sign-in fields, credential lifetime and one-attempt authentication.
+
+The bundled sign-in fallback uses the existing approved `AxisMark` lockup with a
+Sign in heading. The shared mark selects its approved reverse form on Dark
+surfaces unless a fixed-surface caller explicitly overrides it. Brand geometry,
+colors and regular Times glyph remain owned by the shared component and asset tests.
+
+## Actor-bound setup and exact review
+
+BackOffice projects baseline `allowedActions` using the canonical initialization route's token, group and permission checks. Missing or invalid eligibility is read-only. Framework owns this projection; no Kickoff default or browser role map is added. The initializer checks `INITIALIZE` before rendering or dispatching its one command.
+
+The existing review dialog remains available for inspection. Its approval button requires affirmative Process reviewer eligibility for the frozen publication and current actor. Changing status, revision, actor or availability retires that observation. Immediately before completion, Axis rereads the baseline and refuses a changed code, revision, workflow or release checksum, then rereads the exact Process task. Approval permissions and any same-actor policy remain Process-owned.
+
+Customize presentation in the existing dialog or `useInitializationApproval`; retain canonical OPERATIONAL Process discovery, current-actor read lifetimes and single-attempt commands. Protect the boundary with `initializationActionPresentation.test.js` in BackOffice and the initializer/hook regression tests here.

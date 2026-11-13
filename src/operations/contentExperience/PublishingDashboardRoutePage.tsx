@@ -48,9 +48,11 @@ interface PublishingDashboardRoutePageProps {
 const publishingMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
   Object.freeze({
     id: 'publishing-requests',
+    includeSourceContext: true,
     label: 'Publishing requests',
     moduleName: 'publish',
     schemaName: 'publicationRequest',
+    ownerSelector: { runtimeRoleCode: 'WCMS_STAGED', publicationRole: 'STAGED' },
     description: 'Governed requests moving staged content toward delivery.',
     route: '/publishing/requests',
     icon: 'workflow',
@@ -60,6 +62,7 @@ const publishingMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Publishing status',
     moduleName: 'cms',
     schemaName: 'cmsOnlinePublicationPointer',
+    ownerSelector: { runtimeRoleCode: 'WCMS_ONLINE', publicationRole: 'ONLINE' },
     description: 'Operational status for staged-to-online publication flow.',
     route: '/publishing/status',
     icon: 'status',
@@ -69,6 +72,7 @@ const publishingMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Publication manifests',
     moduleName: 'cms',
     schemaName: 'cmsPublicationManifest',
+    ownerSelector: { runtimeRoleCode: 'WCMS_STAGED', publicationRole: 'STAGED' },
     description: 'Generated evidence describing prepared publishing payloads.',
     route: '/publishing/manifests',
     icon: 'file',
@@ -78,6 +82,7 @@ const publishingMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Publishing history',
     moduleName: 'cms',
     schemaName: 'cmsPublicationDeploymentReceipt',
+    ownerSelector: { runtimeRoleCode: 'WCMS_ONLINE', publicationRole: 'ONLINE' },
     description: 'Historical publishing receipts and deployment evidence.',
     route: '/publishing/history',
     icon: 'history',
@@ -87,6 +92,7 @@ const publishingMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Publishing audit',
     moduleName: 'publish',
     schemaName: 'publicationAudit',
+    ownerSelector: { runtimeRoleCode: 'WCMS_STAGED', publicationRole: 'STAGED' },
     description: 'Traceability records for publishing operations.',
     route: '/publishing/audit',
     icon: 'audit',
@@ -658,18 +664,19 @@ const canonicalPublicationStates = Object.freeze([
 function taskIsActionable(task: ProcessHumanTask): boolean {
   return (
     approvalTaskStates.includes(task.status) &&
-    task.nodeCode === 'publicationReview' &&
-    (task.instanceCode?.startsWith('cmsPublicationApproval-') ?? false)
+    (Boolean(task.reviewContext && task.decisionContract?.kind === 'APPROVAL') ||
+      (task.nodeCode === 'publicationReview' &&
+        (task.instanceCode?.startsWith('cmsPublicationApproval-') ?? false)))
   );
 }
 
 function workflowConnection(
   bootstrap: AxisAuthenticatedBootstrap,
 ): AxisModuleConnection | undefined {
-  return (
-    selectModuleConnection(bootstrap, 'workflow', { server: 'processServer' }) ??
-    selectModuleConnection(bootstrap, 'workflow')
-  );
+  return selectModuleConnection(bootstrap, 'workflow', {
+    runtimeRoleCode: 'PROCESS',
+    publicationRole: 'OPERATIONAL',
+  });
 }
 
 export function PublishingDashboardRoutePage({
@@ -738,7 +745,17 @@ export function PublishingDashboardRoutePage({
                 headingVariant="h3"
                 title="Publishing"
               />
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
+              <Stack
+                direction="row"
+                spacing={1}
+                useFlexGap
+                sx={{
+                  alignItems: 'flex-start',
+                  flexWrap: 'wrap',
+                  minWidth: 0,
+                  maxWidth: '100%',
+                }}
+              >
                 <Chip label={`${String(publishingMetrics.length)} metrics`} />
                 <Chip color="success" label={`${String(readyCount)} live`} />
                 {unavailableCount > 0 ? (
@@ -834,7 +851,7 @@ export function PublishingDashboardRoutePage({
                 display: 'grid',
                 gap: 2,
                 gridTemplateColumns: {
-                  xs: '1fr',
+                  xs: 'minmax(0, 1fr)',
                   md: 'repeat(2, minmax(0, 1fr))',
                   xl: 'repeat(3, minmax(0, 1fr))',
                 },
@@ -885,7 +902,10 @@ export function PublishingDashboardRoutePage({
               sx={{
                 display: 'grid',
                 gap: 2,
-                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+                gridTemplateColumns: {
+                  xs: 'minmax(0, 1fr)',
+                  md: 'repeat(2, minmax(0, 1fr))',
+                },
               }}
             >
               {publishingScopeIsolationCards.map((scope) => (
@@ -913,7 +933,10 @@ export function PublishingDashboardRoutePage({
               sx={{
                 display: 'grid',
                 gap: 2,
-                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+                gridTemplateColumns: {
+                  xs: 'minmax(0, 1fr)',
+                  md: 'repeat(2, minmax(0, 1fr))',
+                },
               }}
             >
               {publishingApiAcceptanceCards.map((card) => (
@@ -963,7 +986,7 @@ export function PublishingDashboardRoutePage({
                 display: 'grid',
                 gap: 2,
                 gridTemplateColumns: {
-                  xs: '1fr',
+                  xs: 'minmax(0, 1fr)',
                   md: 'repeat(2, minmax(0, 1fr))',
                   xl: 'repeat(4, minmax(0, 1fr))',
                 },
@@ -978,7 +1001,21 @@ export function PublishingDashboardRoutePage({
                 >
                   <Stack spacing={1}>
                     <Typography variant="h6">{role.role}</Typography>
-                    <Chip label={role.scope} size="small" variant="outlined" />
+                    <Chip
+                      label={role.scope}
+                      size="small"
+                      variant="outlined"
+                      sx={{
+                        height: 'auto',
+                        alignSelf: 'flex-start',
+                        maxWidth: '100%',
+                        '& .MuiChip-label': {
+                          py: 0.25,
+                          whiteSpace: 'normal',
+                          overflowWrap: 'anywhere',
+                        },
+                      }}
+                    />
                     <Typography color="text.secondary" variant="body2">
                       {role.responsibility}
                     </Typography>
@@ -1036,7 +1073,10 @@ export function PublishingDashboardRoutePage({
               sx={{
                 display: 'grid',
                 gap: 2,
-                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+                gridTemplateColumns: {
+                  xs: 'minmax(0, 1fr)',
+                  md: 'repeat(2, minmax(0, 1fr))',
+                },
               }}
             >
               {publishingActionVisibilityRules.map((rule) => (
@@ -1077,7 +1117,7 @@ export function PublishingDashboardRoutePage({
                 display: 'grid',
                 gap: 2,
                 gridTemplateColumns: {
-                  xs: '1fr',
+                  xs: 'minmax(0, 1fr)',
                   md: 'repeat(2, minmax(0, 1fr))',
                   xl: 'repeat(3, minmax(0, 1fr))',
                 },
@@ -1121,7 +1161,10 @@ export function PublishingDashboardRoutePage({
               sx={{
                 display: 'grid',
                 gap: 2,
-                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+                gridTemplateColumns: {
+                  xs: 'minmax(0, 1fr)',
+                  md: 'repeat(2, minmax(0, 1fr))',
+                },
               }}
             >
               {publishingDiagnosticSignals.map((signal) => (
@@ -1165,7 +1208,7 @@ export function PublishingDashboardRoutePage({
                 display: 'grid',
                 gap: 2,
                 gridTemplateColumns: {
-                  xs: '1fr',
+                  xs: 'minmax(0, 1fr)',
                   md: 'repeat(2, minmax(0, 1fr))',
                   xl: 'repeat(5, minmax(0, 1fr))',
                 },
@@ -1214,7 +1257,10 @@ export function PublishingDashboardRoutePage({
               sx={{
                 display: 'grid',
                 gap: 2,
-                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+                gridTemplateColumns: {
+                  xs: 'minmax(0, 1fr)',
+                  md: 'repeat(2, minmax(0, 1fr))',
+                },
               }}
             >
               {publishingReadinessGates.map((gate) => (
@@ -1309,7 +1355,10 @@ export function PublishingDashboardRoutePage({
               sx={{
                 display: 'grid',
                 gap: 2,
-                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+                gridTemplateColumns: {
+                  xs: 'minmax(0, 1fr)',
+                  md: 'repeat(2, minmax(0, 1fr))',
+                },
               }}
             >
               {publicationSideEffectHooks.map((hook) => (
@@ -1363,7 +1412,7 @@ export function PublishingDashboardRoutePage({
                 display: 'grid',
                 gap: 2,
                 gridTemplateColumns: {
-                  xs: '1fr',
+                  xs: 'minmax(0, 1fr)',
                   md: 'repeat(2, minmax(0, 1fr))',
                   xl: 'repeat(3, minmax(0, 1fr))',
                 },
@@ -1415,7 +1464,7 @@ export function PublishingDashboardRoutePage({
                 display: 'grid',
                 gap: 2,
                 gridTemplateColumns: {
-                  xs: '1fr',
+                  xs: 'minmax(0, 1fr)',
                   md: 'repeat(2, minmax(0, 1fr))',
                   xl: 'repeat(4, minmax(0, 1fr))',
                 },
@@ -1502,7 +1551,10 @@ export function PublishingDashboardRoutePage({
               sx={{
                 display: 'grid',
                 gap: 2,
-                gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
+                gridTemplateColumns: {
+                  xs: 'minmax(0, 1fr)',
+                  md: 'repeat(3, minmax(0, 1fr))',
+                },
               }}
             >
               <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', p: 2 }}>
@@ -1579,7 +1631,17 @@ export function PublishingDashboardRoutePage({
                   workflow evidence.
                 </Typography>
               </Box>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
+              <Stack
+                direction="row"
+                spacing={1}
+                useFlexGap
+                sx={{
+                  alignItems: 'flex-start',
+                  flexWrap: 'wrap',
+                  minWidth: 0,
+                  maxWidth: '100%',
+                }}
+              >
                 <Chip
                   color={processConnection ? 'success' : 'warning'}
                   label={
@@ -1588,9 +1650,23 @@ export function PublishingDashboardRoutePage({
                   variant={processConnection ? 'filled' : 'outlined'}
                 />
                 <Chip
-                  color={approvalTasks.length ? 'warning' : 'success'}
-                  label={`${String(approvalTasks.length)} pending`}
-                  variant={approvalTasks.length ? 'filled' : 'outlined'}
+                  color={
+                    !processSummary.data || processSummary.isError
+                      ? 'default'
+                      : approvalTasks.length
+                        ? 'warning'
+                        : 'success'
+                  }
+                  label={
+                    !processConnection || processSummary.isError
+                      ? 'Task count unavailable'
+                      : !processSummary.data
+                        ? 'Checking tasks'
+                        : `${String(approvalTasks.length)} pending`
+                  }
+                  variant={
+                    processSummary.data && approvalTasks.length ? 'filled' : 'outlined'
+                  }
                 />
               </Stack>
             </Stack>
@@ -1606,6 +1682,8 @@ export function PublishingDashboardRoutePage({
                   ? processSummary.error.message
                   : 'Approval tasks are currently unavailable.'}
               </Alert>
+            ) : !processSummary.data ? (
+              <Alert severity="info">Loading publication approval evidence.</Alert>
             ) : approvalTasks.length === 0 ? (
               <Alert severity="success">
                 No publishing approval tasks are waiting. If Nexus or Agora still show

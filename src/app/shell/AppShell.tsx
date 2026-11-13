@@ -1,9 +1,14 @@
+import {
+  localizeNavigationItem,
+  localizeNavigationGroup,
+} from './navigationLocalization';
 import { AppBar, Box, Drawer, Toolbar, useMediaQuery, useTheme } from '@mui/material';
-import type { PropsWithChildren } from 'react';
+import type { PropsWithChildren, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 
 import type { AxisNavigationItem } from '../../bootstrap/publicBootstrap';
+import { useAxisLocalization } from '../../localization/AxisLocalizationContext';
 import { useAxisAppearance } from '../AxisAppearanceContext';
 import { axisTokens } from '../axisTheme';
 import { contextDisplayName } from './contextDisplayName';
@@ -11,9 +16,11 @@ import { NavigationRail } from './NavigationRail';
 import {
   loadNavigationPreferences,
   navigationItemKey,
+  navigationPreferenceStorageKey,
   recordRecentNavigation,
   saveNavigationPreferences,
   toggleNavigationFavourite,
+  type NavigationPreferences,
 } from './navigationPreferences';
 import { axisPresentationFeatures } from '../axisPresentationFeatures';
 import { NotificationRegion, WorkspaceViewport } from './ShellPrimitives';
@@ -25,8 +32,10 @@ import {
 import { TopNavigation } from './TopNavigation';
 
 interface AppShellProps extends PropsWithChildren {
+  readonly workspaceTools?: ReactNode;
   readonly employeeId?: string | undefined;
   readonly enterpriseCode?: string | undefined;
+  readonly enterpriseDisplayName?: string | undefined;
   readonly tenantCode?: string | undefined;
   readonly environments?: readonly string[] | undefined;
   readonly site?: string | undefined;
@@ -59,9 +68,11 @@ function loadNavigationRailWidth(storage: Storage): number {
 
 export function AppShell({
   catalog,
+  workspaceTools,
   children,
   employeeId,
   enterpriseCode = 'default',
+  enterpriseDisplayName,
   tenantCode = 'default',
   environments = [],
   navigation = [],
@@ -70,7 +81,9 @@ export function AppShell({
   recentNavigationLimit,
   site,
 }: AppShellProps) {
+  const { format: workflowText } = useAxisLocalization();
   const theme = useTheme();
+  const localization = useAxisLocalization();
   const desktop = useMediaQuery(theme.breakpoints.up('md'));
   const navigate = useNavigate();
   const location = useLocation();
@@ -88,10 +101,57 @@ export function AppShell({
     () => Object.freeze({ recentItems: recentNavigationLimit }),
     [recentNavigationLimit],
   );
-  const [navigationPreferences, setNavigationPreferences] = useState(() =>
-    loadNavigationPreferences(window.localStorage, navigationPreferenceLimits),
+  const navigationPreferenceScope = useMemo(
+    () =>
+      employeeId ? { employeeId, tenantCode, enterpriseCode, environments } : undefined,
+    [employeeId, tenantCode, enterpriseCode, environments],
   );
-  const baseGroups = useMemo(() => composeShellNavigation(navigation), [navigation]);
+  const preferenceOwnerKey = navigationPreferenceStorageKey(navigationPreferenceScope);
+  const preferenceStateKey = JSON.stringify([
+    preferenceOwnerKey,
+    recentNavigationLimit,
+  ]);
+  const loadedNavigationPreferences = useMemo(
+    () =>
+      loadNavigationPreferences(
+        navigationPreferenceScope,
+        window.localStorage,
+        navigationPreferenceLimits,
+      ),
+    [navigationPreferenceScope, navigationPreferenceLimits],
+  );
+  const [preferenceState, setPreferenceState] = useState(() => ({
+    key: preferenceStateKey,
+    value: loadedNavigationPreferences,
+  }));
+  // Retire the old owner during render, before effects can display or persist its history.
+  const navigationPreferences =
+    preferenceOwnerKey && preferenceState.key === preferenceStateKey
+      ? preferenceState.value
+      : loadedNavigationPreferences;
+  const updateNavigationPreferences = (
+    update: (value: NavigationPreferences) => NavigationPreferences,
+  ) => {
+    if (!preferenceOwnerKey) return;
+    setPreferenceState((current) => ({
+      key: preferenceStateKey,
+      value: update(
+        current.key === preferenceStateKey
+          ? current.value
+          : loadedNavigationPreferences,
+      ),
+    }));
+  };
+  const baseGroups = useMemo(
+    () =>
+      composeShellNavigation(
+        navigation.map((item) => localizeNavigationItem(item, localization.format)),
+      ).map((group) => ({
+        ...group,
+        label: localizeNavigationGroup(group.id, group.label, localization.format),
+      })),
+    [localization, navigation],
+  );
   const navigationByKey = useMemo(
     () =>
       new Map(
@@ -163,12 +223,15 @@ export function AppShell({
           : `Environments: ${String(environments.length)}`;
     return [
       environmentLabel,
-      `Tenant: ${contextDisplayName(tenantCode)}`,
-      `Enterprise: ${contextDisplayName(enterpriseCode)}`,
-      ...(site ? [`Site: ${contextDisplayName(site)}`] : []),
-      ...(catalog ? [`Catalog: ${contextDisplayName(catalog)}`] : []),
+      `${enterpriseDisplayName ? 'Enterprise' : 'Enterprise code'}: ${enterpriseDisplayName ?? enterpriseCode}`,
     ];
-  }, [catalog, enterpriseCode, environments, site, tenantCode]);
+  }, [enterpriseCode, enterpriseDisplayName, environments]);
+  const technicalContextItems = [
+    `Tenant code: ${tenantCode}`,
+    `Enterprise code: ${enterpriseCode}`,
+    ...(site ? [`Composition Site: ${site}`] : []),
+    ...(catalog ? [`Composition Catalog: ${catalog}`] : []),
+  ];
   const desktopRailWidth = navigationCompact
     ? axisTokens.spacing.shellRailCompact
     : navigationRailWidth;
@@ -195,10 +258,11 @@ export function AppShell({
   useEffect(() => {
     saveNavigationPreferences(
       navigationPreferences,
+      navigationPreferenceScope,
       window.localStorage,
       navigationPreferenceLimits,
     );
-  }, [navigationPreferenceLimits, navigationPreferences]);
+  }, [navigationPreferenceLimits, navigationPreferenceScope, navigationPreferences]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -233,7 +297,7 @@ export function AppShell({
   const navigateTo = (route: string) => {
     const item = navigation.find((candidate) => candidate.route === route);
     if (item) {
-      setNavigationPreferences((current) =>
+      updateNavigationPreferences((current) =>
         recordRecentNavigation(
           current,
           navigationItemKey(item.moduleName, item.id),
@@ -248,6 +312,27 @@ export function AppShell({
 
   return (
     <Box sx={{ display: 'flex', height: '100dvh', overflow: 'hidden' }}>
+      <Box
+        component="a"
+        href="#main-content"
+        onClick={(event) => {
+          event.preventDefault();
+          mainScrollRef.current?.focus();
+        }}
+        sx={{
+          position: 'fixed',
+          insetBlockStart: 8,
+          insetInlineStart: 8,
+          zIndex: (currentTheme) => currentTheme.zIndex.tooltip + 1,
+          bgcolor: 'background.paper',
+          color: 'text.primary',
+          p: 1.5,
+          clipPath: 'inset(50%)',
+          '&:focus': { clipPath: 'none' },
+        }}
+      >
+        {localization.format('common.skip-to-main-content', 'Skip to main content')}
+      </Box>
       <AppBar
         color="inherit"
         elevation={0}
@@ -275,21 +360,22 @@ export function AppShell({
         >
           <TopNavigation
             assistant={assistant}
+            workspaceTools={workspaceTools}
             contextItems={contextItems}
+            technicalContextItems={technicalContextItems}
             employeeId={employeeId}
             navigationToggleLabel={
               desktop
                 ? navigationCompact
-                  ? 'Expand navigation'
-                  : 'Collapse navigation'
-                : 'Open navigation'
+                  ? workflowText('axis.ui.expand-navigation', 'Expand navigation')
+                  : workflowText('axis.ui.collapse-navigation', 'Collapse navigation')
+                : workflowText('axis.ui.open-navigation', 'Open navigation')
             }
             colorMode={mode}
             query={query}
             onLock={onLock}
             onLogout={onLogout}
             onNavigate={navigateTo}
-            onNotify={setNotification}
             recentItems={recentNavigationItems}
             onToggleNavigation={() => {
               if (desktop) {
@@ -309,6 +395,11 @@ export function AppShell({
         variant={desktop ? 'permanent' : 'temporary'}
         slotProps={{
           paper: {
+            component: desktop ? 'aside' : 'div',
+            'aria-label': workflowText(
+              'axis.ui.primary-navigation',
+              'Primary navigation',
+            ),
             sx: {
               borderRight: '1px solid',
               borderColor: 'divider',
@@ -333,7 +424,7 @@ export function AppShell({
         }}
       >
         <NavigationRail
-          activePath={location.pathname}
+          activePath={location.pathname + location.search}
           compact={desktop && navigationCompact}
           favourites={new Set(navigationPreferences.favourites)}
           groups={groups}
@@ -341,14 +432,14 @@ export function AppShell({
           onNavigate={navigateTo}
           onQueryChange={setQuery}
           onToggleFavourite={(key) => {
-            setNavigationPreferences((current) =>
+            updateNavigationPreferences((current) =>
               toggleNavigationFavourite(current, key, navigationPreferenceLimits),
             );
           }}
         />
         {desktop && !navigationCompact ? (
           <Box
-            aria-label="Resize navigation"
+            aria-label={workflowText('axis.ui.resize-navigation', 'Resize navigation')}
             aria-orientation="vertical"
             aria-valuemax={NAVIGATION_RAIL_MAX_WIDTH}
             aria-valuemin={NAVIGATION_RAIL_MIN_WIDTH}
@@ -436,6 +527,7 @@ export function AppShell({
         <Box
           component="main"
           id="main-content"
+          tabIndex={-1}
           ref={mainScrollRef}
           sx={{
             height: `calc(100dvh - ${String(axisTokens.spacing.header)}px)`,

@@ -246,6 +246,22 @@ describe('documentation publication client', () => {
       nextAction: 'Restore target runtime',
       blockers: [
         {
+          code: 'MEDIA_DEPENDENCY_NOT_ACTIVATED',
+          severity: 'REPAIR_REQUIRED',
+          owner: 'guide-image',
+          ownerType: 'MEDIA',
+          source: 'MEDIA_PUBLICATION',
+          message: 'Referenced Media requires approval.',
+          action: 'Inspect Media',
+          mediaDependency: {
+            owner: 'media',
+            mediaCode: 'guide-image',
+            versionId: 0,
+            status: 'NOT_ACTIVATED',
+            qualified: false,
+          },
+        },
+        {
           blockerCode: 'RUNTIME_UNAVAILABLE',
           code: 'RUNTIME_UNAVAILABLE',
           severity: 'BLOCKED',
@@ -290,6 +306,12 @@ describe('documentation publication client', () => {
 
     const status = await client.getStatus();
 
+    expect(status.capability?.blockers[0]?.mediaDependency).toEqual({
+      mediaCode: 'guide-image',
+      versionId: 0,
+      status: 'NOT_ACTIVATED',
+      qualified: false,
+    });
     expect(status.capability?.subject?.code).toBe('frameworkdocs');
     expect(status.capability?.status).toBe('NEEDS_ATTENTION');
     expect(status.capability?.dependencies?.[0]).toMatchObject({
@@ -332,19 +354,19 @@ describe('documentation publication client', () => {
       status: 'TASK_REFERENCE_MISSING',
       publicationState: 'PENDING_APPROVAL',
     });
-    expect(status.capability?.blockers[0]?.blockerCode).toBe('RUNTIME_UNAVAILABLE');
-    expect(status.capability?.blockers[0]?.ownerType).toBe('DATA_RELEASE');
-    expect(status.capability?.blockers[0]?.disabledReason).toContain(
+    expect(status.capability?.blockers[1]?.blockerCode).toBe('RUNTIME_UNAVAILABLE');
+    expect(status.capability?.blockers[1]?.ownerType).toBe('DATA_RELEASE');
+    expect(status.capability?.blockers[1]?.disabledReason).toContain(
       'No active runtime',
     );
-    expect(status.capability?.blockers[0]?.runtimeDiagnostic).toMatchObject({
+    expect(status.capability?.blockers[1]?.runtimeDiagnostic).toMatchObject({
       phase: 'transport',
       sourceServer: 'platformServer',
       targetModule: 'import',
       targetRuntimeRole: 'WCMS_STAGED',
       failureCode: 'ETIMEDOUT',
     });
-    expect(status.capability?.blockers[0]?.approvalDiagnostic).toMatchObject({
+    expect(status.capability?.blockers[1]?.approvalDiagnostic).toMatchObject({
       status: 'TASK_REFERENCE_MISSING',
       publicationState: 'PENDING_APPROVAL',
     });

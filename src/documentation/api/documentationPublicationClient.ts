@@ -138,6 +138,7 @@ export interface DocumentationCapabilityPublicationSummary {
 }
 
 export interface DocumentationCapabilityBlocker {
+  readonly mediaDependency?: MediaPublicationDependency | undefined;
   readonly blockerCode?: string | undefined;
   readonly code: string;
   readonly severity: string;
@@ -212,6 +213,9 @@ interface Options {
   readonly accessToken: string;
   readonly timeoutMs: number;
   readonly profileCode: string;
+  readonly statusQueue?:
+    | { run<T>(key: string, read: () => Promise<T>, signal?: AbortSignal): Promise<T> }
+    | undefined;
 }
 
 interface DocumentationPublicationOperationInput {
@@ -635,6 +639,13 @@ function parseCapabilityReadiness(
         ? capability.blockers.map((item) => {
             const blocker = record(item, 'Documentation capability blocker');
             return Object.freeze({
+              ...(blocker.mediaDependency !== undefined
+                ? {
+                    mediaDependency: parseMediaPublicationDependency(
+                      blocker.mediaDependency,
+                    ),
+                  }
+                : {}),
               ...(optionalText(blocker.blockerCode)
                 ? { blockerCode: optionalText(blocker.blockerCode) }
                 : {}),
@@ -843,10 +854,14 @@ async function invoke(
   fetchImplementation: typeof fetch,
   operation?: 'initiate' | 'rollback' | 'retire' | 'reconcile-approval',
   input: DocumentationPublicationOperationInput = {},
+  signal?: AbortSignal,
 ) {
   if (!/^[a-z][a-z0-9_-]{0,63}$/.test(options.profileCode))
     throw new Error('Documentation profile is invalid');
   const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal?.aborted) abort();
+  signal?.addEventListener('abort', abort, { once: true });
   const timeout = globalThis.setTimeout(() => controller.abort(), options.timeoutMs);
   const endpoint = options.connection.endpoint.replace(/\/$/, '');
   const path = `/v0/applications/${encodeURIComponent(options.profileCode)}/initialization${operation ? `/${operation}` : ''}`;
@@ -887,6 +902,7 @@ async function invoke(
     }
     return parse(await response.json());
   } finally {
+    signal?.removeEventListener('abort', abort);
     globalThis.clearTimeout(timeout);
   }
 }
@@ -896,7 +912,14 @@ export function createDocumentationPublicationClient(
   fetchImplementation: typeof fetch = fetch,
 ) {
   return Object.freeze({
-    getStatus: () => invoke(options, 'GET', fetchImplementation),
+    getStatus: (signal?: AbortSignal) =>
+      options.statusQueue
+        ? options.statusQueue.run(
+            options.profileCode,
+            () => invoke(options, 'GET', fetchImplementation, undefined, {}, signal),
+            signal,
+          )
+        : invoke(options, 'GET', fetchImplementation, undefined, {}, signal),
     initiate: (input?: DocumentationPublicationOperationInput) =>
       invoke(options, 'POST', fetchImplementation, 'initiate', input),
     reconcileApproval: (input?: DocumentationPublicationOperationInput) =>

@@ -40,10 +40,8 @@ import {
   type AxisNavigationItem,
 } from '../../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
-import {
-  activeConnections,
-  connectionKey,
-} from '../shared/workbenchMetricDashboardModel';
+import { connectionKey } from '../shared/workbenchMetricDashboardModel';
+import { selectMediaAuthoringConnection } from './mediaAuthoringAuthority';
 import {
   createWorkbenchRecord,
   deleteWorkbenchRecord,
@@ -949,7 +947,12 @@ function StorageDeliveryPolicyPanel(props: {
                 Review upload limits, providers, and delivery endpoint.
               </Typography>
             </Box>
-            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+            <Stack
+              direction="row"
+              spacing={1}
+              useFlexGap
+              sx={{ flexWrap: 'wrap', minWidth: 0, maxWidth: '100%' }}
+            >
               <Chip
                 color={props.connectionAvailable ? 'success' : 'default'}
                 label={
@@ -1205,11 +1208,15 @@ function StorageDeliveryPolicyPanel(props: {
 
 function MediaDeliveryPreviewPanel(props: {
   readonly accessToken: string;
+  readonly enterpriseCode: string;
   readonly connection: ReturnType<typeof selectModuleConnection>;
   readonly record: WorkbenchRecord;
 }) {
-  const deliveryUrl = resolveDeliveryUrl(props.connection, props.record);
+  const staged = props.connection?.runtimeRole?.publication === 'STAGED';
   const downloadUrl = resolveDownloadUrl(props.connection, props.record);
+  const deliveryUrl = staged
+    ? downloadUrl
+    : resolveDeliveryUrl(props.connection, props.record);
   const originalFileName = mediaSummary(props.record);
 
   return (
@@ -1227,6 +1234,8 @@ function MediaDeliveryPreviewPanel(props: {
         accessToken={props.accessToken}
         deliveryUrl={deliveryUrl}
         downloadUrl={downloadUrl}
+        enterpriseCode={props.enterpriseCode}
+        requireAuthenticatedDelivery={staged}
         extension={textValue(props.record, 'extension')}
         fileName={
           originalFileName === '—' ? textValue(props.record, 'code') : originalFileName
@@ -2883,6 +2892,30 @@ const recordWorkspaceFacetFilters: Readonly<
 });
 
 export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
+  const source = selectMediaAuthoringConnection(props.bootstrap);
+  const actorScope = useMemo(
+    () =>
+      props.accessToken
+        ? crypto.getRandomValues(new Uint32Array(4)).join('-')
+        : 'anonymous',
+    [props.accessToken],
+  );
+  const scopeKey = JSON.stringify([
+    actorScope,
+    props.bootstrap.tenantCode,
+    props.runtime.enterpriseCode,
+    props.runtime.projectCode,
+    source?.instanceId,
+    source?.endpoint,
+    source?.server,
+    source?.environment,
+  ]);
+  return <MediaManagementWorkspace key={scopeKey} scopeKey={scopeKey} {...props} />;
+}
+
+function MediaManagementWorkspace(
+  props: MediaManagementRoutePageProps & { readonly scopeKey: string },
+) {
   const location = useLocation();
   const queryClient = useQueryClient();
   const [recordSearch, setRecordSearch] = useState('');
@@ -2910,11 +2943,11 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
   const [mediaEnterpriseCode, setMediaEnterpriseCode] = useState(
     props.runtime.enterpriseCode,
   );
-  const connection = selectModuleConnection(props.bootstrap, 'media');
+  const connection = selectMediaAuthoringConnection(props.bootstrap);
   const importConnection = selectModuleConnection(props.bootstrap, 'import');
   const schemaConnections = useMemo(
-    () => activeConnections(props.bootstrap),
-    [props.bootstrap],
+    () => (connection ? [connection] : []),
+    [connection],
   );
   const usageMediaCode =
     new URLSearchParams(location.search).get('mediaCode')?.trim() ?? '';
@@ -2980,11 +3013,18 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
     enabled: Boolean(recordWorkspaceConfiguration && connection),
     queryKey: [
       'media-management',
+      props.scopeKey,
       'schemas',
       connectionKey(schemaConnections),
       configuration.enterpriseCode,
     ],
-    queryFn: () => loadWorkbenchSchemas(schemaConnections, configuration),
+    queryFn: async () => {
+      const result = await loadWorkbenchSchemas(schemaConnections, configuration);
+      if (result.some((schema) => schema.moduleName !== 'media'))
+        throw new Error('Media schema discovery returned a different owner.');
+      return result;
+    },
+    retry: false,
   });
   const currentSchema = useMemo(
     () =>
@@ -3015,11 +3055,13 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
     enabled: Boolean(
       (currentItem?.id === 'storage-delivery' ||
         currentItem?.id === 'media-formats' ||
+        currentItem?.id === 'media-folders' ||
         currentFacetFilters.some((filter) => filter.key === 'sourceType')) &&
       connection,
     ),
     queryKey: [
       'media-management',
+      props.scopeKey,
       'media-contexts',
       connection?.endpoint,
       configuration.enterpriseCode,
@@ -3060,6 +3102,7 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
     enabled: Boolean(recordWorkspaceConfiguration && connection && currentSchema),
     queryKey: [
       'media-management',
+      props.scopeKey,
       recordWorkspaceConfiguration?.schemaName,
       connection?.endpoint,
       currentSchema?.schemaName,
@@ -3164,6 +3207,25 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
     currentItem?.id === 'media-sets' ? textValue(selectedRecord, 'code') : '—';
   const selectedMediaCode =
     currentItem?.id === 'media' ? textValue(selectedRecord, 'code') : '—';
+  const matchingIntakePolicies =
+    mediaContexts.data?.flatMap((context) =>
+      context.allowedFolders.filter(
+        (policy) => policy.folderCode === textValue(selectedRecord, 'code'),
+      ),
+    ) ?? [];
+  const effectiveFolderPolicy = matchingIntakePolicies[0];
+  const policyStatus = mediaContexts.isPending
+    ? ('loading' as const)
+    : mediaContexts.isError
+      ? ('unavailable' as const)
+      : matchingIntakePolicies.some(
+            (policy) =>
+              JSON.stringify(policy) !== JSON.stringify(effectiveFolderPolicy),
+          )
+        ? ('unavailable' as const)
+        : effectiveFolderPolicy
+          ? ('available' as const)
+          : ('not-configured' as const);
   const selectedMediaUsage = useQuery({
     enabled: Boolean(
       currentItem?.id === 'media' &&
@@ -3173,6 +3235,7 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
     ),
     queryKey: [
       'media-management',
+      props.scopeKey,
       'selected-media-usage',
       connection?.endpoint,
       configuration.enterpriseCode,
@@ -3196,6 +3259,7 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
     ),
     queryKey: [
       'media-management',
+      props.scopeKey,
       'selected-media-import-history',
       importConnection?.endpoint,
       configuration.enterpriseCode,
@@ -3217,6 +3281,7 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
     ),
     queryKey: [
       'media-management',
+      props.scopeKey,
       'media-set-entries',
       connection?.endpoint,
       configuration.enterpriseCode,
@@ -3242,6 +3307,7 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
     ),
     queryKey: [
       'media-management',
+      props.scopeKey,
       'storage-delivery-fallback',
       connection?.endpoint,
       configuration.enterpriseCode,
@@ -3252,6 +3318,7 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
     enabled: Boolean(currentItem?.id === 'storage-delivery' && connection),
     queryKey: [
       'media-management',
+      props.scopeKey,
       'storage-provider-summary',
       connection?.endpoint,
       configuration.enterpriseCode,
@@ -3296,20 +3363,45 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
             sx={{ alignItems: { md: 'flex-end' }, justifyContent: 'space-between' }}
           >
             <WorkspaceHeading
-              description="Govern media lifecycle, folders, usage, and delivery."
-              eyebrow="Governed media operations"
+              description={
+                recordWorkspaceConfiguration?.description ??
+                currentItem.help?.summary ??
+                'Manage media records, folders, references, and delivery.'
+              }
+              eyebrow={
+                currentItem.id === 'media-management' ? undefined : 'Media Management'
+              }
               help={currentItem.help}
-              title="Media Management"
+              title={recordWorkspaceConfiguration?.title ?? currentItem.label}
             />
-            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+            <Stack
+              direction="row"
+              spacing={1}
+              useFlexGap
+              sx={{ flexWrap: 'wrap', minWidth: 0, maxWidth: '100%' }}
+            >
               <Chip
                 color={connection ? 'success' : 'default'}
                 label={connection ? connection.state : 'Unavailable'}
               />
               <Chip label={`Enterprise: ${humanize(configuration.enterpriseCode)}`} />
+              {connection ? (
+                <Chip
+                  variant="outlined"
+                  label={`Source: ${connection.server ?? connection.instanceId} · ${connection.environment ?? 'Current environment'}`}
+                  sx={{ maxWidth: '100%' }}
+                />
+              ) : null}
             </Stack>
           </Stack>
         </Box>
+
+        {!connection ? (
+          <Alert severity="warning">
+            Media authoring requires one available Staged or Operational source. Refresh
+            module availability or review the source configuration.
+          </Alert>
+        ) : null}
 
         {currentItem.id === 'media-management' ? (
           <Grid container spacing={2}>
@@ -3533,7 +3625,8 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
                       spacing={1}
                       sx={{
                         alignItems: 'center',
-                        flexShrink: 0,
+                        minWidth: 0,
+                        maxWidth: '100%',
                         flexWrap: 'wrap',
                         justifyContent: { xs: 'flex-start', md: 'flex-end' },
                       }}
@@ -3542,6 +3635,9 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
                       currentSchema?.mutationMode === 'GENERATED_CRUD' &&
                       currentSchema.operations.includes('create') ? (
                         <Button
+                          disabled={
+                            schemas.isError || records.isError || records.isPending
+                          }
                           variant={
                             mediaFolderCrudMode === 'create' ? 'contained' : 'outlined'
                           }
@@ -3561,6 +3657,9 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
                       currentSchema?.mutationMode === 'GENERATED_CRUD' &&
                       currentSchema.operations.includes('create') ? (
                         <Button
+                          disabled={
+                            schemas.isError || records.isError || records.isPending
+                          }
                           variant={
                             schemaRecordCrudMode === 'create' ? 'contained' : 'outlined'
                           }
@@ -3575,7 +3674,13 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
                         </Button>
                       ) : null}
                       <Chip
-                        label={`${records.data?.totalCount ?? 0} ${recordWorkspaceConfiguration.recordCountLabel}`}
+                        label={
+                          schemas.isError || records.isError || !currentSchema
+                            ? 'Count unavailable'
+                            : records.data
+                              ? `${records.data.totalCount} ${recordWorkspaceConfiguration.recordCountLabel}`
+                              : 'Loading count…'
+                        }
                       />
                       {connection ? null : (
                         <Chip color="default" label="Media service unavailable" />
@@ -3601,6 +3706,9 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
                           setRecordSearch(event.target.value);
                         }}
                         slotProps={{
+                          htmlInput: {
+                            'aria-label': `Search ${recordWorkspaceConfiguration.title.toLowerCase()}`,
+                          },
                           input: {
                             startAdornment: (
                               <InputAdornment position="start">
@@ -3935,6 +4043,7 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
                                 mediaDetailSectionEnabled('preview') ? (
                                   <MediaDeliveryPreviewPanel
                                     accessToken={props.accessToken}
+                                    enterpriseCode={configuration.enterpriseCode}
                                     connection={connection}
                                     record={selectedRecord}
                                   />
@@ -3981,6 +4090,8 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
                                     configuration={configuration}
                                     connection={connection}
                                     folderSchema={currentSchema}
+                                    policyStatus={policyStatus}
+                                    effectivePolicy={effectiveFolderPolicy}
                                     mode={mediaFolderCrudMode}
                                     record={selectedRecord}
                                     onChanged={(changedRecord) => {
@@ -3990,6 +4101,7 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
                                           : undefined,
                                       );
                                       void records.refetch();
+                                      void mediaContexts.refetch();
                                     }}
                                     onModeChange={setMediaFolderCrudMode}
                                   />
@@ -4067,6 +4179,8 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
                                     configuration={configuration}
                                     connection={connection}
                                     folderSchema={currentSchema}
+                                    policyStatus={policyStatus}
+                                    effectivePolicy={effectiveFolderPolicy}
                                     mode={mediaFolderCrudMode}
                                     record={undefined}
                                     onChanged={(changedRecord) => {
@@ -4076,6 +4190,7 @@ export function MediaManagementRoutePage(props: MediaManagementRoutePageProps) {
                                           : undefined,
                                       );
                                       void records.refetch();
+                                      void mediaContexts.refetch();
                                     }}
                                     onModeChange={setMediaFolderCrudMode}
                                   />

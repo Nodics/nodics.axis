@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router';
+import type { AxisNavigationItem } from '../../../../../src/bootstrap/publicBootstrap';
 
 import type { CmsComponentContract } from '../../../../../src/cms/cmsContract';
 import { SchemaWorkbenchRenderer } from '../../../../../src/cms/renderers/components/workbench/SchemaWorkbenchRenderer';
@@ -260,6 +262,121 @@ async function openModelTab(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('SchemaWorkbenchRenderer', () => {
+  it('explains partial discovery and retries metadata while keeping healthy data types available', async () => {
+    const retrySchemas = vi.fn();
+    render(
+      <SchemaWorkbenchRenderer
+        component={component}
+        actions={{
+          workbench: workbenchController({
+            unavailableSchemaSources: ['cms / staged / local'],
+            retrySchemas,
+          }),
+        }}
+      />,
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'available data types are incomplete',
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent('cms / staged / local');
+    expect(screen.getByRole('button', { name: 'Address profile' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(retrySchemas).toHaveBeenCalledTimes(1);
+  });
+  it('keeps the owner model purpose visible across record and schema inspection', async () => {
+    const selected = {
+      ...address,
+      description: 'Business addresses with reusable contact associations.',
+    };
+    render(
+      <SchemaWorkbenchRenderer
+        component={component}
+        actions={{
+          workbench: workbenchController({
+            selectedSchema: selected,
+            schemas: [selected],
+          }),
+        }}
+      />,
+    );
+    expect(screen.getByText(selected.description)).toBeVisible();
+    await userEvent.click(screen.getByRole('tab', { name: 'Schema' }));
+    expect(screen.getByText(selected.description)).toBeVisible();
+    expect(screen.getByText('Owning module: profile')).toBeVisible();
+  });
+  it.each(['ACTIVE', 'DISABLED'] as const)(
+    'never downloads local records and offers only an admitted owner export destination (%s)',
+    (state) => {
+      const navigation = {
+        id: 'imports-exports',
+        moduleName: 'backoffice',
+        label: 'Data exchange',
+        route: '/operations/imports-exports',
+        featureState: state,
+        availability: 'UP',
+      } as AxisNavigationItem;
+      render(
+        <MemoryRouter>
+          <SchemaWorkbenchRenderer
+            component={component}
+            actions={{
+              workbench: workbenchController({
+                bootstrap: { ...bootstrap, navigation: [navigation] },
+                selectedSchema: { ...address, connectionInstanceId: 'profile-one' },
+                records: [{ code: 'one', city: 'Dubai' }],
+                recordTotalCount: 1,
+              }),
+            }}
+          />
+        </MemoryRouter>,
+      );
+      expect(screen.queryByRole('button', { name: 'Export' })).not.toBeInTheDocument();
+      const link = screen.queryByRole('link', { name: 'Data exchange' });
+      if (state === 'ACTIVE')
+        expect(link).toHaveAttribute(
+          'href',
+          '/operations/imports-exports?area=exports&sourceModule=profile&sourceSchema=address&sourceInstance=profile-one',
+        );
+      else expect(link).not.toBeInTheDocument();
+    },
+  );
+  it('explains owner-disabled record APIs without presenting an empty table or create action, while keeping schema inspection', async () => {
+    const notice =
+      'This runtime does not expose record operations for this schema. Schema inspection remains available.';
+    const selected = {
+      ...address,
+      operations: [],
+      mutationMode: 'READ_ONLY' as const,
+      recordApi: {
+        available: false as const,
+        reason: 'SCHEMA_ROUTERS_DISABLED',
+        message: notice,
+      },
+    };
+    render(
+      <SchemaWorkbenchRenderer
+        component={component}
+        actions={{
+          workbench: workbenchController({
+            selectedSchema: selected,
+            schemas: [selected],
+          }),
+        }}
+      />,
+    );
+    expect(screen.getByText(notice)).toBeVisible();
+    expect(
+      screen.queryByRole('textbox', { name: 'Search records' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Create new model/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: 'Schema' }));
+    expect(
+      screen.getByRole('button', { name: 'Export schema definition' }),
+    ).toBeVisible();
+  });
   it('exports the selected schema definition as JSON from the schema tab', async () => {
     const user = userEvent.setup();
     const originalCreateObjectURL = Object.getOwnPropertyDescriptor(
@@ -984,6 +1101,45 @@ describe('SchemaWorkbenchRenderer', () => {
     expect(screen.getByRole('button', { name: /^Type 21 profile$/ })).toBeVisible();
   });
 
+  it.each(['loading', 'failed', 'unavailable'])(
+    'shows usable scoped discovery feedback for %s without a hidden picker prompt',
+    async (state) => {
+      const retrySchemas = vi.fn();
+      render(
+        <SchemaWorkbenchRenderer
+          component={component}
+          actions={{
+            workbench: workbenchController({
+              scope: { kind: 'navigation', label: 'Articles' },
+              schemas: [],
+              selectedSchema: undefined,
+              schemasLoading: state === 'loading',
+              ...(state === 'failed'
+                ? { schemasError: 'Authorized discovery unavailable' }
+                : {}),
+              retrySchemas,
+            }),
+          }}
+        />,
+      );
+      expect(screen.getByRole('heading', { level: 1, name: 'Articles' })).toBeVisible();
+      expect(screen.queryByText('Select a data type')).toBeNull();
+      expect(screen.queryByTestId('workbench-schema-navigation-pane')).toBeNull();
+      if (state === 'loading') {
+        expect(screen.getByRole('status')).toHaveTextContent('Loading data');
+        expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+      } else {
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          state === 'failed' ? 'Authorized discovery unavailable' : 'No data types',
+        );
+        await userEvent
+          .setup()
+          .click(screen.getByRole('button', { name: 'Try again' }));
+        expect(retrySchemas).toHaveBeenCalledTimes(1);
+      }
+    },
+  );
+
   it('renders a route-scoped schema workspace without the global schema browser', async () => {
     const user = userEvent.setup();
     const selectRecord = vi.fn();
@@ -1065,7 +1221,7 @@ describe('SchemaWorkbenchRenderer', () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'View' })).not.toBeInTheDocument();
     expect(screen.getByText('Web Content Management System')).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'Websites' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Websites', level: 1 })).toBeVisible();
     expect(screen.getByText('Schema: address')).not.toBeVisible();
     expect(screen.getByRole('button', { name: 'Websites help' })).toBeVisible();
     expect(

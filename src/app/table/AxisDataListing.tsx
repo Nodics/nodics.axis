@@ -42,6 +42,7 @@ export interface AxisDataListingProps<TRecord> {
   readonly records: readonly TRecord[];
   readonly columns: readonly AxisDataListingColumn<TRecord>[];
   readonly availableColumns?: readonly AxisDataListingColumn<TRecord>[] | undefined;
+  readonly defaultColumnKeys?: readonly string[] | undefined;
   readonly onColumnsChange?:
     | ((
         columnKeys: readonly string[],
@@ -60,6 +61,8 @@ export interface AxisDataListingProps<TRecord> {
   readonly exportFileName?: string | undefined;
   readonly exportLabel?: string | undefined;
   readonly exportEnabled?: boolean | undefined;
+  /** Hide local CSV export when the enclosing journey uses an owner export contract. */
+  readonly exportVisible?: boolean | undefined;
   readonly columnsLabel?: string | undefined;
   readonly maxBodyHeight?: number | string | undefined;
   readonly minTableWidth?: number | string | undefined;
@@ -149,6 +152,7 @@ export function AxisDataListing<TRecord>({
   records,
   columns,
   availableColumns = columns,
+  defaultColumnKeys,
   onColumnsChange,
   getRowKey,
   emptyMessage,
@@ -162,6 +166,7 @@ export function AxisDataListing<TRecord>({
   exportFileName = 'axis-data-export.csv',
   exportLabel = 'Export',
   exportEnabled = true,
+  exportVisible = true,
   columnsLabel = 'Columns',
   maxBodyHeight = '100%',
   minTableWidth = 720,
@@ -174,6 +179,9 @@ export function AxisDataListing<TRecord>({
   const configurableColumns = availableColumns.filter(
     (column) => !column.key.startsWith('__'),
   );
+  const resetColumns = [...new Set(defaultColumnKeys ?? [])]
+    .map((key) => configurableColumns.find((column) => column.key === key))
+    .filter((column): column is AxisDataListingColumn<TRecord> => Boolean(column));
   const visibleConfigurableKeys = columns
     .filter((column) => !column.key.startsWith('__'))
     .map((column) => column.key);
@@ -243,6 +251,19 @@ export function AxisDataListing<TRecord>({
                     {columnsLabel}
                   </Typography>
                   <Divider />
+                  {resetColumns.length > 0 ? (
+                    <>
+                      <MenuItem
+                        onClick={() => {
+                          emitColumnsChange(resetColumns);
+                          setColumnsAnchor(null);
+                        }}
+                      >
+                        Reset columns
+                      </MenuItem>
+                      <Divider />
+                    </>
+                  ) : null}
                   {availableColumns
                     .filter((column) => !column.key.startsWith('__'))
                     .map((column) => {
@@ -345,15 +366,17 @@ export function AxisDataListing<TRecord>({
               </Menu>
             </>
           ) : null}
-          <Button
-            disabled={!canExport}
-            size="small"
-            startIcon={<ShellIcon name="download" />}
-            variant="outlined"
-            onClick={() => downloadCsv(exportFileName, columns, records)}
-          >
-            {exportLabel}
-          </Button>
+          {exportVisible ? (
+            <Button
+              disabled={!canExport}
+              size="small"
+              startIcon={<ShellIcon name="download" />}
+              variant="outlined"
+              onClick={() => downloadCsv(exportFileName, columns, records)}
+            >
+              {exportLabel}
+            </Button>
+          ) : null}
         </Stack>
       </Stack>
       <TableContainer

@@ -114,7 +114,7 @@ describe('Order Lifecycle Management presentation', () => {
     expect(
       screen.getByText(/Actions still execute only through Commerce-owned/),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText('Loading Axis configuration')).toBeInTheDocument();
+    expect(screen.getByLabelText('Loading page content')).toBeInTheDocument();
   });
 
   it('explains distinct cancellation, Return, Refund, Exchange and Appeal decisions', () => {

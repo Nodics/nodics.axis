@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  canRetainWorkbenchDiscovery,
   combineWorkbenchFilterGroups,
   currentDiscoveredWorkbenchSchema,
   lifecycleActionsForRecord,
@@ -22,6 +23,28 @@ import {
 } from '../../src/workbench/workbenchRouteModel';
 import { routePreferredServer } from '../../src/workbench/workbenchRouteModel';
 import type { WorkbenchSchema } from '../../src/workbench/api/workbenchContracts';
+
+describe('Workbench discovery continuity', () => {
+  const previous = ['schema-workbench', 'schemas', 'signed-session', ['profile-A']];
+
+  it('keeps an existing signed workspace mounted when discovery only adds a source', () => {
+    expect(
+      canRetainWorkbenchDiscovery(previous, 'signed-session', ['cms-A', 'profile-A']),
+    ).toBe(true);
+  });
+
+  it('does not carry authoring metadata across scope changes or removed/replaced sources', () => {
+    expect(
+      canRetainWorkbenchDiscovery(previous, 'new-session', ['cms-A', 'profile-A']),
+    ).toBe(false);
+    expect(canRetainWorkbenchDiscovery(previous, 'signed-session', ['cms-A'])).toBe(
+      false,
+    );
+    expect(
+      canRetainWorkbenchDiscovery(previous, 'signed-session', ['cms-A', 'profile-B']),
+    ).toBe(false);
+  });
+});
 
 function schema(
   moduleName: string,

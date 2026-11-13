@@ -1,3 +1,5 @@
+import type { AxisLocalizationState } from '../../localization/localizationContracts';
+import { useAxisLocalization } from '../../localization/AxisLocalizationContext';
 import {
   useMutation,
   useQueries,
@@ -34,8 +36,6 @@ import {
   resolveImportHistoryHandoff,
 } from '../importExport/importHistoryHandoff';
 import { resolveMediaPublicationHandoff } from '../readiness/mediaPublicationHandoff';
-import { coordinatePublicationAssets } from '../readiness/coordinatePublicationAssets';
-import { requestMediaPublication } from '../mediaManagement/api/mediaPublicationClient';
 import {
   applicationReadinessInProgress,
   applicationReadinessCooldownUntil,
@@ -48,14 +48,6 @@ import {
   type AxisAuthenticatedBootstrap,
   type AxisNavigationItem,
 } from '../../bootstrap/publicBootstrap';
-import {
-  completeProcessTask,
-  loadProcessTasks,
-} from '../processWorkflow/api/processDefinitionClient';
-import {
-  findActionableProcessApprovalTask,
-  processApprovalUnavailableMessage,
-} from '../processWorkflow/processApprovalDiagnostics';
 import { CapabilityReadinessPanel } from '../readiness/CapabilityReadinessPanel';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
@@ -80,9 +72,7 @@ type AcceleratorOperation =
   | 'prepare'
   | 'reconcileApproval'
   | 'rollback'
-  | 'retire'
-  | 'approve'
-  | 'reject';
+  | 'retire';
 
 type AcceleratorFilter = string;
 
@@ -127,14 +117,17 @@ function stateColor(
   return 'default';
 }
 
-function operationLabel(operation: AcceleratorOperation): string {
-  if (operation === 'initiate') return 'Initialize';
-  if (operation === 'prepare') return 'Prepare setup';
-  if (operation === 'reconcileApproval') return 'Repair approval';
-  if (operation === 'rollback') return 'Rollback';
-  if (operation === 'retire') return 'Retire';
-  if (operation === 'reject') return 'Reject';
-  return 'Approve';
+function operationLabel(
+  operation: AcceleratorOperation,
+  format: AxisLocalizationState['format'] = (_key, fallback) => fallback,
+): string {
+  if (operation === 'initiate') return format('backoffice.ui.initialize', 'Initialize');
+  if (operation === 'prepare')
+    return format('backoffice.ui.prepare-setup', 'Prepare setup');
+  if (operation === 'reconcileApproval')
+    return format('backoffice.ui.repair-approval', 'Repair approval');
+  if (operation === 'rollback') return format('backoffice.ui.rollback', 'Rollback');
+  return format('backoffice.ui.retire', 'Retire');
 }
 
 function canApprove(status: ApplicationInitializationStatus | undefined): boolean {
@@ -199,13 +192,6 @@ function operationConfirmed(
       ['PUBLICATION_PENDING', 'READY'].includes(status.readiness) &&
       status.readiness !== previous?.readiness
     );
-  if (operation === 'approve')
-    return status.readiness === 'READY' && previous?.readiness !== 'READY';
-  if (operation === 'reject')
-    return (
-      status.publication?.state === 'REJECTED' &&
-      previous?.publication?.state !== 'REJECTED'
-    );
   return false;
 }
 
@@ -240,67 +226,123 @@ function blockedPreparationStep(
 
 function blockedActionSummary(
   status: ApplicationInitializationStatus | undefined,
+  format: AxisLocalizationState['format'] = (_key, fallback) => fallback,
 ): string {
   const step = blockedPreparationStep(status);
-  if (!step) return 'Required setup needs repair before go-live.';
+  if (!step)
+    return format(
+      'backoffice.ui.required-setup-needs-repair-before-go-live',
+      'Required setup needs repair before go-live.',
+    );
   const label =
     step.description || step.label || step.kind || friendlyPackageLabel(step.code);
   if (step.type === 'FUNCTIONAL_MODULE') {
-    return `Register and activate ${label} in Module Registry before go-live.`;
+    return format(
+      'backoffice.ui.register-and-activate-value0-in-module-registry-before-go-live',
+      'Register and activate {value0} in Module Registry before go-live.',
+      { value0: label },
+    );
   }
   if (step.type === 'MEDIA_ASSET_MANIFEST') {
-    return `${step.kind || 'Media setup'} needs developer repair before go-live.`;
+    return format(
+      'backoffice.ui.value0-needs-developer-repair-before-go-live',
+      '{value0} needs developer repair before go-live.',
+      { value0: step.kind || 'Media setup' },
+    );
   }
   if (step.status === 'UNAVAILABLE') {
-    return `${step.kind || 'Setup data'} needs developer repair before go-live.`;
+    return format(
+      'backoffice.ui.value0-needs-developer-repair-before-go-live',
+      '{value0} needs developer repair before go-live.',
+      { value0: step.kind || 'Setup data' },
+    );
   }
-  return `${step.kind || 'Setup data'} needs attention before go-live.`;
+  return format(
+    'backoffice.ui.value0-needs-attention-before-go-live',
+    '{value0} needs attention before go-live.',
+    { value0: step.kind || 'Setup data' },
+  );
 }
 
-function setupActionLabel(status: ApplicationInitializationStatus | undefined): string {
-  if (!status) return 'Initialize';
-  if (status.preparation?.selectionRequired) return 'Initialize';
-  if (status.readiness === 'IMPORTED') return 'Submit for review';
+function setupActionLabel(
+  status: ApplicationInitializationStatus | undefined,
+  format: AxisLocalizationState['format'] = (_key, fallback) => fallback,
+): string {
+  if (!status) return format('backoffice.ui.initialize', 'Initialize');
+  if (status.preparation?.selectionRequired)
+    return format('backoffice.ui.initialize', 'Initialize');
+  if (status.readiness === 'IMPORTED')
+    return format('backoffice.ui.submit-for-review', 'Submit for review');
   if (status.readiness === 'READY' && preparationNeedsAction(status)) {
-    return 'Prepare setup';
+    return format('backoffice.ui.prepare-setup', 'Prepare setup');
   }
   if (status.readiness === 'READY' && status.releaseStatus === 'UPDATE_AVAILABLE') {
-    return 'Update staged';
+    return format('backoffice.ui.update-staged', 'Update staged');
   }
-  return 'Initialize';
+  return format('backoffice.ui.initialize', 'Initialize');
 }
 
-function triggerLabel(trigger: string): string {
-  if (trigger === 'ACTIVATION') return 'activation';
-  if (trigger === 'USER') return 'user triggered';
+function triggerLabel(
+  trigger: string,
+  format: AxisLocalizationState['format'] = (_key, fallback) => fallback,
+): string {
+  if (trigger === 'ACTIVATION') return format('backoffice.ui.activation', 'activation');
+  if (trigger === 'USER')
+    return format('backoffice.ui.user-triggered', 'user triggered');
   return trigger.toLowerCase();
 }
 
-function readinessLabel(readiness: string): string {
-  if (readiness === 'NOT_IMPORTED') return 'Not initialized';
-  if (readiness === 'IMPORTING') return 'Preparing Staged';
-  if (readiness === 'PUBLICATION_PENDING') return 'Approval in progress';
-  if (readiness === 'MEDIA_DEPENDENCIES_PENDING') return 'Media publication required';
-  if (readiness === 'BLOCKED') return 'Setup blocked';
-  if (readiness === 'READY') return 'Online ready';
-  if (readiness === 'ROLLED_BACK') return 'Rolled back';
-  if (readiness === 'FAILED') return 'Failed';
-  if (readiness === 'REJECTED') return 'Rejected';
+function readinessLabel(
+  readiness: string,
+  format: AxisLocalizationState['format'] = (_key, fallback) => fallback,
+): string {
+  if (readiness === 'NOT_IMPORTED')
+    return format('backoffice.ui.not-initialized', 'Not initialized');
+  if (readiness === 'IMPORTING')
+    return format('backoffice.ui.preparing-staged', 'Preparing Staged');
+  if (readiness === 'PUBLICATION_PENDING')
+    return format('backoffice.ui.approval-in-progress', 'Approval in progress');
+  if (readiness === 'MEDIA_DEPENDENCIES_PENDING')
+    return format(
+      'backoffice.ui.media-publication-required',
+      'Media publication required',
+    );
+  if (readiness === 'PREPARATION_BLOCKED')
+    return format('backoffice.ui.preparation-blocked', 'Preparation blocked');
+  if (readiness === 'BLOCKED')
+    return format('backoffice.ui.setup-blocked', 'Setup blocked');
+  if (readiness === 'READY')
+    return format('backoffice.ui.online-ready', 'Online ready');
+  if (readiness === 'ROLLED_BACK')
+    return format('backoffice.ui.rolled-back', 'Rolled back');
+  if (readiness === 'FAILED') return format('backoffice.ui.failed', 'Failed');
+  if (readiness === 'REJECTED') return format('backoffice.ui.rejected', 'Rejected');
   return readiness.replaceAll('_', ' ').toLowerCase();
 }
 
-function capabilityStatusLabel(status: ApplicationInitializationStatus): string {
+function capabilityStatusLabel(
+  status: ApplicationInitializationStatus,
+  format: AxisLocalizationState['format'] = (_key, fallback) => fallback,
+): string {
   const capabilityStatus = capabilityBusinessStatus(status);
-  if (!capabilityStatus) return readinessLabel(status.readiness);
-  if (capabilityStatus === 'NOT_PREPARED') return 'Not prepared';
-  if (capabilityStatus === 'PREPARING') return 'Preparing';
-  if (capabilityStatus === 'PREPARED_STAGED') return 'Prepared staged';
-  if (capabilityStatus === 'APPROVAL_REQUIRED') return 'Approval required';
-  if (capabilityStatus === 'APPROVAL_IN_PROGRESS') return 'Approval in progress';
-  if (capabilityStatus === 'APPROVED') return 'Approved';
-  if (capabilityStatus === 'ONLINE') return 'Online ready';
-  if (capabilityStatus === 'NEEDS_ATTENTION') return 'Needs attention';
-  if (capabilityStatus === 'RETIRED') return 'Retired';
+  if (!capabilityStatus) return readinessLabel(status.readiness, format);
+  if (capabilityStatus === 'NOT_PREPARED')
+    return format('backoffice.ui.not-prepared', 'Not prepared');
+  if (capabilityStatus === 'PREPARING')
+    return format('backoffice.ui.preparing-cf1aa6', 'Preparing');
+  if (capabilityStatus === 'PREPARED_STAGED')
+    return format('backoffice.ui.prepared-staged', 'Prepared staged');
+  if (capabilityStatus === 'APPROVAL_REQUIRED')
+    return format('backoffice.ui.approval-required', 'Approval required');
+  if (capabilityStatus === 'APPROVAL_IN_PROGRESS')
+    return format('backoffice.ui.approval-in-progress', 'Approval in progress');
+  if (capabilityStatus === 'APPROVED')
+    return format('backoffice.ui.approved', 'Approved');
+  if (capabilityStatus === 'ONLINE')
+    return format('backoffice.ui.online-ready', 'Online ready');
+  if (capabilityStatus === 'NEEDS_ATTENTION')
+    return format('backoffice.ui.needs-attention', 'Needs attention');
+  if (capabilityStatus === 'RETIRED') return format('backoffice.ui.retired', 'Retired');
   return capabilityStatus.replaceAll('_', ' ').toLowerCase();
 }
 
@@ -348,7 +390,6 @@ function capabilityNeedsApproval(
 ): boolean {
   const businessStatus = capabilityBusinessStatus(status);
   return (
-    businessStatus === 'APPROVAL_REQUIRED' ||
     businessStatus === 'APPROVAL_IN_PROGRESS' ||
     status?.readiness === 'PUBLICATION_PENDING'
   );
@@ -369,31 +410,58 @@ function capabilityNeedsAction(
   );
 }
 
-function preparationStatusLabel(status: string | undefined, trigger: string): string {
-  if (!status) return triggerLabel(trigger);
-  if (status === 'SOURCE_READY') return 'Source ready';
-  if (status === 'AUTHORITY_PENDING') return 'Authority pending';
-  if (status === 'CURRENT') return 'Current';
-  if (status === 'NOT_INSTALLED') return 'Not installed';
-  if (status === 'NOT_REGISTERED') return 'Register required';
-  if (status === 'NOT_ACTIVE') return 'Activate required';
-  if (status === 'RUNTIME_OFFLINE') return 'Runtime offline';
-  if (status === 'UPDATE_AVAILABLE') return 'Update available';
-  if (status === 'UNAVAILABLE') return 'Unavailable';
-  if (status === 'OPTIONAL') return 'Optional';
-  if (status === 'FAILED') return 'Failed';
+function preparationStatusLabel(
+  status: string | undefined,
+  trigger: string,
+  format: AxisLocalizationState['format'] = (_key, fallback) => fallback,
+): string {
+  if (!status) return triggerLabel(trigger, format);
+  if (status === 'SOURCE_READY')
+    return format('backoffice.ui.source-ready', 'Source ready');
+  if (status === 'AUTHORITY_PENDING')
+    return format('backoffice.ui.authority-pending', 'Authority pending');
+  if (status === 'CURRENT') return format('backoffice.ui.current', 'Current');
+  if (status === 'NOT_INSTALLED')
+    return format('backoffice.ui.not-installed', 'Not installed');
+  if (status === 'NOT_REGISTERED')
+    return format('backoffice.ui.register-required', 'Register required');
+  if (status === 'NOT_ACTIVE')
+    return format('backoffice.ui.activate-required', 'Activate required');
+  if (status === 'RUNTIME_OFFLINE')
+    return format('backoffice.ui.runtime-offline', 'Runtime offline');
+  if (status === 'UPDATE_AVAILABLE')
+    return format('backoffice.ui.update-available', 'Update available');
+  if (status === 'UNAVAILABLE')
+    return format('backoffice.ui.unavailable', 'Unavailable');
+  if (status === 'OPTIONAL') return format('backoffice.ui.optional', 'Optional');
+  if (status === 'FAILED') return format('backoffice.ui.failed', 'Failed');
   return status.replaceAll('_', ' ').toLowerCase();
 }
 
-function releaseStatusLabel(status: string | undefined): string {
-  if (status === 'CURRENT') return 'Staged current';
-  if (status === 'UPDATE_AVAILABLE') return 'Staged update available';
-  if (status === 'NOT_INSTALLED') return 'Staged not installed';
-  if (status === 'IMPORTING') return 'Staged importing';
-  if (status === 'INVALID_RELEASE') return 'Staged invalid release';
+function releaseStatusLabel(
+  status: string | undefined,
+  format: AxisLocalizationState['format'] = (_key, fallback) => fallback,
+): string {
+  if (status === 'CURRENT')
+    return format('backoffice.ui.staged-current', 'Staged current');
+  if (status === 'UPDATE_AVAILABLE')
+    return format('backoffice.ui.staged-update-available', 'Staged update available');
+  if (status === 'DOWNGRADE_AVAILABLE')
+    return format(
+      'backoffice.ui.staged-source-older',
+      'Selected source is older than installed',
+    );
+  if (status === 'NOT_INSTALLED')
+    return format('backoffice.ui.staged-not-installed', 'Staged not installed');
+  if (status === 'IMPORTING')
+    return format('backoffice.ui.staged-importing', 'Staged importing');
+  if (status === 'INVALID_RELEASE')
+    return format('backoffice.ui.staged-invalid-release', 'Staged invalid release');
   return status
-    ? `Staged ${status.replaceAll('_', ' ').toLowerCase()}`
-    : 'Staged checking';
+    ? format('backoffice.ui.staged-value0', 'Staged {value0}', {
+        value0: status.replaceAll('_', ' ').toLowerCase(),
+      })
+    : format('backoffice.ui.staged-checking', 'Staged checking');
 }
 
 function releaseStatusColor(
@@ -497,32 +565,61 @@ function isCustomizationProfile(profile: ApplicationInitializationProfile): bool
   );
 }
 
-function nextActionText(status: ApplicationInitializationStatus | undefined): string {
-  if (!status) return 'Status unavailable';
+function nextActionText(
+  status: ApplicationInitializationStatus | undefined,
+  format: AxisLocalizationState['format'] = (_key, fallback) => fallback,
+): string {
+  if (!status) return format('backoffice.ui.status-unavailable', 'Status unavailable');
   if (status.capability?.nextAction) return status.capability.nextAction;
   if (status.preparation?.selectionRequired)
-    return 'Required setup stages remain pending.';
+    return format(
+      'backoffice.ui.required-setup-stages-remain-pending',
+      'Required setup stages remain pending.',
+    );
   if (preparationBlocked(status)) {
-    return blockedActionSummary(status);
+    return blockedActionSummary(status, format);
   }
   if (preparationNeedsAction(status)) {
-    return 'Required setup data needs preparation.';
+    return format(
+      'backoffice.ui.required-setup-data-needs-preparation',
+      'Required setup data needs preparation.',
+    );
   }
   if (status.readiness === 'READY' && status.releaseStatus === 'UPDATE_AVAILABLE') {
-    return 'Staged has a newer package available.';
+    return format(
+      'backoffice.ui.staged-has-a-newer-package-available',
+      'Staged has a newer package available.',
+    );
   }
   if (status.releaseStatus === 'INVALID_RELEASE') {
-    return 'Release version update required before this can be initialized.';
+    return format(
+      'backoffice.ui.release-version-update-required-before-this-can-be-initialized',
+      'Release version update required before this can be initialized.',
+    );
   }
-  if (status.readiness === 'READY') return 'Online channel is available.';
+  if (status.readiness === 'READY')
+    return format(
+      'backoffice.ui.online-channel-is-available',
+      'Online channel is available.',
+    );
   if (status.readiness === 'PUBLICATION_PENDING') {
-    return 'Waiting for reviewer decision.';
+    return format(
+      'backoffice.ui.waiting-for-reviewer-decision',
+      'Waiting for reviewer decision.',
+    );
   }
   if (status.readiness === 'IMPORTING') {
-    return 'Staged setup is running; status refreshes automatically.';
+    return format(
+      'backoffice.ui.staged-setup-is-running-status-refreshes-automatically',
+      'Staged setup is running; status refreshes automatically.',
+    );
   }
-  if (status.readiness === 'FAILED') return 'Last attempt failed; retry after fix.';
-  return 'Ready to initialize.';
+  if (status.readiness === 'FAILED')
+    return format(
+      'backoffice.ui.last-attempt-failed-retry-after-fix',
+      'Last attempt failed; retry after fix.',
+    );
+  return format('backoffice.ui.ready-to-initialize', 'Ready to initialize.');
 }
 
 function publicationRecoveryGuidance(
@@ -530,6 +627,7 @@ function publicationRecoveryGuidance(
   status: ApplicationInitializationStatus | undefined,
   bootstrap: AxisAuthenticatedBootstrap,
   observedFailure?: ApplicationPreparationFailure,
+  format: AxisLocalizationState['format'] = (_key, fallback) => fallback,
 ): PublicationRecoveryGuidance {
   const title = displayProfileTitle(profile);
   const importFailure =
@@ -560,22 +658,36 @@ function publicationRecoveryGuidance(
   if (importFailure)
     return {
       key: `${profile.code}:import-failed`,
-      title: `${title}: import needs review`,
+      title: format(
+        'backoffice.ui.value0-import-needs-review',
+        '{value0}: import needs review',
+        { value0: title },
+      ),
       body: importFailure.message,
       route: historyAllowed
         ? (resolveImportHistoryHandoff(bootstrap, handoff) ?? '')
         : '',
-      actionLabel: 'Review import history',
+      actionLabel: format(
+        'backoffice.ui.review-import-history',
+        'Review import history',
+      ),
       severity: 'error',
       priority: 10,
     };
   if (!status) {
     return {
       key: `${profile.code}:status-unavailable`,
-      title: `${title}: status unavailable`,
-      body: 'Refresh setup status before taking publication action.',
+      title: format(
+        'backoffice.ui.value0-status-unavailable',
+        '{value0}: status unavailable',
+        { value0: title },
+      ),
+      body: format(
+        'backoffice.ui.refresh-setup-status-before-taking-publication-action',
+        'Refresh setup status before taking publication action.',
+      ),
       route: '/publishing',
-      actionLabel: 'Open Publishing',
+      actionLabel: format('backoffice.ui.open-publishing', 'Open Publishing'),
       severity: 'warning',
       priority: 60,
     };
@@ -583,12 +695,19 @@ function publicationRecoveryGuidance(
   if (status.releaseStatus === 'INVALID_RELEASE') {
     return {
       key: `${profile.code}:invalid-release`,
-      title: `${title}: release needs repair`,
+      title: format(
+        'backoffice.ui.value0-release-needs-repair',
+        '{value0}: release needs repair',
+        { value0: title },
+      ),
       body:
         status.capability?.disabledReason ??
-        'The source release manifest or descriptor is invalid. Repair the owning module release, rebuild, and refresh before installing.',
+        format(
+          'backoffice.ui.the-source-release-manifest-or-descriptor-is-invalid-repair-the-owning-m',
+          'The source release manifest or descriptor is invalid. Repair the owning module release, rebuild, and refresh before installing.',
+        ),
       route: '/operations/imports-exports',
-      actionLabel: 'Open Data Releases',
+      actionLabel: format('backoffice.ui.open-data-releases', 'Open Data Releases'),
       severity: 'error',
       priority: 10,
     };
@@ -626,7 +745,11 @@ function publicationRecoveryGuidance(
     );
     return {
       key: `${profile.code}:prerequisites-held`,
-      title: `${title}: setup prerequisites need review`,
+      title: format(
+        'backoffice.ui.value0-setup-prerequisites-need-review',
+        '{value0}: setup prerequisites need review',
+        { value0: title },
+      ),
       body: prerequisiteBlocker.disabledReason ?? prerequisiteBlocker.message,
       route:
         compatibleTarget && importNavigation.length === 1
@@ -640,10 +763,19 @@ function publicationRecoveryGuidance(
   if (status.preparation?.selectionRequired) {
     return {
       key: `${profile.code}:operator-stages`,
-      title: `${title}: required setup stages`,
-      body: status.capability?.nextAction ?? 'Required setup stages remain pending.',
+      title: format(
+        'backoffice.ui.value0-required-setup-stages',
+        '{value0}: required setup stages',
+        { value0: title },
+      ),
+      body:
+        status.capability?.nextAction ??
+        format(
+          'backoffice.ui.required-setup-stages-remain-pending',
+          'Required setup stages remain pending.',
+        ),
       route: '',
-      actionLabel: 'Review setup stages',
+      actionLabel: format('backoffice.ui.review-setup-stages', 'Review setup stages'),
       severity: 'warning',
       priority: 20,
     };
@@ -655,21 +787,38 @@ function publicationRecoveryGuidance(
   ) {
     return {
       key: `${profile.code}:initialize-available`,
-      title: `${title}: ready to prepare`,
-      body: 'Use the profile action to install the governed setup data before publication.',
+      title: format('backoffice.ui.value0-value1', '{value0}: {value1}', {
+        value0: title,
+        value1:
+          status.readiness === 'IMPORTED'
+            ? format('backoffice.ui.ready-to-submit', 'ready to submit')
+            : format('backoffice.ui.ready-to-prepare', 'ready to prepare'),
+      }),
+      body:
+        status.readiness === 'IMPORTED'
+          ? format(
+              'backoffice.ui.staged-setup-is-current-submit-its-publication-for-normal-review-before-',
+              'Staged setup is current. Submit its publication for normal review before Online delivery.',
+            )
+          : format(
+              'backoffice.ui.use-the-profile-action-to-install-the-governed-setup-data-before-publica',
+              'Use the profile action to install the governed setup data before publication.',
+            ),
       route: '',
-      actionLabel: setupActionLabel(status),
+      actionLabel: setupActionLabel(status, format),
       severity: 'success',
-      priority: 90,
+      priority: 50,
     };
   }
   if (preparationBlocked(status)) {
     return {
       key: `${profile.code}:preparation-blocked`,
-      title: `${title}: setup blocked`,
-      body: blockedActionSummary(status),
+      title: format('backoffice.ui.value0-setup-blocked', '{value0}: setup blocked', {
+        value0: title,
+      }),
+      body: blockedActionSummary(status, format),
       route: '/registry',
-      actionLabel: 'Open Module Registry',
+      actionLabel: format('backoffice.ui.open-module-registry', 'Open Module Registry'),
       severity: 'error',
       priority: 20,
     };
@@ -678,11 +827,18 @@ function publicationRecoveryGuidance(
     const blocker = status.capability.blockers[0];
     return {
       key: `${profile.code}:needs-attention`,
-      title: `${title}: needs attention`,
+      title: format(
+        'backoffice.ui.value0-needs-attention',
+        '{value0}: needs attention',
+        { value0: title },
+      ),
       body:
         blocker?.message ??
         status.capability.nextAction ??
-        'Resolve the backend-owned readiness blocker before continuing publication.',
+        format(
+          'backoffice.ui.resolve-the-backend-owned-readiness-blocker-before-continuing-publicatio',
+          'Resolve the backend-owned readiness blocker before continuing publication.',
+        ),
       route:
         blocker?.owner?.toLowerCase().includes('process') ||
         blocker?.source?.toLowerCase().includes('process')
@@ -691,8 +847,8 @@ function publicationRecoveryGuidance(
       actionLabel:
         blocker?.owner?.toLowerCase().includes('process') ||
         blocker?.source?.toLowerCase().includes('process')
-          ? 'Open Process Tasks'
-          : 'Open Publishing',
+          ? format('backoffice.ui.open-process-tasks', 'Open Process Tasks')
+          : format('backoffice.ui.open-publishing', 'Open Publishing'),
       severity: 'error',
       priority: 25,
     };
@@ -700,10 +856,17 @@ function publicationRecoveryGuidance(
   if (preparationNeedsAction(status)) {
     return {
       key: `${profile.code}:prepare-setup`,
-      title: `${title}: prepare staged setup`,
-      body: 'Install or update required staged setup data before requesting Online approval.',
+      title: format(
+        'backoffice.ui.value0-prepare-staged-setup',
+        '{value0}: prepare staged setup',
+        { value0: title },
+      ),
+      body: format(
+        'backoffice.ui.install-or-update-required-staged-setup-data-before-requesting-online-ap',
+        'Install or update required staged setup data before requesting Online approval.',
+      ),
       route: '/operations/imports-exports',
-      actionLabel: 'Open Data Releases',
+      actionLabel: format('backoffice.ui.open-data-releases', 'Open Data Releases'),
       severity: 'warning',
       priority: 30,
     };
@@ -711,10 +874,17 @@ function publicationRecoveryGuidance(
   if (status.capability?.businessStatus === 'APPROVAL_REQUIRED') {
     return {
       key: `${profile.code}:approval-required`,
-      title: `${title}: approval required`,
-      body: 'Staged content is prepared. Request or reconcile the governed publication approval before Online publication.',
+      title: format(
+        'backoffice.ui.value0-approval-required',
+        '{value0}: approval required',
+        { value0: title },
+      ),
+      body: format(
+        'backoffice.ui.staged-content-is-prepared-request-or-reconcile-the-governed-publication',
+        'Staged content is prepared. Request or reconcile the governed publication approval before Online publication.',
+      ),
       route: '/publishing',
-      actionLabel: 'Open Publishing',
+      actionLabel: format('backoffice.ui.open-publishing', 'Open Publishing'),
       severity: 'warning',
       priority: 35,
     };
@@ -726,12 +896,19 @@ function publicationRecoveryGuidance(
     const diagnostic = status.capability?.approvalDiagnostic;
     return {
       key: `${profile.code}:approval-in-progress`,
-      title: `${title}: review approval task`,
+      title: format(
+        'backoffice.ui.value0-review-approval-task',
+        '{value0}: review approval task',
+        { value0: title },
+      ),
       body:
         diagnostic?.message ??
-        'Publication approval is in progress. Review the actionable Process task, assignee, queue, and permissions.',
+        format(
+          'backoffice.ui.publication-approval-is-in-progress-review-the-actionable-process-task-a',
+          'Publication approval is in progress. Review the actionable Process task, assignee, queue, and permissions.',
+        ),
       route: '/process/tasks',
-      actionLabel: 'Open Approval Queue',
+      actionLabel: format('backoffice.ui.open-approval-queue', 'Open Approval Queue'),
       severity: 'warning',
       priority: 40,
     };
@@ -739,10 +916,15 @@ function publicationRecoveryGuidance(
   if (status.capability?.businessStatus === 'APPROVED') {
     return {
       key: `${profile.code}:approved`,
-      title: `${title}: publish Online`,
-      body: 'Publication approval is complete. Continue through governed publishing to make the channel Online.',
+      title: format('backoffice.ui.value0-publish-online', '{value0}: publish Online', {
+        value0: title,
+      }),
+      body: format(
+        'backoffice.ui.publication-approval-is-complete-continue-through-governed-publishing-to',
+        'Publication approval is complete. Continue through governed publishing to make the channel Online.',
+      ),
       route: '/publishing',
-      actionLabel: 'Open Publishing',
+      actionLabel: format('backoffice.ui.open-publishing', 'Open Publishing'),
       severity: 'info',
       priority: 45,
     };
@@ -750,31 +932,46 @@ function publicationRecoveryGuidance(
   if (capabilityIsOnline(status)) {
     return {
       key: `${profile.code}:online`,
-      title: `${title}: Online ready`,
-      body: 'Online channel is available. Use browser validation or the public application to verify the published experience.',
+      title: format('backoffice.ui.value0-online-ready', '{value0}: Online ready', {
+        value0: title,
+      }),
+      body: format(
+        'backoffice.ui.online-channel-is-available-use-browser-validation-or-the-public-applica',
+        'Online channel is available. Use browser validation or the public application to verify the published experience.',
+      ),
       route: '/publishing',
-      actionLabel: 'Open Publishing',
+      actionLabel: format('backoffice.ui.open-publishing', 'Open Publishing'),
       severity: 'success',
       priority: 90,
     };
   }
   return {
     key: `${profile.code}:initialize`,
-    title: `${title}: initialize staged baseline`,
-    body: 'Initialize the governed baseline, then follow staged setup, approval, and Online publication.',
+    title: format(
+      'backoffice.ui.value0-initialize-staged-baseline',
+      '{value0}: initialize staged baseline',
+      { value0: title },
+    ),
+    body: format(
+      'backoffice.ui.initialize-the-governed-baseline-then-follow-staged-setup-approval-and-o',
+      'Initialize the governed baseline, then follow staged setup, approval, and Online publication.',
+    ),
     route: '/publishing',
-    actionLabel: 'Open Publishing',
+    actionLabel: format('backoffice.ui.open-publishing', 'Open Publishing'),
     severity: 'info',
     priority: 50,
   };
 }
 
-function rowGuidanceLabel(guidance: PublicationRecoveryGuidance): string {
-  if (guidance.priority <= 25) return 'Fix first';
-  if (guidance.priority <= 35) return 'Prepare';
-  if (guidance.priority <= 45) return 'Approval';
-  if (guidance.priority >= 90) return 'Verify';
-  return 'Next';
+function rowGuidanceLabel(
+  guidance: PublicationRecoveryGuidance,
+  format: AxisLocalizationState['format'] = (_key, fallback) => fallback,
+): string {
+  if (guidance.priority <= 25) return format('backoffice.ui.fix-first', 'Fix first');
+  if (guidance.priority <= 35) return format('backoffice.ui.prepare', 'Prepare');
+  if (guidance.priority <= 45) return format('backoffice.ui.approval', 'Approval');
+  if (guidance.priority >= 90) return format('backoffice.ui.verify', 'Verify');
+  return format('backoffice.ui.next', 'Next');
 }
 
 function SetupMetric({
@@ -786,6 +983,7 @@ function SetupMetric({
   readonly label: string;
   readonly value: number;
 }) {
+  const { locale } = useAxisLocalization();
   return (
     <Box
       sx={{
@@ -815,8 +1013,9 @@ function SetupMetric({
           lineHeight: 1,
         }}
         variant="subtitle2"
+        component="p"
       >
-        {value}
+        {new Intl.NumberFormat(locale).format(value)}
       </Typography>
       <Typography
         color="text.secondary"
@@ -894,11 +1093,20 @@ function RowIconAction({
 }
 
 export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProps) {
+  const { format: workflowText } = useAxisLocalization();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const focusedProfile = searchParams.get('profile');
+  const canOpenRoute = (route: string) =>
+    props.bootstrap.navigation.some(
+      (item) =>
+        item.route === route.split('?')[0] &&
+        ['ACTIVE', 'PREVIEW'].includes(item.featureState ?? 'ACTIVE') &&
+        ['UP', 'DEGRADED'].includes(item.availability),
+    );
   const [filter, setFilter] = useState<AcceleratorFilter>('ALL');
+  const [setupSearch, setSetupSearch] = useState('');
   const expandedProfile = searchParams.get('expanded') ?? undefined;
   const setExpandedProfile = (value: string | undefined) => {
     setSearchParams(
@@ -916,12 +1124,12 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
   const [repairConfirmation, setRepairConfirmation] =
     useState<RepairConfirmationState>();
   const backofficeConnection = selectModuleConnection(props.bootstrap, 'backoffice');
-  const processConnection = selectModuleConnection(props.bootstrap, 'workflow', {
-    server: 'processServer',
-  });
-  const mediaConnection = selectModuleConnection(props.bootstrap, 'media', {
-    publicationRole: 'STAGED',
-  });
+  const reviewNavigation = props.bootstrap.navigation.find(
+    (item) =>
+      item.moduleName === 'workflow' &&
+      item.id === 'process-tasks' &&
+      canOpenRoute(item.route),
+  );
   const profiles = useMemo(
     () =>
       (props.bootstrap.applicationInitializationProfiles ?? [])
@@ -1102,6 +1310,26 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
         !current.data.allowedActions.includes('INITIALIZE')
       )
         throw new Error('Initialization is not available in the current setup state.');
+      if (
+        (operation === 'prepare' || operation === 'reconcileApproval') &&
+        (current.data !== status ||
+          !current.data.capability?.blockers.some(
+            (blocker) => supportedRepairOperation(blocker) === operation,
+          ))
+      )
+        throw new Error(
+          'Refresh setup status. This repair is not available to the current operator.',
+        );
+      if (
+        (operation === 'rollback' || operation === 'retire') &&
+        (current.data !== status ||
+          !current.data.allowedActions.includes(
+            operation === 'rollback' ? 'ROLLBACK' : 'RETIRE',
+          ))
+      )
+        throw new Error(
+          'Refresh setup status. This lifecycle action is not available to the current operator.',
+        );
       if (operation === 'initiate') {
         const preparation = current.data.preparation;
         if (
@@ -1117,108 +1345,6 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
           throw new Error(
             'Setup stage selection is not available in the current owner status.',
           );
-      }
-      if (
-        (operation === 'approve' || operation === 'reject') &&
-        (current.data.publication?.code !== status?.publication?.code ||
-          current.data.publication?.revision !== status?.publication?.revision ||
-          current.data.publication?.workflowRef !== status?.publication?.workflowRef)
-      )
-        throw new Error(
-          'Publication changed. Refresh its review before taking action.',
-        );
-      if (operation === 'approve' || operation === 'reject') {
-        const configuration = {
-          accessToken: props.accessToken,
-          enterpriseCode: props.runtime.enterpriseCode,
-          timeoutMs: props.runtime.requestTimeoutMs,
-        };
-        // Re-read pinned owner evidence after CMS activation, including explicit asset retries.
-        const finishAssets = async () => {
-          let nextStatus = await client.getStatus();
-          for (
-            let attempt = 0;
-            attempt < 20 &&
-            ['APPROVED', 'ACTIVATING'].includes(nextStatus.publication?.state ?? '');
-            attempt++
-          ) {
-            await new Promise((resolve) => globalThis.setTimeout(resolve, 500));
-            nextStatus = await client.getStatus();
-          }
-          if (nextStatus.readiness !== 'MEDIA_DEPENDENCIES_PENDING') return nextStatus;
-          if (!nextStatus.mediaDependencies || !mediaConnection || !processConnection)
-            throw new Error(
-              'Pack Media publication requires Staged Media and Process connections',
-            );
-          await coordinatePublicationAssets(
-            nextStatus.mediaDependencies.dependencies,
-            (input) => requestMediaPublication(mediaConnection, configuration, input),
-            async (reference) => {
-              const tasks = await loadProcessTasks(
-                processConnection,
-                configuration,
-                reference,
-              );
-              const task = findActionableProcessApprovalTask(
-                tasks.filter((candidate) => candidate.instanceCode === reference),
-              );
-              if (!task)
-                throw new Error(
-                  'Media approval task is not actionable; review Process evidence',
-                );
-              await completeProcessTask(processConnection, configuration, task.code, {
-                approved: true,
-                reason: `${profile.title} pinned Media publication approved from Setup & Accelerators`,
-              });
-            },
-          );
-          return client.getStatus();
-        };
-        if (
-          operation === 'approve' &&
-          current.data.readiness === 'MEDIA_DEPENDENCIES_PENDING'
-        )
-          return finishAssets();
-        if (!canApprove(current.data))
-          throw new Error('Publication is not awaiting a CMS review decision.');
-        if (!processConnection || !status?.publication?.workflowRef) {
-          throw new Error(
-            processApprovalUnavailableMessage({
-              sourceLabel: profile.title,
-              hasProcessConnection: Boolean(processConnection),
-              workflowRef: status?.publication?.workflowRef,
-            }),
-          );
-        }
-        const workflowRef = status.publication.workflowRef;
-        const tasks = await loadProcessTasks(
-          processConnection,
-          configuration,
-          workflowRef,
-        );
-        const task = findActionableProcessApprovalTask(tasks);
-        if (!task) {
-          throw new Error(
-            processApprovalUnavailableMessage({
-              sourceLabel: profile.title,
-              hasProcessConnection: true,
-              workflowRef,
-              taskCount: tasks.length,
-            }),
-          );
-        }
-        await completeProcessTask(processConnection, configuration, task.code, {
-          approved: operation === 'approve',
-          outcome:
-            operation === 'approve'
-              ? 'approved-from-setup-accelerators'
-              : 'rejected-from-setup-accelerators',
-          reason:
-            operation === 'approve'
-              ? `${profile.title} approved from Setup & Accelerators`
-              : `${profile.title} rejected from Setup & Accelerators; Online remains unchanged`,
-        });
-        return operation === 'approve' ? finishAssets() : client.getStatus();
       }
       if (operation === 'prepare') {
         return client.prepare({
@@ -1329,20 +1455,36 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
   const actionCount = settledStatuses.filter((item) =>
     capabilityNeedsAction(item.profile, item.query.data),
   ).length;
+  const matchesSetupSearch = (profile: ApplicationInitializationProfile) => {
+    const term = setupSearch.trim().toLocaleLowerCase();
+    return (
+      !term ||
+      [profile.title, profile.code, profile.summary, profile.category, profile.owner]
+        .filter(Boolean)
+        .join(' ')
+        .toLocaleLowerCase()
+        .includes(term)
+    );
+  };
   const recoveryGuidance = statuses
-    .filter((item) => !item.query.isPending && !item.query.error)
+    .filter(
+      (item) =>
+        matchesSetupSearch(item.profile) && !item.query.isPending && !item.query.error,
+    )
     .map((item) =>
       publicationRecoveryGuidance(
         item.profile,
         item.query.data,
         props.bootstrap,
         observedImportFailure(item.profile.code, item.query.data),
+        workflowText,
       ),
     )
     .filter((item) => item.severity !== 'success')
     .sort((left, right) => left.priority - right.priority)
     .slice(0, 4);
   const filteredStatuses = statuses.filter((item) => {
+    if (!matchesSetupSearch(item.profile)) return false;
     if (filter === 'ALL') return true;
     if (filter === 'NEEDS_ACTION')
       return (
@@ -1366,7 +1508,12 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
   if (!backofficeConnection) {
     return (
       <WorkspaceContainer>
-        <Alert severity="error">BackOffice connection is unavailable.</Alert>
+        <Alert severity="error">
+          {workflowText(
+            'backoffice.ui.backoffice-connection-is-unavailable',
+            'BackOffice connection is unavailable.',
+          )}
+        </Alert>
       </WorkspaceContainer>
     );
   }
@@ -1374,9 +1521,12 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
   return (
     <WorkspaceContainer>
       <WorkspaceHeading
-        description="Initialize governed documentation and project accelerators, then publish Staged packages to Online with approval."
+        description={workflowText(
+          'backoffice.ui.initialize-governed-documentation-and-project-accelerators-then-publish-',
+          'Initialize governed documentation and project accelerators, then publish Staged packages to Online with approval.',
+        )}
         help={props.routeNavigation?.help}
-        title="Setup & Accelerators"
+        title={workflowText('backoffice.ui.setup-accelerators', 'Setup & Accelerators')}
       />
       {focusedProfile ? (
         <Button
@@ -1385,16 +1535,16 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
             setSearchParams({});
           }}
         >
-          All applications
+          {workflowText('backoffice.ui.all-applications', 'All applications')}
         </Button>
       ) : null}
       <Stack spacing={2}>
         {profiles.length === 0 ? (
           <Alert severity="warning">
-            Authenticated bootstrap did not include any application-initialization
-            profiles. Setup & Accelerators is backend-published, so project or
-            environment configuration must contribute profiles before Axis can
-            initialize Nexus, Agora, documentation, or future accelerators.
+            {workflowText(
+              'backoffice.ui.authenticated-bootstrap-did-not-include-any-application-initialization-p',
+              'Authenticated bootstrap did not include any application-initialization profiles. Setup & Accelerators is backend-published, so project or environment configuration must contribute profiles before Axis can initialize Nexus, Agora, documentation, or future accelerators.',
+            )}
           </Alert>
         ) : null}
         <Card variant="outlined">
@@ -1419,7 +1569,10 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
               }}
             >
               <Box
-                aria-label="Setup profile summary"
+                aria-label={workflowText(
+                  'backoffice.ui.setup-profile-summary',
+                  'Setup profile summary',
+                )}
                 sx={{
                   display: 'grid',
                   gap: 0.75,
@@ -1428,24 +1581,41 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                   width: '100%',
                 }}
               >
-                <SetupMetric color="success" label="Online" value={readyCount} />
+                <SetupMetric
+                  color="success"
+                  label={workflowText('backoffice.ui.online', 'Online')}
+                  value={readyCount}
+                />
                 <SetupMetric
                   color="warning"
-                  label="Pending approval"
+                  label={workflowText(
+                    'backoffice.ui.pending-approval',
+                    'Pending approval',
+                  )}
                   value={pendingCount}
                 />
-                <SetupMetric color="info" label="Need attention" value={actionCount} />
+                <SetupMetric
+                  color="info"
+                  label={workflowText('backoffice.ui.setup-options', 'Setup options')}
+                  value={actionCount}
+                />
                 {loadingCount > 0 ? (
                   <SetupMetric
                     color="info"
-                    label="Loading status"
+                    label={workflowText(
+                      'backoffice.ui.loading-status',
+                      'Loading status',
+                    )}
                     value={loadingCount}
                   />
                 ) : null}
                 {unavailableCount > 0 ? (
                   <SetupMetric
                     color="warning"
-                    label="Status unavailable"
+                    label={workflowText(
+                      'backoffice.ui.status-unavailable',
+                      'Status unavailable',
+                    )}
                     value={unavailableCount}
                   />
                 ) : null}
@@ -1460,46 +1630,90 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                 }}
               >
                 <TextField
-                  label="View"
+                  label={workflowText('backoffice.ui.find-a-setup', 'Find a setup')}
+                  value={setupSearch}
+                  onChange={(event) => setSetupSearch(event.target.value)}
+                  placeholder={workflowText(
+                    'backoffice.ui.application-or-documentation',
+                    'Application or documentation',
+                  )}
+                  size="small"
+                  type="search"
+                  sx={{ minWidth: { xs: '100%', sm: 240 } }}
+                />
+                <TextField
+                  label={workflowText('backoffice.ui.view', 'View')}
                   onChange={(event) => setFilter(event.target.value)}
                   select
                   size="small"
                   sx={{ minWidth: { xs: '100%', sm: 220 } }}
                   value={filter}
                 >
-                  <MenuItem value="NEEDS_ACTION">Needs action</MenuItem>
+                  <MenuItem value="NEEDS_ACTION">
+                    {workflowText('backoffice.ui.needs-action', 'Needs action')}
+                  </MenuItem>
                   {categories.map((category) => (
                     <MenuItem key={category} value={`category:${category}`}>
-                      {category}
+                      {workflowText(`backoffice.category.${category}`, category)}
                     </MenuItem>
                   ))}
-                  <MenuItem value="ALL">All profiles</MenuItem>
+                  <MenuItem value="ALL">
+                    {workflowText('backoffice.ui.all-profiles', 'All profiles')}
+                  </MenuItem>
                 </TextField>
-                <Button
-                  onClick={() => {
-                    void navigate('/process/tasks');
-                  }}
-                  size="small"
-                  startIcon={<ShellIcon fontSize="small" name="tasks" />}
-                  sx={{ minHeight: 38 }}
-                  variant="outlined"
-                >
-                  Approval Queue
-                </Button>
-                <Button
-                  onClick={() => {
-                    void navigate('/publishing');
-                  }}
-                  size="small"
-                  sx={{ minHeight: 38 }}
-                  variant="outlined"
-                >
-                  Open Publishing
-                </Button>
+                {props.bootstrap.navigation.some(
+                  (item) => item.route === '/process/tasks',
+                ) ? (
+                  <Button
+                    onClick={() => {
+                      void navigate('/process/tasks');
+                    }}
+                    size="small"
+                    startIcon={<ShellIcon fontSize="small" name="tasks" />}
+                    sx={{ minHeight: 38 }}
+                    variant="outlined"
+                  >
+                    {workflowText('backoffice.ui.approval-queue', 'Approval Queue')}
+                  </Button>
+                ) : null}
+                {props.bootstrap.navigation.some(
+                  (item) =>
+                    (item.route === '/publishing' && item.group?.id === 'publishing') ||
+                    (item.id === 'cms' && item.moduleName === 'cms'),
+                ) ? (
+                  <Button
+                    onClick={() => {
+                      void navigate('/publishing');
+                    }}
+                    size="small"
+                    sx={{ minHeight: 38 }}
+                    variant="outlined"
+                  >
+                    {workflowText('backoffice.ui.open-publishing', 'Open Publishing')}
+                  </Button>
+                ) : null}
               </Stack>
             </Box>
           </CardContent>
         </Card>
+        {setupSearch.trim() ? (
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+          >
+            <Typography role="status" color="text.secondary">
+              {workflowText(
+                'backoffice.ui.matching-setups',
+                '{count, plural, one {# matching setup} other {# matching setups}}',
+                { count: filteredStatuses.length },
+              )}
+            </Typography>
+            <Button onClick={() => setSetupSearch('')} size="small">
+              {workflowText('backoffice.ui.clear-search', 'Clear search')}
+            </Button>
+          </Stack>
+        ) : null}
         {recoveryGuidance.length > 0 ? (
           <Card variant="outlined">
             <CardContent
@@ -1519,19 +1733,26 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                   }}
                 >
                   <Box>
-                    <Typography component="h3" sx={{ fontWeight: 800 }}>
-                      Publishing recovery path
+                    <Typography component="h2" sx={{ fontWeight: 800 }}>
+                      {workflowText(
+                        'backoffice.ui.publishing-recovery-path',
+                        'Publishing recovery path',
+                      )}
                     </Typography>
                     <Typography color="text.secondary" variant="body2">
-                      Follow these backend-owned blockers in order before expecting
-                      Online pages, documentation, or storefront content to appear.
+                      {workflowText(
+                        'backoffice.ui.follow-these-backend-owned-blockers-in-order-before-expecting-online-pag',
+                        'Follow these backend-owned blockers in order before expecting Online pages, documentation, or storefront content to appear.',
+                      )}
                     </Typography>
                   </Box>
                   <Chip
                     color="warning"
-                    label={`${String(recoveryGuidance.length)} active step${
-                      recoveryGuidance.length === 1 ? '' : 's'
-                    }`}
+                    label={workflowText(
+                      'backoffice.ui.active-steps',
+                      '{count, plural, one {# active step} other {# active steps}}',
+                      { count: recoveryGuidance.length },
+                    )}
                     sx={{ justifySelf: { md: 'end' } }}
                     variant="outlined"
                   />
@@ -1579,7 +1800,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                         >
                           <Chip
                             color={guidance.severity}
-                            label={rowGuidanceLabel(guidance)}
+                            label={rowGuidanceLabel(guidance, workflowText)}
                             size="small"
                             sx={{ fontWeight: 800 }}
                           />
@@ -1594,7 +1815,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                       <Button
                         color={guidance.severity === 'error' ? 'warning' : 'primary'}
                         onClick={() => void navigate(guidance.route)}
-                        disabled={!guidance.route}
+                        disabled={!guidance.route || !canOpenRoute(guidance.route)}
                         size="small"
                         sx={{
                           alignSelf: { sm: 'center' },
@@ -1629,11 +1850,11 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                     }}
                   >
                     <Typography
-                      component="h3"
+                      component="h2"
                       sx={{ fontWeight: 800 }}
                       variant="subtitle1"
                     >
-                      {group.title}
+                      {workflowText(`backoffice.category.${group.key}`, group.title)}
                     </Typography>
                     <Typography
                       color="text.secondary"
@@ -1651,6 +1872,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                         status,
                         props.bootstrap,
                         observedImportFailure(profile.code, status),
+                        workflowText,
                       );
                       const pending =
                         mutation.isPending &&
@@ -1713,8 +1935,6 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                       const approvalActionsVisible = Boolean(
                         canApprove(status) ||
                         (assetApprovalsPending &&
-                          mediaConnection &&
-                          processConnection &&
                           status?.mediaDependencies?.dependencies.length),
                       );
                       const executableRepair = firstExecutableRepair(status);
@@ -1728,7 +1948,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                         status?.allowedActions.includes('RETIRE'),
                       ].filter(Boolean).length;
                       const actionColumns = approvalActionsVisible
-                        ? '148px 128px 112px 40px 40px'
+                        ? '148px 180px 40px 40px'
                         : lifecycleActionCount > 1
                           ? '148px 112px 112px 40px 40px'
                           : lifecycleActionCount > 0
@@ -1752,12 +1972,16 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                             <Box sx={{ minWidth: 0 }}>
                               {query.isFetching && status ? (
                                 <CircularProgress
-                                  aria-label={`Refreshing ${profile.title} status`}
+                                  aria-label={workflowText(
+                                    'backoffice.ui.refreshing-profile-status',
+                                    'Refreshing {profile} status',
+                                    { profile: profile.title },
+                                  )}
                                   size={16}
                                 />
                               ) : null}
                               <Typography
-                                component="h4"
+                                component="h3"
                                 noWrap
                                 sx={{ lineHeight: 1.15 }}
                                 title={displayProfileTitle(profile)}
@@ -1787,11 +2011,18 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                 sx={{ alignItems: 'center' }}
                               >
                                 <CircularProgress
-                                  aria-label={`Loading ${profile.title} status`}
+                                  aria-label={workflowText(
+                                    'backoffice.ui.loading-profile-status',
+                                    'Loading {profile} status',
+                                    { profile: profile.title },
+                                  )}
                                   size={20}
                                 />
                                 <Typography color="text.secondary" variant="body2">
-                                  Loading status...
+                                  {workflowText(
+                                    'backoffice.ui.loading-status-dbb3a4',
+                                    'Loading status...',
+                                  )}
                                 </Typography>
                               </Stack>
                             ) : query.error instanceof Error ? (
@@ -1814,11 +2045,14 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                 >
                                   <SetupStatusChip
                                     color={capabilityStatusColor(status)}
-                                    label={capabilityStatusLabel(status)}
+                                    label={capabilityStatusLabel(status, workflowText)}
                                   />
                                   <SetupStatusChip
                                     color={releaseStatusColor(status.releaseStatus)}
-                                    label={releaseStatusLabel(status.releaseStatus)}
+                                    label={releaseStatusLabel(
+                                      status.releaseStatus,
+                                      workflowText,
+                                    )}
                                     variant="outlined"
                                   />
                                 </Box>
@@ -1836,8 +2070,11 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                   variant="body2"
                                 >
                                   {guidance.key.endsWith(':import-failed')
-                                    ? 'Review import history'
-                                    : nextActionText(status)}
+                                    ? workflowText(
+                                        'backoffice.ui.review-import-history',
+                                        'Review import history',
+                                      )
+                                    : nextActionText(status, workflowText)}
                                 </Typography>
                                 <Stack
                                   direction="row"
@@ -1846,7 +2083,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                 >
                                   <Chip
                                     color={guidance.severity}
-                                    label={rowGuidanceLabel(guidance)}
+                                    label={rowGuidanceLabel(guidance, workflowText)}
                                     size="small"
                                     variant="outlined"
                                   />
@@ -1868,7 +2105,10 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                       !canInitialize ||
                                       !selectableSteps.length
                                     }
-                                    label="Setup stage"
+                                    label={workflowText(
+                                      'backoffice.ui.setup-stage',
+                                      'Setup stage',
+                                    )}
                                     onChange={(event) =>
                                       setStageSelections((previous) => ({
                                         clients,
@@ -1888,7 +2128,12 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                     sx={{ maxWidth: 480, width: '100%' }}
                                     value={selectedStepCode}
                                   >
-                                    <MenuItem value="">Select setup stage</MenuItem>
+                                    <MenuItem value="">
+                                      {workflowText(
+                                        'backoffice.ui.select-setup-stage',
+                                        'Select setup stage',
+                                      )}
+                                    </MenuItem>
                                     {selectableSteps.map((step) => (
                                       <MenuItem
                                         key={step.code}
@@ -1907,7 +2152,10 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                               </Stack>
                             ) : (
                               <Alert severity="warning">
-                                Profile status is unavailable.
+                                {workflowText(
+                                  'backoffice.ui.profile-status-is-unavailable',
+                                  'Profile status is unavailable.',
+                                )}
                               </Alert>
                             )}
                             <Box
@@ -1930,12 +2178,17 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                             >
                               {guidance.key.endsWith(':import-failed') ? (
                                 <Button
-                                  disabled={!guidance.route}
+                                  disabled={
+                                    !guidance.route || !canOpenRoute(guidance.route)
+                                  }
                                   onClick={() => void navigate(guidance.route)}
                                   startIcon={<ShellIcon name="history" />}
                                   variant="contained"
                                 >
-                                  Review import history
+                                  {workflowText(
+                                    'backoffice.ui.review-import-history',
+                                    'Review import history',
+                                  )}
                                 </Button>
                               ) : status &&
                                 executableRepair &&
@@ -1972,9 +2225,20 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                   {pending &&
                                   mutation.variables?.operation ===
                                     executableRepairOperation
-                                    ? 'Repairing...'
+                                    ? executableRepairOperation === 'prepare'
+                                      ? workflowText(
+                                          'backoffice.ui.preparing',
+                                          'Preparing...',
+                                        )
+                                      : workflowText(
+                                          'backoffice.ui.repairing',
+                                          'Repairing...',
+                                        )
                                     : (executableRepair.repair?.label ??
-                                      operationLabel(executableRepairOperation))}
+                                      operationLabel(
+                                        executableRepairOperation,
+                                        workflowText,
+                                      ))}
                                 </Button>
                               ) : status && canInitialize ? (
                                 <Button
@@ -2003,8 +2267,11 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                 >
                                   {pending &&
                                   mutation.variables?.operation === 'initiate'
-                                    ? 'Working...'
-                                    : setupActionLabel(status)}
+                                    ? workflowText(
+                                        'backoffice.ui.working',
+                                        'Working...',
+                                      )
+                                    : setupActionLabel(status, workflowText)}
                                 </Button>
                               ) : readinessRefresh ? (
                                 <Button
@@ -2016,13 +2283,21 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                   startIcon={<ShellIcon name="refresh" />}
                                   variant="contained"
                                 >
-                                  {readinessRefresh.repair?.label}
+                                  {readinessRefresh.repair?.label ===
+                                  'Refresh readiness'
+                                    ? workflowText(
+                                        'backoffice.ui.refresh-readiness',
+                                        'Refresh readiness',
+                                      )
+                                    : readinessRefresh.repair?.label}
                                 </Button>
                               ) : status &&
                                 preparationBlocked(status) &&
                                 !selectionRequired ? (
                                 <Button
-                                  disabled={commandsDisabled}
+                                  disabled={
+                                    commandsDisabled || !canOpenRoute('/registry')
+                                  }
                                   onClick={() => void navigate('/registry')}
                                   size="small"
                                   sx={{
@@ -2033,7 +2308,10 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                   }}
                                   variant="outlined"
                                 >
-                                  Module Registry
+                                  {workflowText(
+                                    'backoffice.ui.module-registry',
+                                    'Module Registry',
+                                  )}
                                 </Button>
                               ) : (
                                 <Box
@@ -2047,78 +2325,47 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                               )}
                               {approvalActionsVisible && status ? (
                                 <Button
-                                  disabled={commandsDisabled}
-                                  onClick={() =>
-                                    mutation.mutate({
-                                      operation: 'approve',
-                                      profile,
-                                      status,
-                                    })
+                                  disabled={
+                                    commandsDisabled ||
+                                    (!assetApprovalsPending && !reviewNavigation)
                                   }
+                                  onClick={() => {
+                                    if (assetApprovalsPending)
+                                      setExpandedProfile(profile.code);
+                                    else if (
+                                      reviewNavigation &&
+                                      status.publication?.workflowRef
+                                    )
+                                      void navigate(
+                                        reviewNavigation.route +
+                                          '?' +
+                                          new URLSearchParams({
+                                            instanceCode:
+                                              status.publication.workflowRef,
+                                          }).toString(),
+                                      );
+                                  }}
                                   size="small"
                                   startIcon={
                                     <ShellIcon fontSize="small" name="approve" />
                                   }
                                   sx={{
                                     minHeight: 40,
-                                    minWidth: 116,
-                                    whiteSpace: assetApprovalsPending
-                                      ? 'normal'
-                                      : 'nowrap',
-                                    width: '100%',
-                                  }}
-                                  variant="contained"
-                                >
-                                  {pending &&
-                                  mutation.variables?.operation === 'approve'
-                                    ? 'Approving...'
-                                    : assetApprovalsPending
-                                      ? 'Complete asset approvals'
-                                      : 'Approve'}
-                                </Button>
-                              ) : approvalActionsVisible ? (
-                                <Box
-                                  aria-hidden="true"
-                                  sx={{
-                                    display: { xs: 'none', md: 'block' },
-                                    visibility: 'hidden',
-                                    width: 128,
-                                  }}
-                                />
-                              ) : null}
-                              {approvalActionsVisible && status ? (
-                                <Button
-                                  color="warning"
-                                  disabled={commandsDisabled || assetApprovalsPending}
-                                  onClick={() =>
-                                    mutation.mutate({
-                                      operation: 'reject',
-                                      profile,
-                                      status,
-                                    })
-                                  }
-                                  size="small"
-                                  sx={{
-                                    minHeight: 40,
-                                    minWidth: 96,
-                                    whiteSpace: 'nowrap',
+                                    whiteSpace: 'normal',
                                     width: '100%',
                                   }}
                                   variant="outlined"
                                 >
-                                  {pending && mutation.variables?.operation === 'reject'
-                                    ? 'Rejecting...'
-                                    : 'Reject'}
+                                  {assetApprovalsPending
+                                    ? workflowText(
+                                        'backoffice.ui.review-media-prerequisites',
+                                        'Review Media prerequisites',
+                                      )
+                                    : workflowText(
+                                        'backoffice.ui.review-publication',
+                                        'Review publication',
+                                      )}
                                 </Button>
-                              ) : approvalActionsVisible ? (
-                                <Box
-                                  aria-hidden="true"
-                                  sx={{
-                                    display: { xs: 'none', md: 'block' },
-                                    visibility: 'hidden',
-                                    width: 112,
-                                  }}
-                                />
                               ) : null}
                               {status?.allowedActions.includes('ROLLBACK') ? (
                                 <Button
@@ -2143,7 +2390,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                   }}
                                   variant="outlined"
                                 >
-                                  {operationLabel('rollback')}
+                                  {operationLabel('rollback', workflowText)}
                                 </Button>
                               ) : null}
                               {status?.allowedActions.includes('RETIRE') ? (
@@ -2169,12 +2416,16 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                   }}
                                   variant="outlined"
                                 >
-                                  {operationLabel('retire')}
+                                  {operationLabel('retire', workflowText)}
                                 </Button>
                               ) : null}
                               <RowIconAction
                                 disabled={refreshDisabled}
-                                label={`Refresh ${profile.title} status`}
+                                label={workflowText(
+                                  'backoffice.ui.refresh-profile-status',
+                                  'Refresh {profile} status',
+                                  { profile: profile.title },
+                                )}
                                 name="refresh"
                                 onClick={() => {
                                   statusQueue.prioritize(profile.code);
@@ -2183,12 +2434,28 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                               />
                               <Tooltip
                                 arrow
-                                title={`${expanded ? 'Hide' : 'Show'} ${profile.title} details`}
+                                title={workflowText(
+                                  expanded
+                                    ? 'backoffice.ui.hide-profile-details'
+                                    : 'backoffice.ui.show-profile-details',
+                                  expanded
+                                    ? 'Hide {profile} details'
+                                    : 'Show {profile} details',
+                                  { profile: profile.title },
+                                )}
                               >
                                 <span>
                                   <IconButton
                                     aria-expanded={expanded}
-                                    aria-label={`${expanded ? 'Hide' : 'Show'} ${profile.title} details`}
+                                    aria-label={workflowText(
+                                      expanded
+                                        ? 'backoffice.ui.hide-profile-details'
+                                        : 'backoffice.ui.show-profile-details',
+                                      expanded
+                                        ? 'Hide {profile} details'
+                                        : 'Show {profile} details',
+                                      { profile: profile.title },
+                                    )}
                                     onClick={() =>
                                       setExpandedProfile(
                                         expanded ? undefined : profile.code,
@@ -2222,8 +2489,14 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                               sx={{ mt: 1.5 }}
                             >
                               {query.isError
-                                ? 'Dependency details are unavailable because the owning status read failed. Refresh status to inspect the prerequisites.'
-                                : 'Dependency details are loading.'}
+                                ? workflowText(
+                                    'backoffice.ui.dependency-details-are-unavailable-because-the-owning-status-read-failed',
+                                    'Dependency details are unavailable because the owning status read failed. Refresh status to inspect the prerequisites.',
+                                  )
+                                : workflowText(
+                                    'backoffice.ui.dependency-details-are-loading',
+                                    'Dependency details are loading.',
+                                  )}
                             </Alert>
                           ) : null}
                           {expanded && status ? (
@@ -2269,18 +2542,27 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                     />
                                   ) : null}
                                   <Chip
-                                    label={`Online approval ${
+                                    label={
                                       profile.activationPolicy.approvalRequiredForOnline
-                                        ? 'required'
-                                        : 'not required'
-                                    }`}
+                                        ? workflowText(
+                                            'backoffice.ui.online-approval-required',
+                                            'Online approval required',
+                                          )
+                                        : workflowText(
+                                            'backoffice.ui.online-approval-not-required',
+                                            'Online approval not required',
+                                          )
+                                    }
                                     size="small"
                                     variant="outlined"
                                   />
                                 </Stack>
                                 <Box>
                                   <Typography color="text.secondary" variant="caption">
-                                    Required runtime
+                                    {workflowText(
+                                      'backoffice.ui.required-runtime',
+                                      'Required runtime',
+                                    )}
                                   </Typography>
                                   <Stack
                                     direction="row"
@@ -2297,6 +2579,37 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                     ))}
                                   </Stack>
                                 </Box>
+                                {status.preparation?.executions?.map((execution) => (
+                                  <Alert
+                                    key={execution.code}
+                                    severity={
+                                      execution.status === 'UNCERTAIN'
+                                        ? 'warning'
+                                        : 'info'
+                                    }
+                                    role="status"
+                                  >
+                                    {execution.completed}{' '}
+                                    {workflowText('backoffice.ui.of', 'of')}{' '}
+                                    {execution.total}{' '}
+                                    {workflowText(
+                                      'backoffice.ui.release-stages-prepared-on',
+                                      'release stages prepared on',
+                                    )}{' '}
+                                    {execution.targetServer}. {execution.nextAction}
+                                    <Typography
+                                      variant="caption"
+                                      component="p"
+                                      sx={{ overflowWrap: 'anywhere' }}
+                                    >
+                                      {workflowText(
+                                        'backoffice.ui.receipt',
+                                        'Receipt:',
+                                      )}{' '}
+                                      {execution.code}
+                                    </Typography>
+                                  </Alert>
+                                ))}
                                 {status.preparation?.operationFailure ? (
                                   <Alert severity="error">
                                     {status.preparation.operationFailure.message} (
@@ -2323,13 +2636,23 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                           variant="caption"
                                           sx={{ display: 'block' }}
                                         >
-                                          {receipt.releaseCode} · {receipt.status} ·
-                                          Version {receipt.version ?? 'Unavailable'} ·
-                                          Installed{' '}
+                                          {receipt.releaseCode} · {receipt.status}{' '}
+                                          {workflowText(
+                                            'backoffice.ui.version',
+                                            '· Version',
+                                          )}{' '}
+                                          {receipt.version ?? 'Unavailable'}{' '}
+                                          {workflowText(
+                                            'backoffice.ui.installed',
+                                            '· Installed',
+                                          )}{' '}
                                           {receipt.installedVersion ?? 'Unavailable'}
                                           {receipt.lastRunId
                                             ? ` · Historical run reference: ${receipt.lastRunId} (not proof of this attempt)`
-                                            : ' · Current run evidence unavailable'}
+                                            : workflowText(
+                                                'backoffice.ui.current-run-evidence-unavailable',
+                                                ' · Current run evidence unavailable',
+                                              )}
                                         </Typography>
                                       ))}
                                     </Box>
@@ -2337,11 +2660,20 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                 )}
                                 {status.preparation?.steps.length ? (
                                   <Box>
+                                    <Typography variant="body2" color="text.secondary">
+                                      {workflowText(
+                                        'backoffice.ui.source-history-not-delivery',
+                                        'This history belongs to the selected source package. An Online receipt can be historical; inspect Publishing and the delivered page to verify the current Online revision.',
+                                      )}
+                                    </Typography>
                                     <Typography
                                       color="text.secondary"
                                       variant="caption"
                                     >
-                                      Preparation evidence
+                                      {workflowText(
+                                        'backoffice.ui.preparation-evidence',
+                                        'Preparation evidence',
+                                      )}
                                     </Typography>
                                     <Stack spacing={0.75} sx={{ mt: 0.5 }}>
                                       {status.preparation.steps.map((step) => (
@@ -2378,6 +2710,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                             label={preparationStatusLabel(
                                               step.status,
                                               step.trigger,
+                                              workflowText,
                                             )}
                                             size="small"
                                             variant={
@@ -2410,7 +2743,10 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                       color="text.secondary"
                                       variant="caption"
                                     >
-                                      Last preparation operation
+                                      {workflowText(
+                                        'backoffice.ui.last-preparation-operation',
+                                        'Last preparation operation',
+                                      )}
                                     </Typography>
                                     <Stack
                                       direction="row"
@@ -2430,8 +2766,14 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                         }
                                         label={
                                           status.preparationOperation.changed
-                                            ? 'Changed readiness'
-                                            : 'No readiness change'
+                                            ? workflowText(
+                                                'backoffice.ui.changed-readiness',
+                                                'Changed readiness',
+                                              )
+                                            : workflowText(
+                                                'backoffice.ui.no-readiness-change',
+                                                'No readiness change',
+                                              )
                                         }
                                         size="small"
                                         variant="outlined"
@@ -2456,6 +2798,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                 ) : null}
                                 {status.capability?.blockers.length ? (
                                   <CapabilityReadinessPanel
+                                    canOpenRoute={canOpenRoute}
                                     readiness={status.capability}
                                     actionSlot={(blocker) =>
                                       supportsReadinessRefresh(blocker) ? (
@@ -2541,11 +2884,20 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                 ) : null}
                                 {status.publication ? (
                                   <Box>
+                                    <Typography variant="body2" color="text.secondary">
+                                      {workflowText(
+                                        'backoffice.ui.source-history-not-delivery',
+                                        'This history belongs to the selected source package. An Online receipt can be historical; inspect Publishing and the delivered page to verify the current Online revision.',
+                                      )}
+                                    </Typography>
                                     <Typography
                                       color="text.secondary"
                                       variant="caption"
                                     >
-                                      Publication evidence
+                                      {workflowText(
+                                        'backoffice.ui.selected-source-publication-history',
+                                        'Selected source publication history',
+                                      )}
                                     </Typography>
                                     <Typography sx={{ overflowWrap: 'anywhere' }}>
                                       {status.publication.code} ·{' '}
@@ -2557,7 +2909,12 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                                         sx={{ overflowWrap: 'anywhere' }}
                                         variant="caption"
                                       >
-                                        Workflow {status.publication.workflowRef}
+                                        {workflowText(
+                                          'backoffice.ui.workflow',
+                                          'Workflow',
+                                        )}{' '}
+                                        {' · '}
+                                        {status.publication.workflowRef}
                                       </Typography>
                                     ) : null}
                                   </Box>
@@ -2587,17 +2944,21 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
         open={Boolean(destructiveConfirmation)}
       >
         <DialogTitle>
-          Confirm{' '}
+          {workflowText('backoffice.ui.confirm', 'Confirm')}{' '}
           {destructiveConfirmation
-            ? operationLabel(destructiveConfirmation.operation).toLowerCase()
-            : 'operation'}
+            ? operationLabel(
+                destructiveConfirmation.operation,
+                workflowText,
+              ).toLowerCase()
+            : workflowText('backoffice.ui.operation', 'operation')}
         </DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <Alert severity="warning">
-              This can change the Online accelerator state. Confirm only after checking
-              the current Online version, rollback candidate, audit evidence, and
-              expected browser verification path.
+              {workflowText(
+                'backoffice.ui.this-can-change-the-online-accelerator-state-confirm-only-after-checking',
+                'This can change the Online accelerator state. Confirm only after checking the current Online version, rollback candidate, audit evidence, and expected browser verification path.',
+              )}
             </Alert>
             {destructiveConfirmation ? (
               <Box>
@@ -2624,8 +2985,11 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
               autoFocus
               disabled={mutation.isPending}
               fullWidth
-              helperText="Required. This reason is sent to the backend publication authority and should explain the evidence and business intent."
-              label="Operator reason"
+              helperText={workflowText(
+                'backoffice.ui.required-this-reason-is-sent-to-the-backend-publication-authority-and-sh',
+                'Required. This reason is sent to the backend publication authority and should explain the evidence and business intent.',
+              )}
+              label={workflowText('backoffice.ui.operator-reason', 'Operator reason')}
               minRows={3}
               multiline
               onChange={(event) => setDestructiveReason(event.target.value)}
@@ -2641,7 +3005,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
               setDestructiveReason('');
             }}
           >
-            Cancel
+            {workflowText('backoffice.ui.cancel', 'Cancel')}
           </Button>
           <Button
             color="warning"
@@ -2662,10 +3026,13 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
             variant="contained"
           >
             {mutation.isPending
-              ? 'Submitting...'
+              ? workflowText('backoffice.ui.submitting', 'Submitting...')
               : `Confirm ${
                   destructiveConfirmation
-                    ? operationLabel(destructiveConfirmation.operation).toLowerCase()
+                    ? operationLabel(
+                        destructiveConfirmation.operation,
+                        workflowText,
+                      ).toLowerCase()
                     : 'operation'
                 }`}
           </Button>
@@ -2680,17 +3047,18 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
         open={Boolean(repairConfirmation)}
       >
         <DialogTitle>
-          Confirm{' '}
+          {workflowText('backoffice.ui.confirm', 'Confirm')}{' '}
           {repairConfirmation
-            ? operationLabel(repairConfirmation.operation).toLowerCase()
-            : 'repair'}
+            ? operationLabel(repairConfirmation.operation, workflowText).toLowerCase()
+            : workflowText('backoffice.ui.repair', 'repair')}
         </DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <Alert severity="info">
-              Axis will invoke the governed backend repair operation declared by
-              readiness. Source, runtime, and publishing-only repairs remain guidance
-              until their owning backend exposes an executable operation.
+              {workflowText(
+                'backoffice.ui.axis-will-invoke-the-governed-backend-repair-operation-declared-by-readi',
+                'Axis will invoke the governed backend repair operation declared by readiness. Source, runtime, and publishing-only repairs remain guidance until their owning backend exposes an executable operation.',
+              )}
             </Alert>
             {repairConfirmation ? (
               <Box>
@@ -2736,7 +3104,7 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
             disabled={mutation.isPending}
             onClick={() => setRepairConfirmation(undefined)}
           >
-            Cancel
+            {workflowText('backoffice.ui.cancel', 'Cancel')}
           </Button>
           <Button
             color="warning"
@@ -2748,13 +3116,16 @@ export function SetupAcceleratorsRoutePage(props: SetupAcceleratorsRoutePageProp
                 profile: repairConfirmation.profile,
                 reason: `${repairConfirmation.profile.title} ${operationLabel(
                   repairConfirmation.operation,
+                  workflowText,
                 ).toLowerCase()} requested for ${repairConfirmation.blocker.code}`,
                 status: repairConfirmation.status,
               });
             }}
             variant="contained"
           >
-            {mutation.isPending ? 'Submitting...' : 'Confirm repair'}
+            {mutation.isPending
+              ? workflowText('backoffice.ui.submitting', 'Submitting...')
+              : workflowText('backoffice.ui.confirm-repair', 'Confirm repair')}
           </Button>
         </DialogActions>
       </Dialog>

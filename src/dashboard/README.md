@@ -11,28 +11,54 @@ The explicit refresh control remains available, and missing or failed evidence
 remains unverified. Customize presentation through CMS; do not create a second
 readiness authority. Dashboard and shared observer tests protect this contract.
 
+Applications observes only the application profiles it displays; documentation
+profiles are read separately by Technical Overview. Technical Overview shares
+one owner-projected budget across those two sets and never requests a documentation
+profile twice. Both views use `useApplicationReadinessQueue`: private query and
+queue lifetime includes an opaque employee scope, tenant, Enterprise, project,
+effective owner coordinates and scheduling values. Equivalent bootstrap objects
+retain that lifetime; changed authority retires queued work and stale results.
+Leaving the summary cancels its reads. Technical source changes also retire
+private selections and repair receipts. Query keys contain no bearer token.
+
+Preserve these boundaries when wrapping a view or client. Documentation status
+GETs accept the same queue and cancellation signal; commands remain single direct
+owner calls. Focused dashboard, shared-hook, status-queue and documentation-client
+tests cover missing policy, one-slot scheduling, documentation exclusion and
+scope replacement. These tests do not qualify runtime latency or authorization.
+
 ## Framework business Overview
 
-`axis:core-v010` selects `layout: framework` on Overview only. Applications and
-Technical, including every shared component they reference, are preserved from
-v008. `AxisFrameworkOverview` is a separate renderer with isolated queries; it
-does not call application initialization or operational repair APIs.
+The current unreleased `axis:core-v001` baseline selects `layout: framework` on
+Overview. `AxisFrameworkOverview` is a separate renderer with isolated queries;
+it does not call application initialization or operational repair APIs.
+Historical numbered-release narratives below describe earlier implementation
+work, not the current import selector. Read the owning Axis manifest/catalogue
+for the selected release and treat installed receipts independently.
 
 Business outcome: see current accessible business records, reach domain
 dashboards/workspaces directly, and review an authorized Process work sample.
-The v010 page, workspace and Overview tab have new stable identities so old
-Overview associations cannot survive as extra sections after upgrade. Applications
-and Technical reuse their exact existing identities and composition. V009 is
-retained unchanged as an immutable release; use v010 for publication.
+The current source consolidates the business Overview, Applications and Technical
+compositions into the owning baseline while preserving their stable identities.
+Source consolidation does not rewrite installed receipts or authorize replay.
 
 This is the first evidence-backed business Overview, not a new analytics engine.
 CMS owns six sections, order and copy. Domain titles, icons, hierarchy, help and
 destinations come from authenticated BackOffice navigation. CMS `excludedGroups`
 controls placement only. A new authorized business group appears without a
 frontend domain-name switch. Disabled, preview, hidden, unavailable, orphaned,
-cyclic and context-dependent routes are excluded; an unavailable parent cannot
-leave executable children. Workspace cards expose two direct views and a complete
+cyclic and context-unavailable routes are excluded; an unavailable parent cannot
+leave executable children. Site/catalog context is supplied by the actual app
+composition, not inferred from a route or invented in the dashboard. Content
+becomes available when both required values are present; partial or missing
+context remains held. Route guards and owner permissions remain unchanged. Workspace cards expose two direct views and a complete
 keyboard-accessible drawer, with search across the directory.
+
+The introductory CMS title is presentation text beneath the page heading;
+sections retain level-two headings and workspace cards level three. The CMS
+destination caption labels a separate count (`caption · count`), so one accessible
+view does not require client-generated English pluralization or a rewritten
+installed content release. Keep copy in CMS and authorization in navigation.
 
 CMS `navigationRefs` selects headline record snapshots by exact `module:id`.
 Metrics bind only to an authorized owner-declared Workbench target, using its
@@ -49,6 +75,12 @@ bounded samples (up to 25 per owner query), never organization-wide totals or
 claims of personal assignment. Status samples are not historical trends. Exact
 task navigation/filtering is deferred until the owner advertises that contract;
 Overview opens the current authorized queue without fabricating URL parameters.
+Without an admitted task navigation reference, work/activity/exception sections
+are omitted and no Process summary is requested. A role without that access must
+not receive retry guidance for an ungranted workspace. For an admitted queue,
+missing connections and failed owner reads retain the unavailable notice and
+explicit recovery; they never become empty data. CMS still owns section order,
+copy and selection, while authenticated owner navigation supplies admission.
 Failure is distinct from empty data, retry is explicit, and query identity includes
 principal, tenant, enterprise and connection. This page is read-only: no activation,
 imports, credential changes, approval decisions or repairs occur here.
@@ -208,9 +240,9 @@ Only the status response can set `visual.active`: setup must have started and
 required module activation evidence must be current. A catalogue-only descriptor
 is inactive. Axis uses status-owned artwork, not bootstrap-only references, and
 shows one shared Nodics fallback before activation or when status cannot be verified.
-`public/brand/application-fallback-v1.png` is a generated neutral modular-system
-illustration, not an accelerator preview. This frontend-owned recovery asset is
-the sole static default; application-specific pictures remain owner Media data.
+`public/brand/favicon.svg` is the small shared Nodics brand mark used as the default.
+It loads lazily and avoids transferring the retained large illustration before dashboard data.
+Application-specific pictures remain owner Media data.
 
 CMS records select installed allowlisted workspace/tab/section renderer kinds.
 They never contain credentials, API endpoints, executable code or operation
@@ -295,9 +327,16 @@ Workspace navigation stays available while its evidence is collapsed. Expanding
 rows never executes a repair. Backend-advertised repair eligibility still gates
 dry-run/execution, execution requires confirmation, and receipts/errors remain
 visible after the response. Unavailable query signals retain their warning.
-The refresh control reloads catalogues and publication queries; runtime/readiness
-snapshots remain supplied by the authenticated bootstrap and its existing refresh
-lifecycle. Reported action counts can overlap across sections and are not a count
+For an owner advertising on-demand observation, Technical Overview requests one
+complete existing bootstrap report after the view opens, sharing no retained
+authority with sign-in. Its full owner sections replace per-profile status queries.
+Loading and failed/replaced-source reads stay explicitly unverified; refreshing
+withholds the old report and repair controls until the current read succeeds.
+Repairs remain separate owner-authorized commands. The header refresh rereads the
+report and catalogues once; no automatic polling, focus/reconnect sweep or command
+replay is introduced. Older inline-report compositions retain bounded per-profile
+observation. Legacy CMS summary sections requesting operational evidence reuse the
+same read-only observer; summaries without them do not request the report. Reported action counts can overlap across sections and are not a count
 of distinct required installation steps.
 
 Customization: adjust `TechnicalDisclosure` and `TechnicalEvidence` presentation
@@ -330,16 +369,11 @@ checks cover desktop/mobile alignment and disclosure expansion.
 
 ## Shared fallback asset
 
-Documentation cards always use `public/brand/documentation-cover-v2.png`, a shared
-Axis-owned decorative illustration. They never consume application artwork,
-activation evidence or a Media connection. Published, pending and unavailable
-packs retain the same cover. The existing CMS documentation section still controls
-visibility, copy and ordering; backend navigation still governs actions. Cards
-reserve 168px image height and stack at narrow widths. The empty alternative text
-avoids repeating the adjacent pack title to screen readers. Customize the shared
-cover in the frontend asset layer, not through accelerator data or a per-pack map.
-`AxisOverviewDashboard.test.tsx` protects this invariant even when documentation
-metadata advertises active application media.
+The Applications documentation section groups authorized setup packs under Framework, Axis and project guides. Each group summarizes the lifecycle states reported by BackOffice. Expand the summary to see each pack and open its authorized setup page. The project picker includes available and staged projects before publication. Only WCMS Online supplies reader links and sidebar entries.
+
+Module topics belong inside the Framework guide. Axis administration topics belong inside the Axis guide. Each project owns its shared guidance and its channel topics. For example, an administrator can read the Commerce coupon-expiry rules, the Axis coupon configuration procedure, and the Circa policy within the Kickoff guide independently.
+
+All three cards use the shared decorative cover in `public/brand/documentation-cover-v2.png`. The CMS controls section visibility and ordering. Application artwork and setup profiles are independent of guide selection.
 
 The original documentation cover was generated using the built-in image generation
 tool on 2026-09-26. Version 2 edits that image to show populated reference pages
@@ -361,3 +395,40 @@ data. The source output was copied unchanged into the frontend repository.
 Final generation prompt:
 
 > Use case: stylized-concept. Create a finished raster asset for the shared fallback image on Nodics Axis enterprise application cards. This is a neutral placeholder before an application is activated, NOT an image of any particular industry or product and NOT a logo redesign. Wide landscape composition, approximately 2.5:1, safe for center cropping to 2:1. Sophisticated precision 3D studio render of a compact interconnected modular system: a small cluster of interlocking architectural cuboids and thin rectangular plates, some matte porcelain white, some charcoal graphite, with a few restrained Nodics golden-yellow faces and one muted teal accent. Elegant isometric perspective, clean physical geometry, crisp edges, subtle ambient shadows, soft light neutral gray studio background. Main composition centered and distributed horizontally, fills the center 65% of the frame so it remains legible at small thumbnail sizes. Quiet premium enterprise software visual, restrained, polished, tactile, balanced contrast, not flashy. No text, no lettering, no logos, no UI mockups, no photos, no people, no city buildings, no clothes, no electronics, no spheres or orbs, no gradients, no glowing circuitry, no watermark. This image should feel intentionally designed, not like a blank placeholder with a favicon.
+
+Private dashboard queries use an opaque actor identity plus tenant, enterprise,
+site/catalog and exact connection scope. Tokens remain transport credentials and
+never appear in query keys. `frameworkOverviewModel.test.ts` and
+`AxisFrameworkOverview.test.tsx` cover missing/partial/full context, denied
+ancestry and the resulting business-directory entry. Projects may customize CMS
+placement/copy and trusted composition values, preserving owner admission.
+
+On-demand Technical workspace summaries use canonical owner section titles,
+status and evidence. Suppressed per-profile reads must not produce a clear
+publishing queue, aligned applications, ready governance or zero-work claim.
+Absent sections explicitly remain unverified; redundant profile-based setup and
+parity summaries are omitted. A deferred-report regression covers these states.
+
+Observation has a separate browser state from backend readiness. Pending or
+refreshing profile GETs show Checking status, contribute to neither verified nor
+published totals, hide retained stage progress and do not create an attention
+item. Actual failed/stale reads remain unavailable with the existing recovery
+message. Documentation metadata intentionally left unobserved is Not checked
+here; published reader links still come only from the authorized Online guide
+index. Neither label infers installation, publication or execution eligibility.
+Customize CMS presentation while retaining these generic transport distinctions;
+`AxisOverviewDashboard.test.tsx` and `dashboardComposition.test.tsx` protect the
+queued/retained-READY/failed/unobserved boundaries.
+
+The business Overview identifies the Enterprise through the shared current-Profile
+display observation. Technical project identifiers and the Axis composition Site
+are not business headings or business record filters. The exact current code is
+the fallback while a name is unavailable; metrics keep their original owner scopes.
+
+Business snapshot and Process refreshes withhold cached counts while owner reads are pending. Skeletons and aria-busy distinguish checking from a settled unavailable result; neither failure nor pending evidence becomes a zero. The directory remains navigable. Freshness timestamps appear only for settled successful evidence. Deferred initial/refresh tests and native blocked/read-release recovery protect this presentation seam.
+
+Dashboard metrics carry the authenticated navigation item’s optional `schemaDiscovery` declaration into the shared Workbench client. Discovery calls are grouped by their exact owner descriptor, retain runtime selection, and never fall back to generic discovery after an owner failure. Failed sources remain unavailable without hiding independent successful observations; the metric authority test verifies both success and refusal.
+
+Dashboard count discovery reads only the visible target schemas through the existing canonical per-schema capability API. Explicit owner discovery descriptors retain their exact path and version; denial never falls back. Exact per-runtime schema requests are deduplicated, partial failures remain unavailable, and foreign descriptors are rejected. Initial detailed Axis status follows its fresh authenticated bootstrap without immediately downloading the same bootstrap again; later recovery and explicit setup/refresh still obtain a fresh bootstrap.
+
+Large optional workspaces load on navigation through React lazy imports. The authenticated shell remains available, a localized loading status is announced, and a bounded renderer boundary offers an explicit reload after a failed download. Changing route resets that boundary. Loading code never replays an owner command.

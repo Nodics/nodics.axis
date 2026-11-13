@@ -26,6 +26,13 @@ work; an absent scheduling contract still fails closed. Refresh cancellation
 never makes retained readiness actionable: commands remain disabled until a
 successful current status read. Route tests cover equivalent-bootstrap manual
 reads and changed owner, session and scheduling boundaries.
+Read-only Applications and Technical Overview reuse this mechanism through
+`useApplicationReadinessQueue`, with explicit tenant/project/source scope and an
+opaque actor identifier. The hook stores neither status nor credentials. Extend
+its presentation consumers without adding independent concurrency defaults or
+moving commands into the queue. Its focused hook tests cover equivalent DTOs,
+Strict Mode and retirement after actor, tenant, source or policy changes.
+
 After a command succeeds or fails, prioritize and invalidate only that profile's
 exact status query. Preserve bootstrap refresh, but do not restart unrelated
 profile reads or wait for a catalogue-wide sweep to settle the command.
@@ -58,7 +65,7 @@ exist. The global BackOffice connection gate and mutation guard remain intact.
 Summary business counters and the Needs action filter use only settled successful
 reads. Pending/background reads appear separately as Loading status; failed reads
 as Status unavailable. Neither missing data nor cached data under refresh/failure
-is counted as current Online, Pending approval or Need attention evidence.
+is counted as current Online, Pending approval or Setup options evidence.
 
 Customize loading/error presentation within the existing profile row, preserving
 its accessible profile-specific indicator and responsive layout. Keep query keys,
@@ -84,15 +91,18 @@ Only `allowedActions: INITIALIZE` exposes initialization. Preparation needs do
 not grant this action. An available, supported backend repair is a separate
 explicit action with its declared confirmation. Imported content offers Submit
 for review rather than another import. While any mutation or that row's status
-read is pending, mutating controls are disabled. Approval reads the existing
-Process task once; a missing task never silently replays initialization or
-executes a repair. A changed publication identity/revision must be reviewed again.
-CMS Approve and Reject also require the owner's approval diagnostic to be
-`WAITING_REVIEWER`, both for presentation and the current-query command guard. A
-pending publication or workflow reference alone is not actionable evidence.
-Missing, unavailable or non-actionable diagnostics expose no decision buttons;
-existing owner repair guidance remains available. Media completion after CMS
-approval retains its separate readiness gate and never replays the CMS decision.
+read is pending, mutating controls are disabled. Setup does not issue Process
+approval decisions or blanket Media approvals. Review publication opens the exact
+workflow in the existing authorized Process task workspace, which displays the
+frozen content and current reviewer eligibility before a decision. The handoff
+requires WAITING_REVIEWER and an available ACTIVE/PREVIEW Process navigation item;
+a changed or missing reference cannot silently replay initialization or repair.
+Media prerequisites expand the pinned dependencies for individual owner inspection.
+Each asset keeps its governed publication and review; expanding or refreshing
+prerequisites performs no approval or publication command. Customize labels and
+layout only; preserve the exact reference, authorized navigation and owner review.
+Focused route tests cover hidden/disabled/unavailable navigation and 83-asset packs
+without any automatic commands.
 
 After an uncertain mutation response, invalidate status through GET only. Clear
 the old operation error only when a newer owner response confirms that operation's
@@ -271,3 +281,19 @@ npx vitest run test/operations/setupAccelerators/api/applicationInitializationCl
 npx vitest run test/operations/setupAccelerators/SetupAcceleratorsRoutePage.test.tsx
 npm run typecheck
 ```
+
+Pending approval counts only owner-reported approval in progress / publication
+pending, not APPROVAL_REQUIRED before a request exists. Setup options counts
+known unfinished profiles, including required preparation and review, without
+calling every fresh setup a failure. Owner NEEDS_ATTENTION and real blockers
+remain unchanged. An admitted INITIALIZE action on IMPORTED state already submits
+for review; its help now describes that step rather than another installation.
+Preparing labels the existing typed prepare operation while it runs. These are
+read-only presentation distinctions; allowedActions, published reviewer policy,
+command guards, scheduling and no-replay remain authoritative.
+
+Setup options includes optional unfinished packages. Choosing an application or
+guide determines its owner-declared prerequisites; the catalogue count is not
+a mandatory deployment checklist. Existing Needs attention states remain visible.
+
+Setup repair and lifecycle submission rechecks the current owner snapshot and exact offered operation. A confirmation opened before a status or actor change cannot dispatch against its old evidence. BackOffice owns the repair eligibility; diagnostics remain visible to readers.

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Chip, Paper, Stack } from '@mui/material';
-import { useMemo } from 'react';
-import { Link as RouterLink } from 'react-router';
+import { useEffect, useMemo, useRef } from 'react';
+import { Link as RouterLink, useLocation } from 'react-router';
 
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
 import { WorkspaceContainer } from '../../app/shell/ShellPrimitives';
@@ -37,6 +37,7 @@ const authoringMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Websites',
     moduleName: 'cms',
     schemaName: 'cmsSite',
+    ownerSelector: { runtimeRoleCode: 'WCMS_STAGED', publicationRole: 'STAGED' },
     description: 'Authoring sites configured for brands, storefronts, or portals.',
     route: '/content/sites',
     icon: 'cms',
@@ -46,6 +47,7 @@ const authoringMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Content catalogs',
     moduleName: 'catalog',
     schemaName: 'catalog',
+    ownerSelector: { runtimeRoleCode: 'WCMS_STAGED', publicationRole: 'STAGED' },
     description: 'Governed content catalog containers available to WCMS.',
     route: '/content/catalogs',
     icon: 'catalog',
@@ -55,6 +57,7 @@ const authoringMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Pages',
     moduleName: 'cms',
     schemaName: 'cmsPage',
+    ownerSelector: { runtimeRoleCode: 'WCMS_STAGED', publicationRole: 'STAGED' },
     description: 'Renderable CMS pages backed by approved Axis components.',
     route: '/content/pages',
     icon: 'page',
@@ -64,6 +67,7 @@ const authoringMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Page routes',
     moduleName: 'cms',
     schemaName: 'cmsPageRoute',
+    ownerSelector: { runtimeRoleCode: 'WCMS_STAGED', publicationRole: 'STAGED' },
     description: 'Browser route mappings resolved by backend-owned delivery contracts.',
     route: '/content/routes',
     icon: 'route',
@@ -73,6 +77,7 @@ const authoringMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Components',
     moduleName: 'cms',
     schemaName: 'cmsComponent',
+    ownerSelector: { runtimeRoleCode: 'WCMS_STAGED', publicationRole: 'STAGED' },
     description: 'Reusable content blocks that Axis renders through safe mappings.',
     route: '/content/components',
     icon: 'component',
@@ -82,6 +87,7 @@ const authoringMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Component media links',
     moduleName: 'cms',
     schemaName: 'cmsComponentMedia',
+    ownerSelector: { runtimeRoleCode: 'WCMS_STAGED', publicationRole: 'STAGED' },
     description: 'Governed references from CMS components to media assets.',
     route: '/content/component-media',
     icon: 'media',
@@ -94,6 +100,7 @@ const governanceMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Page and component types',
     moduleName: 'cms',
     schemaName: 'cmsTypeCode',
+    ownerSelector: { runtimeRoleCode: 'WCMS_STAGED', publicationRole: 'STAGED' },
     description: 'Backend type codes that connect content models with renderers.',
     route: '/content/type-codes',
     icon: 'schema',
@@ -103,6 +110,7 @@ const governanceMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Renderer mappings',
     moduleName: 'cms',
     schemaName: 'cmsTypeCode2Renderer',
+    ownerSelector: { runtimeRoleCode: 'WCMS_STAGED', publicationRole: 'STAGED' },
     description: 'Approved renderer contracts Axis can use for CMS content.',
     route: '/content/renderer-mappings',
     icon: 'integration',
@@ -112,6 +120,7 @@ const governanceMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Page templates',
     moduleName: 'cms',
     schemaName: 'cmsPageTemplate',
+    ownerSelector: { runtimeRoleCode: 'WCMS_STAGED', publicationRole: 'STAGED' },
     description: 'Reusable page structures and controlled content slots.',
     route: '/content/page-templates',
     icon: 'template',
@@ -121,6 +130,7 @@ const governanceMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Slot definitions',
     moduleName: 'cms',
     schemaName: 'cmsSlotDefinition',
+    ownerSelector: { runtimeRoleCode: 'WCMS_STAGED', publicationRole: 'STAGED' },
     description: 'Slot contracts that decide where components can appear.',
     route: '/content/slot-definitions',
     icon: 'layout',
@@ -130,6 +140,7 @@ const governanceMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Navigation nodes',
     moduleName: 'cms',
     schemaName: 'cmsNavigationNode',
+    ownerSelector: { runtimeRoleCode: 'WCMS_STAGED', publicationRole: 'STAGED' },
     description: 'Managed navigation entries for CMS-driven experiences.',
     route: '/content/navigation',
     icon: 'navigation',
@@ -139,6 +150,7 @@ const governanceMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Restrictions',
     moduleName: 'cms',
     schemaName: 'cmsRestriction',
+    ownerSelector: { runtimeRoleCode: 'WCMS_STAGED', publicationRole: 'STAGED' },
     description: 'Visibility rules controlling page, component, and navigation access.',
     route: '/content/restrictions',
     icon: 'security',
@@ -148,6 +160,7 @@ const governanceMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Experience placements',
     moduleName: 'wcmsExperience',
     schemaName: 'cmsExperiencePlacement',
+    ownerSelector: { runtimeRoleCode: 'WCMS_STAGED', publicationRole: 'STAGED' },
     description:
       'Targeted CMS component placements for category, collection, brand, and fallback journeys.',
     route: '/content/experience-studio/placements',
@@ -158,9 +171,11 @@ const governanceMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
 const publishingMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
   Object.freeze({
     id: 'publishing-requests',
+    includeSourceContext: true,
     label: 'Publishing requests',
     moduleName: 'publish',
     schemaName: 'publicationRequest',
+    ownerSelector: { runtimeRoleCode: 'WCMS_STAGED', publicationRole: 'STAGED' },
     description: 'Governed requests moving staged content toward delivery.',
     route: '/publishing/requests',
     icon: 'workflow',
@@ -170,6 +185,7 @@ const publishingMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Publishing status',
     moduleName: 'cms',
     schemaName: 'cmsOnlinePublicationPointer',
+    ownerSelector: { runtimeRoleCode: 'WCMS_ONLINE', publicationRole: 'ONLINE' },
     description: 'Operational status for staged-to-online publication flow.',
     route: '/publishing/status',
     icon: 'status',
@@ -179,6 +195,7 @@ const publishingMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Publication manifests',
     moduleName: 'cms',
     schemaName: 'cmsPublicationManifest',
+    ownerSelector: { runtimeRoleCode: 'WCMS_STAGED', publicationRole: 'STAGED' },
     description: 'Generated evidence describing prepared publishing payloads.',
     route: '/publishing/manifests',
     icon: 'file',
@@ -188,6 +205,7 @@ const publishingMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Publishing history',
     moduleName: 'cms',
     schemaName: 'cmsPublicationDeploymentReceipt',
+    ownerSelector: { runtimeRoleCode: 'WCMS_ONLINE', publicationRole: 'ONLINE' },
     description: 'Historical publishing receipts and deployment evidence.',
     route: '/publishing/history',
     icon: 'history',
@@ -197,6 +215,7 @@ const publishingMetrics: readonly WorkbenchMetricDefinition[] = Object.freeze([
     label: 'Publishing audit',
     moduleName: 'publish',
     schemaName: 'publicationAudit',
+    ownerSelector: { runtimeRoleCode: 'WCMS_STAGED', publicationRole: 'STAGED' },
     description: 'Traceability records for publishing operations.',
     route: '/publishing/audit',
     icon: 'audit',
@@ -209,13 +228,85 @@ const allMetrics = Object.freeze([
   ...publishingMetrics,
 ]);
 
+const contentFocusSections = Object.freeze([
+  {
+    id: 'sites-catalogs',
+    title: 'Websites and Content Catalogs',
+    description: 'Choose a website or its governed content catalog.',
+    metrics: ['sites', 'catalogs'],
+  },
+  {
+    id: 'templates-layout',
+    title: 'Templates and Layout',
+    description: 'Review reusable page structures and the slots available for content.',
+    metrics: ['page-templates', 'slot-definitions'],
+  },
+  {
+    id: 'pages-routes',
+    title: 'Pages and Routes',
+    description: 'Find page records and the browser routes that deliver them.',
+    metrics: ['pages', 'routes'],
+  },
+  {
+    id: 'components-content-blocks',
+    title: 'Components and Content Blocks',
+    description: 'Review reusable content and its media references.',
+    metrics: ['components', 'component-media'],
+  },
+  {
+    id: 'navigation-menus',
+    title: 'Navigation and Menus',
+    description: 'Review the navigation entries used by your websites.',
+    metrics: ['navigation'],
+  },
+  {
+    id: 'visibility-experience-rules',
+    title: 'Visibility and Experience Rules',
+    description: 'Review visibility restrictions and targeted experience placements.',
+    metrics: ['restrictions', 'experience-placements'],
+  },
+  {
+    id: 'content-types-rendering',
+    title: 'Content Types and Rendering',
+    description: 'Inspect content type contracts and their approved renderer mappings.',
+    metrics: ['type-codes', 'renderer-mappings'],
+  },
+]);
+
 export function ContentDashboardRoutePage({
   accessToken,
   bootstrap,
   routeNavigation,
   runtime,
 }: ContentDashboardRoutePageProps) {
+  const location = useLocation();
+  const focus = contentFocusSections.find(
+    (section) => `#${section.id}` === location.hash,
+  );
+  const introduction = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (focus) introduction.current?.scrollIntoView?.({ block: 'start' });
+  }, [focus]);
+  const definitions = useMemo(
+    () =>
+      focus
+        ? allMetrics.filter((metric) => focus.metrics.includes(metric.id))
+        : allMetrics,
+    [focus],
+  );
   const connections = useMemo(() => activeConnections(bootstrap), [bootstrap]);
+  const actorScope = useMemo(
+    () =>
+      accessToken ? crypto.getRandomValues(new Uint32Array(4)).join('-') : 'anonymous',
+    [accessToken],
+  );
+  const admitsRoute = (route: string) =>
+    bootstrap.navigation.some(
+      (item) =>
+        item.route === route &&
+        ['ACTIVE', 'PREVIEW'].includes(item.featureState ?? 'ACTIVE') &&
+        ['UP', 'DEGRADED'].includes(item.availability),
+    );
   const configuration = useMemo(
     () => ({
       accessToken,
@@ -225,20 +316,31 @@ export function ContentDashboardRoutePage({
     [accessToken, runtime.enterpriseCode, runtime.requestTimeoutMs],
   );
   const data = useQuery({
-    queryKey: ['content-dashboard', runtime.enterpriseCode, connectionKey(connections)],
+    queryKey: [
+      'content-dashboard',
+      actorScope,
+      bootstrap.tenantCode,
+      runtime.enterpriseCode,
+      connectionKey(connections),
+      definitions.map((metric) => metric.id).join(','),
+    ],
     queryFn: () =>
-      loadWorkbenchMetrics(connections, bootstrap, configuration, allMetrics),
+      loadWorkbenchMetrics(connections, bootstrap, configuration, definitions),
+    retry: false,
   });
   const metrics = data.data;
   const readyCount = totalReadyMetrics(metrics);
-  const unavailableCount = (metrics?.length ?? allMetrics.length) - readyCount;
+  const unavailableCount = (metrics?.length ?? definitions.length) - readyCount;
   const totalRecords = totalMetricValue(metrics);
+  const countsUnavailable = data.isError || (Boolean(metrics) && readyCount === 0);
+  const showRecovery = countsUnavailable || (Boolean(metrics) && unavailableCount > 0);
 
   return (
     <WorkspaceContainer>
       <Stack spacing={dashboardComponentGap}>
         <Paper
           component="section"
+          ref={introduction}
           elevation={0}
           sx={{ border: 1, borderColor: 'divider', p: dashboardCardPadding }}
         >
@@ -249,74 +351,143 @@ export function ContentDashboardRoutePage({
               sx={{ justifyContent: 'space-between' }}
             >
               <WorkspaceHeading
-                description="Monitor WCMS authoring, page composition, renderer contracts, visibility governance, and publishing readiness from one content workspace."
+                description={
+                  focus?.description ??
+                  'Monitor WCMS authoring, page composition, renderer contracts, visibility governance, and publishing readiness from one content workspace.'
+                }
                 help={routeNavigation?.help}
                 eyebrow="Content workspace"
                 headingVariant="h3"
-                title="Content and Experience"
+                title={focus?.title ?? 'Content and Experience'}
               />
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
-                <Button
-                  component={RouterLink}
-                  size="small"
-                  to="/content/designer"
-                  variant="contained"
-                >
-                  Open designer
-                </Button>
-                <Button
-                  component={RouterLink}
-                  size="small"
-                  to="/content/experience-studio"
-                  variant="outlined"
-                >
-                  Experience Studio
-                </Button>
-                <Chip label={`${String(allMetrics.length)} metrics`} />
-                <Chip
-                  label={`${new Intl.NumberFormat().format(totalRecords)} records`}
-                />
-                <Chip color="success" label={`${String(readyCount)} live`} />
-                {unavailableCount > 0 ? (
-                  <Chip
-                    color="warning"
-                    label={`${String(unavailableCount)} unavailable`}
+              <Stack
+                direction="row"
+                spacing={1}
+                useFlexGap
+                sx={{
+                  alignItems: 'flex-start',
+                  flexWrap: 'wrap',
+                  minWidth: 0,
+                  maxWidth: '100%',
+                }}
+              >
+                {focus ? (
+                  <Button
+                    component={RouterLink}
+                    size="small"
+                    to="/content"
                     variant="outlined"
-                  />
+                  >
+                    All content
+                  </Button>
                 ) : null}
+                {admitsRoute('/content/designer') ? (
+                  <Button
+                    component={RouterLink}
+                    size="small"
+                    to="/content/designer"
+                    variant="contained"
+                  >
+                    Open designer
+                  </Button>
+                ) : null}
+                {admitsRoute('/content/experience-studio') ? (
+                  <Button
+                    component={RouterLink}
+                    size="small"
+                    to="/content/experience-studio"
+                    variant="outlined"
+                  >
+                    Experience Studio
+                  </Button>
+                ) : null}
+                <Chip
+                  label={`${definitions.length} ${definitions.length === 1 ? 'metric' : 'metrics'}`}
+                />
+                {data.isPending ? (
+                  <Chip label="Loading counts…" />
+                ) : countsUnavailable ? (
+                  <Chip label="Counts unavailable" variant="outlined" />
+                ) : (
+                  <>
+                    <Chip
+                      label={`${new Intl.NumberFormat().format(totalRecords)} records`}
+                    />
+                    <Chip color="success" label={`${String(readyCount)} available`} />
+                    {unavailableCount > 0 ? (
+                      <Chip
+                        color="warning"
+                        label={`${String(unavailableCount)} unavailable`}
+                        variant="outlined"
+                      />
+                    ) : null}
+                  </>
+                )}
               </Stack>
             </Stack>
 
-            <Alert severity={data.isError ? 'warning' : 'info'}>
-              {data.isError
-                ? data.error instanceof Error
-                  ? data.error.message
-                  : 'Content dashboard metrics are currently unavailable.'
-                : 'Counts are loaded from authorized WCMS and publishing workbench contracts. Media inventory is intentionally handled under Media Management.'}
-            </Alert>
+            {showRecovery ? (
+              <Alert
+                severity="warning"
+                action={
+                  <Button
+                    color="inherit"
+                    size="small"
+                    disabled={data.isFetching}
+                    onClick={() => void data.refetch()}
+                  >
+                    {data.isFetching ? 'Refreshing counts…' : 'Retry counts'}
+                  </Button>
+                }
+              >
+                {countsUnavailable
+                  ? 'Content counts are unavailable. Retry to check this workspace again.'
+                  : 'Some counts are unavailable. The totals include only records from sources that responded.'}
+              </Alert>
+            ) : data.isSuccess && totalRecords === 0 ? (
+              <Alert severity="info">
+                No records are available in this workspace yet.
+              </Alert>
+            ) : (
+              <Alert severity="info">
+                Counts show records available in this workspace. Open Media Management
+                for the media library.
+              </Alert>
+            )}
           </Stack>
         </Paper>
 
-        <DashboardSection
-          description="Primary WCMS objects used to build websites, pages, routes, and reusable components."
-          loading={data.isPending}
-          metrics={metricsById(metrics, authoringMetrics)}
-          title="Authoring inventory"
-        />
+        {focus ? (
+          <DashboardSection
+            description={focus.description}
+            loading={data.isPending}
+            metrics={metricsById(metrics, definitions)}
+            title="Related records"
+          />
+        ) : (
+          <>
+            <DashboardSection
+              description="Primary WCMS objects used to build websites, pages, routes, and reusable components."
+              loading={data.isPending}
+              metrics={metricsById(metrics, authoringMetrics)}
+              title="Authoring inventory"
+            />
 
-        <DashboardSection
-          description="Renderer contracts, templates, slots, navigation, and restrictions that keep content safe and traceable."
-          loading={data.isPending}
-          metrics={metricsById(metrics, governanceMetrics)}
-          title="Composition governance"
-        />
+            <DashboardSection
+              description="Renderer contracts, templates, slots, navigation, and restrictions that keep content safe and traceable."
+              loading={data.isPending}
+              metrics={metricsById(metrics, governanceMetrics)}
+              title="Composition governance"
+            />
 
-        <DashboardSection
-          description="Publication requests, status, manifests, history, and audit evidence for staged-to-online delivery."
-          loading={data.isPending}
-          metrics={metricsById(metrics, publishingMetrics)}
-          title="Publishing readiness"
-        />
+            <DashboardSection
+              description="Publication requests, status, manifests, history, and audit evidence for staged-to-online delivery."
+              loading={data.isPending}
+              metrics={metricsById(metrics, publishingMetrics)}
+              title="Publishing readiness"
+            />
+          </>
+        )}
       </Stack>
     </WorkspaceContainer>
   );

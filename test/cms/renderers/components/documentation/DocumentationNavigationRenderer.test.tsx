@@ -87,6 +87,87 @@ describe('DocumentationNavigationRenderer', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('finds later frozen article content without widening published route admission', async () => {
+    const lateContent = `${'Opening context. '.repeat(2000)}MongoDB default database names`;
+    render(
+      <MemoryRouter>
+        <DocumentationNavigationRenderer
+          component={{
+            ...navigation,
+            properties: {
+              ...navigation.properties,
+              items: [
+                {
+                  title: 'Configuration reference',
+                  route: '/docs/configuration',
+                  searchText: lateContent,
+                },
+                {
+                  title: 'Unpublished configuration',
+                  route: '/docs/unpublished',
+                  searchText: lateContent,
+                },
+              ],
+            },
+          }}
+          actions={{ documentationTopicRoutes: new Set(['/docs/configuration']) }}
+        />
+      </MemoryRouter>,
+    );
+    await userEvent
+      .setup()
+      .type(screen.getByLabelText('Search documentation'), 'mongodb default database');
+    expect(screen.getByRole('link', { name: 'Configuration reference' })).toBeVisible();
+    expect(
+      screen.queryByRole('link', { name: 'Unpublished configuration' }),
+    ).toBeNull();
+    expect(screen.queryByText(lateContent)).toBeNull();
+  });
+
+  it('does not coerce malformed search metadata into matching content', async () => {
+    render(
+      <MemoryRouter>
+        <DocumentationNavigationRenderer
+          component={{
+            ...navigation,
+            properties: {
+              ...navigation.properties,
+              items: [
+                {
+                  title: 'Configuration reference',
+                  route: '/docs/configuration',
+                  searchText: { secret: 'MongoDB default database' },
+                },
+              ],
+            },
+          }}
+        />
+      </MemoryRouter>,
+    );
+    await userEvent
+      .setup()
+      .type(screen.getByLabelText('Search documentation'), 'mongodb default database');
+    expect(screen.queryByRole('link', { name: 'Configuration reference' })).toBeNull();
+    expect(screen.getByText('No documentation matches your search.')).toBeVisible();
+  });
+
+  it('omits unpublished items from the delivered navigation component in the reader', () => {
+    render(
+      <MemoryRouter>
+        <DocumentationNavigationRenderer
+          component={navigation}
+          actions={{
+            documentationTopicRoutes: new Set(['/docs/security/configure-security']),
+          }}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('link', { name: 'Configure Security' })).toBeVisible();
+    expect(
+      screen.queryByRole('link', { name: /What Nodics Is/ }),
+    ).not.toBeInTheDocument();
+  });
+
   it('shows a CMS-owned empty state when no article matches', async () => {
     const user = userEvent.setup();
     render(

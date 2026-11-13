@@ -5,6 +5,10 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   LinearProgress,
   MenuItem,
   Paper,
@@ -13,10 +17,22 @@ import {
   Typography,
   alpha,
 } from '@mui/material';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useMutation, useQueries, useQuery } from '@tanstack/react-query';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Link as RouterLink } from 'react-router';
+import {
+  ContentDesignerRequestError,
+  listContentDesignerPages,
+  loadContentDesignerPage,
+  loadDocumentationDraftModel,
+  saveContentDesignerDraft,
+  submitContentDesignerDraftForPublication,
+  type ContentDesignerDraft,
+} from '../contentExperience/api/contentDesignerClient';
 
 import { axisTokens } from '../../app/axisTheme';
+import { useAxisLocalization } from '../../localization/AxisLocalizationContext';
+import { useUnsavedNavigationGuard } from '../../app/useUnsavedNavigationGuard';
 import { WorkspaceHeading } from '../../app/help/WorkspaceHelp';
 import { WorkspaceContainer } from '../../app/shell/ShellPrimitives';
 import { ShellIcon } from '../../app/shell/ShellIcon';
@@ -50,7 +66,6 @@ import {
   cmsRichTextComponentProperties,
   cmsRichTextDocumentToText,
   documentationBlocksToCmsRichTextDocument,
-  normalizeCmsRichTextProperties,
   textToCmsRichTextDocument,
   type CmsRichTextDocument,
 } from '../../cms/richText/cmsRichTextContract';
@@ -124,6 +139,8 @@ interface DocumentationDraftPage {
   readonly targetPageCode?: string | undefined;
   readonly targetRouteCode?: string | undefined;
   readonly isNew?: boolean | undefined;
+  readonly ownerDraft?: ContentDesignerDraft | undefined;
+  readonly ownerDirty?: boolean | undefined;
 }
 
 interface DocumentationDraftLink {
@@ -139,6 +156,7 @@ interface DocumentationDraftLink {
   readonly nodeType?: string | undefined;
   readonly originalNodeRecord?: WorkbenchRecord | undefined;
   readonly parentNodeCode?: string | undefined;
+  readonly dirty?: boolean | undefined;
 }
 
 type DocumentationNavigationParentKind = 'root' | 'section' | 'page' | 'new';
@@ -404,9 +422,13 @@ function connectionKey(connection: AxisModuleConnection | undefined): string {
 
 function selectedDocumentationSource(
   sources: readonly AxisCmsDocumentationSource[],
-  sourceId: string,
+  sourceId: string | undefined,
 ): AxisCmsDocumentationSource | undefined {
   return sources.find((source) => source.id === sourceId) ?? sources[0];
+}
+
+function documentationAreaScopeKey(source: AxisCmsDocumentationSource): string {
+  return JSON.stringify([source.site, source.catalog]);
 }
 
 function documentationSourceContext(
@@ -794,7 +816,6 @@ const documentationPageSchemaRef = Object.freeze({
 });
 const documentationRouteSchemaRef = Object.freeze({ schemaName: 'cmsPageRoute' });
 const documentationComponentSchemaRef = Object.freeze({ schemaName: 'cmsComponent' });
-const documentationCmsPageSchemaRef = Object.freeze({ schemaName: 'cmsPage' });
 const documentationNodeSchemaRef = Object.freeze({
   schemaName: 'cmsDocumentationNode',
 });
@@ -1813,13 +1834,13 @@ async function saveDocumentationDraftLink({
 function emptyDocumentationPage(
   source: AxisCmsDocumentationSource | undefined,
 ): DocumentationDraftPage {
-  const prefix = (source?.id ?? 'framework').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+  const draftId = crypto.randomUUID();
   const body =
     'Write the page content here. Add business context, decisions, steps, examples, notes, links, images, or code snippets when needed.';
   return {
-    id: `${prefix}-new-page`,
+    id: `documentation-${draftId}`,
     title: 'New documentation page',
-    slug: `/docs/${prefix}/new-page`,
+    slug: `new-page-${draftId.slice(0, 8)}`,
     summary: 'Short reader-facing summary for this page.',
     body,
     contentMode: 'text',
@@ -1863,206 +1884,135 @@ interface PersistDocumentationDraftInput {
   readonly selectedSource: AxisCmsDocumentationSource | undefined;
 }
 
+/** Saves through the scoped CMS command, then reopens the exact saved graph and owner stamp. */
 async function saveDocumentationDraftPage({
   bootstrap,
   configuration,
   page,
   selectedSource,
-}: PersistDocumentationDraftInput): Promise<void> {
-  const connection = documentationWorkbenchConnection(bootstrap, selectedSource);
-  if (!connection) throw new Error('Documentation staged connection is unavailable');
-  const [componentSchema, documentationPageSchema, routeSchema, cmsPageSchema] =
-    await Promise.all([
-      loadGeneratedSchemaCapabilities(
-        connection,
-        documentationComponentSchemaRef,
-        configuration,
-        fetch,
-      ),
-      loadGeneratedSchemaCapabilities(
-        connection,
-        documentationPageSchemaRef,
-        configuration,
-        fetch,
-      ),
-      loadGeneratedSchemaCapabilities(
-        connection,
-        documentationRouteSchemaRef,
-        configuration,
-        fetch,
-      ),
-      loadGeneratedSchemaCapabilities(
-        connection,
-        documentationCmsPageSchemaRef,
-        configuration,
-        fetch,
-      ),
-    ]);
-  const richText = cmsRichTextComponentProperties(pageRichTextDocument(page));
-  const audience = documentationAudienceValues(page.audience);
-  const codeSegment = documentationCodeSegment(page.id || page.slug || page.title);
-  const componentCode = page.articleComponentId || `cmsRichTextComponent${codeSegment}`;
-  const routeCode = page.targetRouteCode || `cmsRichTextRoute${codeSegment}`;
-  const cmsPageCode = page.targetPageCode || `cmsRichTextPage${codeSegment}`;
-  const productCode =
-    recordText(page.originalPageRecord ?? {}, 'product') ||
-    documentationSourceProductCode(selectedSource) ||
-    `${selectedSource?.id ?? 'documentation'}Product`;
-  const baseProperties = recordObject(page.originalComponentRecord, 'properties');
-  const componentProperties = normalizeCmsRichTextProperties({
-    ...baseProperties,
-    ...richText,
-    title: page.title,
-    route: page.slug,
-    summary: page.summary,
-    audience,
-    sectionTitle: page.section,
-    groupTitle: page.section,
-    lifecycleState: 'STAGED',
+}: PersistDocumentationDraftInput): Promise<ContentDesignerDraft> {
+  const connection = selectModuleConnection(bootstrap, 'cms', {
+    publicationRole: 'STAGED',
   });
-  const componentModel = {
-    ...(page.originalComponentRecord ?? {}),
-    code: componentCode,
-    typeCode:
-      recordText(page.originalComponentRecord ?? {}, 'typeCode') ||
-      'cmsRichTextComponent',
-    renderer:
-      recordText(page.originalComponentRecord ?? {}, 'renderer') ||
-      'cms.component.rich-text',
-    accessMode:
-      recordText(page.originalComponentRecord ?? {}, 'accessMode') || 'PUBLIC',
-    properties: {
-      ...baseProperties,
-      ...componentProperties,
-      title: page.title,
-      route: page.slug,
-      summary: page.summary,
-      audience,
-      sectionTitle: page.section,
-      groupTitle: page.section,
-      lifecycleState: 'STAGED',
-    },
-    active: true,
-  };
-  if (page.originalComponentRecord) {
-    await updateWorkbenchRecord(
-      connection,
-      componentSchema,
-      page.originalComponentRecord,
-      componentModel,
-      configuration,
-      fetch,
+  if (!connection || !selectedSource?.site || !selectedSource.catalog)
+    throw new Error('Choose a documentation area with available Staged authoring.');
+  if (!page.isNew && !page.ownerDraft)
+    throw new Error(
+      'This page belongs to a documentation pack. Prepare changes through its owning release.',
     );
-  } else {
-    await createWorkbenchRecord(
-      connection,
-      componentSchema,
-      componentModel,
-      configuration,
-      fetch,
-    );
-  }
-  const pageModel = {
-    ...(page.originalPageRecord ?? {}),
-    code:
-      recordText(page.originalPageRecord ?? {}, 'code') ||
-      `cmsRichTextDocumentation${codeSegment}`,
-    product: productCode,
-    documentId: page.id,
-    title: page.title,
-    summary: page.summary,
-    targetPage: cmsPageCode,
-    targetRoute: routeCode,
-    articleComponent: componentCode,
-    template:
-      recordText(page.originalPageRecord ?? {}, 'template') ||
-      'nodicsDocumentationArticleTemplate',
-    audience,
+  const model = await loadDocumentationDraftModel(connection, configuration, {
+    siteCode: selectedSource.site,
+    catalogCode: selectedSource.catalog,
+  });
+  const path = page.slug.startsWith('/docs/')
+    ? page.slug
+    : model.rootPath + '/' + page.slug;
+  if (
+    !path.startsWith(model.rootPath + '/') ||
+    !/^\/docs\/[a-z0-9/_-]+$/u.test(path) ||
+    path.includes('//')
+  )
+    throw new Error(`Choose a page URL under ${model.rootPath}/.`);
+  const prior = page.ownerDraft;
+  const code = prior?.page.code ?? page.id;
+  const priorArticle = prior?.sections
+    .flatMap((section) => section.components)
+    .find((component) => component.renderer === 'documentation.component.article');
+  if (prior && !priorArticle)
+    throw new Error('The saved page has no editable article.');
+  const content = {
+    ...priorArticle?.properties,
+    ...cmsRichTextComponentProperties(pageRichTextDocument(page)),
+    ...documentationDesignerArticleComponent({ ...page, slug: path }).properties,
+    code,
+    route: path,
     lifecycleState: 'STAGED',
-    active: true,
+    accessMode: model.accessMode,
   };
-  if (page.originalPageRecord) {
-    await updateWorkbenchRecord(
-      connection,
-      documentationPageSchema,
-      page.originalPageRecord,
-      pageModel,
-      configuration,
-      fetch,
-    );
-  } else {
-    await createWorkbenchRecord(
-      connection,
-      documentationPageSchema,
-      pageModel,
-      configuration,
-      fetch,
-    );
-    await createWorkbenchRecord(
-      connection,
-      cmsPageSchema,
-      {
-        code: cmsPageCode,
-        name: page.title,
-        cmsSite: selectedSource?.site ? [selectedSource.site] : [],
-        typeCode: 'nodicsDocumentationArticlePageType',
-        template: 'nodicsDocumentationArticleTemplate',
-        renderer: 'documentation.page.article',
-        cmsComponents: [
+  const draft: ContentDesignerDraft = {
+    catalogCode: model.catalogCode,
+    siteCode: model.siteCode,
+    templateCode: model.templateCode,
+    sourceVersion: prior?.sourceVersion,
+    page: {
+      code,
+      name: page.title,
+      renderer: model.renderer,
+      typeCode: model.typeCode,
+    },
+    route: {
+      ...prior?.route,
+      path,
+      locale: model.locale,
+      channel: 'web',
+      accessMode: model.accessMode,
+    },
+    navigation: prior?.navigation,
+    sections: prior
+      ? prior.sections.map((section) => ({
+          ...section,
+          components: section.components.map((component) =>
+            component.code === priorArticle?.code
+              ? { ...component, properties: content }
+              : component,
+          ),
+        }))
+      : [
           {
-            active: true,
-            index: 5,
             slot: 'navigation',
-            target: 'nodicsDocumentationNavigation',
+            index: 0,
+            components: [
+              {
+                code: `${code}-navigation`,
+                typeCode: model.navigationTypeCode,
+                renderer: 'documentation.component.navigation',
+                accessMode: model.accessMode,
+                properties: { title: selectedSource.label, items: [] },
+              },
+            ],
           },
-          { active: true, index: 10, slot: 'article', target: componentCode },
+          {
+            slot: 'article',
+            index: 0,
+            components: [
+              {
+                code: `${code}-article`,
+                typeCode: model.articleTypeCode,
+                renderer: 'documentation.component.article',
+                accessMode: model.accessMode,
+                properties: content,
+              },
+            ],
+          },
         ],
-        active: true,
-      },
-      configuration,
-      fetch,
-    );
-  }
-  const routeModel = {
-    ...(page.originalRouteRecord ?? {}),
-    code: routeCode,
-    site: selectedSource?.site ?? 'nodicsDocumentationSite',
-    path: page.slug,
-    locale: 'en',
-    channel: 'web',
-    page: cmsPageCode,
-    routeType: 'PAGE',
-    deliveryState: 'STAGED',
-    accessMode: 'PUBLIC',
-    active: true,
   };
-  if (page.originalRouteRecord) {
-    await updateWorkbenchRecord(
-      connection,
-      routeSchema,
-      page.originalRouteRecord,
-      routeModel,
-      configuration,
-      fetch,
+  await saveContentDesignerDraft(connection, configuration, draft);
+  const saved = await loadContentDesignerPage(connection, configuration, {
+    siteCode: draft.siteCode,
+    catalogCode: draft.catalogCode,
+    pageCode: code,
+  });
+  if (!saved.editable || saved.draft.route?.path !== path)
+    throw new Error(
+      'The saved page could not be confirmed. Reopen it before making another change.',
     );
-  } else {
-    await createWorkbenchRecord(
-      connection,
-      routeSchema,
-      routeModel,
-      configuration,
-      fetch,
-    );
-  }
+  return saved.draft;
 }
 
 function DocumentationContentEditor({
   draft,
   onChange,
+  titleInvalid,
 }: {
+  readonly titleInvalid: boolean;
   readonly draft: DocumentationDraftPage;
   readonly onChange: (next: DocumentationDraftPage) => void;
 }) {
+  const { format } = useAxisLocalization();
+  const titleInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (titleInvalid) titleInput.current?.focus();
+  }, [titleInvalid]);
   return (
     <Stack spacing={2}>
       <Paper
@@ -2081,9 +2031,14 @@ function DocumentationContentEditor({
             spacing={1}
             sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
           >
-            <Typography variant="subtitle2">Page details</Typography>
+            <Typography variant="subtitle2">
+              {format('common.documentation.details', 'Page details')}
+            </Typography>
             <Typography color="text.secondary" variant="caption">
-              Reader metadata saved with the staged page
+              {format(
+                'common.documentation.reader-metadata',
+                'Reader metadata saved with the staged page',
+              )}
             </Typography>
           </Stack>
           <Box
@@ -2094,7 +2049,15 @@ function DocumentationContentEditor({
             }}
           >
             <TextField
-              label="Page title"
+              label={format('common.documentation.page-title', 'Page title')}
+              required
+              inputRef={titleInput}
+              error={titleInvalid}
+              helperText={
+                titleInvalid
+                  ? format('common.documentation.title-required', 'Enter a page title.')
+                  : undefined
+              }
               size="small"
               value={draft.title}
               onChange={(event) =>
@@ -2102,16 +2065,17 @@ function DocumentationContentEditor({
               }
             />
             <TextField
-              label="Page URL"
+              label={format('common.documentation.page-url', 'Page URL')}
               size="small"
               value={draft.slug}
+              slotProps={{ htmlInput: { dir: 'ltr' } }}
               onChange={(event) =>
                 onChange(updatePageDraft(draft, { slug: event.target.value }))
               }
             />
           </Box>
           <TextField
-            label="Reader summary"
+            label={format('common.documentation.summary', 'Reader summary')}
             multiline
             minRows={1}
             size="small"
@@ -2121,7 +2085,7 @@ function DocumentationContentEditor({
             }
           />
           <TextField
-            label="Audience"
+            label={format('common.documentation.audience', 'Audience')}
             size="small"
             value={draft.audience}
             onChange={(event) =>
@@ -2131,8 +2095,11 @@ function DocumentationContentEditor({
         </Stack>
       </Paper>
       <CmsRichTextEditor
-        label="Page content"
-        placeholder="Write the page content. Add links, images, lists, code snippets, tables, and notes."
+        label={format('common.documentation.page-content', 'Page content')}
+        placeholder={format(
+          'common.documentation.content-help',
+          'Write the page content. Add links, images, lists, code snippets, tables, and notes.',
+        )}
         value={pageRichTextDocument(draft)}
         onChange={(contentJson, body) =>
           onChange(updatePageDraft(draft, { body, contentJson, contentMode: 'text' }))
@@ -2274,6 +2241,7 @@ function DocumentationDesignerNavigationSlot({
   readonly onSelectRoute: (route: string) => void;
   readonly pageCount: number;
 }) {
+  const { format } = useAxisLocalization();
   return (
     <Stack spacing={1.5}>
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
@@ -2283,7 +2251,7 @@ function DocumentationDesignerNavigationSlot({
           variant="contained"
           onClick={onCreate}
         >
-          New page
+          {format('common.documentation.new-page', 'New page')}
         </Button>
         <Button
           size="small"
@@ -2291,7 +2259,7 @@ function DocumentationDesignerNavigationSlot({
           variant="outlined"
           onClick={onManageNavigation}
         >
-          Navigation
+          {format('common.documentation.navigation', 'Navigation')}
         </Button>
       </Stack>
       <Chip
@@ -2329,18 +2297,28 @@ function DocumentationDesignerArticleActions({
   readonly onSave: () => void;
   readonly saving: boolean;
 }) {
+  const { format } = useAxisLocalization();
   const editing = mode === 'edit';
   const navigation = mode === 'navigation';
   const modeTitle = navigation
-    ? 'Editing navigation placement'
+    ? format('common.documentation.editing-navigation', 'Editing navigation placement')
     : editing
-      ? 'Editing staged documentation'
-      : 'Staged documentation preview';
+      ? format('common.documentation.editing-page', 'Editing staged documentation')
+      : format('common.documentation.preview-title', 'Staged documentation preview');
   const modeDescription = navigation
-    ? 'Place this page in the reader navigation, then save it to Staged.'
+    ? format(
+        'common.documentation.editing-navigation-help',
+        'Place this page in the reader navigation, then save it to Staged.',
+      )
     : editing
-      ? 'Update the reader page, then save it to Staged.'
-      : 'Preview exactly how this staged page reads before publishing.';
+      ? format(
+          'common.documentation.editing-page-help',
+          'Update the reader page, then save it to Staged.',
+        )
+      : format(
+          'common.documentation.preview-help',
+          'Preview exactly how this staged page reads before publishing.',
+        );
   return (
     <Paper
       elevation={0}
@@ -2382,21 +2360,21 @@ function DocumentationDesignerArticleActions({
           {navigation ? (
             <>
               <Button size="small" variant="outlined" onClick={onPreview}>
-                Preview page
+                {format('common.documentation.preview-page', 'Preview page')}
               </Button>
               <Button size="small" variant="contained" onClick={onEdit}>
-                Back to page editing
+                {format('common.documentation.back-editing', 'Back to page editing')}
               </Button>
             </>
           ) : null}
           {!navigation && editing ? (
             <Button size="small" variant="outlined" onClick={onPreview}>
-              Preview
+              {format('common.documentation.preview', 'Preview')}
             </Button>
           ) : null}
           {!navigation && !editing ? (
             <Button size="small" variant="contained" onClick={onEdit}>
-              Edit page
+              {format('common.documentation.edit', 'Edit page')}
             </Button>
           ) : null}
           {!navigation ? (
@@ -2407,7 +2385,7 @@ function DocumentationDesignerArticleActions({
                 variant="text"
                 onClick={onManageNavigation}
               >
-                Link navigation
+                {format('common.documentation.link', 'Link navigation')}
               </Button>
               <Button
                 disabled={saving}
@@ -2416,7 +2394,9 @@ function DocumentationDesignerArticleActions({
                 variant={editing || isNew ? 'contained' : 'outlined'}
                 onClick={onSave}
               >
-                {saving ? 'Saving' : 'Save staged'}
+                {saving
+                  ? format('common.documentation.saving', 'Saving')
+                  : format('common.documentation.save', 'Save staged')}
               </Button>
             </>
           ) : null}
@@ -2775,6 +2755,7 @@ function DocumentationDesignerArticleSlot({
   parentOptions,
   selectedSource,
   saving,
+  titleInvalid,
 }: {
   readonly articleComponent: CmsComponentContract;
   readonly link: DocumentationDraftLink;
@@ -2793,6 +2774,7 @@ function DocumentationDesignerArticleSlot({
   readonly parentOptions: readonly DocumentationNavigationParentOption[];
   readonly selectedSource: AxisCmsDocumentationSource | undefined;
   readonly saving: boolean;
+  readonly titleInvalid: boolean;
 }) {
   const editing = mode === 'edit';
   return (
@@ -2822,7 +2804,11 @@ function DocumentationDesignerArticleSlot({
       ) : editing ? (
         <Stack spacing={1.5}>
           <SelectedPageSummary page={page} />
-          <DocumentationContentEditor draft={page} onChange={onChange} />
+          <DocumentationContentEditor
+            draft={page}
+            onChange={onChange}
+            titleInvalid={titleInvalid}
+          />
         </Stack>
       ) : (
         <DocumentationArticleRenderer component={articleComponent} />
@@ -2835,15 +2821,20 @@ function DocumentationPageDesignerPanel({
   accessToken,
   bootstrap,
   initialMode = 'preview',
+  onEditState,
+  ownerPages,
   runtime,
   selectedSource,
 }: {
   readonly accessToken: string;
   readonly bootstrap: AxisAuthenticatedBootstrap;
   readonly initialMode?: DocumentationDesignerMode | undefined;
+  readonly onEditState: (state: 'clean' | 'dirty' | 'saving') => void;
+  readonly ownerPages: Awaited<ReturnType<typeof listContentDesignerPages>>;
   readonly runtime: AxisRuntimeConfig;
   readonly selectedSource: AxisCmsDocumentationSource | undefined;
 }) {
+  const { format } = useAxisLocalization();
   const pageSource = useDocumentationDraftPageSource({
     accessToken,
     bootstrap,
@@ -2866,6 +2857,7 @@ function DocumentationPageDesignerPanel({
   );
   const [mode, setMode] = useState<DocumentationDesignerMode>(initialMode);
   const [saveMessage, setSaveMessage] = useState<string>();
+  const [invalidTitlePageId, setInvalidTitlePageId] = useState<string>();
   const [linkSaveMessage, setLinkSaveMessage] = useState<string>();
   const configuration = useMemo<WorkbenchClientConfiguration>(
     () => ({
@@ -2883,12 +2875,83 @@ function DocumentationPageDesignerPanel({
         page,
         selectedSource,
       }),
-    onSuccess: (_result, page) => {
+    onSuccess: (draft, page) => {
       setSaveMessage(`${page.title} saved to Staged documentation.`);
       setPages((current) =>
-        current.map((item) => (item.id === page.id ? { ...item, isNew: false } : item)),
+        current.map((item) =>
+          item.id === page.id
+            ? {
+                ...item,
+                slug: String(draft.route?.path),
+                isNew: false,
+                ownerDraft: draft,
+                ownerDirty: false,
+              }
+            : item,
+        ),
       );
       setMode('preview');
+    },
+  });
+  const submit = useMutation({
+    mutationFn: async (draft: ContentDesignerDraft) => {
+      const staged = selectModuleConnection(bootstrap, 'cms', {
+        publicationRole: 'STAGED',
+      });
+      if (!staged) throw new Error('Staged documentation is unavailable.');
+      return submitContentDesignerDraftForPublication(staged, configuration, draft);
+    },
+  });
+  const staged = selectModuleConnection(bootstrap, 'cms', {
+    publicationRole: 'STAGED',
+  });
+  const ownerScope =
+    selectedSource?.site && selectedSource.catalog
+      ? { siteCode: selectedSource.site, catalogCode: selectedSource.catalog }
+      : undefined;
+  const reopen = useMutation({
+    mutationFn: async (pageCode: string) => {
+      if (!staged || !ownerScope)
+        throw new Error('Staged documentation is unavailable.');
+      const result = await loadContentDesignerPage(staged, configuration, {
+        ...ownerScope,
+        pageCode,
+      });
+      const article = result.draft.sections
+        .flatMap((section) => section.components)
+        .find((component) => component.renderer === 'documentation.component.article');
+      const route = result.draft.route?.path;
+      if (!result.editable || !article || typeof route !== 'string')
+        throw new Error(
+          'This page must be edited through its owning documentation release.',
+        );
+      const contentJson = documentationBlocksToCmsRichTextDocument(
+        article.properties?.blocks,
+      );
+      return {
+        id: result.draft.page.code,
+        title: result.draft.page.name,
+        slug: route,
+        summary:
+          typeof article.properties?.summary === 'string'
+            ? article.properties.summary
+            : '',
+        audience: Array.isArray(article.properties?.audience)
+          ? article.properties.audience.join(', ')
+          : '',
+        body: cmsRichTextDocumentToText(contentJson),
+        contentMode: 'text',
+        contentJson,
+        section: selectedSource?.label ?? 'Documentation',
+        ownerDraft: result.draft,
+      } satisfies DocumentationDraftPage;
+    },
+    onSuccess: (page) => {
+      setPages((current) => [page, ...current.filter((item) => item.id !== page.id)]);
+      setSelectedPageId(page.id);
+      setMode('preview');
+      setSaveMessage(undefined);
+      submit.reset();
     },
   });
   const saveLink = useMutation({
@@ -2901,28 +2964,57 @@ function DocumentationPageDesignerPanel({
         selectedSource,
       }),
     onSuccess: (_result, link) => {
+      setLinks((current) =>
+        current.map((item) => (item === link ? { ...item, dirty: false } : item)),
+      );
       setLinkSaveMessage(`${link.label} saved to Staged navigation.`);
     },
   });
 
+  const editState =
+    savePage.isPending || saveLink.isPending || submit.isPending
+      ? 'saving'
+      : pages.some((page) => page.isNew || page.ownerDirty) ||
+          links.some((link) => link.dirty)
+        ? 'dirty'
+        : 'clean';
+  useUnsavedNavigationGuard(editState !== 'clean');
   useEffect(() => {
-    queueMicrotask(() => {
-      setPages(pageSource.pages);
-      setSelectedPageId((current) =>
-        pageSource.pages.some((page) => page.id === current)
-          ? current
-          : (pageSource.pages[0]?.id ?? ''),
-      );
-      setMode(initialMode);
-      setSaveMessage(undefined);
-      setLinkSaveMessage(undefined);
-    });
-  }, [initialMode, pageSource.pages]);
+    onEditState(editState);
+    return () => onEditState('clean');
+  }, [editState, onEditState]);
 
   useEffect(() => {
     queueMicrotask(() => {
-      setLinks(linkSource.links);
-      setLinkSaveMessage(undefined);
+      setPages((current) => {
+        const drafts = current.filter((page) => page.isNew || page.ownerDirty);
+        const byId = new Map(drafts.map((page) => [page.id, page]));
+        return [
+          ...pageSource.pages.map((page) => byId.get(page.id) ?? page),
+          ...drafts.filter(
+            (draft) => !pageSource.pages.some((page) => page.id === draft.id),
+          ),
+        ];
+      });
+    });
+  }, [pageSource.pages]);
+
+  useEffect(() => {
+    queueMicrotask(() => setMode(initialMode));
+  }, [initialMode]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      setLinks((current) => {
+        const drafts = current.filter((link) => link.dirty);
+        const byId = new Map(drafts.map((link) => [link.id, link]));
+        return [
+          ...linkSource.links.map((link) => byId.get(link.id) ?? link),
+          ...drafts.filter(
+            (draft) => !linkSource.links.some((link) => link.id === draft.id),
+          ),
+        ];
+      });
     });
   }, [linkSource.links]);
 
@@ -2949,14 +3041,20 @@ function DocumentationPageDesignerPanel({
       : Object.freeze([]);
 
   const updateSelectedPage = (next: DocumentationDraftPage) => {
-    setPages((current) => current.map((page) => (page.id === next.id ? next : page)));
+    if (next.title.trim()) setInvalidTitlePageId(undefined);
+    setPages((current) =>
+      current.map((page) =>
+        page.id === next.id ? { ...next, ownerDirty: true } : page,
+      ),
+    );
     setSaveMessage(undefined);
     savePage.reset();
+    submit.reset();
   };
 
   const updateSelectedNavigationLink = (changes: Partial<DocumentationDraftLink>) => {
     if (!selectedNavigationLink) return;
-    const next = { ...selectedNavigationLink, ...changes };
+    const next = { ...selectedNavigationLink, ...changes, dirty: true };
     setLinks((current) =>
       current.some((link) => link.id === next.id)
         ? current.map((link) => (link.id === next.id ? next : link))
@@ -2976,6 +3074,7 @@ function DocumentationPageDesignerPanel({
     setSaveMessage(undefined);
     setLinkSaveMessage(undefined);
     savePage.reset();
+    submit.reset();
     saveLink.reset();
   };
 
@@ -2987,14 +3086,22 @@ function DocumentationPageDesignerPanel({
     setSaveMessage(undefined);
     setLinkSaveMessage(undefined);
     savePage.reset();
+    submit.reset();
     saveLink.reset();
   };
 
   if (!selectedPage || !selectedNavigationLink) {
     return (
-      <Alert severity="info">
-        Select a documentation area before creating the first page.
-      </Alert>
+      <Stack spacing={2}>
+        <Alert severity="info">
+          Select a documentation area before creating the first page.
+        </Alert>
+        {selectedSource && (
+          <Button onClick={createNewPage}>
+            {format('common.documentation.new-page', 'New page')}
+          </Button>
+        )}
+      </Stack>
     );
   }
 
@@ -3035,6 +3142,55 @@ function DocumentationPageDesignerPanel({
           <PageAuthoringProgress isNew={Boolean(selectedPage.isNew)} />
         </Stack>
       </Paper>
+      {ownerPages.length ? (
+        <TextField
+          select
+          label={format('common.documentation.reopen', 'Reopen a staged page')}
+          value=""
+          disabled={reopen.isPending}
+          onChange={(event) => reopen.mutate(event.target.value)}
+        >
+          {ownerPages.map((page) => (
+            <MenuItem key={page.code} value={page.code}>
+              {page.name}
+            </MenuItem>
+          ))}
+        </TextField>
+      ) : null}
+      {reopen.error instanceof Error ? (
+        <Alert severity="error">{reopen.error.message}</Alert>
+      ) : null}
+      {selectedPage.ownerDraft && !selectedPage.ownerDirty && (
+        <Button
+          disabled={submit.isPending || submit.isError || Boolean(submit.data)}
+          onClick={() => {
+            if (selectedPage.ownerDraft) submit.mutate(selectedPage.ownerDraft);
+          }}
+        >
+          {format('common.documentation.submit', 'Submit saved draft for review')}
+        </Button>
+      )}
+      {submit.error instanceof Error ? (
+        <Alert severity="error">{submit.error.message}</Alert>
+      ) : null}
+      {submit.data?.publication ? (
+        <Alert
+          severity="success"
+          action={
+            <Button
+              component={RouterLink}
+              to={`/publishing/requests?publicationCode=${encodeURIComponent(submit.data.publication.code)}`}
+            >
+              {format('common.documentation.open-request', 'Open publication request')}
+            </Button>
+          }
+        >
+          {format(
+            'common.documentation.submitted',
+            'The saved draft was submitted for review.',
+          )}
+        </Alert>
+      ) : null}
       {pageSource.isLoading ? (
         <LinearProgress aria-label="Loading documentation pages" />
       ) : null}
@@ -3044,7 +3200,11 @@ function DocumentationPageDesignerPanel({
           documentation seed list.
         </Alert>
       ) : null}
-      {saveMessage ? <Alert severity="success">{saveMessage}</Alert> : null}
+      {saveMessage ? (
+        <Alert role="status" severity="success">
+          {saveMessage}
+        </Alert>
+      ) : null}
       {savePage.error instanceof Error ? (
         <Alert severity="error">{savePage.error.message}</Alert>
       ) : null}
@@ -3082,7 +3242,15 @@ function DocumentationPageDesignerPanel({
                 selectedNavigationLink ? saveLink.mutate(selectedNavigationLink) : null
               }
               onPreview={() => setMode('preview')}
-              onSave={() => savePage.mutate(selectedPage)}
+              titleInvalid={invalidTitlePageId === selectedPage.id}
+              onSave={() => {
+                if (!selectedPage.title.trim()) {
+                  setInvalidTitlePageId(selectedPage.id);
+                  setMode('edit');
+                  return;
+                }
+                savePage.mutate(selectedPage);
+              }}
             />
           ),
         }}
@@ -3377,13 +3545,74 @@ export function DocumentationManagementRoutePage(
     () => editableDocumentationSources(props.bootstrap.documentationSources),
     [props.bootstrap.documentationSources],
   );
-  const [selectedSourceId, setSelectedSourceId] = useState(
-    designerSources[0]?.id ?? 'framework',
+  const [selectedSourceId, setSelectedSourceId] = useState<string>();
+  const [requestedSourceId, setRequestedSourceId] = useState<string>();
+  const [editState, setEditState] = useState<'clean' | 'dirty' | 'saving'>('clean');
+  const areaDialogId = useId();
+  const { format } = useAxisLocalization();
+  const staged = selectModuleConnection(props.bootstrap, 'cms', {
+    publicationRole: 'STAGED',
+  });
+  const connection = staged ?? selectModuleConnection(props.bootstrap, 'cms');
+  const ownerSession = useMemo(
+    () => ({ accessToken: props.accessToken, id: crypto.randomUUID() }),
+    [props.accessToken],
   );
-  const connection =
-    selectModuleConnection(props.bootstrap, 'cms', {
-      publicationRole: 'STAGED',
-    }) ?? selectModuleConnection(props.bootstrap, 'cms');
+  // BackOffice discovers documentation products. The Staged CMS owner decides
+  // which exact Site/Catalog pairs this employee can open in the Designer.
+  const distinctScopes = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          designerSources.map((source) => [documentationAreaScopeKey(source), source]),
+        ),
+      ),
+    [designerSources],
+  );
+  const ownerPages = useQueries({
+    queries: staged
+      ? distinctScopes.map(([scopeKey, source]) => ({
+          queryKey: [
+            'documentation-owned-pages',
+            ownerSession.id,
+            props.bootstrap.tenantCode,
+            props.runtime.enterpriseCode,
+            connectionKey(staged),
+            scopeKey,
+          ],
+          retry: false,
+          refetchOnWindowFocus: false,
+          refetchOnReconnect: false,
+          queryFn: () =>
+            listContentDesignerPages(
+              staged,
+              {
+                accessToken: ownerSession.accessToken,
+                enterpriseCode: props.runtime.enterpriseCode,
+                timeoutMs: props.runtime.requestTimeoutMs,
+              },
+              { siteCode: source.site, catalogCode: source.catalog },
+            ),
+        }))
+      : [],
+  });
+  const checkingAreas = ownerPages.some((area) => area.isPending);
+  const failedAreas = ownerPages.filter(
+    ({ error }) =>
+      error && !(error instanceof ContentDesignerRequestError && error.status === 403),
+  );
+  const pagesByScope = new Map(
+    distinctScopes.map(([key], index) => [key, ownerPages[index]]),
+  );
+  const admittedSources = designerSources.filter(
+    (source) => pagesByScope.get(documentationAreaScopeKey(source))?.isSuccess,
+  );
+  const selectedSource = checkingAreas
+    ? undefined
+    : selectedDocumentationSource(admittedSources, selectedSourceId);
+  const selectedPages = selectedSource
+    ? pagesByScope.get(documentationAreaScopeKey(selectedSource))?.data
+    : undefined;
   const routes = useMemo(
     () => routesFromNavigation(props.navigation),
     [props.navigation],
@@ -3423,18 +3652,9 @@ export function DocumentationManagementRoutePage(
     },
   });
   const model = modelQuery.data ?? fallbackModel;
-  const selectedSource = selectedDocumentationSource(designerSources, selectedSourceId);
-  const recordPack = useMemo(
-    () =>
-      Object.freeze({
-        ...(documentationSourceContext(selectedSource)
-          ? {
-              sourceContext: documentationSourceContext(selectedSource),
-              packCode: documentationSourceContext(selectedSource)?.packCode,
-            }
-          : {}),
-      }),
-    [selectedSource],
+  const sourceContext = documentationSourceContext(selectedSource);
+  const recordPack = Object.freeze(
+    sourceContext ? { sourceContext, packCode: sourceContext.packCode } : {},
   );
   const tabs = availableTabs(props.bootstrap.navigation);
   const selectedTab = tabs.find((tab) => tab.id === activeTab) ?? tabs[0]!;
@@ -3447,8 +3667,15 @@ export function DocumentationManagementRoutePage(
     <WorkspaceContainer>
       <WorkspaceHeading
         eyebrow="Documentation Designer"
-        title="Create and publish documentation"
-        description="Create pages, organize links, preview the reader experience, and publish approved documentation to Axis and Nexus."
+        title={format(
+          'common.documentation.heading',
+          'Create and publish documentation',
+        )}
+        description={format(
+          'common.documentation.intro',
+          'Create pages, organize links, preview the reader experience, and publish approved documentation to Axis and Nexus.',
+        )}
+        help={props.navigation.help}
       />
       {modelQuery.isLoading ? (
         <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', p: 2 }}>
@@ -3464,73 +3691,147 @@ export function DocumentationManagementRoutePage(
           unavailable.
         </Alert>
       ) : null}
-      <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', p: 2 }}>
-        <Stack spacing={1.5}>
-          <Stack
-            direction={{ xs: 'column', md: 'row' }}
-            spacing={1}
-            sx={{ alignItems: { md: 'center' } }}
-          >
-            <TextField
-              label="Documentation area"
-              select
-              size="small"
-              sx={{ minWidth: { xs: '100%', md: 280 } }}
-              value={selectedSource?.id ?? selectedSourceId}
-              onChange={(event) => setSelectedSourceId(event.target.value)}
+      {selectedSource ? (
+        <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', p: 2 }}>
+          <Stack spacing={1.5}>
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={1}
+              sx={{ alignItems: { md: 'center' } }}
             >
-              {(designerSources.length > 0
-                ? designerSources
-                : [{ id: 'framework', label: 'Framework' }]
-              ).map((source) => (
-                <MenuItem key={source.id} value={source.id}>
-                  {source.label}
-                </MenuItem>
-              ))}
-            </TextField>
-            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-              <Chip
-                icon={<ShellIcon name="visible" />}
-                label="Visible in Axis"
+              <TextField
+                label={format('common.documentation.area', 'Documentation area')}
+                select
                 size="small"
-              />
-              <Chip
-                icon={<ShellIcon name="storefront" />}
-                label="Publishes to Nexus"
-                size="small"
-              />
-              <Chip
-                icon={<ShellIcon name="approve" />}
-                label="Governed approval"
-                size="small"
-              />
+                sx={{ minWidth: { xs: '100%', md: 280 } }}
+                value={selectedSource.id}
+                disabled={editState === 'saving'}
+                onChange={(event) => {
+                  const nextId = event.target.value;
+                  if (nextId === selectedSource.id) return;
+                  if (editState === 'dirty') setRequestedSourceId(nextId);
+                  else setSelectedSourceId(nextId);
+                }}
+              >
+                {admittedSources.map((source) => (
+                  <MenuItem key={source.id} value={source.id}>
+                    {source.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                <Chip
+                  icon={<ShellIcon name="visible" />}
+                  label="Visible in Axis"
+                  size="small"
+                />
+                <Chip
+                  icon={<ShellIcon name="storefront" />}
+                  label="Publishes to Nexus"
+                  size="small"
+                />
+                <Chip
+                  icon={<ShellIcon name="approve" />}
+                  label="Governed approval"
+                  size="small"
+                />
+              </Stack>
             </Stack>
           </Stack>
-        </Stack>
-      </Paper>
-      {activeTab === 'pages' ? (
+        </Paper>
+      ) : null}
+      {requestedSourceId ? (
+        <Dialog
+          open
+          onClose={() => setRequestedSourceId(undefined)}
+          aria-labelledby={areaDialogId}
+          aria-describedby={`${areaDialogId}-description`}
+        >
+          <DialogTitle id={areaDialogId}>
+            {format('common.unsaved.area-title', 'Switch documentation area?')}
+          </DialogTitle>
+          <DialogContent id={`${areaDialogId}-description`}>
+            {format(
+              'common.unsaved.description',
+              'Changes you have not saved will be lost.',
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button autoFocus onClick={() => setRequestedSourceId(undefined)}>
+              {format('common.unsaved.keep-editing', 'Keep editing')}
+            </Button>
+            <Button
+              color="error"
+              onClick={() => {
+                if (admittedSources.some((source) => source.id === requestedSourceId)) {
+                  setSelectedSourceId(requestedSourceId);
+                }
+                setRequestedSourceId(undefined);
+              }}
+            >
+              {format('common.unsaved.switch-area', 'Discard and switch')}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      ) : null}
+      {checkingAreas ? (
+        <Alert severity="info">
+          Checking which Staged documentation areas you can open…
+        </Alert>
+      ) : null}
+      {!checkingAreas && failedAreas.length > 0 ? (
+        <Alert
+          severity="warning"
+          action={
+            <Button
+              onClick={() => {
+                setSelectedSourceId(selectedSource?.id);
+                failedAreas.forEach((area) => void area.refetch());
+              }}
+            >
+              Retry area check
+            </Button>
+          }
+        >
+          Some Staged documentation areas could not be checked.
+        </Alert>
+      ) : null}
+      {!checkingAreas && !selectedSource && failedAreas.length === 0 ? (
+        <Alert severity="info">
+          {staged
+            ? 'No Staged documentation areas are available to your account.'
+            : 'The Staged documentation runtime is unavailable.'}
+        </Alert>
+      ) : null}
+      {selectedSource && selectedPages && activeTab === 'pages' ? (
         <DocumentationPageDesignerPanel
+          key={selectedSource.id}
           accessToken={props.accessToken}
           bootstrap={props.bootstrap}
+          onEditState={setEditState}
+          ownerPages={selectedPages}
           runtime={props.runtime}
           selectedSource={selectedSource}
         />
-      ) : activeTab === 'navigation' ? (
+      ) : selectedSource && selectedPages && activeTab === 'navigation' ? (
         <DocumentationPageDesignerPanel
+          key={selectedSource.id}
           accessToken={props.accessToken}
           bootstrap={props.bootstrap}
           initialMode="navigation"
+          onEditState={setEditState}
+          ownerPages={selectedPages}
           runtime={props.runtime}
           selectedSource={selectedSource}
         />
-      ) : activeTab === 'preview' ? (
+      ) : selectedSource && activeTab === 'preview' ? (
         <PreviewPanel
           client={client}
           connectionAvailable={Boolean(connection)}
           recordPack={recordPack}
           selectedSource={selectedSource}
         />
-      ) : activeTab === 'governance' ? (
+      ) : selectedSource && activeTab === 'governance' ? (
         <GovernancePanel
           client={client}
           connectionAvailable={Boolean(connection)}
@@ -3550,12 +3851,12 @@ export function DocumentationManagementRoutePage(
           runtime={props.runtime}
           site={props.site}
         />
-      ) : (
+      ) : selectedSource ? (
         <Alert severity="info">
           This documentation designer destination is waiting for a backend schema target
           in the authorized navigation contract.
         </Alert>
-      )}
+      ) : null}
     </WorkspaceContainer>
   );
 }

@@ -1,3 +1,4 @@
+import { useAxisLocalization } from '../../localization/AxisLocalizationContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -68,6 +69,7 @@ function navigationSecondaryTextSx() {
   return {
     fontSize: '0.6875rem',
     fontWeight: 500,
+    color: alpha('#ffffff', 0.74),
     lineHeight: 1.25,
   } as const;
 }
@@ -82,6 +84,7 @@ export function NavigationRail({
   onToggleFavourite,
   query,
 }: NavigationRailProps) {
+  const { format: workflowText } = useAxisLocalization();
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(
     () => new Set(groups.map((group) => group.id)),
   );
@@ -155,7 +158,7 @@ export function NavigationRail({
       <Divider sx={{ borderColor: alpha('#ffffff', 0.1) }} />
       {!compact ? (
         <TextField
-          placeholder="Search menu"
+          placeholder={workflowText('axis.ui.search-menu', 'Search menu')}
           size="small"
           value={query}
           sx={{
@@ -175,7 +178,7 @@ export function NavigationRail({
           }}
           slotProps={{
             htmlInput: {
-              'aria-label': 'Search menu',
+              'aria-label': workflowText('axis.ui.search-menu', 'Search menu'),
             },
             input: {
               startAdornment: (
@@ -196,7 +199,7 @@ export function NavigationRail({
       ) : null}
       <Box
         component="nav"
-        aria-label="Primary navigation"
+        aria-label={workflowText('axis.ui.primary-navigation', 'Primary navigation')}
         sx={{
           flex: 1,
           overflowY: 'auto',
@@ -209,7 +212,7 @@ export function NavigationRail({
             sx={{ color: alpha('#ffffff', 0.62), px: 2.5, py: 2 }}
             variant="body2"
           >
-            No matching menu items
+            {workflowText('axis.ui.no-matching-menu-items', 'No matching menu items')}
           </Typography>
         ) : null}
         {visibleGroups.map((group) => {
@@ -231,7 +234,11 @@ export function NavigationRail({
                 <ListItemButton
                   aria-controls={`navigation-group-${group.id}`}
                   aria-expanded={expanded}
-                  aria-label={`${expanded ? 'Collapse' : 'Expand'} ${group.label}`}
+                  aria-label={workflowText(
+                    expanded ? 'axis.ui.collapse-group' : 'axis.ui.expand-group',
+                    expanded ? 'Collapse {label}' : 'Expand {label}',
+                    { label: group.label },
+                  )}
                   sx={{
                     bgcolor: expanded
                       ? alpha('#ffffff', 0.065)
@@ -274,18 +281,6 @@ export function NavigationRail({
                       variant="overline"
                     >
                       {group.label}
-                    </Typography>
-                    <Typography
-                      sx={{
-                        color: alpha('#ffffff', 0.46),
-                        fontSize: '0.625rem',
-                        fontWeight: 620,
-                        letterSpacing: '0.06em',
-                        lineHeight: 1.2,
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      {expanded ? 'Section expanded' : 'Section collapsed'}
                     </Typography>
                   </Stack>
                   <Box
@@ -335,8 +330,8 @@ export function NavigationRail({
                     const navigationItem = (
                       <ListItemButton
                         key={`${item.moduleName}:${item.id}`}
-                        aria-label={item.label}
-                        aria-level={item.depth + 1}
+                        aria-label={compact ? item.label : undefined}
+                        aria-current={itemSelected ? 'page' : undefined}
                         disabled={unavailable || featureDisabled}
                         ref={(element) => {
                           if (element) itemElements.current.set(itemKey, element);
@@ -411,9 +406,12 @@ export function NavigationRail({
                           secondary={
                             item.availability === 'UP'
                               ? item.featureState === 'PREVIEW'
-                                ? 'Preview'
+                                ? workflowText('axis.ui.preview', 'Preview')
                                 : undefined
-                              : availabilityLabel(item.availability)
+                              : workflowText(
+                                  `axis.availability.${item.availability.toLowerCase()}`,
+                                  availabilityLabel(item.availability),
+                                )
                           }
                           slotProps={{
                             primary: {
@@ -425,9 +423,14 @@ export function NavigationRail({
                           }}
                         />
                         {!item.local && item.availability !== 'UP' ? (
-                          <Tooltip title={availabilityLabel(item.availability)}>
+                          <Tooltip
+                            title={workflowText(
+                              `axis.availability.${item.availability.toLowerCase()}`,
+                              availabilityLabel(item.availability),
+                            )}
+                          >
                             <Box
-                              aria-label={availabilityLabel(item.availability)}
+                              aria-hidden="true"
                               component="span"
                               sx={{
                                 bgcolor:
@@ -453,12 +456,13 @@ export function NavigationRail({
                         placement="right"
                         title={item.label}
                       >
-                        <Box component="span" sx={{ display: 'block' }}>
+                        <Box component="li" sx={{ display: 'block' }}>
                           {navigationItem}
                         </Box>
                       </Tooltip>
                     ) : (
                       <Box
+                        component="li"
                         key={`${item.moduleName}:${item.id}`}
                         sx={{
                           alignItems: 'center',
@@ -470,7 +474,15 @@ export function NavigationRail({
                         {item.hasChildren ? (
                           <Tooltip
                             placement="right"
-                            title={`${itemExpanded ? 'Collapse' : 'Expand'} ${item.label} submenu`}
+                            title={workflowText(
+                              itemExpanded
+                                ? 'axis.ui.collapse-submenu'
+                                : 'axis.ui.expand-submenu',
+                              itemExpanded
+                                ? 'Collapse {label} submenu'
+                                : 'Expand {label} submenu',
+                              { label: item.label },
+                            )}
                           >
                             <Box
                               component="span"
@@ -486,7 +498,15 @@ export function NavigationRail({
                               }}
                             >
                               <IconButton
-                                aria-label={`${itemExpanded ? 'Collapse' : 'Expand'} ${item.label} submenu`}
+                                aria-label={workflowText(
+                                  itemExpanded
+                                    ? 'axis.ui.collapse-submenu'
+                                    : 'axis.ui.expand-submenu',
+                                  itemExpanded
+                                    ? 'Collapse {label} submenu'
+                                    : 'Expand {label} submenu',
+                                  { label: item.label },
+                                )}
                                 aria-expanded={itemExpanded}
                                 data-navigation-expander="item"
                                 disabled={unavailable || featureDisabled}
@@ -519,15 +539,31 @@ export function NavigationRail({
                           <Tooltip
                             title={
                               favourites.has(itemKey)
-                                ? `Remove ${item.label} from favourites`
-                                : `Add ${item.label} to favourites`
+                                ? workflowText(
+                                    'axis.ui.remove-favourite',
+                                    'Remove {label} from favourites',
+                                    { label: item.label },
+                                  )
+                                : workflowText(
+                                    'axis.ui.add-favourite',
+                                    'Add {label} to favourites',
+                                    { label: item.label },
+                                  )
                             }
                           >
                             <IconButton
                               aria-label={
                                 favourites.has(itemKey)
-                                  ? `Remove ${item.label} from favourites`
-                                  : `Add ${item.label} to favourites`
+                                  ? workflowText(
+                                      'axis.ui.remove-favourite',
+                                      'Remove {label} from favourites',
+                                      { label: item.label },
+                                    )
+                                  : workflowText(
+                                      'axis.ui.add-favourite',
+                                      'Add {label} to favourites',
+                                      { label: item.label },
+                                    )
                               }
                               color={favourites.has(itemKey) ? 'primary' : 'inherit'}
                               size="small"
@@ -556,7 +592,7 @@ export function NavigationRail({
         })}
         {visibleGroups.length === 0 ? (
           <Typography sx={{ color: alpha('#ffffff', 0.56), px: 2.5, py: 3 }}>
-            No navigation results
+            {workflowText('axis.ui.no-navigation-results', 'No navigation results')}
           </Typography>
         ) : null}
       </Box>
@@ -667,8 +703,19 @@ function activeItemAncestorKeys(
 }
 
 function routeMatches(activePath: string, route: string): boolean {
-  const normalizedActivePath = canonicalNavigationRoute(normalizedRoute(activePath));
-  const normalizedItemRoute = canonicalNavigationRoute(normalizedRoute(route));
+  const [activeRoute = '/', activeSearch] = activePath.split('?');
+  const [itemRoute = '/', itemSearch] = route.split('?');
+  if (itemSearch) {
+    const active = new URLSearchParams(activeSearch);
+    if (
+      !Array.from(new URLSearchParams(itemSearch)).every(
+        ([key, value]) => active.get(key) === value,
+      )
+    )
+      return false;
+  }
+  const normalizedActivePath = canonicalNavigationRoute(normalizedRoute(activeRoute));
+  const normalizedItemRoute = canonicalNavigationRoute(normalizedRoute(itemRoute));
   return (
     normalizedActivePath === normalizedItemRoute ||
     (normalizedItemRoute !== '/' &&

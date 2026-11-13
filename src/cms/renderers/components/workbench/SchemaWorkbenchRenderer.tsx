@@ -45,6 +45,7 @@ import { WorkbenchDeleteDialog } from '../../../../workbench/delete/WorkbenchDel
 import { WorkbenchRecordForm } from '../../../../workbench/form/WorkbenchRecordForm';
 import { WorkbenchSchemaDefinition } from '../../../../workbench/schema/WorkbenchSchemaDefinition';
 import {
+  resolveWorkbenchDefaultColumns,
   workbenchPresentationExcludedColumns,
   workbenchPresentationForbiddenFields,
   workbenchQuickFilterGroup,
@@ -158,13 +159,10 @@ function schemaRuntimeLabel(
 }
 
 function isEditorialArticleAuthoringDetail(
-  navigationId: string | undefined,
+  moduleName: string | undefined,
   schemaName: string | undefined,
 ): boolean {
-  return (
-    schemaName === 'editorialArticle' &&
-    (navigationId === 'editorial-news' || navigationId === 'editorial-blogs')
-  );
+  return moduleName === 'editorial' && schemaName === 'editorialArticle';
 }
 
 export function SchemaWorkbenchRenderer({
@@ -228,6 +226,15 @@ export function SchemaWorkbenchRenderer({
   const displayedSchemas = visibleSchemas.slice(0, schemaVisibleCount);
   const hasMoreSchemas = displayedSchemas.length < visibleSchemas.length;
   const selected = controller.selectedSchema;
+  const exportDestinations = controller.bootstrap.navigation.filter(
+    (item) =>
+      item.id === 'imports-exports' &&
+      item.moduleName === 'backoffice' &&
+      ['ACTIVE', 'PREVIEW'].includes(item.featureState ?? 'ACTIVE') &&
+      ['UP', 'DEGRADED'].includes(item.availability),
+  );
+  const exportDestination =
+    exportDestinations.length === 1 ? exportDestinations[0] : undefined;
   const relationshipCopy = Object.fromEntries(
     (
       Object.entries(defaultRelationshipCopy) as [
@@ -380,6 +387,27 @@ export function SchemaWorkbenchRenderer({
         position: { xs: 'static', lg: 'absolute' },
       }}
     >
+      {controller.unavailableSchemaSources?.length ? (
+        <Alert
+          severity="warning"
+          action={
+            <Button color="inherit" size="small" onClick={controller.retrySchemas}>
+              {stringProperty(component, 'retryLabel')}
+            </Button>
+          }
+        >
+          {stringProperty(
+            component,
+            'incompleteSchemasLabel',
+            'Some data types could not be loaded. The available data types are incomplete.',
+          )}
+          <Box component="ul" sx={{ my: 0.5, pl: 2.5 }}>
+            {controller.unavailableSchemaSources.map((source) => (
+              <li key={source}>{source}</li>
+            ))}
+          </Box>
+        </Alert>
+      ) : null}
       <Box
         data-testid="workbench-pane-grid"
         sx={{
@@ -688,14 +716,74 @@ export function SchemaWorkbenchRenderer({
             }}
           >
             {!selected ? (
-              <Stack
-                sx={{ alignItems: 'center', minHeight: 320, justifyContent: 'center' }}
-              >
-                <ShellIcon color="disabled" name="schema" sx={{ fontSize: 48 }} />
-                <Typography color="text.secondary" sx={{ mt: 1.5 }}>
-                  {stringProperty(component, 'selectSchemaLabel')}
-                </Typography>
-              </Stack>
+              scopedToNavigation ? (
+                <Stack
+                  spacing={2}
+                  sx={{ minHeight: 320, p: { xs: 2, md: 3 }, minWidth: 0 }}
+                >
+                  {!controller.ownerHeader ? (
+                    <Stack
+                      direction="row"
+                      spacing={0.5}
+                      sx={{ alignItems: 'center', minWidth: 0 }}
+                    >
+                      <Typography
+                        component="h1"
+                        variant="h5"
+                        sx={{ overflowWrap: 'anywhere' }}
+                      >
+                        {workspaceLabel}
+                      </Typography>
+                      <WorkspaceHelpActions
+                        help={workspaceHelp}
+                        label={workspaceLabel}
+                      />
+                    </Stack>
+                  ) : null}
+                  {controller.schemasLoading ? (
+                    <Stack
+                      role="status"
+                      direction="row"
+                      spacing={1.5}
+                      sx={{ alignItems: 'center' }}
+                    >
+                      <CircularProgress size={22} aria-hidden="true" />
+                      <Typography>
+                        {stringProperty(component, 'loadingLabel')}
+                      </Typography>
+                    </Stack>
+                  ) : (
+                    <Alert
+                      severity={controller.schemasError ? 'error' : 'info'}
+                      action={
+                        <Button
+                          color="inherit"
+                          size="small"
+                          onClick={controller.retrySchemas}
+                        >
+                          {stringProperty(component, 'retryLabel')}
+                        </Button>
+                      }
+                    >
+                      {controller.schemasError ??
+                        stringProperty(component, 'noSchemasLabel')}
+                    </Alert>
+                  )}
+                </Stack>
+              ) : (
+                <Stack
+                  sx={{
+                    alignItems: 'center',
+                    minHeight: 320,
+                    justifyContent: 'center',
+                  }}
+                >
+                  <ShellIcon color="disabled" name="schema" sx={{ fontSize: 48 }} />
+                  <Typography color="text.secondary" sx={{ mt: 1.5 }}>
+                    {stringProperty(component, 'selectSchemaLabel')}
+                  </Typography>
+                </Stack>
+              )
             ) : (
               <Stack spacing={0}>
                 <Stack
@@ -774,8 +862,16 @@ export function SchemaWorkbenchRenderer({
                           sx={{ alignItems: 'center', minWidth: 0 }}
                         >
                           <Typography
-                            component="h2"
-                            variant="h6"
+                            component={
+                              scopedToNavigation && !controller.ownerHeader
+                                ? 'h1'
+                                : 'h2'
+                            }
+                            variant={
+                              scopedToNavigation && !controller.ownerHeader
+                                ? 'h5'
+                                : 'h6'
+                            }
                             sx={{
                               fontWeight: 750,
                               lineHeight: 1.18,
@@ -890,6 +986,19 @@ export function SchemaWorkbenchRenderer({
                     ) : null}
                   </Stack>
                 </Stack>
+                {selected.description ? (
+                  <Typography
+                    color="text.secondary"
+                    variant="body2"
+                    sx={{
+                      px: workbenchSectionInset,
+                      pb: 1.5,
+                      overflowWrap: 'anywhere',
+                    }}
+                  >
+                    {selected.description}
+                  </Typography>
+                ) : null}
                 <Tabs
                   aria-label={`${selected.label} workbench sections`}
                   value={activeContentTab}
@@ -937,6 +1046,12 @@ export function SchemaWorkbenchRenderer({
                     value="model"
                   />
                 </Tabs>
+                {activeContentTab === 'model' &&
+                selected.recordApi?.available === false ? (
+                  <Alert severity="info" sx={{ mx: workbenchSectionInset, my: 2 }}>
+                    {selected.recordApi.message}
+                  </Alert>
+                ) : null}
                 {activeContentTab === 'schema' ? (
                   <Box sx={{ px: workbenchSectionInset, py: { xs: 1.5, md: 2 } }}>
                     <WorkbenchSchemaDefinition
@@ -978,6 +1093,7 @@ export function SchemaWorkbenchRenderer({
                       cancelLabel={stringProperty(component, 'cancelLabel')}
                       error={controller.createError}
                       relationshipCopy={{
+                        retryLabel: stringProperty(component, 'retryLabel', 'Retry'),
                         addToDraftLabel: stringProperty(component, 'addToDraftLabel'),
                         cancelLabel: stringProperty(component, 'cancelLabel'),
                         createRelatedLabel: stringProperty(
@@ -1054,7 +1170,11 @@ export function SchemaWorkbenchRenderer({
                   </Box>
                 ) : null}
                 <Box
-                  hidden={activeContentTab !== 'model' || controller.createOpen}
+                  hidden={
+                    activeContentTab !== 'model' ||
+                    controller.createOpen ||
+                    selected.recordApi?.available === false
+                  }
                   sx={{ px: workbenchSectionInset, py: { xs: 1.5, md: 2 } }}
                 >
                   <Stack spacing={1.25}>
@@ -1259,7 +1379,7 @@ export function SchemaWorkbenchRenderer({
                           py: 0.75,
                         }}
                       >
-                        <Typography variant="subtitle2">
+                        <Typography component="h3" variant="subtitle2">
                           {stringProperty(component, 'recordsLabel', 'Records')}{' '}
                           <Typography
                             component="span"
@@ -1303,10 +1423,13 @@ export function SchemaWorkbenchRenderer({
                             'gridSettingsLabel',
                             'Columns',
                           )}
-                          defaultVisibleColumnKeys={columns.map((field) => field.name)}
+                          defaultVisibleColumnKeys={resolveWorkbenchDefaultColumns(
+                            selected,
+                            workbenchPresentation,
+                          )}
                           emptyMessage={stringProperty(component, 'noRecordsLabel')}
                           excludedColumnKeys={excludedColumnKeys}
-                          exportFileName={`axis-${selected.moduleName}-${selected.schemaName}`}
+                          exportVisible={false}
                           footer={
                             controller.recordTotalCount > 0 ? (
                               <TablePagination
@@ -1351,10 +1474,37 @@ export function SchemaWorkbenchRenderer({
                           schema={selected}
                           sortOverride={controller.recordSortOverride}
                           toolbarStart={
-                            <Typography color="text.secondary" variant="body2">
-                              {controller.recordTotalCount}{' '}
-                              {stringProperty(component, 'resultsLabel')}
-                            </Typography>
+                            <Stack
+                              direction="row"
+                              spacing={1}
+                              sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+                            >
+                              <Typography color="text.secondary" variant="body2">
+                                {controller.recordTotalCount}{' '}
+                                {stringProperty(component, 'resultsLabel')}
+                              </Typography>
+                              {exportDestination ? (
+                                <Button
+                                  component={RouterLink}
+                                  size="small"
+                                  to={`${exportDestination.route}?${new URLSearchParams(
+                                    {
+                                      area: 'exports',
+                                      sourceModule: selected.moduleName,
+                                      sourceSchema: selected.schemaName,
+                                      ...(selected.connectionInstanceId
+                                        ? {
+                                            sourceInstance:
+                                              selected.connectionInstanceId,
+                                          }
+                                        : {}),
+                                    },
+                                  ).toString()}`}
+                                >
+                                  {exportDestination.label}
+                                </Button>
+                              ) : null}
+                            </Stack>
                           }
                           onColumnKeysChange={(columnKeys) =>
                             controller.setVisibleColumns(columnKeys)
@@ -1412,6 +1562,11 @@ export function SchemaWorkbenchRenderer({
                           error={controller.updateError}
                           initialModel={controller.selectedRecord}
                           relationshipCopy={{
+                            retryLabel: stringProperty(
+                              component,
+                              'retryLabel',
+                              'Retry',
+                            ),
                             addToDraftLabel: stringProperty(
                               component,
                               'addToDraftLabel',
@@ -1494,13 +1649,16 @@ export function SchemaWorkbenchRenderer({
                       ) : (
                         <>
                           {isEditorialArticleAuthoringDetail(
-                            controller.scope?.navigationId,
+                            selected.moduleName,
                             selected.schemaName,
                           ) ? (
                             <EditorialArticleWorkbenchDetail
                               controller={controller}
                               record={controller.selectedRecord}
                               schema={selected}
+                              presentationOverride={
+                                component.properties.editorialAuthoringPresentation
+                              }
                             />
                           ) : (
                             <WorkbenchRecordDetail

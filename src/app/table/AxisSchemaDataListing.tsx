@@ -1,6 +1,8 @@
 import { Typography, type SxProps, type Theme } from '@mui/material';
 import { type ReactNode } from 'react';
 
+import { useAxisLocalization } from '../../localization/AxisLocalizationContext';
+import { formatAxisRecordDate } from '../schema/axisSchemaRecordValues';
 import { AxisSchemaReferenceValues } from '../schema/AxisSchemaReferenceValues';
 import { axisSchemaRelationshipReferences } from '../schema/axisSchemaReferenceValuesModel';
 import type {
@@ -64,6 +66,7 @@ export interface AxisSchemaDataListingProps {
   readonly exportFileName?: string | undefined;
   readonly exportLabel?: string | undefined;
   readonly exportEnabled?: boolean | undefined;
+  readonly exportVisible?: boolean | undefined;
   readonly columnsLabel?: string | undefined;
   readonly maxBodyHeight?: number | string | undefined;
   readonly minTableWidth?: number | string | undefined;
@@ -75,23 +78,32 @@ function displayValue(value: unknown): string {
   if (value === undefined || value === null || value === '') return '—';
   if (Array.isArray(value)) return value.map(displayValue).join(', ');
   if (value instanceof Date) return value.toLocaleString();
-  if (typeof value === 'object') return 'Related data';
+  if (typeof value === 'object') {
+    const summary = JSON.stringify(value);
+    return summary.length > 160 ? `${summary.slice(0, 157)}…` : summary;
+  }
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return value.toString();
   return '—';
 }
 
-function fieldValue(record: WorkbenchRecord, field: WorkbenchField): string {
+function fieldValue(
+  record: WorkbenchRecord,
+  field: WorkbenchField,
+  locale?: string,
+): string {
   const value = workbenchRecordValue(record, field.name);
   if (field.type === 'date' && (typeof value === 'string' || value instanceof Date)) {
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? displayValue(value) : date.toLocaleString();
+    if (Number.isNaN(date.getTime())) return displayValue(value);
+    return locale ? formatAxisRecordDate(date, locale) : date.toLocaleString();
   }
   return displayValue(value);
 }
 
 function schemaFieldColumn(
   field: WorkbenchField,
+  locale: string,
   renderer?: AxisSchemaFieldRenderer,
   relationship?: WorkbenchRelationship,
   onReferenceClick?: AxisSchemaDataListingProps['onReferenceClick'],
@@ -123,7 +135,11 @@ function schemaFieldColumn(
           />
         );
       }
-      return <Typography variant="body2">{fieldValue(record, field)}</Typography>;
+      return (
+        <Typography variant="body2">
+          <bdi>{fieldValue(record, field, locale)}</bdi>
+        </Typography>
+      );
     },
     exportValue: (record, index) =>
       renderer?.exportValue
@@ -162,12 +178,14 @@ export function AxisSchemaDataListing({
   exportFileName,
   exportLabel,
   exportEnabled,
+  exportVisible,
   columnsLabel,
   maxBodyHeight,
   minTableWidth,
   size,
   tableSx,
 }: AxisSchemaDataListingProps) {
+  const { locale } = useAxisLocalization();
   const relationships = new Map(
     schema.relationships.map((relationship) => [relationship.field, relationship]),
   );
@@ -177,6 +195,7 @@ export function AxisSchemaDataListing({
     .map((field) =>
       schemaFieldColumn(
         field,
+        locale,
         fieldRenderers[field.name],
         relationships.get(field.name),
         onReferenceClick,
@@ -203,8 +222,14 @@ export function AxisSchemaDataListing({
       availableColumns={availableColumns}
       columns={[...leadingColumns, ...visibleFieldColumns, ...trailingColumns]}
       columnsLabel={columnsLabel}
+      defaultColumnKeys={
+        defaultKeys.length
+          ? defaultKeys
+          : availableColumns.slice(0, 5).map((column) => column.key)
+      }
       emptyMessage={emptyMessage}
       exportEnabled={exportEnabled}
+      exportVisible={exportVisible}
       exportFileName={exportFileName}
       exportLabel={exportLabel}
       footer={footer}
@@ -218,7 +243,9 @@ export function AxisSchemaDataListing({
       sortOverride={sortOverride}
       tableSx={tableSx}
       toolbarStart={toolbarStart}
-      onColumnsChange={(columnKeys) => onColumnKeysChange?.(columnKeys)}
+      onColumnsChange={
+        onColumnKeysChange ? (columnKeys) => onColumnKeysChange(columnKeys) : undefined
+      }
       onRowClick={onRowClick}
       onSortOverrideChange={onSortOverrideChange}
     />

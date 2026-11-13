@@ -167,7 +167,7 @@ function restoreFixture() {
     if (url.includes('/bootstrap/public'))
       return Promise.resolve(response(publicBootstrap));
     if (url.includes('/browser/restore')) return restore;
-    if (url.endsWith('/bootstrap')) return bootstrap;
+    if (new URL(url).pathname.endsWith('/bootstrap')) return bootstrap;
     return Promise.resolve(response({ result: loginPage }));
   });
   vi.stubGlobal('fetch', request);
@@ -237,7 +237,9 @@ it('does not launch authenticated bootstrap after restoration is retired by unmo
     await f.completeRestore(authResponse());
   });
   expect(
-    f.request.mock.calls.some(([input]) => requestUrl(input).endsWith('/bootstrap')),
+    f.request.mock.calls.some(([input]) =>
+      new URL(requestUrl(input)).pathname.endsWith('/bootstrap'),
+    ),
   ).toBe(false);
 });
 
@@ -276,7 +278,9 @@ it('does not rediscover public deployment endpoints when only the sign-in enterp
     await f.completeRestore(authResponse());
   });
   expect(
-    f.request.mock.calls.some(([input]) => requestUrl(input).endsWith('/bootstrap')),
+    f.request.mock.calls.some(([input]) =>
+      new URL(requestUrl(input)).pathname.endsWith('/bootstrap'),
+    ),
   ).toBe(false);
 });
 
@@ -350,7 +354,7 @@ function fixture(phase: 'authentication' | 'bootstrap', bundled = false) {
       );
     }
     if (url.pathname.endsWith('/employee/browser/logout'))
-      return Promise.resolve(response({ result: true }));
+      return Promise.resolve(response({ code: 'SUC_AUTH_00000', result: true }));
     if (url.pathname.endsWith('/bootstrap')) {
       bootstrapCalls++;
       if (
@@ -626,7 +630,7 @@ it.each(
     expect(window.location.pathname + window.location.search).toBe(destination);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: 'Open employee menu' }),
+      screen.queryByRole('button', { name: /Open employee menu/ }),
     ).not.toBeInTheDocument();
     expect(f.authenticationCalls()).toBe(1);
     expect(f.bootstrapCalls()).toBe(phase === 'bootstrap' ? 1 : 0);
@@ -665,7 +669,7 @@ it.each(cases)(
     await f.logout();
     await f.submit();
     await waitFor(() => expect(window.location.pathname).toBe('/dashboard'));
-    await screen.findByRole('button', { name: 'Open employee menu' });
+    await screen.findByRole('button', { name: /Open employee menu/ });
     await f.user.click(screen.getByRole('button', { name: 'Open recovery' }));
     await f.settle(success);
     expect(window.location.pathname).toBe('/forgot-password');

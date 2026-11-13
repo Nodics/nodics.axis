@@ -7,8 +7,13 @@ import {
   Chip,
   CircularProgress,
   Divider,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   FormControlLabel,
-  Paper,
+  MenuItem,
   Stack,
   Switch,
   TextField,
@@ -16,22 +21,41 @@ import {
 } from '@mui/material';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { selectModuleConnection } from '../../bootstrap/publicBootstrap';
+import { Link as RouterLink } from 'react-router';
+import { editorialPublicationPath } from './editorialPublicationPresentation';
+import { EditorialWithdrawalAction } from './EditorialWithdrawalAction';
+import {
+  editorialAuthoringSource,
+  executeEditorialCommand,
+  inspectEditorialCommand,
+  loadEditorialWorkspace,
+  parseEditorialPresentation,
+  type EditorialCommand,
+  type EditorialCommandResult,
+  type EditorialWorkspace,
+} from './editorialAuthoringClient';
+import { WorkbenchRequestError } from '../../workbench/api/workbenchClient';
+import { localeDirection } from '../../localization/localeDirection';
+
+import type {
+  AxisModuleConnection,
+  AxisNavigationLifecycleAction,
+} from '../../bootstrap/publicBootstrap';
+import { selectMediaAuthoringConnection } from '../mediaManagement/mediaAuthoringAuthority';
 import type {
   WorkbenchRecord,
   WorkbenchSchema,
 } from '../../workbench/api/workbenchContracts';
-import type { WorkbenchRelationshipLoadResult } from '../../workbench/form/WorkbenchRelationshipRuntime';
 import type { WorkbenchRendererController } from '../../cms/renderers/shared/rendererTypes';
-import {
-  uploadMedia,
-  type MediaUploadResult,
-} from '../mediaManagement/api/mediaStoragePolicyClient';
+import { MediaImageIntakePanel } from '../mediaManagement/components/MediaImageIntakePanel';
+import { resolveMediaPublicationHandoff } from '../readiness/mediaPublicationHandoff';
+import type { ConfirmedMediaImage } from '../mediaManagement/api/mediaImageIntakeClient';
 
 interface EditorialArticleWorkbenchDetailProps {
   readonly controller: WorkbenchRendererController;
   readonly record: WorkbenchRecord;
   readonly schema: WorkbenchSchema;
+  readonly presentationOverride?: unknown;
 }
 
 interface EditorialArticleDraft {
@@ -136,43 +160,6 @@ function recordKey(record: WorkbenchRecord): string {
     : 'selected article';
 }
 
-function findSchema(
-  schemas: readonly WorkbenchSchema[],
-  schemaName: string,
-): WorkbenchSchema | undefined {
-  return schemas.find(
-    (candidate) =>
-      candidate.moduleName === 'editorial' && candidate.schemaName === schemaName,
-  );
-}
-
-function editableRecordModel(
-  schema: WorkbenchSchema,
-  original: WorkbenchRecord | undefined,
-  changes: Readonly<Record<string, unknown>>,
-): Readonly<Record<string, unknown>> {
-  const editableFields = new Set(
-    schema.fields.filter((field) => !field.readOnly).map((field) => field.name),
-  );
-  return Object.fromEntries(
-    schema.fields
-      .filter((field) => editableFields.has(field.name))
-      .flatMap((field) => {
-        const value = Object.prototype.hasOwnProperty.call(changes, field.name)
-          ? changes[field.name]
-          : original?.[field.name];
-        return value === undefined ? [] : [[field.name, value]];
-      }),
-  );
-}
-
-function recordsFromLoadResult(
-  value: WorkbenchRelationshipLoadResult,
-): readonly WorkbenchRecord[] {
-  if ('records' in value) return value.records;
-  return value;
-}
-
 function createDraft(
   article: WorkbenchRecord,
   localization: WorkbenchRecord | undefined,
@@ -209,10 +196,10 @@ function createDraft(
 function fieldSx() {
   return {
     '& .MuiOutlinedInput-root.Mui-focused fieldset': {
-      borderColor: 'var(--axis-color-accent, #f6c400)',
+      borderColor: 'primary.main',
     },
     '& label.Mui-focused': {
-      color: 'var(--axis-color-accent-dark, #9a7400)',
+      color: 'text.primary',
     },
   };
 }
@@ -254,7 +241,7 @@ async function loadSecuredMediaPreview(
   try {
     const response = await fetch(
       new URL(
-        `${endpoint.toString().replace(/\/$/, '')}/v0/content/${encodeURIComponent(input.mediaCode)}`,
+        `${endpoint.toString().replace(/\/$/, '')}/v0/library/${encodeURIComponent(input.mediaCode)}/draft-image`,
       ),
       {
         cache: 'no-store',
@@ -301,151 +288,308 @@ function lifecycleArticleFromResult(value: unknown): WorkbenchRecord | undefined
   return undefined;
 }
 
+/** Private scope retirement keeps old actor/source callbacks away from the current editor. */
 export function EditorialArticleWorkbenchDetail(
   props: EditorialArticleWorkbenchDetailProps,
 ) {
+  const actor = useMemo(
+    () => ({ token: props.controller.accessToken, id: crypto.randomUUID() }),
+    [props.controller.accessToken],
+  );
+  const source = editorialAuthoringSource(props.controller.bootstrap, props.schema);
+  const scope = JSON.stringify([
+    actor.id,
+    props.controller.tenantCode,
+    props.controller.enterpriseCode,
+    props.controller.runtime.projectCode,
+    props.record.code,
+    source?.instanceId,
+    source?.endpoint,
+    props.schema.connectionServer,
+    props.schema.connectionEnvironment,
+    props.schema.aggregateOperations,
+    props.controller.bootstrap.navigation.filter((item) =>
+      ['editorial', 'media'].includes(item.moduleName),
+    ),
+    props.presentationOverride,
+  ]);
+  return <EditorialArticleEditor key={scope} {...props} ownerSource={source} />;
+}
+
+function EditorialArticleEditor(
+  props: EditorialArticleWorkbenchDetailProps & {
+    readonly ownerSource?: AxisModuleConnection | undefined;
+  },
+) {
   const [article, setArticle] = useState<WorkbenchRecord>(props.record);
   const articleCode = text(article.code);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string>();
   const [localization, setLocalization] = useState<WorkbenchRecord>();
   const [draft, setDraft] = useState<EditorialArticleDraft>(() =>
     createDraft(props.record, undefined, props.controller.locale ?? 'en'),
   );
   const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [pendingOperation, setPendingOperation] =
+    useState<EditorialCommand['operation']>();
+  const saving = pendingOperation !== undefined;
   const [saveError, setSaveError] = useState<string>();
-  const [pendingMediaFile, setPendingMediaFile] = useState<File>();
-  const [pendingMediaPreview, setPendingMediaPreview] = useState<string>();
-  const [uploadedMedia, setUploadedMedia] = useState<MediaUploadResult>();
+  const [pendingMediaSelection, setPendingMediaSelection] = useState(false);
+  const [uploadedMedia, setUploadedMedia] = useState<ConfirmedMediaImage>();
   const [mediaUploading, setMediaUploading] = useState(false);
-  const [mediaUploadError, setMediaUploadError] = useState<string>();
   const [failedMediaPreviewSource, setFailedMediaPreviewSource] = useState<string>();
   const [securedMediaPreview, setSecuredMediaPreview] = useState<
     Readonly<{ code: string; url: string }> | undefined
   >(undefined);
   const securedMediaPreviewRef = useRef<string | undefined>(undefined);
 
+  const [workspace, setWorkspace] = useState<EditorialWorkspace>();
+  const [contentLocale, setContentLocale] = useState(props.controller.locale ?? 'en');
+  const [heldCommand, setHeldCommand] = useState<EditorialCommand>();
+  const [inspectedHeld, setInspectedHeld] = useState(false);
+  const [lifecycleHeld, setLifecycleHeld] = useState(false);
+  const [reviewRejection, setReviewRejection] = useState<{
+    action: AxisNavigationLifecycleAction;
+    revision: unknown;
+  }>();
+  const [reviewReason, setReviewReason] = useState('');
+  const [validationFeedback, setValidationFeedback] = useState<readonly string[]>([]);
+  const [inspecting, setInspecting] = useState(false);
+  const [notice, setNotice] = useState<string>();
+  const [confirmation, setConfirmationKind] = useState<
+    'archive' | 'refresh' | 'close'
+  >();
+  const [confirmationOpen, setConfirmationOpen] = useState(false);
+  // Retain the reviewed copy during the dialog exit animation. Closing never changes intent.
+  const setConfirmation = (kind: typeof confirmation) => {
+    if (kind !== undefined) setConfirmationKind(kind);
+    setConfirmationOpen(kind !== undefined);
+  };
+  const lifecycleFeedback = useRef(props.controller.clearLifecycleFeedback);
+  lifecycleFeedback.current = props.controller.clearLifecycleFeedback;
+  const active = useRef(true);
+  const owner = useRef({
+    source: props.ownerSource,
+    schema: props.schema,
+    presentation: props.presentationOverride,
+  });
+  owner.current = {
+    source: props.ownerSource,
+    schema: props.schema,
+    presentation: props.presentationOverride,
+  };
+  const language = useRef(contentLocale);
+  language.current = contentLocale;
+  const uiLanguage = useRef(props.controller.locale ?? 'en');
+  uiLanguage.current = props.controller.locale ?? 'en';
+  const configuration = useMemo(
+    () => ({
+      accessToken: props.controller.accessToken,
+      enterpriseCode: props.controller.enterpriseCode,
+      timeoutMs: props.controller.runtime.requestTimeoutMs,
+    }),
+    [
+      props.controller.accessToken,
+      props.controller.enterpriseCode,
+      props.controller.runtime.requestTimeoutMs,
+    ],
+  );
   useEffect(() => {
-    setArticle(props.record);
-  }, [props.record]);
-
-  useEffect(
-    () => () => {
-      if (pendingMediaPreview) URL.revokeObjectURL(pendingMediaPreview);
-    },
-    [pendingMediaPreview],
-  );
-
-  const localizationSchema = useMemo(
-    () =>
-      findSchema(
-        props.controller.relationshipRuntime.schemas,
-        'editorialArticleLocalization',
-      ),
-    [props.controller.relationshipRuntime.schemas],
-  );
+    active.current = true;
+    return () => {
+      active.current = false;
+    };
+  }, []);
+  const applyWorkspace = useCallback((next: EditorialWorkspace, locale: string) => {
+    const exact = next.localizations.find((row) => row.localeCode === locale);
+    setWorkspace(next);
+    setArticle(next.article);
+    setLocalization(exact);
+    setContentLocale(locale);
+    setDraft(createDraft(next.article, exact, locale));
+    setEditing(false);
+    setHeldCommand(undefined);
+    setSaveError(undefined);
+    setLifecycleHeld(false);
+    setInspectedHeld(false);
+    setValidationFeedback([]);
+    lifecycleFeedback.current?.();
+  }, []);
 
   const reloadLocalization = useCallback(async () => {
-    if (!articleCode || !localizationSchema) {
-      setLocalization(undefined);
-      setDraft(createDraft(article, undefined, props.controller.locale ?? 'en'));
-      return;
+    const { source, schema, presentation } = owner.current;
+    if (!articleCode || !source) {
+      setLoadError('The owning Editorial editor is unavailable.');
+      return false;
     }
     setLoading(true);
     setLoadError(undefined);
     try {
-      const page = await props.controller.relationshipRuntime.loadRecords(
-        localizationSchema,
-        {
-          filters: {
-            operator: 'AND',
-            items: [
-              {
-                field: 'articleCode',
-                operator: 'EQUALS',
-                value: articleCode,
-              },
-              {
-                field: 'localeCode',
-                operator: 'EQUALS',
-                value: props.controller.locale ?? 'en',
-              },
-            ],
-          },
-          pageNumber: 1,
-          pageSize: 10,
-        },
+      const result = await loadEditorialWorkspace(
+        source,
+        schema,
+        articleCode,
+        uiLanguage.current,
+        configuration,
       );
-      const records = recordsFromLoadResult(page);
-      const exact =
-        records.find(
-          (candidate: WorkbenchRecord) =>
-            candidate.articleCode === articleCode &&
-            candidate.localeCode === (props.controller.locale ?? 'en'),
-        ) ??
-        records.find(
-          (candidate: WorkbenchRecord) => candidate.articleCode === articleCode,
-        ) ??
-        undefined;
-      setLocalization(exact);
-      setDraft(createDraft(article, exact, props.controller.locale ?? 'en'));
+      if (!active.current) return false;
+      const next =
+        presentation === undefined
+          ? result
+          : { ...result, presentation: parseEditorialPresentation(presentation) };
+      const locale = next.supportedLocaleCodes.includes(language.current)
+        ? language.current
+        : (next.requiredLocaleCodes[0] ?? next.supportedLocaleCodes[0]!);
+      applyWorkspace(next, locale);
+      setNotice(undefined);
+      return true;
     } catch (error) {
-      setLoadError(
-        error instanceof Error
-          ? error.message
-          : 'Editorial article localization could not be loaded.',
-      );
+      if (active.current)
+        setLoadError(
+          error instanceof Error ? error.message : 'Editorial owner read failed.',
+        );
+      return false;
     } finally {
-      setLoading(false);
+      if (active.current) setLoading(false);
     }
-  }, [
-    articleCode,
-    localizationSchema,
-    props.controller.locale,
-    props.controller.relationshipRuntime,
-    article,
-  ]);
-
+  }, [articleCode, configuration, applyWorkspace]);
   useEffect(() => {
     void reloadLocalization();
   }, [reloadLocalization]);
+  const copy = workspace?.presentation;
+  const decision = workspace?.article.decisionEvidence as
+    | { action?: unknown; reason?: unknown }
+    | undefined;
+  const reviewFeedback =
+    workspace?.article.status === 'CHANGES_REQUESTED' &&
+    decision?.action === 'REJECT' &&
+    typeof decision.reason === 'string'
+      ? decision.reason
+      : '';
+  const contentDirection = localeDirection(contentLocale);
+  const interfaceLocale = props.controller.locale ?? 'en';
+  const interfaceDirection = localeDirection(interfaceLocale);
+  const localizedInputProps = {
+    htmlInput: { lang: contentLocale, dir: contentDirection },
+  };
+  const savedDraft = createDraft(article, localization, contentLocale);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(savedDraft);
+  const commandBlocked =
+    saving || inspecting || loading || mediaUploading || heldCommand !== undefined;
+  // Keep the withdrawal component mounted while its owner command is pending so it can consume the exact receipt.
+  const ownerActionPending = props.controller.lifecycleActionPendingId !== undefined;
+  const canEdit = Boolean(
+    workspace?.operations.includes('SAVE') &&
+    article.publicationIntent === undefined &&
+    !loadError &&
+    !ownerActionPending &&
+    !['IN_REVIEW', 'ARCHIVED'].includes(String(article.status)),
+  );
+  const bodyEditable =
+    localization?.body === undefined ||
+    (() => {
+      const body = localization.body;
+      if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+      const value = body as Record<string, unknown>;
+      return (
+        Object.keys(value).every((key) => key === 'blocks') &&
+        Array.isArray(value.blocks) &&
+        value.blocks.every(
+          (block) =>
+            block &&
+            typeof block === 'object' &&
+            !Array.isArray(block) &&
+            Object.keys(block as object).every(
+              (key) => key === 'type' || key === 'text',
+            ) &&
+            ['paragraph', 'heading'].includes(
+              String((block as Record<string, unknown>).type),
+            ) &&
+            typeof (block as Record<string, unknown>).text === 'string',
+        )
+      );
+    })();
 
   const contentType = text(article.contentTypeCode);
   const status = text(article.status);
   const publicationCode = text(article.publicationCode);
+  const hasPendingPublication = article.publicationIntent !== undefined;
+  const pendingPublicationCode =
+    article.publicationIntent &&
+    typeof article.publicationIntent === 'object' &&
+    !Array.isArray(article.publicationIntent)
+      ? text((article.publicationIntent as Record<string, unknown>).code)
+      : '';
+  const pendingPublicationPath = editorialPublicationPath(
+    props.controller.bootstrap,
+    props.schema,
+    pendingPublicationCode,
+  );
   const hasPublicationRequest = Boolean(publicationCode);
+  const publicationPath = editorialPublicationPath(
+    props.controller.bootstrap,
+    props.schema,
+    publicationCode,
+  );
   const lifecycleActions = useMemo(
     () =>
       (props.controller.scope?.lifecycleActions ?? []).filter((action) => {
         if (action.featureState === 'HIDDEN') return false;
         if (action.id === 'schedule') return false;
+        if (hasPendingPublication && !['publish', 'withdraw'].includes(action.id))
+          return false;
+        if (action.id === 'withdraw' && !publicationCode) return false;
+        if (
+          action.id === 'withdraw' &&
+          workspace?.deployment?.status === 'NONE' &&
+          article.status !== 'PUBLISHED'
+        )
+          return false;
         const currentStatus = lifecycleStatus(article);
         return (
           action.targetStatuses === undefined ||
           (currentStatus !== undefined && action.targetStatuses.includes(currentStatus))
         );
       }),
-    [article, props.controller.scope?.lifecycleActions],
+    [
+      article,
+      hasPendingPublication,
+      publicationCode,
+      props.controller.scope?.lifecycleActions,
+      workspace?.deployment?.status,
+    ],
   );
-  const mediaConnection = selectModuleConnection(props.controller.bootstrap, 'media');
+  const selectedMediaConnection = selectMediaAuthoringConnection(
+    props.controller.bootstrap,
+  );
+  const mediaConnection =
+    selectedMediaConnection?.runtimeRole?.publication === 'STAGED'
+      ? selectedMediaConnection
+      : undefined;
   const mediaEndpoint = mediaConnection?.endpoint;
   const currentMediaCode = draft.featuredMediaCode.trim();
+  const featuredMedia = workspace?.featuredMedia;
+  const featuredMediaChanged = Boolean(
+    featuredMedia && (featuredMedia.mediaCode ?? '') !== currentMediaCode,
+  );
+  const featuredMediaHandoff = !featuredMediaChanged
+    ? resolveMediaPublicationHandoff(
+        props.controller.bootstrap,
+        featuredMedia?.dependency,
+      )
+    : undefined;
   const securedMediaPreviewUrl =
     securedMediaPreview?.code === currentMediaCode
       ? securedMediaPreview.url
       : undefined;
   const mediaPreview =
-    pendingMediaPreview ||
-    securedMediaPreviewUrl ||
-    uploadedMedia?.accessUrl ||
-    mediaAccessSource(draft.featuredMediaCode, mediaEndpoint);
+    securedMediaPreviewUrl || mediaAccessSource(draft.featuredMediaCode, mediaEndpoint);
   const mediaPreviewUnavailable =
     Boolean(mediaPreview) && failedMediaPreviewSource === mediaPreview;
 
   useEffect(() => {
     const mappedPreview = mediaPreviewSource(draft.featuredMediaCode);
-    if (!currentMediaCode || mappedPreview || pendingMediaPreview || !mediaEndpoint) {
+    if (!currentMediaCode || mappedPreview || !mediaEndpoint) {
       if (securedMediaPreviewRef.current) {
         URL.revokeObjectURL(securedMediaPreviewRef.current);
         securedMediaPreviewRef.current = undefined;
@@ -483,224 +627,279 @@ export function EditorialArticleWorkbenchDetail(
     currentMediaCode,
     draft.featuredMediaCode,
     mediaEndpoint,
-    pendingMediaPreview,
     props.controller.accessToken,
     props.controller.enterpriseCode,
     props.controller.runtime.requestTimeoutMs,
   ]);
-  const canSaveLocalization = Boolean(
-    localizationSchema &&
-    (localization
-      ? props.controller.relationshipRuntime.updateRecord
-      : localizationSchema.operations.includes('create')),
-  );
-
-  const save = async () => {
-    if (!articleCode) return;
-    setSaving(true);
-    setSaveError(undefined);
-    try {
-      await props.controller.updateRecord(
-        editableRecordModel(props.schema, article, {
-          internalName: draft.internalName.trim() || draft.title.trim() || articleCode,
-          slug: draft.slug.trim(),
-          featuredMediaCode: draft.featuredMediaCode.trim() || undefined,
-          special: draft.special,
-          specialLabel: draft.special
-            ? draft.specialLabel.trim() || undefined
-            : undefined,
-          specialRank:
-            draft.special && draft.specialRank.trim()
-              ? Number(draft.specialRank.trim())
-              : undefined,
-          specialFrom:
-            draft.special && draft.specialFrom.trim()
-              ? draft.specialFrom.trim()
-              : undefined,
-          specialUntil:
-            draft.special && draft.specialUntil.trim()
-              ? draft.specialUntil.trim()
-              : undefined,
-          specialVariant: draft.special
-            ? draft.specialVariant.trim() || 'gold'
-            : undefined,
-          authorCodes: splitList(draft.authorCodes),
-          taxonomyTermCodes: splitList(draft.taxonomyTermCodes),
-          status: ['READY', 'IN_REVIEW', 'CHANGES_REQUESTED', 'APPROVED'].includes(
-            status,
-          )
-            ? 'DRAFT'
-            : status || 'DRAFT',
-          workflowInstanceCode: '',
-          publicationCode: '',
-        }),
+  const applyCommand = (result: EditorialCommandResult) => {
+    if (!workspace || !copy) return;
+    if (!('article' in result)) {
+      setNotice(
+        result.outcome === 'UNKNOWN' ? copy.uncertainMessage : copy.changedMessage,
       );
-      if (!localizationSchema || !canSaveLocalization) {
-        throw new Error('Editorial localization schema is not editable.');
+      return;
+    }
+    applyWorkspace(
+      {
+        ...workspace,
+        article: result.article,
+        localizations: result.localizations ?? workspace.localizations,
+        operations: result.outcome === 'ARCHIVED' ? ['INSPECT'] : workspace.operations,
+      },
+      contentLocale,
+    );
+    setInspectedHeld(false);
+    setValidationFeedback([]);
+    setLifecycleHeld(false);
+    setNotice(result.outcome === 'ARCHIVED' ? copy.archivedMessage : copy.savedMessage);
+    props.controller.retryRecords();
+  };
+  const submitCommand = async (command: EditorialCommand) => {
+    if (
+      !props.ownerSource ||
+      !copy ||
+      commandBlocked ||
+      lifecycleHeld ||
+      ownerActionPending
+    )
+      return;
+    setPendingOperation(command.operation);
+    setSaveError(undefined);
+    setNotice(undefined);
+    setValidationFeedback([]);
+    try {
+      const result = await executeEditorialCommand(
+        props.ownerSource,
+        props.schema,
+        command,
+        configuration,
+      );
+      if (!active.current) return;
+      if (result.outcome === 'SAVED_DRAFT' || result.outcome === 'ARCHIVED')
+        applyCommand(result);
+      else {
+        setHeldCommand(command);
+        setInspectedHeld(false);
+        applyCommand(result);
       }
-      const localizationModel = editableRecordModel(localizationSchema, localization, {
-        code:
-          text(localization?.code) ||
-          `${articleCode}-${draft.localeCode || props.controller.locale || 'en'}`,
-        articleCode,
-        revision: localization?.revision ?? 1,
-        localeCode: draft.localeCode || props.controller.locale || 'en',
-        title: draft.title.trim(),
-        summary: draft.summary.trim(),
-        slug: draft.slug.trim(),
-        status: text(localization?.status) || 'READY',
-        body: bodyFromText(draft.bodyText),
-        takeaways: lineList(draft.takeawaysText),
-        seo: {
-          title: draft.seoTitle.trim(),
-          description: draft.seoDescription.trim(),
-        },
-      });
-      if (localization) {
-        if (!props.controller.relationshipRuntime.updateRecord) {
-          throw new Error('Editorial localization update is not available.');
+    } catch (error) {
+      if (!active.current) return;
+      setSaveError(error instanceof Error ? error.message : copy.uncertainMessage);
+      const known =
+        error instanceof WorkbenchRequestError &&
+        error.status >= 400 &&
+        error.status < 500 &&
+        error.status !== 408;
+      if (!known || (error instanceof WorkbenchRequestError && error.status === 409)) {
+        setHeldCommand(command);
+        setInspectedHeld(false);
+        setNotice(copy.uncertainMessage);
+      }
+      if (error instanceof WorkbenchRequestError && [401, 403].includes(error.status))
+        setLoadError(error.message);
+    } finally {
+      if (active.current) setPendingOperation(undefined);
+    }
+  };
+  const command = (
+    operation: EditorialCommand['operation'],
+    payload: Readonly<Record<string, unknown>>,
+  ): EditorialCommand => {
+    const expectedRevision = article.revision;
+    if (
+      typeof expectedRevision !== 'number' ||
+      !Number.isSafeInteger(expectedRevision) ||
+      expectedRevision < 1
+    )
+      throw new Error('The saved Editorial revision is unavailable');
+    const commandId = crypto.randomUUID();
+    const retainedRevision = article.publicationSourceRevision ?? article.revision;
+    return Object.freeze({
+      operation,
+      commandId,
+      articleCode,
+      expectedRevision,
+      payload: Object.freeze({
+        ...payload,
+        article: { code: articleCode, revision: expectedRevision },
+        commandId,
+      }),
+      ...(publicationCode && typeof retainedRevision === 'number'
+        ? {
+            retainedPublication: {
+              code: publicationCode,
+              sourceRevision: retainedRevision,
+            },
+          }
+        : {}),
+    });
+  };
+  const runLifecycleAction = (
+    action: AxisNavigationLifecycleAction,
+    reason?: string,
+  ) => {
+    setValidationFeedback([]);
+    setNotice(undefined);
+    void props.controller
+      .executeLifecycleAction?.(action, article, {
+        ...(reason ? { reason } : {}),
+        ...(localization ? { localizations: JSON.stringify([localization]) } : {}),
+        ...(action.id === 'publish' && pendingPublicationCode
+          ? { publicationCode: pendingPublicationCode }
+          : {}),
+      })
+      .then(async (result) => {
+        if (!active.current) return;
+        const resultArticle = lifecycleArticleFromResult(result);
+        if (
+          resultArticle &&
+          (resultArticle.code !== article.code ||
+            resultArticle.revision !== article.revision)
+        ) {
+          setLifecycleHeld(true);
+          setSaveError(copy?.changedMessage);
+          return;
         }
-        await props.controller.relationshipRuntime.updateRecord(
-          localizationSchema,
-          localization,
-          localizationModel,
-        );
-      } else {
-        await props.controller.relationshipRuntime.createRecord(
-          localizationSchema,
-          localizationModel,
-        );
-      }
-      setEditing(false);
-      setArticle((current) => ({
-        ...current,
-        internalName: draft.internalName.trim() || draft.title.trim() || articleCode,
-        slug: draft.slug.trim(),
-        featuredMediaCode: draft.featuredMediaCode.trim() || undefined,
-        special: draft.special,
-        specialLabel: draft.special
-          ? draft.specialLabel.trim() || undefined
-          : undefined,
-        specialRank:
-          draft.special && draft.specialRank.trim()
-            ? Number(draft.specialRank.trim())
-            : undefined,
-        specialFrom:
-          draft.special && draft.specialFrom.trim()
-            ? draft.specialFrom.trim()
-            : undefined,
-        specialUntil:
-          draft.special && draft.specialUntil.trim()
-            ? draft.specialUntil.trim()
-            : undefined,
-        specialVariant: draft.special
-          ? draft.specialVariant.trim() || 'gold'
-          : undefined,
-        authorCodes: splitList(draft.authorCodes),
-        taxonomyTermCodes: splitList(draft.taxonomyTermCodes),
-        status: ['READY', 'IN_REVIEW', 'CHANGES_REQUESTED', 'APPROVED'].includes(status)
-          ? 'DRAFT'
-          : status || 'DRAFT',
-        workflowInstanceCode: '',
-        publicationCode: '',
-      }));
-      await reloadLocalization();
-    } catch (error) {
-      setSaveError(
-        error instanceof Error
-          ? error.message
-          : 'Editorial article could not be saved.',
-      );
-    } finally {
-      setSaving(false);
-    }
+        const outcome =
+          result && typeof result === 'object' && !Array.isArray(result)
+            ? (result as Record<string, unknown>)
+            : {};
+        if (outcome.valid === false) {
+          const errors = Array.isArray(outcome.errors)
+            ? outcome.errors
+                .flatMap((item) => {
+                  if (
+                    item &&
+                    typeof item === 'object' &&
+                    typeof (item as Record<string, unknown>).message === 'string'
+                  )
+                    return [
+                      String((item as Record<string, unknown>).message).slice(0, 500),
+                    ];
+                  return [];
+                })
+                .slice(0, 100)
+            : [];
+          setValidationFeedback(errors);
+          setNotice(copy?.validationBlockedMessage);
+          return;
+        }
+        const refreshed = await reloadLocalization();
+        if (!active.current) return;
+        if (!refreshed) {
+          setLifecycleHeld(true);
+          return;
+        }
+        if (action.id === 'validate') setNotice(copy?.validationReadyMessage);
+      })
+      .catch((error) => {
+        if (active.current) {
+          setLifecycleHeld(true);
+          setSaveError(
+            error instanceof TypeError || !(error instanceof Error)
+              ? copy?.uncertainMessage
+              : error.message,
+          );
+        }
+      });
   };
-
-  const archive = async () => {
-    setSaving(true);
+  const save = async () => {
+    if (!articleCode || !canEdit || !copy || !dirty || heldCommand || lifecycleHeld)
+      return;
+    const changes: Record<string, unknown> = {};
+    const stringFields = [
+      'internalName',
+      'featuredMediaCode',
+      'specialLabel',
+      'specialVariant',
+      'specialFrom',
+      'specialUntil',
+    ] as const;
+    for (const field of stringFields)
+      if (draft[field] !== savedDraft[field]) changes[field] = draft[field].trim();
+    if (draft.special !== savedDraft.special) changes.special = draft.special;
+    if (draft.specialRank !== savedDraft.specialRank)
+      changes.specialRank = draft.specialRank.trim() ? Number(draft.specialRank) : '';
+    if (draft.authorCodes !== savedDraft.authorCodes)
+      changes.authorCodes = splitList(draft.authorCodes);
+    if (draft.taxonomyTermCodes !== savedDraft.taxonomyTermCodes)
+      changes.taxonomyTermCodes = splitList(draft.taxonomyTermCodes);
+    const localized: Record<string, unknown> = {};
+    for (const field of ['title', 'summary', 'slug'] as const)
+      if (!localization || draft[field] !== savedDraft[field])
+        localized[field] = draft[field].trim();
+    if (!localization || draft.bodyText !== savedDraft.bodyText) {
+      if (!bodyEditable) {
+        setSaveError(copy.readOnlyBodyMessage);
+        return;
+      }
+      localized.body = bodyFromText(draft.bodyText);
+    }
+    if (!localization || draft.takeawaysText !== savedDraft.takeawaysText)
+      localized.takeaways = lineList(draft.takeawaysText);
+    if (
+      !localization ||
+      draft.seoTitle !== savedDraft.seoTitle ||
+      draft.seoDescription !== savedDraft.seoDescription
+    )
+      localized.seo = {
+        ...(localization?.seo &&
+        typeof localization.seo === 'object' &&
+        !Array.isArray(localization.seo)
+          ? localization.seo
+          : {}),
+        title: draft.seoTitle.trim(),
+        description: draft.seoDescription.trim(),
+      };
+    await submitCommand(
+      command('SAVE', {
+        changes,
+        localization: { localeCode: contentLocale, changes: localized },
+      }),
+    );
+  };
+  const inspect = async () => {
+    if (!heldCommand || !props.ownerSource || !copy || inspecting || saving) return;
+    setInspecting(true);
     setSaveError(undefined);
     try {
-      await props.controller.updateRecord({
-        ...editableRecordModel(props.schema, article, { status: 'ARCHIVED' }),
-      });
-      setArticle((current) => ({ ...current, status: 'ARCHIVED' }));
-      setEditing(false);
+      const result = await inspectEditorialCommand(
+        props.ownerSource,
+        props.schema,
+        heldCommand,
+        configuration,
+      );
+      if (!active.current) return;
+      setInspectedHeld(true);
+      applyCommand(result);
     } catch (error) {
-      setSaveError(
-        error instanceof Error
-          ? error.message
-          : 'Editorial article could not be archived.',
-      );
+      if (active.current)
+        setSaveError(error instanceof Error ? error.message : copy.uncertainMessage);
     } finally {
-      setSaving(false);
+      if (active.current) setInspecting(false);
     }
   };
-
-  const chooseMediaFile = (file: File | undefined) => {
-    setMediaUploadError(undefined);
-    setFailedMediaPreviewSource(undefined);
-    setUploadedMedia(undefined);
-    if (pendingMediaPreview) URL.revokeObjectURL(pendingMediaPreview);
-    if (!file) {
-      setPendingMediaFile(undefined);
-      setPendingMediaPreview(undefined);
-      return;
-    }
-    if (!file.type.startsWith('image/')) {
-      setPendingMediaFile(undefined);
-      setPendingMediaPreview(undefined);
-      setMediaUploadError('Choose an image file for News and Blog cards.');
-      return;
-    }
-    setPendingMediaFile(file);
-    setPendingMediaPreview(URL.createObjectURL(file));
+  const archive = () => {
+    if (
+      workspace?.operations.includes('ARCHIVE') &&
+      !hasPendingPublication &&
+      copy &&
+      !dirty &&
+      !commandBlocked &&
+      !lifecycleHeld &&
+      !ownerActionPending
+    )
+      setConfirmation('archive');
   };
-
-  const revertMediaFile = () => {
-    if (pendingMediaPreview) URL.revokeObjectURL(pendingMediaPreview);
-    setPendingMediaFile(undefined);
-    setPendingMediaPreview(undefined);
-    setUploadedMedia(undefined);
-    setMediaUploadError(undefined);
-    setFailedMediaPreviewSource(undefined);
+  const refreshSavedArticle = async () => {
+    if ((await reloadLocalization()) && active.current) props.controller.retryRecords();
   };
-
-  const uploadAndApplyMedia = async () => {
-    if (!pendingMediaFile) return;
-    if (!mediaConnection) {
-      setMediaUploadError('Media server is not available for upload.');
+  const refresh = () => {
+    if (saving || inspecting || ownerActionPending || (heldCommand && !inspectedHeld))
       return;
-    }
-    setMediaUploading(true);
-    setMediaUploadError(undefined);
-    try {
-      const result = await uploadMedia(
-        mediaConnection,
-        {
-          accessToken: props.controller.accessToken,
-          enterpriseCode: props.controller.enterpriseCode,
-          timeoutMs: props.controller.runtime.requestTimeoutMs,
-        },
-        {
-          description: `Editorial featured image for ${articleCode || recordKey(article)}`,
-          file: pendingMediaFile,
-          folderCode: 'cmsAssets',
-          formatCode: 'original',
-          moduleName: 'editorial',
-          name: pendingMediaFile.name,
-          schemaName: 'editorialArticle',
-        },
-      );
-      setDraft((current) => ({ ...current, featuredMediaCode: result.code }));
-      setUploadedMedia(result);
-      setPendingMediaFile(undefined);
-    } catch (error) {
-      setMediaUploadError(
-        error instanceof Error ? error.message : 'Editorial image upload failed.',
-      );
-    } finally {
-      setMediaUploading(false);
-    }
+    if (!workspace) props.controller.retrySchemas();
+    if (dirty || heldCommand || lifecycleHeld) setConfirmation('refresh');
+    else void refreshSavedArticle();
   };
 
   const revertAppliedMedia = () => {
@@ -709,27 +908,63 @@ export function EditorialArticleWorkbenchDetail(
       featuredMediaCode: text(article.featuredMediaCode),
     }));
     setUploadedMedia(undefined);
-    setMediaUploadError(undefined);
     setFailedMediaPreviewSource(undefined);
   };
+
+  // Do not describe unloaded translations as missing copy or expose commands before the owner read.
+  if (!workspace) {
+    return (
+      <Card variant="outlined" aria-busy={loading}>
+        <CardContent>
+          <Stack spacing={2}>
+            <Typography component="h2" variant="h6">
+              {text(article.internalName) || articleCode}
+            </Typography>
+            {hasPublicationRequest ? (
+              <Chip
+                label="Publication reference recorded"
+                size="small"
+                sx={{ alignSelf: 'flex-start' }}
+              />
+            ) : null}
+            {publicationPath ? (
+              <Button component={RouterLink} to={publicationPath}>
+                Inspect publication
+              </Button>
+            ) : null}
+            {loading ? (
+              <CircularProgress size={24} aria-label="Loading article" />
+            ) : null}
+            {loadError ? <Alert severity="warning">{loadError}</Alert> : null}
+            <Stack direction="row" spacing={1}>
+              <Button onClick={props.controller.closeRecord}>Close</Button>
+              <Button disabled={loading} onClick={refresh}>
+                Refresh
+              </Button>
+            </Stack>
+          </Stack>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card
       variant="outlined"
       sx={{
-        bgcolor: '#fff',
-        borderColor: 'rgba(25, 30, 36, 0.1)',
+        bgcolor: 'background.paper',
+        borderColor: 'divider',
         boxShadow: '0 18px 45px rgba(15, 18, 22, 0.08)',
         overflow: 'hidden',
       }}
     >
       <Box
         sx={{
-          background:
-            'linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(252, 248, 235, 0.9))',
-          borderLeft: '6px solid var(--axis-color-accent, #f6c400)',
-          borderTop: '4px solid var(--axis-color-accent, #f6c400)',
-          color: '#20242a',
+          bgcolor: 'background.paper',
+          borderLeft: 6,
+          borderTop: 4,
+          borderColor: 'primary.main',
+          color: 'text.primary',
           p: { xs: 2.5, md: 3 },
           position: 'relative',
           '&::after': {
@@ -754,8 +989,10 @@ export function EditorialArticleWorkbenchDetail(
         >
           <Box>
             <Typography
+              lang={interfaceLocale}
+              dir={interfaceDirection}
               sx={{
-                color: '#9a7400',
+                color: 'text.secondary',
                 fontSize: 12,
                 fontWeight: 800,
                 letterSpacing: '.24em',
@@ -765,6 +1002,8 @@ export function EditorialArticleWorkbenchDetail(
               Editorial authoring
             </Typography>
             <Typography
+              lang={draft.title ? contentLocale : interfaceLocale}
+              dir={draft.title ? contentDirection : interfaceDirection}
               sx={{
                 maxWidth: 980,
                 mt: 1,
@@ -779,45 +1018,65 @@ export function EditorialArticleWorkbenchDetail(
               <Chip
                 label={contentType || 'Article'}
                 size="small"
-                sx={{ bgcolor: 'rgba(246, 196, 0, 0.14)', fontWeight: 800 }}
+                sx={{
+                  bgcolor: 'action.selected',
+                  color: 'text.primary',
+                  fontWeight: 800,
+                }}
               />
               <Chip
                 label={status || 'Draft'}
                 size="small"
-                sx={{ bgcolor: 'rgba(32, 36, 42, 0.08)', fontWeight: 800 }}
+                sx={{ bgcolor: 'action.hover', color: 'text.primary', fontWeight: 800 }}
               />
               <Chip
                 label={draft.localeCode || props.controller.locale || 'en'}
                 size="small"
-                sx={{ bgcolor: 'rgba(32, 36, 42, 0.08)', fontWeight: 800 }}
+                sx={{ bgcolor: 'action.hover', color: 'text.primary', fontWeight: 800 }}
               />
               {hasPublicationRequest ? (
                 <Chip
-                  label="Live version exists"
+                  label="Publication reference recorded"
                   size="small"
-                  sx={{ bgcolor: 'rgba(246, 196, 0, 0.14)', fontWeight: 800 }}
+                  sx={{
+                    bgcolor: 'action.selected',
+                    color: 'text.primary',
+                    fontWeight: 800,
+                  }}
                 />
               ) : null}
             </Stack>
           </Box>
           <Stack direction="row" spacing={1}>
             <Button
+              disabled={
+                saving ||
+                mediaUploading ||
+                inspecting ||
+                ownerActionPending ||
+                Boolean(heldCommand && !inspectedHeld)
+              }
               sx={{
-                borderColor: 'rgba(32, 36, 42, 0.28)',
-                color: '#20242a',
+                borderColor: 'divider',
+                color: 'text.primary',
                 fontWeight: 800,
               }}
               variant="outlined"
-              onClick={props.controller.closeRecord}
+              onClick={() => {
+                if (dirty || heldCommand || lifecycleHeld || pendingMediaSelection)
+                  setConfirmation('close');
+                else props.controller.closeRecord();
+              }}
             >
-              Close
+              {copy?.closeLabel ?? 'Close'}
             </Button>
             <Button
-              sx={{ bgcolor: 'var(--axis-color-accent, #f6c400)', color: '#20242a' }}
+              disabled={!canEdit || commandBlocked || lifecycleHeld}
+              sx={{ bgcolor: 'primary.main', color: 'primary.contrastText' }}
               variant="contained"
               onClick={() => setEditing((current) => !current)}
             >
-              {editing ? 'Preview' : 'Edit content'}
+              {editing ? copy?.previewLabel : (copy?.editLabel ?? 'Edit content')}
             </Button>
           </Stack>
         </Stack>
@@ -831,36 +1090,230 @@ export function EditorialArticleWorkbenchDetail(
             </Typography>
           </Stack>
         ) : null}
+        {reviewFeedback ? (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {reviewFeedback}
+          </Alert>
+        ) : null}
         {loadError ? (
           <Alert severity="warning" sx={{ mb: 2 }}>
             {loadError}
           </Alert>
         ) : null}
-        {saveError ? (
-          <Alert severity="error" sx={{ mb: 2 }}>
+        {saveError && saveError !== loadError ? (
+          <Alert
+            severity="error"
+            sx={{ mb: 2 }}
+            action={
+              lifecycleHeld &&
+              copy && (
+                <Button color="inherit" size="small" onClick={refresh}>
+                  {copy.refreshLabel}
+                </Button>
+              )
+            }
+          >
             {saveError}
           </Alert>
         ) : null}
-        {props.controller.lifecycleActionError ? (
+        {notice ? (
+          <Alert severity={heldCommand ? 'warning' : 'info'} sx={{ mb: 2 }}>
+            {notice}
+          </Alert>
+        ) : null}
+        {dirty && copy ? (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            {copy.unsavedMessage}
+          </Alert>
+        ) : null}
+        {status === 'IN_REVIEW' && copy ? (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            {copy.inReviewMessage}
+          </Alert>
+        ) : null}
+        {heldCommand && copy ? (
+          <Stack spacing={1} sx={{ mb: 2, minWidth: 0 }}>
+            <Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>
+              {copy.commandReferenceLabel}: {heldCommand.commandId}
+            </Typography>
+            <Button disabled={inspecting || saving} onClick={() => void inspect()}>
+              {copy.inspectLabel}
+            </Button>
+          </Stack>
+        ) : null}
+        {validationFeedback.length ? (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <ul>
+              {validationFeedback.map((message, index) => (
+                <li key={index}>{message}</li>
+              ))}
+            </ul>
+          </Alert>
+        ) : null}
+        {workspace && copy ? (
+          <Stack spacing={1} sx={{ mb: 2 }}>
+            <TextField
+              select
+              size="small"
+              label={copy.localeLabel}
+              value={contentLocale}
+              disabled={dirty || commandBlocked || lifecycleHeld || ownerActionPending}
+              sx={{ maxWidth: 280 }}
+              onChange={(event) => {
+                const locale = event.target.value;
+                const exact = workspace.localizations.find(
+                  (row) => row.localeCode === locale,
+                );
+                setContentLocale(locale);
+                setLocalization(exact);
+                setDraft(createDraft(article, exact, locale));
+                setNotice(undefined);
+              }}
+            >
+              {workspace.supportedLocaleCodes.map((locale) => (
+                <MenuItem key={locale} value={locale}>
+                  {new Intl.DisplayNames([props.controller.locale ?? 'en'], {
+                    type: 'language',
+                  }).of(locale) ?? locale}
+                </MenuItem>
+              ))}
+            </TextField>
+            {article.status === 'ARCHIVED' ? null : !localization ? (
+              <Alert severity="info">{copy.missingLocaleMessage}</Alert>
+            ) : localization.status === 'DRAFT' ? (
+              <Alert severity="info">{copy.draftLocaleMessage}</Alert>
+            ) : null}
+          </Stack>
+        ) : null}
+        {props.controller.lifecycleActionError &&
+        ![loadError, saveError].includes(props.controller.lifecycleActionError) ? (
           <Alert severity="warning" sx={{ mb: 2 }}>
             {props.controller.lifecycleActionError}
           </Alert>
         ) : null}
-        {status === 'APPROVED' && hasPublicationRequest ? (
-          <Alert severity="info" sx={{ mb: 2 }}>
-            A previous live version exists for this article. Nexus continues to show
-            that version until this approved revision is published successfully.
+        {hasPendingPublication ? (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <Stack spacing={1} sx={{ alignItems: 'flex-start', minWidth: 0 }}>
+              <Typography variant="body2">
+                {copy?.pendingPublicationMessage ??
+                  'Publication outcome is unverified. Inspect the original request before continuing.'}
+              </Typography>
+              <Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>
+                {pendingPublicationCode}
+              </Typography>
+              {pendingPublicationPath ? (
+                <Button component={RouterLink} to={pendingPublicationPath} size="small">
+                  {copy?.inspectPublicationLabel ?? 'Inspect publication'}
+                </Button>
+              ) : null}
+            </Stack>
           </Alert>
         ) : null}
-        {status !== 'APPROVED' && status !== 'PUBLISHED' && hasPublicationRequest ? (
+        {hasPublicationRequest ? (
           <Alert severity="info" sx={{ mb: 2 }}>
-            A previous published version exists for this article. Nexus continues to
-            show that live version while this update is reviewed. Approving and
-            publishing this review will replace the public projection.
+            <Stack spacing={1} sx={{ alignItems: 'flex-start', minWidth: 0 }}>
+              <Typography variant="body2">
+                {copy?.publicationMessage ??
+                  'Publication state is unverified. Inspect the owning request for current evidence.'}
+              </Typography>
+              <Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>
+                {publicationCode}
+              </Typography>
+              {publicationPath ? (
+                <Button component={RouterLink} to={publicationPath} size="small">
+                  {copy?.inspectPublicationLabel ?? 'Inspect publication'}
+                </Button>
+              ) : null}
+            </Stack>
+          </Alert>
+        ) : null}
+        {workspace?.deployment?.status === 'DEPLOYED' ? (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Stack spacing={1} sx={{ alignItems: 'flex-start', minWidth: 0 }}>
+              <Typography variant="body2">
+                Deployed copy · Source revision {workspace.deployment.sourceRevision}.
+                Public access also depends on publication dates, embargo and access
+                rules.
+              </Typography>
+              {workspace.deployment.code !== publicationCode ? (
+                <Typography variant="body2">
+                  An earlier publication is deployed. The latest request above remains
+                  in the article history.
+                </Typography>
+              ) : null}
+              <Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>
+                {workspace.deployment.code}
+              </Typography>
+              {editorialPublicationPath(
+                props.controller.bootstrap,
+                props.schema,
+                workspace.deployment.code,
+              ) ? (
+                <Button
+                  component={RouterLink}
+                  to={
+                    editorialPublicationPath(
+                      props.controller.bootstrap,
+                      props.schema,
+                      workspace.deployment.code,
+                    )!
+                  }
+                  size="small"
+                >
+                  Inspect deployed publication
+                </Button>
+              ) : null}
+            </Stack>
+          </Alert>
+        ) : hasPublicationRequest && workspace?.deployment ? (
+          <Alert
+            severity={workspace.deployment.status === 'NONE' ? 'info' : 'warning'}
+            sx={{ mb: 2 }}
+          >
+            {workspace.deployment.status === 'NONE'
+              ? 'No copy is currently deployed. Publication history is retained.'
+              : 'Current deployment could not be verified. Refresh the saved article before making a delivery decision.'}
+          </Alert>
+        ) : null}
+        {featuredMedia && currentMediaCode ? (
+          <Alert
+            severity={
+              featuredMediaChanged
+                ? 'info'
+                : featuredMedia.ready
+                  ? 'success'
+                  : 'warning'
+            }
+          >
+            {featuredMediaChanged
+              ? featuredMedia.presentation.saveFirst
+              : featuredMedia.ready
+                ? featuredMedia.presentation.ready
+                : featuredMedia.status === 'UNAVAILABLE'
+                  ? featuredMedia.presentation.unavailable
+                  : featuredMedia.presentation.pending}
+            {featuredMediaHandoff && !dirty ? (
+              <Button
+                component={RouterLink}
+                to={featuredMediaHandoff}
+                target="_blank"
+                rel="noopener noreferrer"
+                disabled={commandBlocked || lifecycleHeld}
+                sx={{ display: 'block', mt: 1 }}
+              >
+                {featuredMedia.presentation.open}
+              </Button>
+            ) : null}
           </Alert>
         ) : null}
         <Box
+          component="fieldset"
+          disabled={!canEdit || commandBlocked || lifecycleHeld}
           sx={{
+            border: 0,
+            p: 0,
+            m: 0,
+            minWidth: 0,
             display: 'grid',
             gap: 2.5,
             gridTemplateColumns: { xs: '1fr', md: '5fr 7fr' },
@@ -915,15 +1368,6 @@ export function EditorialArticleWorkbenchDetail(
                         : 'Choose an image to preview how Nexus cards and detail pages will render it.'}
                     </Alert>
                   )}
-                  {mediaUploadError ? (
-                    <Alert severity="error">{mediaUploadError}</Alert>
-                  ) : null}
-                  {uploadedMedia ? (
-                    <Alert severity="success">
-                      Media uploaded and applied as {uploadedMedia.code}. Save the
-                      article to publish this association.
-                    </Alert>
-                  ) : null}
                   <Box
                     sx={{
                       border: '1px solid rgba(32, 36, 42, 0.12)',
@@ -944,85 +1388,48 @@ export function EditorialArticleWorkbenchDetail(
                       >
                         Featured media
                       </Typography>
-                      <Stack
-                        direction={{ xs: 'column', md: 'row' }}
-                        spacing={1.25}
-                        sx={{
-                          alignItems: { xs: 'stretch', md: 'center' },
-                          flexWrap: 'wrap',
-                        }}
-                      >
+                      {workspace?.mediaIntake && mediaConnection ? (
+                        <MediaImageIntakePanel
+                          key={JSON.stringify([
+                            mediaConnection.instanceId,
+                            mediaConnection.endpoint,
+                            mediaConnection.server,
+                            mediaConnection.environment,
+                            workspace.mediaIntake,
+                          ])}
+                          source={mediaConnection}
+                          configuration={configuration}
+                          definition={workspace.mediaIntake}
+                          target={{
+                            moduleName: 'editorial',
+                            schemaName: 'editorialArticle',
+                          }}
+                          disabled={!canEdit || commandBlocked || lifecycleHeld}
+                          onBusyChange={setMediaUploading}
+                          onSelectionChange={setPendingMediaSelection}
+                          onApply={(image) => {
+                            setDraft((current) => ({
+                              ...current,
+                              featuredMediaCode: image.code,
+                            }));
+                            setUploadedMedia(image);
+                            setFailedMediaPreviewSource(undefined);
+                          }}
+                        />
+                      ) : workspace?.mediaIntake ? (
+                        <Alert severity="info">
+                          {workspace.mediaIntake.presentation.unavailable}
+                        </Alert>
+                      ) : null}
+                      {uploadedMedia ? (
                         <Button
-                          component="label"
-                          disabled={mediaUploading}
-                          variant="outlined"
+                          disabled={commandBlocked || lifecycleHeld || !canEdit}
+                          onClick={revertAppliedMedia}
+                          variant="text"
                         >
-                          Choose image
-                          <input
-                            accept="image/*"
-                            hidden
-                            type="file"
-                            onChange={(event) =>
-                              chooseMediaFile(event.target.files?.[0])
-                            }
-                          />
+                          Revert applied image
                         </Button>
-                        {pendingMediaFile ? (
-                          <>
-                            <Paper
-                              variant="outlined"
-                              sx={{
-                                borderColor: 'rgba(32, 36, 42, 0.12)',
-                                flex: '1 1 220px',
-                                minWidth: 0,
-                                px: 1.5,
-                                py: 1,
-                              }}
-                            >
-                              <Typography
-                                color="text.secondary"
-                                sx={{
-                                  fontSize: 13,
-                                  fontWeight: 700,
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                }}
-                                title={pendingMediaFile.name}
-                              >
-                                {pendingMediaFile.name} ·{' '}
-                                {Math.max(1, Math.round(pendingMediaFile.size / 1024))}
-                                KB
-                              </Typography>
-                            </Paper>
-                            <Button
-                              disabled={mediaUploading || !mediaConnection}
-                              onClick={() => {
-                                void uploadAndApplyMedia();
-                              }}
-                              variant="contained"
-                            >
-                              {mediaUploading ? 'Uploading…' : 'Upload & apply'}
-                            </Button>
-                            <Button
-                              disabled={mediaUploading}
-                              onClick={revertMediaFile}
-                              variant="text"
-                            >
-                              Revert
-                            </Button>
-                          </>
-                        ) : null}
-                        {uploadedMedia ? (
-                          <Button
-                            onClick={revertAppliedMedia}
-                            sx={{ ml: { md: 'auto' } }}
-                            variant="text"
-                          >
-                            Revert applied image
-                          </Button>
-                        ) : null}
-                      </Stack>
+                      ) : null}
                       <TextField
                         fullWidth
                         helperText="Generated media code associated with this News or Blog record."
@@ -1036,7 +1443,12 @@ export function EditorialArticleWorkbenchDetail(
                   </Box>
                   <TextField
                     fullWidth
-                    label="Internal name"
+                    required
+                    error={editing && !draft.internalName.trim()}
+                    label={
+                      props.schema.fields.find((field) => field.name === 'internalName')
+                        ?.label ?? 'Internal name'
+                    }
                     size="small"
                     sx={fieldSx()}
                     value={draft.internalName}
@@ -1192,12 +1604,11 @@ export function EditorialArticleWorkbenchDetail(
                   ) : null}
                   <Box
                     sx={{
-                      background:
-                        draft.special === true
-                          ? 'linear-gradient(135deg, rgba(246, 196, 0, 0.10), rgba(255,255,255,0.96))'
-                          : 'rgba(32, 36, 42, 0.02)',
-                      border: '1px solid rgba(32, 36, 42, 0.12)',
-                      borderLeft: '4px solid var(--axis-color-accent, #f6c400)',
+                      bgcolor: draft.special ? 'action.selected' : 'action.hover',
+                      border: 1,
+                      borderColor: 'divider',
+                      borderLeft: 4,
+                      borderLeftColor: 'primary.main',
                       borderRadius: 1.5,
                       p: 2,
                     }}
@@ -1327,6 +1738,7 @@ export function EditorialArticleWorkbenchDetail(
                   <TextField
                     fullWidth
                     label="Title"
+                    slotProps={localizedInputProps}
                     sx={fieldSx()}
                     value={draft.title}
                     onChange={(event) =>
@@ -1336,6 +1748,7 @@ export function EditorialArticleWorkbenchDetail(
                   <TextField
                     fullWidth
                     label="URL slug"
+                    slotProps={{ htmlInput: { dir: 'ltr' } }}
                     size="small"
                     sx={fieldSx()}
                     value={draft.slug}
@@ -1347,6 +1760,7 @@ export function EditorialArticleWorkbenchDetail(
                     fullWidth
                     helperText="Used as listing-card subtitle and page intro."
                     label="Card summary / subtitle"
+                    slotProps={localizedInputProps}
                     minRows={3}
                     multiline
                     sx={fieldSx()}
@@ -1357,8 +1771,14 @@ export function EditorialArticleWorkbenchDetail(
                   />
                   <TextField
                     fullWidth
-                    helperText="Used on the article detail page."
+                    disabled={!bodyEditable}
+                    helperText={
+                      !bodyEditable
+                        ? copy?.readOnlyBodyMessage
+                        : 'Used on the article detail page.'
+                    }
                     label="Main story text"
+                    slotProps={localizedInputProps}
                     minRows={8}
                     multiline
                     sx={fieldSx()}
@@ -1371,6 +1791,7 @@ export function EditorialArticleWorkbenchDetail(
                     fullWidth
                     helperText="One takeaway per line. Used on the article detail page."
                     label="Key takeaways"
+                    slotProps={localizedInputProps}
                     minRows={4}
                     multiline
                     sx={fieldSx()}
@@ -1390,6 +1811,7 @@ export function EditorialArticleWorkbenchDetail(
                       <TextField
                         fullWidth
                         label="SEO title"
+                        slotProps={localizedInputProps}
                         size="small"
                         sx={fieldSx()}
                         value={draft.seoTitle}
@@ -1402,6 +1824,7 @@ export function EditorialArticleWorkbenchDetail(
                       <TextField
                         fullWidth
                         label="SEO description"
+                        slotProps={localizedInputProps}
                         size="small"
                         sx={fieldSx()}
                         value={draft.seoDescription}
@@ -1416,21 +1839,36 @@ export function EditorialArticleWorkbenchDetail(
                   </Box>
                 </>
               ) : (
-                <Box>
-                  <Typography sx={{ fontSize: { xs: 26, md: 34 }, fontWeight: 900 }}>
+                <Box lang={contentLocale} dir={contentDirection}>
+                  <Typography
+                    lang={draft.title ? contentLocale : interfaceLocale}
+                    dir={draft.title ? contentDirection : interfaceDirection}
+                    sx={{ fontSize: { xs: 26, md: 34 }, fontWeight: 900 }}
+                  >
                     {draft.title || 'No localized title yet'}
                   </Typography>
-                  <Typography color="text.secondary" sx={{ mt: 1.5, fontSize: 18 }}>
+                  <Typography
+                    lang={draft.summary ? contentLocale : interfaceLocale}
+                    dir={draft.summary ? contentDirection : interfaceDirection}
+                    color="text.secondary"
+                    sx={{ mt: 1.5, fontSize: 18 }}
+                  >
                     {draft.summary || 'No card summary has been maintained yet.'}
                   </Typography>
                   <Divider sx={{ my: 2 }} />
-                  <Typography sx={{ whiteSpace: 'pre-line' }}>
+                  <Typography
+                    lang={draft.bodyText ? contentLocale : interfaceLocale}
+                    dir={draft.bodyText ? contentDirection : interfaceDirection}
+                    sx={{ whiteSpace: 'pre-line' }}
+                  >
                     {draft.bodyText || 'No article body has been maintained yet.'}
                   </Typography>
                   {draft.takeawaysText ? (
                     <>
                       <Divider sx={{ my: 2 }} />
                       <Typography
+                        lang={interfaceLocale}
+                        dir={interfaceDirection}
                         sx={{
                           color: 'text.secondary',
                           fontSize: 12,
@@ -1442,7 +1880,11 @@ export function EditorialArticleWorkbenchDetail(
                       >
                         Key takeaways
                       </Typography>
-                      <Stack component="ul" spacing={0.75} sx={{ m: 0, pl: 2.5 }}>
+                      <Stack
+                        component="ul"
+                        spacing={0.75}
+                        sx={{ m: 0, paddingInlineStart: (theme) => theme.spacing(2.5) }}
+                      >
                         {lineList(draft.takeawaysText).map((item) => (
                           <Typography component="li" key={item}>
                             {item}
@@ -1456,64 +1898,232 @@ export function EditorialArticleWorkbenchDetail(
             </Stack>
           </Box>
         </Box>
+        {lifecycleActions
+          .filter((action) => action.id === 'withdraw')
+          .map((action) => (
+            <Box
+              key={action.id}
+              sx={{ borderTop: 1, borderColor: 'divider', mt: 3, pt: 2 }}
+            >
+              <Typography component="h3" variant="h6" sx={{ mb: 1 }}>
+                Publication withdrawal
+              </Typography>
+              {dirty ? (
+                <Alert severity="info">{copy?.unsavedMessage}</Alert>
+              ) : commandBlocked || lifecycleHeld ? null : (
+                <EditorialWithdrawalAction
+                  action={action}
+                  article={article}
+                  controller={props.controller}
+                  schema={props.schema}
+                  deployment={workspace?.deployment}
+                  onArticle={(saved) => {
+                    setArticle(saved);
+                    void reloadLocalization();
+                  }}
+                />
+              )}
+            </Box>
+          ))}
         <Divider sx={{ my: 3 }} />
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
           spacing={1.5}
-          sx={{ justifyContent: 'space-between' }}
+          sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}
         >
-          <Button color="error" variant="outlined" onClick={() => void archive()}>
-            Archive article
+          <Button
+            color="error"
+            variant="outlined"
+            disabled={
+              !workspace?.operations.includes('ARCHIVE') ||
+              hasPendingPublication ||
+              ownerActionPending ||
+              dirty ||
+              commandBlocked ||
+              lifecycleHeld
+            }
+            onClick={archive}
+          >
+            {pendingOperation === 'ARCHIVE'
+              ? `${copy?.archiveLabel ?? 'Archive article'}…`
+              : (copy?.archiveLabel ?? 'Archive article')}
           </Button>
           <Stack
             direction={{ xs: 'column', sm: 'row' }}
             spacing={1.5}
-            sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}
+            sx={{ flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}
           >
-            {lifecycleActions.map((action) => (
-              <Button
-                key={action.id}
-                disabled={
-                  !props.controller.executeLifecycleAction ||
-                  props.controller.lifecycleActionPendingId === action.id
-                }
-                variant="outlined"
-                onClick={() => {
-                  void props.controller
-                    .executeLifecycleAction?.(
-                      action,
-                      article,
-                      localization
-                        ? { localizations: JSON.stringify([localization]) }
-                        : undefined,
-                    )
-                    .then((result) => {
-                      const resultArticle = lifecycleArticleFromResult(result);
-                      if (resultArticle)
-                        setArticle((current) => ({ ...current, ...resultArticle }));
-                      void reloadLocalization();
-                    });
-                }}
-              >
-                {props.controller.lifecycleActionPendingId === action.id
-                  ? `${action.label}…`
-                  : action.label}
-              </Button>
-            ))}
-            <Button variant="outlined" onClick={() => void reloadLocalization()}>
-              Refresh
+            {lifecycleActions
+              .filter((action) => action.id !== 'withdraw')
+              .map((action) => (
+                <Button
+                  key={action.id}
+                  disabled={
+                    !props.controller.executeLifecycleAction ||
+                    !workspace ||
+                    (['submit', 'publish'].includes(action.id) &&
+                      Boolean(currentMediaCode) &&
+                      (featuredMediaChanged || featuredMedia?.ready !== true)) ||
+                    dirty ||
+                    commandBlocked ||
+                    lifecycleHeld ||
+                    props.controller.lifecycleActionPendingId !== undefined
+                  }
+                  variant="outlined"
+                  onClick={() => {
+                    if (action.id === 'reject') {
+                      setReviewReason('');
+                      setReviewRejection({ action, revision: article.revision });
+                    } else {
+                      runLifecycleAction(action);
+                    }
+                  }}
+                >
+                  {props.controller.lifecycleActionPendingId === action.id
+                    ? `${hasPendingPublication && action.id === 'publish' ? copy?.resumePublicationLabel : action.label}…`
+                    : hasPendingPublication && action.id === 'publish'
+                      ? copy?.resumePublicationLabel
+                      : action.label}
+                </Button>
+              ))}
+            <Button
+              variant="outlined"
+              disabled={
+                saving ||
+                inspecting ||
+                loading ||
+                ownerActionPending ||
+                Boolean(heldCommand && !inspectedHeld)
+              }
+              onClick={refresh}
+            >
+              {copy?.refreshLabel ?? 'Refresh'}
             </Button>
             <Button
-              disabled={!editing || saving || props.controller.updating}
-              sx={{ bgcolor: 'var(--axis-color-accent, #f6c400)', color: '#20242a' }}
+              disabled={
+                !canEdit ||
+                !dirty ||
+                commandBlocked ||
+                lifecycleHeld ||
+                !draft.internalName.trim()
+              }
+              sx={{ bgcolor: 'primary.main', color: 'primary.contrastText' }}
               variant="contained"
               onClick={() => void save()}
             >
-              {saving || props.controller.updating ? 'Saving…' : 'Save article'}
+              {pendingOperation === 'SAVE'
+                ? copy?.savingLabel
+                : (copy?.saveLabel ?? 'Save article')}
             </Button>
           </Stack>
         </Stack>
       </CardContent>
+      <Dialog
+        open={Boolean(reviewRejection)}
+        onClose={() => setReviewRejection(undefined)}
+        aria-labelledby="editorial-rejection-title"
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle id="editorial-rejection-title">
+          {reviewRejection?.action.label}
+        </DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            required
+            multiline
+            minRows={3}
+            margin="dense"
+            label={
+              interfaceDirection === 'rtl' ? 'ملاحظات المراجعة' : 'Review feedback'
+            }
+            helperText={
+              interfaceDirection === 'rtl'
+                ? 'اشرح ما يحتاج المؤلف إلى تغييره قبل إعادة الإرسال.'
+                : 'Explain what the author needs to change before resubmitting.'
+            }
+            value={reviewReason}
+            onChange={(event) => setReviewReason(event.target.value)}
+            slotProps={{ htmlInput: { maxLength: 1000 } }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReviewRejection(undefined)}>
+            {copy?.cancelLabel ?? 'Cancel'}
+          </Button>
+          <Button
+            variant="contained"
+            disabled={
+              !reviewReason.trim() ||
+              reviewReason.length > 1000 ||
+              !reviewRejection ||
+              article.revision !== reviewRejection.revision ||
+              article.status !== 'IN_REVIEW' ||
+              dirty ||
+              commandBlocked ||
+              lifecycleHeld ||
+              ownerActionPending
+            }
+            onClick={() => {
+              if (!reviewRejection) return;
+              setReviewRejection(undefined);
+              runLifecycleAction(reviewRejection.action, reviewReason.trim());
+            }}
+          >
+            {reviewRejection?.action.label}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
+        open={confirmationOpen}
+        onClose={() => {
+          if (!saving && !loading && !mediaUploading) setConfirmation(undefined);
+        }}
+      >
+        <DialogTitle>
+          {confirmation === 'archive'
+            ? copy?.archiveTitle
+            : confirmation === 'close'
+              ? copy?.closeTitle
+              : copy?.refreshTitle}
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {confirmation === 'archive'
+              ? copy?.archiveMessage
+              : confirmation === 'close'
+                ? copy?.closeMessage
+                : copy?.refreshMessage}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            disabled={saving || loading || mediaUploading}
+            onClick={() => setConfirmation(undefined)}
+          >
+            {copy?.cancelLabel}
+          </Button>
+          <Button
+            disabled={!confirmationOpen || saving || loading || mediaUploading}
+            onClick={() => {
+              if (!confirmationOpen || saving || loading || mediaUploading) return;
+              const kind = confirmation;
+              setConfirmation(undefined);
+              if (kind === 'archive') void submitCommand(command('ARCHIVE', {}));
+              else if (kind === 'close') props.controller.closeRecord();
+              else void refreshSavedArticle();
+            }}
+          >
+            {confirmation === 'archive'
+              ? copy?.confirmArchiveLabel
+              : confirmation === 'close'
+                ? copy?.confirmCloseLabel
+                : copy?.confirmRefreshLabel}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Card>
   );
 }

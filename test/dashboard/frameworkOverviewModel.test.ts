@@ -66,6 +66,39 @@ describe('Framework overview discovery', () => {
       ]),
     ).toEqual([]);
   });
+  it('admits only actually available site/catalog context and retains owner/ancestor checks', () => {
+    const contextual = {
+      ...item,
+      contexts: ['environment', 'tenant', 'enterprise', 'site', 'catalog'],
+    };
+    const core = ['environment', 'tenant', 'enterprise'];
+    expect(overviewNavigation([contextual], core)).toEqual([]);
+    expect(overviewNavigation([contextual], [...core, 'site'])).toEqual([]);
+    expect(overviewNavigation([contextual], [...core, 'site', 'catalog'])).toEqual([
+      contextual,
+    ]);
+    expect(
+      overviewDomains([contextual], [], [...core, 'site', 'catalog']),
+    ).toHaveLength(1);
+    expect(
+      overviewNavigation(
+        [{ ...contextual, featureState: 'DISABLED' }],
+        [...core, 'site', 'catalog'],
+      ),
+    ).toEqual([]);
+    expect(
+      overviewNavigation(
+        [{ ...contextual, contexts: ['unknown'] }],
+        [...core, 'site', 'catalog'],
+      ),
+    ).toEqual([]);
+    expect(
+      overviewNavigation(
+        [{ ...contextual, id: 'child', parentId: 'missing' }],
+        [...core, 'site', 'catalog'],
+      ),
+    ).toEqual([]);
+  });
   it('respects cross-module ancestry and deduplicates identical destinations', () => {
     const child = {
       ...item,

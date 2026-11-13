@@ -1,5 +1,5 @@
 /** @file Cron-owned inactive schedule draft rendering with explicit review, confirmation and original-save recovery. */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -31,15 +31,36 @@ interface Props {
   readonly sourceBinding?: ScheduleSourceBinding;
   readonly connection: AxisModuleConnection;
   readonly configuration: CronJobClientConfiguration;
-  readonly onSaved?: () => void;
+  readonly onSaved?: (code?: string) => void;
+  readonly existingSelection?: Readonly<{ code: string; intentId: string }> | undefined;
+  readonly onPendingChange?: (pending: boolean) => void;
+  readonly onControlsAvailable?: (available: boolean) => void;
+  readonly commandsBlocked?: boolean;
+  readonly controlsId?: string;
+  readonly selectionLabel?: string | undefined;
 }
 
 /** Remounts transient reviews on any credential, enterprise or connection change. */
 export function CronScheduleDraftPanel(props: Props) {
   const { connection, configuration } = props;
+  const actor = useMemo(
+    () => (configuration.accessToken ? crypto.randomUUID() : 'anonymous'),
+    [configuration.accessToken],
+  );
   return (
     <ScheduleDraftSession
-      key={JSON.stringify([connection, configuration, props.sourceBinding])}
+      key={JSON.stringify([
+        actor,
+        configuration.enterpriseCode,
+        connection.moduleName,
+        connection.instanceId,
+        connection.endpoint,
+        connection.server,
+        connection.environment,
+        connection.runtimeRole?.code,
+        connection.runtimeRole?.publication,
+        props.sourceBinding,
+      ])}
       {...props}
     />
   );
@@ -51,6 +72,12 @@ function ScheduleDraftSession({
   configuration,
   onSaved,
   sourceBinding,
+  existingSelection,
+  onPendingChange,
+  onControlsAvailable,
+  commandsBlocked = false,
+  controlsId,
+  selectionLabel,
 }: Props) {
   const [transport] = useState(() => ({ connection, configuration, sourceBinding }));
   const [capability, setCapability] = useState<ScheduleDraftCapability>();
@@ -64,6 +91,7 @@ function ScheduleDraftSession({
   const [review, setReview] = useState<ScheduleDraftReview>();
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [lifecycleHeld, setLifecycleHeld] = useState(false);
   const [outcome, setOutcome] = useState<'SAVED_INACTIVE' | 'OUTCOME_UNKNOWN'>();
   const [failure, setFailure] = useState<'reviewFailed' | 'inspectionFailed'>();
   const pending = useRef<AbortController | null>(null);
@@ -101,7 +129,15 @@ function ScheduleDraftSession({
   }, [transport]);
   const copy = capability?.presentation;
   const target = capability?.targets.find((item) => item.code === input.targetCode);
-  const locked = busy || outcome !== undefined;
+  const locked = busy || lifecycleHeld || commandsBlocked || outcome !== undefined;
+  useEffect(() => {
+    onPendingChange?.(busy || lifecycleHeld || outcome === 'OUTCOME_UNKNOWN');
+    return () => onPendingChange?.(false);
+  }, [busy, lifecycleHeld, outcome, onPendingChange]);
+  useEffect(() => {
+    onControlsAvailable?.(!unavailable && Boolean(capability?.lifecycle));
+    return () => onControlsAvailable?.(false);
+  }, [unavailable, capability, onControlsAvailable]);
 
   /** Invalidates the previous confirmation whenever any draft value changes. */
   function change(next: ScheduleDraftInput) {
@@ -115,6 +151,8 @@ function ScheduleDraftSession({
   async function send(operation: 'preview' | 'create' | 'inspect') {
     if (
       pending.current ||
+      lifecycleHeld ||
+      (operation !== 'inspect' && commandsBlocked) ||
       !target ||
       (operation === 'preview' && outcome) ||
       (operation === 'create' && (!review || !confirmed || outcome)) ||
@@ -168,7 +206,7 @@ function ScheduleDraftSession({
           configuration.enterpriseCode,
         );
         setOutcome(next);
-        if (next === 'SAVED_INACTIVE') onSaved?.();
+        if (next === 'SAVED_INACTIVE') onSaved?.(input.code);
       }
     } catch {
       if (!controller.signal.aborted && operation !== 'create')
@@ -186,7 +224,9 @@ function ScheduleDraftSession({
   if (!copy || !capability) return null;
   return (
     <Stack component="section" spacing={2} sx={{ py: 2, minWidth: 0 }}>
-      <Typography variant="h5">{copy.title}</Typography>
+      <Typography component="h2" variant="h5">
+        {copy.title}
+      </Typography>
       {capability.targets.length === 0 ? (
         <Alert severity="info">{copy.empty}</Alert>
       ) : (
@@ -315,7 +355,7 @@ function ScheduleDraftSession({
       {outcome === 'OUTCOME_UNKNOWN' ? (
         <Box>
           <Button
-            disabled={busy}
+            disabled={busy || lifecycleHeld}
             startIcon={<ShellIcon name="search" />}
             onClick={() => void send('inspect')}
           >
@@ -325,12 +365,21 @@ function ScheduleDraftSession({
       ) : null}
       {capability.lifecycle ? (
         <CronScheduleLifecyclePanel
-          key={outcome === 'SAVED_INACTIVE' ? input.code : 'existing'}
+          key={
+            existingSelection?.intentId ||
+            (outcome === 'SAVED_INACTIVE' ? input.code : 'existing')
+          }
           connection={connection}
           configuration={configuration}
           capability={capability.lifecycle}
-          initialCode={outcome === 'SAVED_INACTIVE' ? input.code : ''}
-          {...(onSaved ? { onChanged: onSaved } : {})}
+          initialCode={
+            existingSelection?.code || (outcome === 'SAVED_INACTIVE' ? input.code : '')
+          }
+          onPendingChange={setLifecycleHeld}
+          selectionLabel={selectionLabel}
+          commandsBlocked={commandsBlocked || busy || outcome === 'OUTCOME_UNKNOWN'}
+          {...(controlsId ? { controlId: controlsId } : {})}
+          {...(onSaved ? { onChanged: () => onSaved() } : {})}
         />
       ) : null}
     </Stack>

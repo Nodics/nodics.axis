@@ -36,7 +36,7 @@ interface DocumentationNavigationItem {
   readonly subgroup: string;
   readonly order: number;
   readonly audience: readonly string[];
-  readonly searchText: string;
+  readonly searchableText: string;
 }
 
 function boundedString(value: unknown): string {
@@ -73,7 +73,9 @@ function parseItems(value: readonly unknown[]): readonly DocumentationNavigation
     const section = category || 'Documentation';
     const group = section;
     const subgroup = '';
-    const searchText = boundedString(record.searchText);
+    // Search the complete inert index already delivered for this frozen topic.
+    // The display-label limit must not silently remove later article content.
+    const searchText = typeof record.searchText === 'string' ? record.searchText : '';
     if (!title || !route.startsWith('/docs')) return [];
     const audience = Array.isArray(record.audience)
       ? record.audience.map(boundedString).filter(Boolean).slice(0, 20)
@@ -90,7 +92,9 @@ function parseItems(value: readonly unknown[]): readonly DocumentationNavigation
         subgroup,
         order: boundedNumber(record.order, 100),
         audience,
-        searchText,
+        searchableText: [title, category, group, subgroup, searchText, ...audience]
+          .join(' ')
+          .toLocaleLowerCase(),
       },
     ];
   });
@@ -169,6 +173,7 @@ function DocumentationPageLink({
 }
 
 export function DocumentationNavigationRenderer({
+  actions,
   activePathname,
   component,
   onNavigate,
@@ -192,9 +197,13 @@ export function DocumentationNavigationRenderer({
     'emptyMessage',
     'No documentation matches your search.',
   );
+  const onlineRoutes = actions?.documentationTopicRoutes;
   const items = useMemo(
-    () => parseItems(arrayProperty(component, 'items')),
-    [component],
+    () =>
+      parseItems(arrayProperty(component, 'items')).filter(
+        (item) => !onlineRoutes || onlineRoutes.has(item.route.split(/[?#]/u)[0] ?? ''),
+      ),
+    [component, onlineRoutes],
   );
   const audiences = useMemo(
     () => [...new Set(items.flatMap((item) => item.audience))].sort(),
@@ -202,18 +211,8 @@ export function DocumentationNavigationRenderer({
   );
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filtered = items.filter((item) => {
-    const searchable = [
-      item.title,
-      item.category,
-      item.group,
-      item.subgroup,
-      item.searchText,
-      ...item.audience,
-    ]
-      .join(' ')
-      .toLocaleLowerCase();
     return (
-      (!normalizedQuery || searchable.includes(normalizedQuery)) &&
+      (!normalizedQuery || item.searchableText.includes(normalizedQuery)) &&
       (!audience || item.audience.includes(audience))
     );
   });

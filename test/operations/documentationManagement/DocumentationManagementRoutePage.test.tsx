@@ -360,8 +360,64 @@ const cmsDocumentationNodes = [
 ];
 
 function documentationDesignerFetch() {
+  const drafts = new Map<string, Record<string, unknown>>();
   return vi.fn<typeof fetch>().mockImplementation((input, options) => {
     const path = new URL(requestUrl(input)).pathname;
+    if (path.endsWith('/designer/composition/documentation-model')) {
+      const query = new URL(requestUrl(input)).searchParams;
+      return Promise.resolve(
+        response({
+          siteCode: query.get('siteCode'),
+          catalogCode: query.get('catalogCode'),
+          rootPath: '/docs/framework',
+          templateCode: 'template',
+          typeCode: 'pageType',
+          renderer: 'documentation.page.article',
+          articleTypeCode: 'articleType',
+          navigationTypeCode: 'navigationType',
+          accessMode: 'PUBLIC',
+          locale: 'default',
+        }),
+      );
+    }
+    if (path.endsWith('/designer/composition/draft') && options?.method === 'PUT') {
+      const draft = requestJsonBody(options);
+      const page = draft.page as Record<string, unknown>;
+      const sections = draft.sections as ReadonlyArray<Record<string, unknown>>;
+      const sourceVersion = '1'.repeat(64);
+      drafts.set(String(page.code), {
+        ...draft,
+        sourceVersion,
+        sections: sections.map((section, index) => ({
+          ...section,
+          code: 'placement' + String(index),
+          components: (
+            section.components as ReadonlyArray<Record<string, unknown>>
+          ).map((component) => ({ ...component, localizations: [], media: [] })),
+        })),
+      });
+      return Promise.resolve(response({ status: 'DRAFT_SAVED' }));
+    }
+    if (path.endsWith('/designer/composition/draft')) {
+      const key = new URL(requestUrl(input)).searchParams.get('pageCode') ?? '';
+      const draft = drafts.get(key);
+      return Promise.resolve(
+        response({
+          draft,
+          sourceVersion: draft?.sourceVersion,
+          editable: true,
+          issues: [],
+        }),
+      );
+    }
+    if (path.endsWith('/designer/composition/publication-request')) {
+      return Promise.resolve(
+        response({ status: 'PENDING_APPROVAL', publication: { code: 'pub-1' } }),
+      );
+    }
+    if (path.endsWith('/designer/composition/pages')) {
+      return Promise.resolve(response({ pages: [] }));
+    }
     if (path.endsWith('/model')) return Promise.resolve(response(authoringModel()));
     if (path.endsWith('/schemas/cmsDocumentationPage')) {
       return Promise.resolve(
@@ -549,7 +605,7 @@ function authoringModel() {
   };
 }
 
-function renderPage(path = '/docs/designer') {
+function renderPage(path = '/docs/designer', currentBootstrap = bootstrap) {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
@@ -559,7 +615,7 @@ function renderPage(path = '/docs/designer') {
         <MemoryRouter initialEntries={[path]}>
           <DocumentationManagementRoutePage
             accessToken="employee-token"
-            bootstrap={bootstrap}
+            bootstrap={currentBootstrap}
             channel="web"
             cmsBaseUrl="http://localhost:4312/nodics/cms"
             employeeId="documentationAuthor"
@@ -591,7 +647,7 @@ describe('DocumentationManagementRoutePage', () => {
         name: 'Create and publish documentation',
       }),
     ).toBeVisible();
-    expect(screen.getAllByText('Framework').length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('Framework')).length).toBeGreaterThan(0);
     await user.click(screen.getByRole('combobox', { name: /Documentation area/i }));
     expect(screen.getByRole('option', { name: 'Framework' })).toBeVisible();
     expect(screen.queryByRole('option', { name: 'Swaggers' })).toBeNull();
@@ -612,6 +668,117 @@ describe('DocumentationManagementRoutePage', () => {
     expect(screen.queryByText('Selected area')).toBeNull();
     expect(screen.queryByText('Reader audience')).toBeNull();
     expect(screen.queryByLabelText('Documentation designer views')).toBeNull();
+  });
+
+  it.each([true, false])(
+    'uses only Staged owner-admitted documentation areas (project admitted: %s)',
+    async (projectAdmitted) => {
+      const [framework] = bootstrap.documentationSources;
+      if (!framework || framework.type !== 'CMS')
+        throw new Error('Missing CMS fixture');
+      const project = {
+        ...framework,
+        id: 'project',
+        label: 'Project guide',
+        order: framework.order + 1,
+        site: 'projectDocumentationSite',
+      };
+      const fetcher = documentationDesignerFetch();
+      const ownerReads = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((input, options) => {
+          const url = new URL(requestUrl(input));
+          if (url.pathname.endsWith('/designer/composition/pages')) {
+            if (url.searchParams.get('siteCode') === project.site && projectAdmitted)
+              return Promise.resolve(response({ pages: [] }));
+            return Promise.resolve(new Response(null, { status: 403 }));
+          }
+          return fetcher(input, options);
+        });
+
+      renderPage('/docs/designer', {
+        ...bootstrap,
+        documentationSources: [
+          ...bootstrap.documentationSources,
+          { ...framework, id: 'framework-module', order: framework.order + 2 },
+          project,
+        ],
+      });
+
+      if (projectAdmitted) {
+        const area = await screen.findByRole('combobox', {
+          name: 'Documentation area',
+        });
+        expect(area).toHaveTextContent(project.label);
+        await userEvent.click(area);
+        expect(screen.getByRole('option', { name: project.label })).toBeVisible();
+        expect(screen.queryByRole('option', { name: 'Framework' })).toBeNull();
+      } else {
+        expect(
+          await screen.findByText(
+            'No Staged documentation areas are available to your account.',
+          ),
+        ).toBeVisible();
+        expect(
+          screen.queryByRole('combobox', { name: 'Documentation area' }),
+        ).toBeNull();
+        expect(screen.queryByRole('button', { name: 'New page' })).toBeNull();
+      }
+      const listedSites = ownerReads.mock.calls
+        .map(([input]) => new URL(requestUrl(input)))
+        .filter((url) => url.pathname.endsWith('/designer/composition/pages'))
+        .map((url) => url.searchParams.get('siteCode'));
+      expect(listedSites).toEqual([framework.site, project.site]);
+    },
+  );
+
+  it('keeps a dirty page when an area switch is cancelled and discards it only on confirmation', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(documentationDesignerFetch());
+    const user = userEvent.setup();
+    const [framework] = bootstrap.documentationSources;
+    if (!framework || framework.type !== 'CMS') throw new Error('Missing CMS fixture');
+    renderPage('/docs/designer', {
+      ...bootstrap,
+      documentationSources: [
+        framework,
+        {
+          ...framework,
+          id: 'project',
+          label: 'Project guide',
+          order: framework.order + 1,
+          site: 'projectDocumentationSite',
+        },
+      ],
+    });
+    await screen.findByRole('heading', {
+      name: 'Edit the staged documentation in the same reader layout.',
+    });
+    await user.click(await screen.findByRole('button', { name: /New page/i }));
+    const title = await screen.findByRole('textbox', { name: /^Page title(?: \*)?$/ });
+    await user.clear(title);
+    await user.type(title, 'Unsaved area draft');
+    const chooseProject = async () => {
+      await user.click(screen.getByRole('combobox', { name: 'Documentation area' }));
+      await user.click(screen.getByRole('option', { name: 'Project guide' }));
+    };
+    await chooseProject();
+    expect(
+      await screen.findByRole('dialog', { name: 'Switch documentation area?' }),
+    ).toHaveAccessibleDescription('Changes you have not saved will be lost.');
+    expect(screen.getByRole('button', { name: 'Keep editing' })).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(title).toHaveValue('Unsaved area draft');
+    await chooseProject();
+    await user.click(screen.getByRole('button', { name: 'Discard and switch' }));
+    expect(
+      screen.getByRole('combobox', { name: 'Documentation area' }),
+    ).toHaveTextContent('Project guide');
+    expect(screen.queryByDisplayValue('Unsaved area draft')).toBeNull();
+    expect(
+      vi
+        .mocked(globalThis.fetch)
+        .mock.calls.some(([, options]) => options?.method === 'PUT'),
+    ).toBe(false);
   });
 
   it('opens a business-facing page editor instead of the raw schema workbench', async () => {
@@ -638,7 +805,7 @@ describe('DocumentationManagementRoutePage', () => {
       screen.getByRole('heading', { name: 'Runtime Server Composition' }),
     ).toBeVisible();
     await user.click(screen.getByRole('button', { name: /Edit page/i }));
-    expect(screen.getByLabelText('Page title')).toHaveValue(
+    expect(screen.getByRole('textbox', { name: /^Page title(?: \*)?$/ })).toHaveValue(
       'Runtime Server Composition',
     );
     expect(screen.getByLabelText('Page content')).toBeVisible();
@@ -675,22 +842,14 @@ describe('DocumentationManagementRoutePage', () => {
     ).toBe(true);
 
     await user.click(screen.getByRole('button', { name: /Save staged/i }));
-    expect(await screen.findByText(/saved to Staged documentation/i)).toBeVisible();
-    const requests = vi.mocked(globalThis.fetch).mock.calls;
+    expect(await screen.findByText(/belongs to a documentation pack/i)).toBeVisible();
     expect(
-      requests.some(
-        ([input, options]) =>
-          requestUrl(input).endsWith('/cmsComponent') && options?.method === 'PATCH',
-      ),
-    ).toBe(true);
-    expect(
-      requests.some(
-        ([input, options]) =>
-          requestUrl(input).endsWith('/cmsDocumentationPage') &&
-          options?.method === 'PATCH',
-      ),
-    ).toBe(true);
-    expect(screen.getByRole('button', { name: /Link navigation/i })).toBeVisible();
+      vi
+        .mocked(globalThis.fetch)
+        .mock.calls.some(
+          ([, options]) => options?.method === 'PATCH' || options?.method === 'PUT',
+        ),
+    ).toBe(false);
   });
 
   it('opens navigation editing in the same documentation designer window', async () => {
@@ -740,7 +899,7 @@ describe('DocumentationManagementRoutePage', () => {
       await screen.findByText(/Business overview saved to Staged navigation/i),
     ).toBeVisible();
     await user.click(screen.getByRole('button', { name: /Back to page editing/i }));
-    expect(screen.getByLabelText('Page title')).toHaveValue(
+    expect(screen.getByRole('textbox', { name: /^Page title(?: \*)?$/ })).toHaveValue(
       'Runtime Server Composition',
     );
     expect(screen.getByLabelText('Page content')).toBeVisible();
@@ -774,8 +933,11 @@ describe('DocumentationManagementRoutePage', () => {
       name: 'Edit the staged documentation in the same reader layout.',
     });
     await user.click(screen.getByRole('button', { name: /New page/i }));
-    await user.clear(screen.getByLabelText('Page title'));
-    await user.type(screen.getByLabelText('Page title'), 'Customer launch checklist');
+    await user.clear(screen.getByRole('textbox', { name: /^Page title(?: \*)?$/ }));
+    await user.type(
+      screen.getByRole('textbox', { name: /^Page title(?: \*)?$/ }),
+      'Customer launch checklist',
+    );
     await user.clear(screen.getByLabelText('Page URL'));
     await user.type(
       screen.getByLabelText('Page URL'),
@@ -799,36 +961,52 @@ describe('DocumentationManagementRoutePage', () => {
       ),
     ).toBeVisible();
     const requests = vi.mocked(globalThis.fetch).mock.calls;
+    await user.click(
+      screen.getByRole('button', { name: 'Submit saved draft for review' }),
+    );
     expect(
-      requests.some(
-        ([input, options]) =>
-          requestUrl(input).endsWith('/cmsComponent') && options?.method === 'PUT',
-      ),
-    ).toBe(true);
+      await screen.findByText('The saved draft was submitted for review.'),
+    ).toBeVisible();
+    const command = requests.find(([input]) =>
+      requestUrl(input).endsWith('/designer/composition/publication-request'),
+    );
+    expect(requestJsonBody(command?.[1]).sourceVersion).toBe('1'.repeat(64));
+
+    await user.click(screen.getByRole('button', { name: /New page/i }));
+    await user.clear(screen.getByRole('textbox', { name: /^Page title(?: \*)?$/ }));
+    await user.type(
+      screen.getByRole('textbox', { name: /^Page title(?: \*)?$/ }),
+      'Store launch checklist',
+    );
+    await user.clear(screen.getByLabelText('Page URL'));
+    await user.type(
+      screen.getByLabelText('Page URL'),
+      '/docs/framework/store-launch-checklist',
+    );
+    await user.click(screen.getByRole('button', { name: /Save staged/i }));
     expect(
-      requests.some(
+      await screen.findByText(/Store launch checklist saved to Staged documentation/i),
+    ).toBeVisible();
+
+    const created = requests
+      .filter(
         ([input, options]) =>
-          requestUrl(input).endsWith('/cmsDocumentationPage') &&
+          requestUrl(input).endsWith('/designer/composition/draft') &&
           options?.method === 'PUT',
-      ),
-    ).toBe(true);
-    expect(
-      requests.some(
-        ([input, options]) =>
-          requestUrl(input).endsWith('/cmsPage') && options?.method === 'PUT',
-      ),
-    ).toBe(true);
-    expect(
-      requests.some(
-        ([input, options]) =>
-          requestUrl(input).endsWith('/cmsPageRoute') && options?.method === 'PUT',
-      ),
-    ).toBe(true);
+      )
+      .map(([, options]) => requestJsonBody(options).page as Record<string, unknown>);
+    expect(created.map((model) => model.name)).toEqual([
+      'Customer launch checklist',
+      'Store launch checklist',
+    ]);
+    expect(new Set(created.map((model) => model.code)).size).toBe(2);
   }, 30_000);
 
   it('previews staged documentation through the designer projection route', async () => {
     const request = vi.fn<typeof fetch>().mockImplementation((input) => {
       const path = new URL(requestUrl(input)).pathname;
+      if (path.endsWith('/designer/composition/pages'))
+        return Promise.resolve(response({ pages: [] }));
       if (path.endsWith('/model')) return Promise.resolve(response(authoringModel()));
       if (path.endsWith('/render-projection')) {
         return Promise.resolve(
@@ -883,6 +1061,8 @@ describe('DocumentationManagementRoutePage', () => {
   it('executes governance validation, search, handoff, and migration actions', async () => {
     const request = vi.fn<typeof fetch>().mockImplementation((input) => {
       const path = new URL(requestUrl(input)).pathname;
+      if (path.endsWith('/designer/composition/pages'))
+        return Promise.resolve(response({ pages: [] }));
       if (path.endsWith('/model')) return Promise.resolve(response(authoringModel()));
       if (path.endsWith('/validate')) {
         return Promise.resolve(

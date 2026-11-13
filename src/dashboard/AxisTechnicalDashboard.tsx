@@ -1,3 +1,4 @@
+import { useOperationalReadinessObservation } from '../bootstrap/useOperationalReadinessObservation';
 import type { CmsComponentContract } from '../cms/cmsContract';
 import { dashboardText, renderDashboardSections } from './dashboardComposition';
 import { useMutation, useQueries, useQuery } from '@tanstack/react-query';
@@ -50,6 +51,7 @@ import type { DataRelease } from '../operations/importExport/api/dataReleaseCont
 import { releaseKey } from '../operations/importExport/importExportPresentation';
 import type { AxisRuntimeConfig } from '../runtime/runtimeConfig';
 import { invokeOperationalOwner } from '../operations/shared/operationalOwnerClient';
+import { useApplicationReadinessQueue } from '../operations/setupAccelerators/useApplicationReadinessQueue';
 
 interface AxisDashboardRoutePageProps {
   readonly visual?: boolean;
@@ -1112,13 +1114,79 @@ function TechnicalEvidence({
   );
 }
 
-export function AxisTechnicalDashboard({
+/** Private dashboard state and reads retire together when their actor or effective source changes. */
+export function AxisTechnicalDashboard(props: AxisDashboardRoutePageProps) {
+  const connection = selectModuleConnection(props.bootstrap, 'backoffice');
+  const readiness = useApplicationReadinessQueue({
+    accessToken: props.accessToken,
+    tenantCode: props.bootstrap.tenantCode,
+    enterpriseCode: props.runtime.enterpriseCode,
+    projectCode: props.runtime.projectCode,
+    connection,
+    policy: props.bootstrap.applicationReadinessScheduling,
+  });
+  const sourceScope = JSON.stringify([
+    readiness.scope,
+    props.runtime.backofficeBaseUrl,
+    props.runtime.clientContractVersion,
+    props.bootstrap.operationalReadinessObservation?.mode,
+    selectReleaseCatalogueConnections(props.bootstrap, props.runtime).map((source) => [
+      source.moduleName,
+      source.instanceId,
+      source.endpoint,
+      source.environment,
+      source.server,
+      source.runtimeRole?.code,
+      source.runtimeRole?.publication,
+      source.state,
+    ]),
+  ]);
+  const {
+    onDemand,
+    query: reportQuery,
+    bootstrap: observedBootstrap,
+  } = useOperationalReadinessObservation({
+    ...props,
+    scope: sourceScope,
+  });
+  return (
+    <AxisTechnicalDashboardContent
+      key={sourceScope}
+      {...props}
+      bootstrap={observedBootstrap}
+      observation={{
+        active: onDemand,
+        fetching: onDemand && reportQuery.isFetching,
+        error: onDemand ? reportQuery.error : null,
+        refresh: () => {
+          void reportQuery.refetch();
+        },
+      }}
+      statusQueue={readiness.queue}
+      statusScope={sourceScope}
+    />
+  );
+}
+
+function AxisTechnicalDashboardContent({
   visual = false,
   sections,
   accessToken,
   bootstrap,
   runtime,
-}: AxisDashboardRoutePageProps) {
+  statusQueue,
+  statusScope,
+  observation,
+}: AxisDashboardRoutePageProps & {
+  readonly statusQueue: ReturnType<typeof useApplicationReadinessQueue>['queue'];
+  readonly statusScope: string;
+  readonly observation: {
+    readonly active: boolean;
+    readonly fetching: boolean;
+    readonly error: Error | null;
+    readonly refresh: () => void;
+  };
+}) {
   const navigate = useNavigate();
   const [expandedPanels, setExpandedPanels] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -1157,7 +1225,7 @@ export function AxisTechnicalDashboard({
 
   const registeredModulesQuery = useQuery({
     enabled: Boolean(backofficeConnection),
-    queryKey: ['axis-dashboard', 'registered-modules', runtime.enterpriseCode],
+    queryKey: ['axis-dashboard', statusScope, 'registered-modules'],
     queryFn: () => {
       if (!backofficeConnection) throw new Error('Module Registry is unavailable');
       return loadRegisteredFunctionalModules(
@@ -1168,7 +1236,7 @@ export function AxisTechnicalDashboard({
   });
   const availableModulesQuery = useQuery({
     enabled: Boolean(backofficeConnection),
-    queryKey: ['axis-dashboard', 'available-modules', runtime.enterpriseCode],
+    queryKey: ['axis-dashboard', statusScope, 'available-modules'],
     queryFn: () => {
       if (!backofficeConnection) throw new Error('Module Registry is unavailable');
       return loadAvailableFunctionalModules(
@@ -1179,15 +1247,23 @@ export function AxisTechnicalDashboard({
   });
   const releasesQuery = useQuery({
     enabled: releaseConnections.length > 0,
-    queryKey: ['axis-dashboard', 'data-releases', runtime.enterpriseCode],
+    queryKey: ['axis-dashboard', statusScope, 'data-releases'],
     queryFn: () => loadDataReleasesByDestination(releaseConnections, dataConfiguration),
   });
-  const applicationProfiles = bootstrap.applicationInitializationProfiles ?? [];
+  const applicationProfiles = (
+    bootstrap.applicationInitializationProfiles ?? []
+  ).filter(
+    (profile) =>
+      profile.kind !== 'DOCUMENTATION' && profile.type !== 'DOCUMENTATION_BUNDLE',
+  );
   const applicationStatusQueries = useQueries({
-    queries: applicationProfiles.map((profile) => ({
+    queries: (observation.active ? [] : applicationProfiles).map((profile) => ({
       enabled: Boolean(backofficeConnection),
-      queryKey: ['axis-dashboard', 'application-status', profile.code],
-      queryFn: () => {
+      queryKey: ['axis-dashboard', statusScope, 'application-status', profile.code],
+      retry: false,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      queryFn: ({ signal }) => {
         if (!backofficeConnection) {
           throw new Error('Application initialization is unavailable');
         }
@@ -1197,7 +1273,8 @@ export function AxisTechnicalDashboard({
           accessToken,
           timeoutMs: runtime.requestTimeoutMs,
           profileCode: profile.code,
-        }).getStatus();
+          statusQueue,
+        }).getStatus(signal);
       },
     })),
   });
@@ -1205,14 +1282,18 @@ export function AxisTechnicalDashboard({
     isConfiguredCmsDocumentationSource,
   );
   const documentationStatusQueries = useQueries({
-    queries: documentationSources.map((source) => ({
+    queries: (observation.active ? [] : documentationSources).map((source) => ({
       enabled: Boolean(backofficeConnection),
       queryKey: [
         'axis-dashboard',
+        statusScope,
         'documentation-status',
         source.initializationProfile,
       ],
-      queryFn: () => {
+      retry: false,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      queryFn: ({ signal }) => {
         if (!backofficeConnection) {
           throw new Error('Documentation publication is unavailable');
         }
@@ -1222,7 +1303,8 @@ export function AxisTechnicalDashboard({
           accessToken,
           timeoutMs: runtime.requestTimeoutMs,
           profileCode: source.initializationProfile,
-        }).getStatus();
+          statusQueue,
+        }).getStatus(signal);
       },
     })),
   });
@@ -1234,6 +1316,8 @@ export function AxisTechnicalDashboard({
       readonly fix: OperationalFixModel;
       readonly dryRun: boolean;
     }) => {
+      if (observation.active && !bootstrap.operationalReadiness)
+        throw new Error('Refresh operational readiness before requesting a repair.');
       const repair = fix.blocker.repair;
       const key = idempotencyKey(dryRun ? 'repair-dry-run' : 'repair-execute');
       return parseReadinessRepairResult(
@@ -1284,9 +1368,11 @@ export function AxisTechnicalDashboard({
   const availableModules = availableModulesQuery.data ?? [];
   const releases = releasesQuery.data ?? [];
   const applicationStatuses = applicationStatusQueries
+    .filter((query) => query.isSuccess && !query.isFetching)
     .map((query) => query.data)
     .filter((status): status is ApplicationInitializationStatus => Boolean(status));
   const documentationStatuses = documentationStatusQueries
+    .filter((query) => query.isSuccess && !query.isFetching)
     .map((query) => query.data)
     .filter((status): status is DocumentationPublicationStatus => Boolean(status));
   const allPublicationStatuses = [...applicationStatuses, ...documentationStatuses];
@@ -1348,8 +1434,22 @@ export function AxisTechnicalDashboard({
   const currentReleaseCount = releases.filter(
     (release) => release.status === 'CURRENT',
   ).length;
-  const readyPublicationCount =
-    allPublicationStatuses.filter(publicationIsReady).length;
+  const observedOnlineCount = publishingReadiness?.summary.onlineCount;
+  const observedProfileCount = publishingReadiness?.summary.profileCount;
+  const readyPublicationCount = observation.active
+    ? typeof observedOnlineCount === 'number' &&
+      Number.isSafeInteger(observedOnlineCount) &&
+      observedOnlineCount >= 0
+      ? observedOnlineCount
+      : undefined
+    : allPublicationStatuses.filter(publicationIsReady).length;
+  const publicationProfileCount = observation.active
+    ? typeof observedProfileCount === 'number' &&
+      Number.isSafeInteger(observedProfileCount) &&
+      observedProfileCount >= 0
+      ? observedProfileCount
+      : undefined
+    : allPublicationStatuses.length;
   const readyDocumentationCount =
     documentationStatuses.filter(publicationIsReady).length;
   const documentationActionCount =
@@ -1438,12 +1538,14 @@ export function AxisTechnicalDashboard({
       ? (operationalBlockerValue ?? 1)
       : 0);
   const loading =
+    observation.fetching ||
     registeredModulesQuery.isLoading ||
     availableModulesQuery.isLoading ||
     releasesQuery.isLoading ||
     applicationStatusQueries.some((query) => query.isLoading) ||
     documentationStatusQueries.some((query) => query.isLoading);
   const firstError =
+    observation.error ??
     registeredModulesQuery.error ??
     availableModulesQuery.error ??
     releasesQuery.error ??
@@ -1908,8 +2010,8 @@ export function AxisTechnicalDashboard({
             },
             {
               label: 'Online ready',
-              value: String(readyPublicationCount),
-              severity: readyPublicationCount > 0 ? 'success' : 'info',
+              value: String(readyPublicationCount ?? 'Unverified'),
+              severity: (readyPublicationCount ?? 0) > 0 ? 'success' : 'info',
             },
           ],
         }
@@ -1922,7 +2024,7 @@ export function AxisTechnicalDashboard({
           route: '/publishing',
           primaryAction: 'Open Publishing',
           severity: 'success',
-          meta: `${String(readyPublicationCount)} Online-ready sources`,
+          meta: `${String(readyPublicationCount ?? 'Unverified')} Online-ready sources`,
           detailRows: [
             {
               label: 'Waiting approval',
@@ -1931,7 +2033,7 @@ export function AxisTechnicalDashboard({
             },
             {
               label: 'Online ready',
-              value: String(readyPublicationCount),
+              value: String(readyPublicationCount ?? 'Unverified'),
               severity: 'success',
             },
             {
@@ -2115,6 +2217,59 @@ export function AxisTechnicalDashboard({
     },
   ];
 
+  // Full-report observation suppresses profile queries: those absent rows cannot imply zero work or READY.
+  const observedCards = observation.active
+    ? actionCards
+        .filter((card) => !['setup', 'docs-parity'].includes(card.id))
+        .map((card) => {
+          const owned: Record<
+            string,
+            { section: AxisOperationalReadinessSection | undefined; label: string }
+          > = {
+            publishing: {
+              section: approvalReadiness ?? publishingReadiness,
+              label: 'Publication readiness',
+            },
+            'documentation-readiness': {
+              section: documentationReadiness,
+              label: 'Documentation readiness',
+            },
+            'application-parity-readiness': {
+              section: applicationsReadiness,
+              label: 'Application readiness',
+            },
+            'assistant-readiness': {
+              section: assistantReadiness,
+              label: 'Assistant readiness',
+            },
+            'repair-governance-readiness': {
+              section: repairGovernanceReadiness,
+              label: 'Repair governance',
+            },
+          };
+          const owner = owned[card.id];
+          if (!owner) return card;
+          const section = owner.section;
+          return {
+            ...card,
+            title: section?.title ?? `${owner.label} is unverified`,
+            description:
+              section?.nextAction ??
+              'Refresh technical signals to obtain current operational evidence.',
+            route: section?.route ?? card.route,
+            primaryAction: 'Open workspace',
+            severity: readinessSeverity(section?.businessStatus),
+            count: section
+              ? readinessSectionActionCount(section) || undefined
+              : undefined,
+            meta: section ? section.businessStatus : 'Unverified',
+            detailRows: readinessSectionDetailRows(section, [
+              { label: 'Readiness', value: 'Unverified', severity: 'info' },
+            ]),
+          } satisfies ActionCardModel;
+        })
+    : actionCards;
+
   return (
     <Stack
       spacing={3}
@@ -2150,6 +2305,7 @@ export function AxisTechnicalDashboard({
                     aria-label="Refresh technical signals"
                     disabled={loading}
                     onClick={() => {
+                      if (observation.active) observation.refresh();
                       void registeredModulesQuery.refetch();
                       void availableModulesQuery.refetch();
                       void releasesQuery.refetch();
@@ -2165,6 +2321,13 @@ export function AxisTechnicalDashboard({
                 </span>
               </Tooltip>
             </Stack>
+            {observation.active && !operationalReadiness && (
+              <Alert severity="info" role="status">
+                {observation.fetching
+                  ? 'Checking operational readiness with BackOffice.'
+                  : 'Operational readiness is unverified. Refresh technical signals to check again.'}
+              </Alert>
+            )}
             {firstError ? (
               <Alert severity="warning">
                 Some dashboard signals are unavailable: {dashboardError(firstError)}
@@ -2262,14 +2425,18 @@ export function AxisTechnicalDashboard({
                 },
                 {
                   label: 'Online-ready sources',
-                  value: readyPublicationCount,
-                  total: Math.max(allPublicationStatuses.length, readyPublicationCount),
+                  value: readyPublicationCount ?? 0,
+                  total: publicationProfileCount ?? 0,
                   color: 'success' as const,
                   icon: 'workflow',
-                  available: ![
-                    ...applicationStatusQueries,
-                    ...documentationStatusQueries,
-                  ].some((query) => query.isPending || query.isError),
+                  available: observation.active
+                    ? Boolean(operationalReadiness) &&
+                      readyPublicationCount !== undefined &&
+                      publicationProfileCount !== undefined
+                    : ![
+                        ...applicationStatusQueries,
+                        ...documentationStatusQueries,
+                      ].some((query) => query.isPending || query.isError),
                 },
               ].map((item) => (
                 <Box
@@ -2312,10 +2479,10 @@ export function AxisTechnicalDashboard({
                         fontVariantNumeric: 'tabular-nums',
                       }}
                     >
-                      {visual && !item.available ? '—' : item.value}
+                      {!item.available ? '—' : item.value}
                     </Typography>
                     <Typography color="text.secondary" variant="body2">
-                      / {item.total}
+                      / {item.available ? item.total : '—'}
                     </Typography>
                   </Stack>
                   {visual ? (
@@ -2339,17 +2506,20 @@ export function AxisTechnicalDashboard({
                           aria-hidden
                           sx={{ color: 'action.hover', position: 'absolute', inset: 0 }}
                         />
-                        {item.available && item.total > 0 && (
-                          <CircularProgress
-                            variant="determinate"
-                            value={progressPercent(item.value, item.total)}
-                            size={56}
-                            thickness={4}
-                            color={item.color}
-                            aria-label={item.label}
-                            sx={{ position: 'absolute', inset: 0 }}
-                          />
-                        )}
+                        {item.available &&
+                          typeof item.total === 'number' &&
+                          typeof item.value === 'number' &&
+                          item.total > 0 && (
+                            <CircularProgress
+                              variant="determinate"
+                              value={progressPercent(item.value, item.total)}
+                              size={56}
+                              thickness={4}
+                              color={item.color}
+                              aria-label={item.label}
+                              sx={{ position: 'absolute', inset: 0 }}
+                            />
+                          )}
                         <Typography
                           variant="caption"
                           sx={{
@@ -2360,7 +2530,10 @@ export function AxisTechnicalDashboard({
                             fontWeight: 700,
                           }}
                         >
-                          {item.available && item.total > 0
+                          {item.available &&
+                          typeof item.total === 'number' &&
+                          typeof item.value === 'number' &&
+                          item.total > 0
                             ? `${Math.round(progressPercent(item.value, item.total))}%`
                             : '—'}
                         </Typography>
@@ -2773,7 +2946,10 @@ export function AxisTechnicalDashboard({
                               <>
                                 <Button
                                   color="inherit"
-                                  disabled={repairMutation.isPending}
+                                  disabled={
+                                    repairMutation.isPending ||
+                                    (observation.active && !operationalReadiness)
+                                  }
                                   onClick={() =>
                                     repairMutation.mutate({ fix, dryRun: true })
                                   }
@@ -2783,7 +2959,10 @@ export function AxisTechnicalDashboard({
                                   Dry run repair
                                 </Button>
                                 <Button
-                                  disabled={repairMutation.isPending}
+                                  disabled={
+                                    repairMutation.isPending ||
+                                    (observation.active && !operationalReadiness)
+                                  }
                                   onClick={() => {
                                     const repairLabel =
                                       typeof fix.blocker.repair.label === 'string'
@@ -2874,7 +3053,7 @@ export function AxisTechnicalDashboard({
                     : {}),
                 }}
               >
-                {actionCards.map((card) => (
+                {observedCards.map((card) => (
                   <Box
                     key={card.id}
                     sx={{

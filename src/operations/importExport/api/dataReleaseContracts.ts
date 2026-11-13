@@ -1,4 +1,7 @@
 import type { WorkbenchFilterGroup } from '../../../workbench/api/workbenchContracts';
+import type { DataCatalogueObservation } from './dataCatalogueSources';
+
+export type DataOperationAction = 'validate' | 'install';
 
 export type DataReleaseType = 'init' | 'core' | 'sample';
 
@@ -11,7 +14,9 @@ export type DataReleaseStatus =
   | 'RUNNING'
   | 'FAILED';
 
-export interface DataRelease {
+export interface DataRelease extends DataCatalogueObservation {
+  readonly continuationSupported?: boolean | undefined;
+  readonly allowedActions?: readonly DataOperationAction[];
   readonly releaseCode?: string;
   readonly sectionCode?: string;
   readonly moduleName: string;
@@ -74,6 +79,8 @@ export interface DataReleaseReadinessRepairAction {
 }
 
 export interface DataReleasePlan {
+  readonly continuation?: boolean | undefined;
+  readonly executionCode?: string | undefined;
   readonly dataType: DataReleaseType;
   readonly modules?: readonly string[];
   readonly releaseCodes?: readonly string[];
@@ -137,7 +144,40 @@ export interface DataReleaseDryRunSummary {
   readonly messages: readonly string[];
 }
 
+/** Content-free identities from nImport's validated same-tenant prerequisite plan. */
+export interface DataReleasePlanIdentity {
+  readonly releaseCode: string;
+  readonly moduleName: string;
+  readonly dataType: DataReleaseType;
+  readonly version: string;
+  readonly checksum: string;
+}
+
+/** Owner-defined plan membership for response correlation; never browser import authority. */
+export interface DataReleaseOperationSelection {
+  readonly contractVersion: 1;
+  readonly requestedReleaseCodes: readonly string[];
+  readonly prerequisites: readonly DataReleasePlanIdentity[];
+}
+
+export interface DataReleaseExecution {
+  readonly code: string;
+  readonly status: 'READY' | 'RUNNING' | 'UNCERTAIN' | 'COMPLETED';
+  readonly dataType: DataReleaseType;
+  readonly planHash: string;
+  readonly revision: number;
+  readonly completed: number;
+  readonly total: number;
+  readonly nextAction: string;
+  readonly canContinue: boolean;
+  readonly releaseCodes: readonly string[];
+  readonly expectedReleases: Readonly<Record<string, string>>;
+}
+
 export interface DataReleaseOperationResult {
+  readonly execution?: DataReleaseExecution | undefined;
+  readonly executions?: readonly DataReleaseExecution[] | undefined;
+  readonly selection?: DataReleaseOperationSelection;
   readonly dataType: DataReleaseType;
   readonly tenant: string;
   readonly releases: readonly DataRelease[];
@@ -157,7 +197,8 @@ export interface InitializationProfileStep {
   readonly releases: readonly DataRelease[];
 }
 
-export interface InitializationProfile {
+export interface InitializationProfile extends DataCatalogueObservation {
+  readonly allowedActions?: readonly DataOperationAction[];
   readonly profileCode: string;
   readonly label: string;
   readonly description: string;
@@ -185,6 +226,8 @@ export interface ImportRunSummary {
   readonly summary?: ImportRunRecordSummary;
   readonly failures?: readonly ImportRunFailure[];
   readonly validationErrors?: readonly ImportRunFailure[];
+  readonly validationOnly?: boolean;
+  readonly media?: DataExportMediaSummary;
 }
 
 export interface ImportRunRecordSummary {
@@ -279,6 +322,14 @@ export interface GenericMediaImportRequest {
 }
 
 export type DataExportFileFormat = 'csv' | 'json';
+
+export interface DataExportWorkspace {
+  readonly contractVersion: 1;
+  readonly kind: 'GOVERNED_EXPORT';
+  readonly availability: 'AVAILABLE' | 'DISABLED' | 'UNAVAILABLE';
+  readonly formats: readonly DataExportFileFormat[];
+  readonly reason?: string | undefined;
+}
 
 export interface DataExportRequest {
   readonly enterpriseCode: string;

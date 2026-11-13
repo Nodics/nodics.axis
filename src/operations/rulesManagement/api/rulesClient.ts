@@ -22,6 +22,17 @@ export interface RuleDefinitionSummary {
   readonly scoreBandSetCode?: string;
   readonly scoreBandSetVersion?: number;
   readonly definition?: { readonly groups?: readonly unknown[] };
+  readonly allowedOperations?: readonly string[];
+  readonly validation?: {
+    readonly valid: boolean;
+    readonly issues: readonly { readonly code: string; readonly path?: string }[];
+  };
+  readonly lastSimulation?: {
+    readonly draftRevision: number;
+    readonly sourceHash: string;
+    readonly bandSetCode?: string;
+    readonly bandSetVersion?: number;
+  };
   readonly approval?: {
     readonly status?: string;
     readonly processInstanceCode?: string;
@@ -41,14 +52,50 @@ export interface RulePropertyCatalogue {
   readonly code?: string;
   readonly version?: string | number;
   readonly properties?: readonly RulePropertyDescriptor[];
+  readonly authoring?: RuleAuthoringContract;
+  readonly simulationInputPath?: readonly string[];
 }
 
 export interface RulePropertyDescriptor {
   readonly code: string;
   readonly label?: string | { readonly en?: string };
   readonly valueType?: string;
+  readonly displayName?: string | Readonly<Record<string, string>>;
+  readonly dataType?: string;
+  readonly allowedOperators?: readonly string[];
   readonly supportsFallback?: boolean;
   readonly allowedValues?: readonly unknown[];
+}
+
+/** Inert presentation metadata supplied by Rules owners; no browser-side evaluator. */
+export interface RuleAuthoringContract {
+  readonly contractVersion: 1;
+  readonly groupOperators: readonly string[];
+  readonly inputQualities: readonly string[];
+  readonly missingValueBehaviors: readonly string[];
+  readonly limits: {
+    readonly maximumRuleGroupsPerSet: number;
+    readonly maximumConditionsPerGroup: number;
+    readonly maximumGroupDepth: number;
+  };
+  readonly operators: Readonly<
+    Record<
+      string,
+      {
+        readonly dataTypes: readonly string[];
+        readonly valueShape: 'NONE' | 'ONE' | 'LIST' | 'RANGE';
+      }
+    >
+  >;
+  readonly outcomeTypes: readonly {
+    readonly code: string;
+    readonly label?: Readonly<Record<string, string>>;
+    readonly fields: readonly {
+      readonly code: string;
+      readonly dataType: string;
+      readonly required?: boolean;
+    }[];
+  }[];
 }
 
 export interface RuleSetVersionSummary {
@@ -79,13 +126,16 @@ export interface ScoreBandSetSummary {
   readonly draftRevision?: number;
   readonly bands?: readonly ScoreBandSummary[];
   readonly gapBehavior?: string;
+  readonly allowedOperations?: readonly string[];
 }
 
 export interface ScoreBandSummary {
   readonly code: string;
-  readonly minScore?: number;
+  readonly minScore?: number | undefined;
   readonly maxScore?: number | null;
   readonly outcome?: Record<string, unknown>;
+  readonly enabled?: boolean;
+  readonly [key: string]: unknown;
 }
 
 const owner = 'rulesApi';
@@ -127,14 +177,92 @@ export function loadRuleAudit(configuration: RulesClientConfiguration, code: str
 }
 
 /** Reads the backend-owned property catalogue for picker assistance only. */
-export function loadPropertyCatalogue(
+export async function loadPropertyCatalogue(
   configuration: RulesClientConfiguration,
   propertyProviderCode: string,
-) {
-  return invoke<RulePropertyCatalogue>(
+): Promise<RulePropertyCatalogue> {
+  const response = await invoke<{
+    catalogue: RulePropertyCatalogue;
+    authoring: RuleAuthoringContract;
+  }>(
     configuration,
     owner,
     '/property-catalogues/' + encodeURIComponent(propertyProviderCode),
+  );
+  const catalogue = response?.catalogue,
+    authoring = response?.authoring;
+  const safeCode = (value: unknown) =>
+    typeof value === 'string' &&
+    /^[A-Za-z0-9][A-Za-z0-9_.-]{0,159}$/.test(value) &&
+    !['__proto__', 'prototype', 'constructor'].includes(value);
+  if (
+    !catalogue ||
+    !Array.isArray(catalogue.properties) ||
+    !catalogue.properties.every(
+      (property: RulePropertyDescriptor) =>
+        safeCode(property.code) &&
+        ['STRING', 'NUMBER', 'BOOLEAN', 'DATE', 'COLLECTION', 'OBJECT'].includes(
+          property.dataType ?? '',
+        ) &&
+        Array.isArray(property.allowedOperators),
+    ) ||
+    !authoring ||
+    authoring.contractVersion !== 1 ||
+    !Array.isArray(authoring.groupOperators) ||
+    !Array.isArray(authoring.inputQualities) ||
+    !Array.isArray(authoring.missingValueBehaviors) ||
+    !authoring.limits ||
+    !Object.values(authoring.limits).every(
+      (value) => Number.isSafeInteger(value) && value > 0 && value <= 10000,
+    ) ||
+    !authoring.operators ||
+    !Object.entries(authoring.operators).every(
+      ([code, operator]) =>
+        safeCode(code) &&
+        Array.isArray(operator.dataTypes) &&
+        ['NONE', 'ONE', 'LIST', 'RANGE'].includes(operator.valueShape),
+    ) ||
+    !Array.isArray(authoring.outcomeTypes) ||
+    !authoring.outcomeTypes.every(
+      (outcome: RuleAuthoringContract['outcomeTypes'][number]) =>
+        safeCode(outcome.code) &&
+        Array.isArray(outcome.fields) &&
+        outcome.fields.every(
+          (field: RuleAuthoringContract['outcomeTypes'][number]['fields'][number]) =>
+            safeCode(field.code) &&
+            ['STRING', 'NUMBER', 'BOOLEAN'].includes(field.dataType),
+        ),
+    )
+  )
+    throw new Error(
+      'The Rules authoring catalogue is incompatible. Refresh after the owner is available.',
+    );
+  if (
+    catalogue.simulationInputPath !== undefined &&
+    (!Array.isArray(catalogue.simulationInputPath) ||
+      catalogue.simulationInputPath.length > 5 ||
+      !catalogue.simulationInputPath.every(safeCode))
+  )
+    throw new Error('The simulation input contract is incompatible.');
+  return { ...catalogue, authoring };
+}
+
+/** Reads bounded owner value choices; absence leaves a typed value field, never a fabricated choice. */
+export function loadRulePropertyValues(
+  configuration: RulesClientConfiguration,
+  provider: string,
+  property: string,
+) {
+  return invoke<
+    readonly { readonly value: string | number | boolean; readonly label: string }[]
+  >(
+    configuration,
+    owner,
+    '/property-catalogues/' +
+      encodeURIComponent(provider) +
+      '/properties/' +
+      encodeURIComponent(property) +
+      '/values',
   );
 }
 
@@ -142,12 +270,13 @@ export function loadPropertyCatalogue(
 export function prepareRuleDraft(
   configuration: RulesClientConfiguration,
   code: string,
+  expectedDraftRevision?: number,
 ) {
   return invoke<RuleDefinitionSummary>(
     configuration,
     owner,
     definitionPath(code) + '/draft/prepare',
-    {},
+    { ...(expectedDraftRevision === undefined ? {} : { expectedDraftRevision }) },
   );
 }
 
@@ -156,12 +285,16 @@ export function saveRuleDraft(
   configuration: RulesClientConfiguration,
   code: string,
   definition: object,
+  expectedDraftRevision?: number,
 ) {
   return invoke<RuleDefinitionSummary>(
     configuration,
     owner,
     definitionPath(code) + '/draft',
-    { definition },
+    {
+      definition,
+      ...(expectedDraftRevision === undefined ? {} : { expectedDraftRevision }),
+    },
     'PATCH',
   );
 }
@@ -170,12 +303,13 @@ export function saveRuleDraft(
 export function validateRuleDraft(
   configuration: RulesClientConfiguration,
   code: string,
+  expectedDraftRevision?: number,
 ) {
   return invoke<unknown>(
     configuration,
     owner,
     definitionPath(code) + '/draft/validate',
-    {},
+    { ...(expectedDraftRevision === undefined ? {} : { expectedDraftRevision }) },
   );
 }
 
@@ -184,22 +318,30 @@ export function simulateRuleDraft(
   configuration: RulesClientConfiguration,
   code: string,
   input: object,
+  expectedDraftRevision?: number,
 ) {
   return invoke<RuleSimulationResult>(
     configuration,
     owner,
     definitionPath(code) + '/draft/simulate',
-    { input },
+    {
+      input,
+      ...(expectedDraftRevision === undefined ? {} : { expectedDraftRevision }),
+    },
   );
 }
 
 /** Submits the validated and simulated draft to Process-owned maker-checker. */
-export function submitRuleDraft(configuration: RulesClientConfiguration, code: string) {
+export function submitRuleDraft(
+  configuration: RulesClientConfiguration,
+  code: string,
+  expectedDraftRevision?: number,
+) {
   return invoke<RuleDefinitionSummary['approval']>(
     configuration,
     owner,
     definitionPath(code) + '/draft/submit',
-    {},
+    { ...(expectedDraftRevision === undefined ? {} : { expectedDraftRevision }) },
   );
 }
 
@@ -217,10 +359,25 @@ export function loadScoreBandSet(
 }
 
 /** Saves score-band draft details through the Rules API owner. */
+export function loadScoreBandVersions(
+  configuration: RulesClientConfiguration,
+  code: string,
+) {
+  return invoke<(ScoreBandSetSummary & { version: number })[]>(
+    configuration,
+    owner,
+    bandSetPath(code) + '/versions',
+  );
+}
+
 export function saveScoreBandDraft(
   configuration: RulesClientConfiguration,
   code: string,
-  draft: { readonly bands: readonly ScoreBandSummary[]; readonly gapBehavior?: string },
+  draft: {
+    readonly bands: readonly ScoreBandSummary[];
+    readonly gapBehavior?: string;
+    readonly expectedDraftRevision?: number;
+  },
 ) {
   return invoke<ScoreBandSetSummary>(
     configuration,
@@ -229,4 +386,24 @@ export function saveScoreBandDraft(
     draft,
     'PATCH',
   );
+}
+
+/** Explicit band lifecycle commands use the reviewed draft revision. */
+export function prepareScoreBandDraft(
+  configuration: RulesClientConfiguration,
+  code: string,
+  expectedDraftRevision: number,
+) {
+  return invoke<unknown>(configuration, owner, bandSetPath(code) + '/draft/prepare', {
+    expectedDraftRevision,
+  });
+}
+export function publishScoreBandDraft(
+  configuration: RulesClientConfiguration,
+  code: string,
+  expectedDraftRevision: number,
+) {
+  return invoke<unknown>(configuration, owner, bandSetPath(code) + '/draft/publish', {
+    expectedDraftRevision,
+  });
 }

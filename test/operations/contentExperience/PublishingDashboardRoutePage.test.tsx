@@ -65,6 +65,7 @@ const bootstrap: AxisAuthenticatedBootstrap = {
         endpoint: 'http://localhost:4330/nodics/process',
         environment: 'kickoffLocal',
         server: 'processServer',
+        runtimeRole: { code: 'PROCESS', publication: 'OPERATIONAL' },
         state: 'UP',
       },
     ],
@@ -83,7 +84,9 @@ const bootstrap: AxisAuthenticatedBootstrap = {
   tenantCode: 'default',
 };
 
-function renderPage() {
+function renderPage(
+  options: { bootstrap?: AxisAuthenticatedBootstrap; tasks?: readonly unknown[] } = {},
+) {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
@@ -96,11 +99,11 @@ function renderPage() {
         JSON.stringify(
           url.pathname.endsWith('/tasks')
             ? {
-                data: [],
+                data: options.tasks ?? [],
                 pagination: {
                   page: 1,
                   pageSize: 25,
-                  total: 0,
+                  total: options.tasks?.length ?? 0,
                   hasNext: false,
                   hasPrevious: false,
                 },
@@ -116,7 +119,7 @@ function renderPage() {
         <MemoryRouter>
           <PublishingDashboardRoutePage
             accessToken="employee-token"
-            bootstrap={bootstrap}
+            bootstrap={options.bootstrap ?? bootstrap}
             routeNavigation={navigation}
             runtime={runtime}
           />
@@ -127,6 +130,48 @@ function renderPage() {
 }
 
 describe('PublishingDashboardRoutePage', () => {
+  it('shows publication review evidence across owners without relying on workflow names', async () => {
+    renderPage({
+      tasks: [
+        {
+          code: 'media-review',
+          name: 'Review Media Publication',
+          instanceCode: 'owner-chosen-instance',
+          nodeCode: 'mediaReview',
+          status: 'OPEN',
+          reviewContext: {
+            contractVersion: 1,
+            owner: 'media',
+            publicationCode: 'media-request',
+            rootType: 'media',
+            rootCode: 'asset',
+            sourceVersion: 'source-0',
+          },
+          decisionContract: {
+            contractVersion: 1,
+            kind: 'APPROVAL',
+            approveLabel: 'Approve',
+            rejectLabel: 'Reject',
+            reasonLabel: 'Reason',
+            rejectionReasonRequired: true,
+            maximumReasonLength: 1000,
+          },
+        },
+      ],
+    });
+    expect(await screen.findByText('1 pending')).toBeTruthy();
+    expect(screen.getByText('media-review')).toBeTruthy();
+  });
+  it('keeps the approval count unknown when its required Process authority is absent', async () => {
+    renderPage({
+      bootstrap: {
+        ...bootstrap,
+        moduleConnections: { publish: bootstrap.moduleConnections.publish! },
+      },
+    });
+    expect(await screen.findByText('Task count unavailable')).toBeTruthy();
+    expect(screen.queryByText('0 pending')).toBeNull();
+  });
   it('makes approval review discoverable from the Publishing workspace', async () => {
     renderPage();
 

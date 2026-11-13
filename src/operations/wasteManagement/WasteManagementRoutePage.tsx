@@ -133,6 +133,7 @@ function WasteReviewRoutePage(props: WasteManagementRoutePageProps) {
     [exporting, setExporting] = useState(false),
     [loading, setLoading] = useState(true),
     [loadFailed, setLoadFailed] = useState(false),
+    [photoLoading, setPhotoLoading] = useState(false),
     [photo, setPhoto] = useState<{
       authority: object;
       code: string;
@@ -210,10 +211,33 @@ function WasteReviewRoutePage(props: WasteManagementRoutePageProps) {
   const admittedAuthority = useRef(authority);
   const authorityEpoch = useRef(0);
   const refreshAfterClose = useRef(false);
+  const detailReturnFocus = useRef<{ authority: object; code: string } | null>(null);
+  const [detailExitComplete, setDetailExitComplete] = useState(false);
+  useEffect(() => {
+    const target = detailReturnFocus.current;
+    if (
+      !detailExitComplete ||
+      selectedCode ||
+      loading ||
+      target?.authority !== authority
+    )
+      return;
+    const frame = requestAnimationFrame(() => {
+      const trigger = Array.from(
+        document.querySelectorAll<HTMLElement>('[data-submission-focus]'),
+      ).find((element) => element.dataset.submissionFocus === target.code);
+      if (trigger) {
+        trigger.focus();
+        detailReturnFocus.current = null;
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [detailExitComplete, selectedCode, loading, records, authority]);
   const retireWorkspace = useEffectEvent(() => {
     loadGeneration.current++;
     authorityEpoch.current++;
     refreshAfterClose.current = false;
+    detailReturnFocus.current = null;
     setRecords([]);
     setOperations(null);
     setDashboard(null);
@@ -448,6 +472,9 @@ function WasteReviewRoutePage(props: WasteManagementRoutePageProps) {
   useEffect(() => {
     let active = true;
     setPhoto(null);
+    setPhotoLoading(
+      Boolean(photoCode && photoIdentity !== 'null' && operations?.canReadEvidence),
+    );
     if (photoCode && photoIdentity !== 'null' && operations?.canReadEvidence)
       void readPhoto(photoCode)
         .then((src) => {
@@ -456,6 +483,9 @@ function WasteReviewRoutePage(props: WasteManagementRoutePageProps) {
         })
         .catch((e) => {
           if (active) setError(e instanceof Error ? e.message : 'Photo unavailable.');
+        })
+        .finally(() => {
+          if (active) setPhotoLoading(false);
         });
     return () => {
       active = false;
@@ -578,6 +608,10 @@ function WasteReviewRoutePage(props: WasteManagementRoutePageProps) {
     : true;
   const requestSelection = (code: string) => {
     if (busy) return;
+    if (code && !selectedCode) {
+      setDetailExitComplete(false);
+      detailReturnFocus.current = { authority, code };
+    }
     if (dirty) setPendingSelection(code);
     else {
       setError('');
@@ -720,7 +754,11 @@ function WasteReviewRoutePage(props: WasteManagementRoutePageProps) {
           sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}
         >
           <Box>
-            <Typography variant="h4" sx={{ fontWeight: 600, letterSpacing: '-.025em' }}>
+            <Typography
+              component="h1"
+              variant="h4"
+              sx={{ fontWeight: 600, letterSpacing: '-.025em' }}
+            >
               {view?.label || dashboardLabels.title || labels.title}
             </Typography>
             <Typography
@@ -863,6 +901,7 @@ function WasteReviewRoutePage(props: WasteManagementRoutePageProps) {
               closeLabel={workspaceLabels.close || 'Close details'}
               busy={busy}
               onClose={() => requestSelection('')}
+              onExited={() => setDetailExitComplete(true)}
               header={
                 selected && (
                   <Box
@@ -972,7 +1011,11 @@ function WasteReviewRoutePage(props: WasteManagementRoutePageProps) {
                         }}
                       />
                     ) : (
-                      <Typography>Photo preview unavailable</Typography>
+                      <Typography role={photoLoading ? 'status' : undefined}>
+                        {photoLoading
+                          ? 'Loading photo preview…'
+                          : 'Photo preview unavailable'}
+                      </Typography>
                     )}
                     <Box>
                       <Chip

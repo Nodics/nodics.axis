@@ -16,7 +16,7 @@ import {
   Typography,
   alpha,
 } from '@mui/material';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { AxisModuleConnection } from '../../../bootstrap/publicBootstrap';
 import {
@@ -36,11 +36,26 @@ import { SchemaQueryBuilder } from '../../../schema/query/SchemaQueryBuilder';
 import {
   downloadDataExportMedia,
   generateDataExport,
+  loadDataExportWorkspace,
   type DataReleaseClientConfiguration,
 } from '../api/dataReleaseClient';
 import type { DataExportFileFormat } from '../api/dataReleaseContracts';
+import { saveDataExportDownload } from '../importExportPresentation';
+
+import {
+  dataOperationTargets,
+  dataOperationTargetDestination,
+  requestedExportSource,
+} from '../api/dataOperationTargets';
 
 interface ExportWorkspaceProps {
+  readonly sourceSearch?: string | undefined;
+  readonly scope: string;
+  readonly onPendingChange: (pending: boolean) => void;
+  readonly onInspectHistory?: (
+    connection: AxisModuleConnection,
+    mediaCode?: string,
+  ) => void;
   readonly configuration: DataReleaseClientConfiguration;
   readonly enterpriseCode: string;
   readonly exportConnections: readonly AxisModuleConnection[];
@@ -49,8 +64,6 @@ interface ExportWorkspaceProps {
   readonly tenantCode: string;
 }
 
-const exportFormats: readonly DataExportFileFormat[] = ['csv', 'json'];
-
 function titleCase(value: string): string {
   return value
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -58,14 +71,6 @@ function titleCase(value: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/\b\w/g, (character) => character.toUpperCase());
-}
-
-function schemaKey(schema: WorkbenchSchema): string {
-  return `${schema.moduleName}/${schema.schemaName}`;
-}
-
-function schemaOptionKey(schema: WorkbenchSchema): string {
-  return `${schema.connectionModuleName ?? schema.moduleName}/${schema.connectionInstanceId ?? 'unknown'}/${schemaKey(schema)}`;
 }
 
 function schemaLabel(schema: WorkbenchSchema): string {
@@ -94,119 +99,6 @@ function recordKey(record: WorkbenchRecord, index: number): string {
   return `export-preview-record-${index.toString()}`;
 }
 
-function connectionMatchesRuntime(
-  candidate: AxisModuleConnection,
-  target: AxisModuleConnection,
-): boolean {
-  return (
-    candidate.environment === target.environment &&
-    candidate.server === target.server &&
-    candidate.runtimeRole?.code === target.runtimeRole?.code
-  );
-}
-
-function connectionMatchesEnvironment(
-  candidate: AxisModuleConnection,
-  target: AxisModuleConnection,
-): boolean {
-  return candidate.environment === target.environment;
-}
-
-function selectServiceConnectionForSchemaRuntime(
-  target: AxisModuleConnection | undefined,
-  serviceConnections: readonly AxisModuleConnection[],
-): AxisModuleConnection | undefined {
-  if (!target) return undefined;
-  return (
-    serviceConnections.find((connection) =>
-      connectionMatchesRuntime(connection, target),
-    ) ??
-    serviceConnections.find((connection) =>
-      connectionMatchesEnvironment(connection, target),
-    ) ??
-    serviceConnections[0]
-  );
-}
-
-function runtimeCanGenerateExport(
-  schemaConnection: AxisModuleConnection,
-  exportConnections: readonly AxisModuleConnection[],
-  mediaConnections: readonly AxisModuleConnection[],
-): boolean {
-  if (schemaConnection.runtimeRole?.publication === 'ONLINE') return false;
-  return (
-    Boolean(
-      selectServiceConnectionForSchemaRuntime(schemaConnection, exportConnections),
-    ) &&
-    Boolean(selectServiceConnectionForSchemaRuntime(schemaConnection, mediaConnections))
-  );
-}
-
-function isExportSchemaSource(connection: AxisModuleConnection): boolean {
-  return !['import', 'export'].includes(connection.moduleName);
-}
-
-function schemaConnectionModuleName(schema: WorkbenchSchema): string {
-  return schema.connectionModuleName ?? schema.moduleName;
-}
-
-function findSchemaConnection(
-  schema: WorkbenchSchema,
-  connections: readonly AxisModuleConnection[],
-): AxisModuleConnection | undefined {
-  const moduleName = schemaConnectionModuleName(schema);
-  return (
-    connections.find(
-      (connection) =>
-        connection.moduleName === moduleName &&
-        schema.connectionInstanceId !== undefined &&
-        connection.instanceId === schema.connectionInstanceId,
-    ) ??
-    connections.find(
-      (connection) =>
-        schema.connectionInstanceId !== undefined &&
-        connection.instanceId === schema.connectionInstanceId,
-    ) ??
-    connections.find(
-      (connection) => connection.moduleName === moduleName && connection.state === 'UP',
-    )
-  );
-}
-
-function exportSchemaConnectionRank(
-  schema: WorkbenchSchema,
-  connection: AxisModuleConnection | undefined,
-): number {
-  if (!connection) return 100;
-  const ownerRank = connection.moduleName === schema.moduleName ? -10 : 0;
-  if (connection.runtimeRole?.publication === 'STAGED') return ownerRank;
-  if (connection.runtimeRole?.publication === 'PROCESS') return ownerRank + 1;
-  if (connection.runtimeRole?.publication === 'OPERATIONAL') return ownerRank + 2;
-  return ownerRank + 3;
-}
-
-function preferredExportSchema(
-  existing: WorkbenchSchema | undefined,
-  candidate: WorkbenchSchema,
-  connections: readonly AxisModuleConnection[],
-): WorkbenchSchema {
-  if (!existing) return candidate;
-  const existingConnection = connections.find(
-    (connection) =>
-      connection.moduleName === schemaConnectionModuleName(existing) &&
-      connection.instanceId === existing.connectionInstanceId,
-  );
-  const candidateConnection = connections.find(
-    (connection) =>
-      connection.moduleName === schemaConnectionModuleName(candidate) &&
-      connection.instanceId === candidate.connectionInstanceId,
-  );
-  return exportSchemaConnectionRank(candidate, candidateConnection) <
-    exportSchemaConnectionRank(existing, existingConnection)
-    ? candidate
-    : existing;
-}
-
 function previewColumns(schema: WorkbenchSchema | undefined): readonly string[] {
   if (!schema) return Object.freeze([]);
   const primary = schema.displayProperties.length
@@ -226,10 +118,24 @@ function formatBytes(value: number | undefined): string | undefined {
 }
 
 export function ExportWorkspace(props: ExportWorkspaceProps) {
+  return <ExportWorkspaceContent key={props.enterpriseCode.trim()} {...props} />;
+}
+
+function ExportWorkspaceContent(props: ExportWorkspaceProps) {
+  // The parent remounts this owner on actor or exact runtime/scope retirement.
+  const lifetime = useRef({ active: true });
+  useEffect(() => {
+    const owner = lifetime.current;
+    owner.active = true;
+    return () => {
+      owner.active = false;
+    };
+  }, []);
   const [targetEnterpriseCode, setTargetEnterpriseCode] = useState(
     props.enterpriseCode.trim(),
   );
-  const [schemaSelection, setSchemaSelection] = useState('');
+  const [schemaSelection, setSchemaSelection] = useState<string>();
+  const [sourceHint] = useState(props.sourceSearch ?? '');
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<WorkbenchFilterGroup | undefined>(undefined);
   const [sort, setSort] = useState<WorkbenchRecordQuery['sort'] | undefined>(undefined);
@@ -266,18 +172,13 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
     ],
   );
 
-  useEffect(() => {
-    setTargetEnterpriseCode(workspaceEnterpriseCode);
-    setSchemaSelection('');
-    setSearch('');
-    setFilters(undefined);
-    setSort(undefined);
-    setPreviewColumnKeys(Object.freeze([]));
-    setPreviewResult(undefined);
-  }, [workspaceEnterpriseCode]);
   const hasEnterprise = selectedEnterpriseCode.length > 0;
   const schemas = useQuery({
-    queryKey: ['data-export-schemas', selectedClientConfiguration.enterpriseCode],
+    queryKey: [
+      'data-export-schemas',
+      props.scope,
+      selectedClientConfiguration.enterpriseCode,
+    ],
     queryFn: () => {
       if (props.schemaConnections.length === 0) {
         throw new Error('Schema discovery is unavailable');
@@ -286,92 +187,73 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
     },
     enabled: props.schemaConnections.length > 0 && hasEnterprise,
   });
-  const schemaOptions = useMemo(() => {
-    const byKey = new Map<string, WorkbenchSchema>();
-    for (const schema of schemas.data ?? []) {
-      const schemaConnection = findSchemaConnection(schema, props.schemaConnections);
-      if (
-        schemaConnection &&
-        isExportSchemaSource(schemaConnection) &&
-        schema.operations.includes('search') &&
-        runtimeCanGenerateExport(
-          schemaConnection,
-          props.exportConnections,
-          props.mediaConnections,
-        )
-      ) {
-        byKey.set(
-          schemaKey(schema),
-          preferredExportSchema(
-            byKey.get(schemaKey(schema)),
-            schema,
-            props.schemaConnections,
-          ),
-        );
-      }
-    }
-    return Object.freeze(
-      [...byKey.values()].sort((left, right) => {
-        const moduleCompare = titleCase(left.moduleName).localeCompare(
-          titleCase(right.moduleName),
-        );
-        if (moduleCompare !== 0) return moduleCompare;
-        return schemaLabel(left).localeCompare(schemaLabel(right));
-      }),
-    );
-  }, [
-    props.exportConnections,
-    props.mediaConnections,
-    props.schemaConnections,
-    schemas.data,
-  ]);
-  const selectedSchema = useMemo(
-    () => schemaOptions.find((schema) => schemaOptionKey(schema) === schemaSelection),
-    [schemaOptions, schemaSelection],
-  );
-  const selectedSort = sort ?? selectedSchema?.queryCapabilities.defaultSort;
-  const selectedConnection = useMemo(() => {
-    if (!selectedSchema) return undefined;
-    const selectedInstance = findSchemaConnection(
-      selectedSchema,
+  const schemaOptions = useMemo(
+    () =>
+      dataOperationTargets(
+        schemas.data ?? [],
+        props.schemaConnections,
+        'export',
+        props.exportConnections,
+        props.mediaConnections,
+      ).filter((target) => target.schema.operations.includes('search')),
+    [
+      schemas.data,
       props.schemaConnections,
-    );
-    if (
-      selectedInstance &&
-      isExportSchemaSource(selectedInstance) &&
-      selectedInstance.runtimeRole?.publication !== 'ONLINE'
-    ) {
-      return selectedInstance;
-    }
-    return (
-      props.schemaConnections.find(
-        (connection) =>
-          connection.moduleName === selectedSchema.moduleName &&
-          connection.state === 'UP' &&
-          connection.runtimeRole?.publication !== 'ONLINE',
-      ) ?? selectedInstance
-    );
-  }, [props.schemaConnections, selectedSchema]);
-  const selectedExportConnection = useMemo(() => {
-    return selectServiceConnectionForSchemaRuntime(
-      selectedConnection,
       props.exportConnections,
-    );
-  }, [props.exportConnections, selectedConnection]);
-  const selectedMediaConnection = useMemo(() => {
-    return selectServiceConnectionForSchemaRuntime(
-      selectedConnection,
       props.mediaConnections,
-    );
-  }, [props.mediaConnections, selectedConnection]);
-  const columns = useMemo(() => previewColumns(selectedSchema), [selectedSchema]);
-  const canChooseSchema = hasEnterprise;
-  const canPreview = Boolean(hasEnterprise && selectedSchema && selectedConnection);
+    ],
+  );
+  const selectedTarget =
+    schemaSelection === undefined
+      ? schemas.isSuccess
+        ? requestedExportSource(sourceHint, schemaOptions)
+        : undefined
+      : schemaOptions.find((target) => target.key === schemaSelection);
+  const selectedSchema = selectedTarget?.schema;
+  const selectedConnection = selectedTarget?.source;
+  const selectedExportConnection = selectedTarget?.operationConnection;
+  const selectedMediaConnection = selectedTarget?.mediaConnection;
+  const selectedSort = sort ?? selectedSchema?.queryCapabilities.defaultSort;
+  const exportWorkspace = useQuery({
+    queryKey: [
+      'data-export-availability',
+      props.scope,
+      selectedClientConfiguration.enterpriseCode,
+      selectedExportConnection?.instanceId,
+      selectedExportConnection?.endpoint,
+    ],
+    queryFn: () => {
+      if (!selectedExportConnection)
+        throw new Error('Export availability is unavailable for this destination');
+      return loadDataExportWorkspace(
+        selectedExportConnection,
+        selectedClientConfiguration,
+      );
+    },
+    enabled: Boolean(hasEnterprise && selectedSchema && selectedExportConnection),
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    gcTime: 0,
+  });
+  const exportFormats = exportWorkspace.data?.formats ?? [];
+  const selectedFormat = exportFormats.includes(format) ? format : exportFormats[0];
+  const columns = previewColumns(selectedSchema);
+  const canChooseSchema = hasEnterprise && !schemas.isError && !schemas.isFetching;
+  const canPreview = Boolean(canChooseSchema && selectedSchema && selectedConnection);
   const canGenerate = Boolean(
-    canPreview && selectedExportConnection && selectedMediaConnection,
+    canPreview &&
+    selectedExportConnection &&
+    selectedMediaConnection &&
+    exportWorkspace.isSuccess &&
+    !exportWorkspace.isFetching &&
+    !exportWorkspace.isError &&
+    exportWorkspace.data.availability === 'AVAILABLE' &&
+    selectedFormat,
   );
 
   const preview = useMutation({
+    retry: false,
     mutationFn: async () => {
       if (!selectedSchema || !selectedConnection) {
         throw new Error('Choose an export model before previewing records');
@@ -389,10 +271,16 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
         },
       );
     },
+    onMutate: () => setPreviewResult(undefined),
     onSuccess: setPreviewResult,
   });
   const generate = useMutation({
+    retry: false,
     mutationFn: async () => {
+      if (!canGenerate || preview.isError || !selectedFormat)
+        throw new Error(
+          'Refresh current export availability and preview before generating a file',
+        );
       if (!selectedExportConnection) {
         throw new Error('Export service is unavailable for the selected model runtime');
       }
@@ -406,7 +294,7 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
         enterpriseCode: selectedEnterpriseCode,
         moduleName: selectedSchema.moduleName,
         schemaName: selectedSchema.schemaName,
-        format,
+        format: selectedFormat,
         query: {
           search,
           filters,
@@ -418,6 +306,7 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
     },
   });
   const download = useMutation({
+    retry: false,
     mutationFn: async () => {
       if (!selectedMediaConnection)
         throw new Error('Media download service is unavailable');
@@ -427,30 +316,25 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
         selectedClientConfiguration,
         generate.data.media,
       );
-      const objectUrl = URL.createObjectURL(file.blob);
-      try {
-        const anchor = document.createElement('a');
-        anchor.href = objectUrl;
-        anchor.download = file.fileName;
-        anchor.rel = 'noreferrer';
-        document.body.append(anchor);
-        anchor.click();
-        anchor.remove();
-      } finally {
-        URL.revokeObjectURL(objectUrl);
-      }
+      if (!lifetime.current.active) return undefined;
+      saveDataExportDownload(file);
       return file.fileName;
     },
   });
   const busy = preview.isPending || generate.isPending || download.isPending;
+  const { onPendingChange } = props;
+  useEffect(() => {
+    onPendingChange(busy);
+    return () => onPendingChange(false);
+  }, [busy, onPendingChange]);
   const operationError =
     preview.error?.message ?? generate.error?.message ?? download.error?.message;
 
   return (
     <Stack spacing={1.5}>
       <Alert severity="info">
-        Export data through nExport. Axis previews records through the schema workbench
-        and asks the backend to generate a governed media file.
+        Export business records as CSV or JSON. Preview your selection, generate a file,
+        then download it.
       </Alert>
 
       {props.exportConnections.length === 0 ? (
@@ -476,8 +360,7 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
                   1. Confirm target destination
                 </Typography>
                 <Typography color="text.secondary">
-                  Records will be exported for the selected enterprise. Nodics resolves
-                  the tenant from enterprise configuration for technical traceability.
+                  Your current enterprise determines which records you can export.
                 </Typography>
               </Stack>
               <Paper
@@ -494,7 +377,7 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
                     fullWidth
                     label="Target enterprise"
                     select
-                    disabled={!workspaceEnterpriseCode}
+                    disabled={busy || !workspaceEnterpriseCode}
                     value={targetEnterpriseCode}
                     onChange={(event) => {
                       setTargetEnterpriseCode(event.target.value);
@@ -539,9 +422,8 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
                   2. Choose export model
                 </Typography>
                 <Typography color="text.secondary">
-                  Select the backend schema that owns the records. The dropdown is
-                  grouped by owning module and only includes runtimes that can generate
-                  governed export media.
+                  Choose a model to preview its records and check file-export
+                  availability.
                 </Typography>
               </Stack>
               {!hasEnterprise ? (
@@ -560,22 +442,18 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
                   fullWidth
                   autoHighlight
                   disablePortal
-                  disabled={!canChooseSchema}
-                  getOptionKey={schemaOptionKey}
-                  groupBy={(schema) => titleCase(schema.moduleName)}
-                  getOptionLabel={schemaLabel}
-                  isOptionEqualToValue={(option, value) =>
-                    option.moduleName === value.moduleName &&
-                    option.schemaName === value.schemaName &&
-                    option.connectionInstanceId === value.connectionInstanceId
-                  }
+                  disabled={busy || !canChooseSchema}
+                  getOptionKey={(target) => target.key}
+                  groupBy={(target) => titleCase(target.schema.moduleName)}
+                  getOptionLabel={(target) => schemaLabel(target.schema)}
+                  isOptionEqualToValue={(option, value) => option.key === value.key}
                   options={schemaOptions}
-                  value={selectedSchema ?? null}
-                  onChange={(_event, schema) => {
-                    setSchemaSelection(schema ? schemaOptionKey(schema) : '');
+                  value={selectedTarget ?? null}
+                  onChange={(_event, target) => {
+                    setSchemaSelection(target?.key ?? '');
                     setSearch('');
                     setFilters(undefined);
-                    setSort(schema?.queryCapabilities.defaultSort);
+                    setSort(target?.schema.queryCapabilities.defaultSort);
                     setPreviewColumnKeys(Object.freeze([]));
                     setPreviewResult(undefined);
                     preview.reset();
@@ -588,19 +466,29 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
                       placeholder="Search schemas by model or module"
                     />
                   )}
-                  renderOption={(optionProps, schema) => (
-                    <Box component="li" {...optionProps} key={schemaOptionKey(schema)}>
+                  renderOption={(optionProps, target) => (
+                    <Box component="li" {...optionProps} key={target.key}>
                       <Stack spacing={0.25}>
                         <Typography component="span" sx={{ fontWeight: 700 }}>
-                          {schema.label}
+                          {target.schema.label}
                         </Typography>
                         <Typography
                           color="text.secondary"
                           component="span"
                           variant="body2"
                         >
-                          {schema.description ||
-                            `${titleCase(schema.moduleName)} schema: ${schema.schemaName}`}
+                          {target.schema.description ||
+                            `${titleCase(target.schema.moduleName)} schema: ${target.schema.schemaName}`}
+                        </Typography>
+                        <Typography
+                          color="text.secondary"
+                          component="span"
+                          variant="body2"
+                        >
+                          {dataOperationTargetDestination(target)}
+                          {!target.operationConnection || !target.mediaConnection
+                            ? ' · File generation unavailable at this destination.'
+                            : ''}
                         </Typography>
                       </Stack>
                     </Box>
@@ -678,14 +566,15 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
                   3. Build query and preview
                 </Typography>
                 <Typography color="text.secondary">
-                  Use the same schema workbench search contract that powers business
-                  data browsing. Axis does not read database tables directly.
+                  Search, filter and sort the records you need. Preview shows one page;
+                  the file includes all matching records allowed by the export policy.
+                  Column choices affect only the preview table.
                 </Typography>
               </Stack>
               <Stack direction={{ xs: 'column', md: 'row' }} sx={{ gap: 1 }}>
                 <TextField
                   fullWidth
-                  disabled={!canPreview}
+                  disabled={busy || !canPreview}
                   label="Search records"
                   placeholder="Search using fields exposed by the selected schema"
                   value={search}
@@ -699,7 +588,7 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
                 />
                 <TextField
                   select
-                  disabled={!canPreview}
+                  disabled={busy || !canPreview}
                   label="Rows to preview"
                   sx={{ minWidth: { md: 190 } }}
                   value={rowsPerPage}
@@ -725,45 +614,49 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
                 </Button>
               </Stack>
               {selectedSchema ? (
-                <SchemaQueryBuilder
-                  capabilities={selectedSchema.queryCapabilities}
-                  copy={{
-                    addConditionLabel: 'Add condition',
-                    addGroupLabel: 'Add group',
-                    applyFiltersLabel: 'Apply conditions',
-                    ascendingLabel: 'Ascending',
-                    clearFiltersLabel: 'Clear conditions',
-                    descendingLabel: 'Descending',
-                    fieldLabel: 'Field',
-                    filterBuilderLabel: 'Advanced conditions',
-                    matchLabel: 'Match',
-                    noFiltersSummaryLabel:
-                      'No advanced conditions are applied. Text search and sort can still be used.',
-                    operatorLabel: 'Operator',
-                    removeLabel: 'Remove',
-                    requestPreviewLabel: 'Query summary',
-                    sortBuilderLabel: 'Sort results',
-                    sortDirectionLabel: 'Direction',
-                    sortFieldLabel: 'Sort field',
-                    valueLabel: 'Value',
-                  }}
-                  sort={selectedSort}
-                  value={filters}
-                  onChange={(next) => {
-                    setFilters(next);
-                    setPage(0);
-                    setPreviewResult(undefined);
-                    preview.reset();
-                    generate.reset();
-                  }}
-                  onSortChange={(next) => {
-                    setSort(next);
-                    setPage(0);
-                    setPreviewResult(undefined);
-                    preview.reset();
-                    generate.reset();
-                  }}
-                />
+                <Box inert={busy} aria-busy={busy}>
+                  <SchemaQueryBuilder
+                    capabilities={selectedSchema.queryCapabilities}
+                    copy={{
+                      addConditionLabel: 'Add condition',
+                      addGroupLabel: 'Add group',
+                      applyFiltersLabel: 'Apply conditions',
+                      ascendingLabel: 'Ascending',
+                      clearFiltersLabel: 'Clear conditions',
+                      descendingLabel: 'Descending',
+                      fieldLabel: 'Field',
+                      filterBuilderLabel: 'Advanced conditions',
+                      matchLabel: 'Match',
+                      noFiltersSummaryLabel:
+                        'No advanced conditions are applied. Text search and sort can still be used.',
+                      operatorLabel: 'Operator',
+                      removeLabel: 'Remove',
+                      requestPreviewLabel: 'Query summary',
+                      sortBuilderLabel: 'Sort results',
+                      sortDirectionLabel: 'Direction',
+                      sortFieldLabel: 'Sort field',
+                      valueLabel: 'Value',
+                    }}
+                    sort={selectedSort}
+                    value={filters}
+                    onChange={(next) => {
+                      if (busy) return;
+                      setFilters(next);
+                      setPage(0);
+                      setPreviewResult(undefined);
+                      preview.reset();
+                      generate.reset();
+                    }}
+                    onSortChange={(next) => {
+                      if (busy) return;
+                      setSort(next);
+                      setPage(0);
+                      setPreviewResult(undefined);
+                      preview.reset();
+                      generate.reset();
+                    }}
+                  />
+                </Box>
               ) : hasEnterprise ? (
                 <Alert severity="info">
                   Choose an export model to build governed conditions and sort order.
@@ -781,17 +674,54 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
                   4. Generate export file
                 </Typography>
                 <Typography color="text.secondary">
-                  Choose an output format. The backend generates the file and stores it
-                  as a governed media record in the data export folder.
+                  Choose a format, generate the file, then download that exact file. A
+                  file is ready only after generation succeeds.
                 </Typography>
               </Stack>
+              {selectedSchema &&
+              (!selectedExportConnection || !selectedMediaConnection) ? (
+                <Alert severity="info">
+                  File generation is unavailable at this model's destination.
+                </Alert>
+              ) : selectedSchema && exportWorkspace.isFetching ? (
+                <Alert severity="info" role="status">
+                  Checking export availability…
+                </Alert>
+              ) : selectedSchema && exportWorkspace.isError ? (
+                <Alert severity="error">
+                  Export availability could not be verified.{' '}
+                  {exportWorkspace.error.message}
+                </Alert>
+              ) : selectedSchema && exportWorkspace.data ? (
+                exportWorkspace.data.availability === 'AVAILABLE' ? (
+                  <Chip
+                    label="File generation available"
+                    color="success"
+                    sx={{ alignSelf: 'flex-start' }}
+                  />
+                ) : (
+                  <Alert severity="info">{exportWorkspace.data.reason}</Alert>
+                )
+              ) : null}
+              {selectedSchema && selectedExportConnection && selectedMediaConnection ? (
+                <Button
+                  variant="text"
+                  sx={{ alignSelf: 'flex-start' }}
+                  disabled={busy || exportWorkspace.isFetching}
+                  onClick={() => {
+                    void exportWorkspace.refetch();
+                  }}
+                >
+                  Refresh export availability
+                </Button>
+              ) : null}
               <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ gap: 1 }}>
                 <TextField
                   select
-                  disabled={!canGenerate}
+                  disabled={busy || !canGenerate}
                   label="File type"
                   sx={{ minWidth: { sm: 180 } }}
-                  value={format}
+                  value={selectedFormat ?? ''}
                   onChange={(event) => {
                     setFormat(event.target.value as DataExportFileFormat);
                     generate.reset();
@@ -804,15 +734,15 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
                   ))}
                 </TextField>
                 <Button
-                  disabled={!canGenerate || busy}
+                  disabled={!canGenerate || busy || preview.isError || generate.isError}
                   variant="contained"
                   onClick={() => generate.mutate()}
                 >
                   {generate.isPending ? 'Generating…' : 'Generate export'}
                 </Button>
-                {generate.data ? (
+                {generate.data && canGenerate ? (
                   <Button
-                    disabled={download.isPending}
+                    disabled={busy}
                     onClick={() => download.mutate()}
                     variant="outlined"
                   >
@@ -826,8 +756,40 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
       </Stack>
 
       {operationError ? <Alert severity="error">{operationError}</Alert> : null}
+      {generate.isError ? (
+        <Alert
+          severity="warning"
+          action={
+            selectedExportConnection && props.onInspectHistory ? (
+              <Button
+                onClick={() => props.onInspectHistory?.(selectedExportConnection)}
+              >
+                Inspect export history
+              </Button>
+            ) : undefined
+          }
+        >
+          Check the original runtime’s history before starting another export.
+        </Alert>
+      ) : null}
       {generate.isSuccess ? (
-        <Alert severity="success">
+        <Alert
+          severity="success"
+          action={
+            selectedExportConnection && props.onInspectHistory ? (
+              <Button
+                onClick={() =>
+                  props.onInspectHistory?.(
+                    selectedExportConnection,
+                    generate.data.media.mediaCode,
+                  )
+                }
+              >
+                Open export run
+              </Button>
+            ) : undefined
+          }
+        >
           Export generated as {generate.data.fileName}.{' '}
           {generate.data.summary.exportedRecords.toLocaleString()} record(s) exported
           into media {generate.data.media.mediaCode}.
@@ -879,54 +841,60 @@ export function ExportWorkspace(props: ExportWorkspaceProps) {
             />
           </Stack>
           {selectedSchema ? (
-            <AxisSchemaDataListing
-              ariaLabel={`${selectedSchema.label} export preview`}
-              columnsLabel="Columns"
-              defaultVisibleColumnKeys={columns}
-              emptyMessage="No records matched this export query."
-              exportFileName={`axis-export-preview-${selectedSchema.schemaName}`}
-              footer={
-                <TablePagination
-                  component="div"
-                  count={previewResult.totalCount}
-                  page={page}
-                  rowsPerPage={rowsPerPage}
-                  rowsPerPageOptions={[10, 25, 50]}
-                  onPageChange={(_event, nextPage) => {
-                    setPage(nextPage);
-                    setPreviewResult(undefined);
-                    preview.reset();
-                  }}
-                  onRowsPerPageChange={(event) => {
-                    setRowsPerPage(Number(event.target.value));
-                    setPage(0);
-                    setPreviewResult(undefined);
-                    preview.reset();
-                  }}
-                />
-              }
-              getRowKey={recordKey}
-              maxBodyHeight={420}
-              minTableWidth={900}
-              records={previewResult.records}
-              schema={selectedSchema}
-              sortOverride={sort}
-              toolbarStart={
-                <Typography color="text.secondary" variant="body2">
-                  Preview is rendered from the selected backend schema fields.
-                </Typography>
-              }
-              visibleColumnKeys={previewColumnKeys}
-              onColumnKeysChange={(columnKeys) =>
-                setPreviewColumnKeys(Object.freeze([...columnKeys]))
-              }
-              onSortOverrideChange={(nextSort) => {
-                setSort(nextSort);
-                setPage(0);
-                setPreviewResult(undefined);
-                preview.reset();
-              }}
-            />
+            <Box inert={busy} aria-busy={busy}>
+              <AxisSchemaDataListing
+                ariaLabel={`${selectedSchema.label} export preview`}
+                columnsLabel="Preview columns"
+                exportVisible={false}
+                defaultVisibleColumnKeys={columns}
+                emptyMessage="No records matched this export query."
+                exportFileName={`axis-export-preview-${selectedSchema.schemaName}`}
+                footer={
+                  <TablePagination
+                    component="div"
+                    count={previewResult.totalCount}
+                    page={page}
+                    rowsPerPage={rowsPerPage}
+                    rowsPerPageOptions={[10, 25, 50]}
+                    onPageChange={(_event, nextPage) => {
+                      if (busy) return;
+                      setPage(nextPage);
+                      setPreviewResult(undefined);
+                      preview.reset();
+                    }}
+                    onRowsPerPageChange={(event) => {
+                      if (busy) return;
+                      setRowsPerPage(Number(event.target.value));
+                      setPage(0);
+                      setPreviewResult(undefined);
+                      preview.reset();
+                    }}
+                  />
+                }
+                getRowKey={recordKey}
+                maxBodyHeight={420}
+                minTableWidth={900}
+                records={previewResult.records}
+                schema={selectedSchema}
+                sortOverride={sort}
+                toolbarStart={
+                  <Typography color="text.secondary" variant="body2">
+                    Preview is rendered from the selected backend schema fields.
+                  </Typography>
+                }
+                visibleColumnKeys={previewColumnKeys}
+                onColumnKeysChange={(columnKeys) => {
+                  if (!busy) setPreviewColumnKeys(Object.freeze([...columnKeys]));
+                }}
+                onSortOverrideChange={(nextSort) => {
+                  if (busy) return;
+                  setSort(nextSort);
+                  setPage(0);
+                  setPreviewResult(undefined);
+                  preview.reset();
+                }}
+              />
+            </Box>
           ) : null}
         </Paper>
       ) : null}

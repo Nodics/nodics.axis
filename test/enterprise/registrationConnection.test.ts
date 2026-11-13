@@ -51,6 +51,96 @@ describe('Discovered Profile registration connection', () => {
     );
     expect(runtime.backofficeBaseUrl).toBe('https://backoffice.example.test');
   });
+  it.each([360000, 600000])(
+    'accepts an Axis-admitted deployment timeout of %i ms for discovery and commands',
+    async (requestTimeoutMs) => {
+      browser();
+      const transport = vi
+        .fn<typeof fetch>()
+        .mockImplementation((_input, init) =>
+          Promise.resolve(
+            new Response(
+              JSON.stringify({ data: init?.method === 'POST' ? progress : workspace }),
+            ),
+          ),
+        );
+      vi.stubGlobal('fetch', transport);
+      const selected = { ...runtime, requestTimeoutMs };
+      await loadPublicBackendWorkspacePayload(selected, profileBaseUrl);
+      await loadPublicBackendWorkspacePayload(
+        selected,
+        profileBaseUrl,
+        undefined,
+        'recovery',
+      );
+      await sendRegistrationAction(
+        selected,
+        profileBaseUrl,
+        workspace,
+        'start',
+        { email: 'alex@example.test' },
+        new AbortController().signal,
+      );
+      expect(transport).toHaveBeenCalledTimes(3);
+    },
+  );
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 600001])(
+    'refuses invalid transport timeout %s before any request',
+    async (requestTimeoutMs) => {
+      browser();
+      const transport = vi.fn<typeof fetch>();
+      vi.stubGlobal('fetch', transport);
+      const selected = { ...runtime, requestTimeoutMs };
+      await expect(
+        loadPublicBackendWorkspacePayload(selected, profileBaseUrl),
+      ).rejects.toThrow('timeout');
+      await expect(
+        sendRegistrationAction(
+          selected,
+          profileBaseUrl,
+          workspace,
+          'start',
+          { email: 'alex@example.test' },
+          new AbortController().signal,
+        ),
+      ).rejects.toThrow('timeout');
+      expect(transport).not.toHaveBeenCalled();
+    },
+  );
+  it('uses the admitted command deadline and never retries an expired request', async () => {
+    browser();
+    vi.useFakeTimers();
+    try {
+      const transport = vi.fn<typeof fetch>().mockImplementation(
+        (_input, init) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              'abort',
+              () => reject(new DOMException('Aborted', 'AbortError')),
+              { once: true },
+            );
+          }),
+      );
+      vi.stubGlobal('fetch', transport);
+      const pending = sendRegistrationAction(
+        { ...runtime, requestTimeoutMs: 360000 },
+        profileBaseUrl,
+        workspace,
+        'start',
+        { email: 'alex@example.test' },
+        new AbortController().signal,
+      );
+      const rejected = expect(pending).rejects.toThrow();
+      await vi.advanceTimersByTimeAsync(359999);
+      expect(transport.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await rejected;
+      expect(transport).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it.each([
     'https://name:secret@profile.example.test',
     'http://profile.example.test',

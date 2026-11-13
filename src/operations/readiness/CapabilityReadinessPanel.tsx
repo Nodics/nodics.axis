@@ -136,6 +136,7 @@ export interface CapabilityApprovalDiagnostic {
 }
 
 interface CapabilityReadinessPanelProps {
+  readonly canOpenRoute?: ((route: string) => boolean) | undefined;
   readonly actionSlot?:
     | ((blocker: CapabilityReadinessBlocker) => ReactNode)
     | undefined;
@@ -283,6 +284,7 @@ function publicationChecklistItems(
 
 export function CapabilityReadinessPanel({
   actionSlot,
+  canOpenRoute,
   caption = 'Capability readiness',
   readiness,
 }: CapabilityReadinessPanelProps): ReactElement | null {
@@ -532,6 +534,7 @@ export function CapabilityReadinessPanel({
                             </Typography>
                           ) : null}
                           <ReadinessRepairMetadata
+                            canOpenRoute={canOpenRoute}
                             repair={blocker.repair}
                             runtimeDiagnostic={blocker.runtimeDiagnostic}
                             approvalDiagnostic={blocker.approvalDiagnostic}
@@ -605,6 +608,7 @@ export function CapabilityReadinessPanel({
               </Typography>
             ) : null}
             <ReadinessRepairMetadata
+              canOpenRoute={canOpenRoute}
               approvalDiagnostic={blocker.approvalDiagnostic}
               repair={blocker.repair}
               runtimeDiagnostic={blocker.runtimeDiagnostic}

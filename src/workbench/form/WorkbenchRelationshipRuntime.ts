@@ -20,6 +20,8 @@ export type WorkbenchRelationshipLoadResult =
 export interface WorkbenchRelationshipRuntime {
   readonly schemas: readonly WorkbenchSchema[];
   readonly queryScope: readonly string[];
+  /** Read-only recovery of declared foreign schema metadata; never retries business writes. */
+  readonly retrySchemas?: () => void;
   readonly createRecord: (
     schema: WorkbenchSchema,
     model: Readonly<Record<string, unknown>>,
@@ -43,6 +45,7 @@ export interface WorkbenchRelationshipRuntime {
 }
 
 export interface WorkbenchRelationshipCopy {
+  readonly retryLabel?: string;
   readonly addToDraftLabel: string;
   readonly cancelLabel: string;
   readonly createRelatedLabel: string;
@@ -86,3 +89,48 @@ export const defaultRelationshipCopy: WorkbenchRelationshipCopy = {
   selectExistingLabel: 'Select existing',
   singleSelectionHintLabel: 'Select one record',
 };
+
+/** Cache/display partition only: current catalogue identities never become a second connection authority. */
+export function workbenchRelationshipConnectionScope(
+  connections: Readonly<
+    Record<
+      string,
+      readonly { readonly instanceId: string; readonly endpoint: string }[]
+    >
+  >,
+): string {
+  return JSON.stringify(
+    Object.entries(connections)
+      .flatMap(([moduleName, owners]) =>
+        owners.map((owner) =>
+          JSON.stringify([moduleName, owner.instanceId, owner.endpoint]),
+        ),
+      )
+      .sort(),
+  );
+}
+
+/** Local presentation only; this snapshot is never part of a record or related-draft API payload. */
+export interface WorkbenchReferenceLabelSnapshot {
+  readonly scope: string;
+  readonly labels: ReadonlyMap<string, string>;
+}
+
+/** Retires reference names and explicit inspections when actor, source, field or display projection changes. */
+export function workbenchRelationshipLabelScope(
+  runtime: WorkbenchRelationshipRuntime,
+  relationship: WorkbenchRelationship,
+  schema: WorkbenchSchema,
+): string {
+  return JSON.stringify([
+    runtime.queryScope,
+    relationship.field,
+    relationship.targetModule,
+    relationship.targetSchema,
+    relationship.referenceProperty,
+    schema.connectionInstanceId,
+    schema.connectionServer,
+    schema.connectionEnvironment,
+    schema.displayProperties,
+  ]);
+}

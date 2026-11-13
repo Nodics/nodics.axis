@@ -12,6 +12,14 @@ import {
 import { configuration, connection, envelope } from './scheduleDraftFixture';
 const capability: ScheduleLifecycleCapability = {
   activationEnabled: true,
+  timingPresentation: {
+    expression: 'Cron expression',
+    timeZone: 'Scheduler time zone',
+    nextRun: 'Next eligible scheduled tick',
+    noNextRun: 'No next run while inactive.',
+    nextRunUnknown: 'The scheduler has not confirmed a next tick.',
+    nextRunMeaning: 'A tick can be skipped if the job is already running.',
+  },
   presentation: Object.fromEntries(
     scheduleLifecycleTextKeys.map((key) => [key, key]),
   ) as ScheduleLifecycleCapability['presentation'],
@@ -20,6 +28,57 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
+it.each([true, false])(
+  'a competing command holds activation but preserves inspection and explicit deactivation for active=%s',
+  async (active) => {
+    const fetcher = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(JSON.parse(typeof init?.body === 'string' ? init.body : '{}')).toEqual({
+        code: 'docsJob',
+      });
+      return Promise.resolve(
+        new Response(
+          JSON.stringify(
+            envelope({
+              code: 'docsJob',
+              revision: active ? 1 : 0,
+              intent: active ? 'ACTIVATE' : null,
+              reviewDigest: active ? 'a'.repeat(64) : null,
+              state: active ? 'ACTIVE' : 'SAVED_INACTIVE',
+              timing: {
+                expression: '0 0 * * * *',
+                timeZone: 'Asia/Dubai',
+                nextRunAt: active ? '2027-01-01T00:00:00.000Z' : null,
+              },
+            }),
+          ),
+        ),
+      );
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(
+      <CronScheduleLifecyclePanel
+        connection={connection}
+        configuration={configuration}
+        capability={capability}
+        initialCode="docsJob"
+        commandsBlocked
+      />,
+    );
+    expect(screen.getByRole('textbox', { name: 'code' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'inspect' }));
+    if (active)
+      expect(await screen.findByRole('button', { name: 'deactivate' })).toBeEnabled();
+    else expect(await screen.findByRole('button', { name: 'activate' })).toBeDisabled();
+    expect(screen.getByText(/Scheduler time zone/)).toHaveTextContent('Asia/Dubai');
+    if (active)
+      expect(screen.getByText('2027-01-01 00:00:00 UTC')).toHaveAttribute(
+        'datetime',
+        '2027-01-01T00:00:00.000Z',
+      );
+    else expect(screen.getByText('No next run while inactive.')).toBeInTheDocument();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  },
+);
 it('rejects foreign identities, revisions and contradictory runtime evidence', () => {
   const row = {
     code: 'docsJob',

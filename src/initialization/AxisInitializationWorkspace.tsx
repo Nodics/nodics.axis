@@ -19,9 +19,11 @@ import {
 
 import { ShellIcon } from '../app/shell/ShellIcon';
 import type { AxisInitializationStatus } from './axisInitializationClient';
+import type { InitializationApprovalEligibility } from './useInitializationApproval';
 
 interface AxisInitializationWorkspaceProps {
   readonly busy: boolean;
+  readonly approvalEligibility?: InitializationApprovalEligibility;
   readonly error?: string | undefined;
   readonly status?: AxisInitializationStatus | undefined;
   readonly statusUnavailable?: boolean;
@@ -59,7 +61,7 @@ const setupWizardSteps = Object.freeze([
     id: 'approve-online',
     number: 4,
     title: 'Approve Online',
-    summary: 'Governed maker-checker approval',
+    summary: 'Authorized reviewer decision',
     body: 'Approve through the governed Process task; rejection keeps Online unchanged and visible in audit.',
   }),
   Object.freeze({
@@ -82,6 +84,20 @@ export function AxisInitializationWorkspace(props: AxisInitializationWorkspacePr
   );
   const review = props.status?.review;
   const publication = props.status?.publication;
+  const approvalDiagnostic =
+    publication?.state === 'PENDING_APPROVAL'
+      ? publication.approvalDiagnostic
+      : undefined;
+  const approvalBlocked = Boolean(
+    approvalDiagnostic && approvalDiagnostic.status !== 'WAITING_REVIEWER',
+  );
+  const mayInitialize = props.status?.allowedActions?.includes('INITIALIZE') === true;
+  const canRetryApprovalRequest =
+    mayInitialize &&
+    props.status?.readiness === 'PUBLICATION_PENDING' &&
+    props.status.releaseStatus === 'CURRENT' &&
+    (approvalDiagnostic?.status === 'WORKFLOW_DEFINITION_MISSING' ||
+      approvalDiagnostic?.status === 'TASK_REFERENCE_MISSING');
   const reviewedEntityCount = review?.entities.reduce(
     (total, entity) => total + entity.total,
     0,
@@ -94,6 +110,7 @@ export function AxisInitializationWorkspace(props: AxisInitializationWorkspacePr
     review.workflowRef === publication.workflowRef,
   );
   const canInitiate =
+    mayInitialize &&
     !props.statusUnavailable &&
     props.status?.releaseStatus !== 'INVALID_RELEASE' &&
     !['PENDING_APPROVAL', 'APPROVED', 'ACTIVATING', 'ONLINE'].includes(
@@ -380,7 +397,14 @@ export function AxisInitializationWorkspace(props: AxisInitializationWorkspacePr
               {props.error}
             </Alert>
           ) : null}
-          {props.status?.readiness === 'PUBLICATION_PENDING' ? (
+          {approvalBlocked && approvalDiagnostic ? (
+            <Alert severity="warning">
+              {approvalDiagnostic.message}{' '}
+              {canRetryApprovalRequest
+                ? 'Retry the approval request, then review the Process task.'
+                : approvalDiagnostic.suggestedAction}
+            </Alert>
+          ) : props.status?.readiness === 'PUBLICATION_PENDING' ? (
             <Alert severity="info">
               The baseline is waiting for its governed Process approval and Online
               deployment. Review the publication details before making the approval
@@ -492,6 +516,15 @@ export function AxisInitializationWorkspace(props: AxisInitializationWorkspacePr
             </Alert>
           ) : null}
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            {canRetryApprovalRequest ? (
+              <Button
+                disabled={props.busy || props.statusUnavailable}
+                onClick={props.onInitiate}
+                variant="contained"
+              >
+                Retry approval request
+              </Button>
+            ) : null}
             {canInitiate ? (
               <Button
                 disabled={props.busy || props.statusUnavailable}
@@ -854,6 +887,12 @@ export function AxisInitializationWorkspace(props: AxisInitializationWorkspacePr
             </Stack>
           ) : null}
         </DialogContent>
+        {approvalOpen && props.approvalEligibility?.eligible !== true ? (
+          <Alert severity="info" role="status" sx={{ mx: 3, mb: 2 }}>
+            {props.approvalEligibility?.message ??
+              'Approval requires current Process reviewer eligibility. Refresh status to check your access.'}
+          </Alert>
+        ) : null}
         <DialogActions
           sx={{
             borderTop: 1,
@@ -869,6 +908,8 @@ export function AxisInitializationWorkspace(props: AxisInitializationWorkspacePr
             disabled={
               props.busy ||
               props.statusUnavailable ||
+              approvalBlocked ||
+              props.approvalEligibility?.eligible !== true ||
               !reviewMatchesPublication ||
               props.status?.readiness !== 'PUBLICATION_PENDING' ||
               publication?.state !== 'PENDING_APPROVAL'

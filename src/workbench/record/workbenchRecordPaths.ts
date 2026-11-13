@@ -49,10 +49,17 @@ export function setWorkbenchRecordValue(
 
 export function compactWorkbenchDraft(
   draft: Readonly<Record<string, unknown>>,
+  operation: 'create' | 'update' = 'create',
+  original?: Readonly<Record<string, unknown>>,
 ): Record<string, unknown> {
   const model: Record<string, unknown> = {};
   Object.entries(draft).forEach(([path, value]) => {
-    if (value === undefined || value === '') return;
+    if (value === undefined) return;
+    if (value === '') {
+      const previous = workbenchRecordValue(original, path);
+      if (operation === 'create' || typeof previous !== 'string' || previous === '')
+        return;
+    }
     setWorkbenchRecordValue(model, path, value);
   });
   return model;

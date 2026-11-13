@@ -1,3 +1,4 @@
+import { navigationDisplayLabel } from '../../bootstrap/publicBootstrap';
 import type {
   AxisModuleAvailability,
   AxisNavigationItem,
@@ -153,7 +154,12 @@ export function composeShellNavigation(
   const groups = new Map<string, ShellNavigationGroup>();
   const shellItems = navigation
     .filter(
-      (item) => item.featureState !== 'HIDDEN' && item.featureState !== 'DISABLED',
+      // Health may temporarily disable an authorized destination. Preserve its
+      // place in the menu while the owner recovers; the rail keeps it inert.
+      (item) =>
+        item.featureState !== 'HIDDEN' &&
+        (item.featureState !== 'DISABLED' ||
+          ['UNAVAILABLE', 'UNKNOWN'].includes(item.availability)),
     )
     .map<ShellNavigationItem>((item) => ({
       ...item,
@@ -237,15 +243,6 @@ function declaredBusinessNavigationGroup(
       ? item.group.order
       : BUSINESS_GROUPS.otherBacklogs.order,
   };
-}
-
-function navigationDisplayLabel(label: string): string {
-  return label
-    .replace(/\bAnd\b/g, '&')
-    .replace(/\band\b/g, '&')
-    .replace(/\s*&\s*/g, ' & ')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 function flattenHierarchy(

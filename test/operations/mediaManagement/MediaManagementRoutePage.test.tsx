@@ -9,6 +9,7 @@ import type {
   AxisAuthenticatedBootstrap,
   AxisNavigationItem,
 } from '../../../src/bootstrap/publicBootstrap';
+import { MediaPreview } from '../../../src/operations/mediaManagement/components/MediaPreview';
 import { MediaManagementRoutePage } from '../../../src/operations/mediaManagement/MediaManagementRoutePage';
 import type { AxisRuntimeConfig } from '../../../src/runtime/runtimeConfig';
 import type { WorkbenchSchema } from '../../../src/workbench/api/workbenchContracts';
@@ -503,7 +504,7 @@ function fetchBodyText(init?: RequestInit): string {
   throw new TypeError('Expected test fetch body to be a JSON string.');
 }
 
-function renderPage(path = '/media/items') {
+function renderPage(path = '/media/items', context = bootstrap) {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
@@ -513,7 +514,7 @@ function renderPage(path = '/media/items') {
         <QueryClientProvider client={queryClient}>
           <MediaManagementRoutePage
             accessToken="employee-token"
-            bootstrap={bootstrap}
+            bootstrap={context}
             runtime={runtime}
           />
         </QueryClientProvider>
@@ -523,6 +524,164 @@ function renderPage(path = '/media/items') {
 }
 
 describe('MediaManagementRoutePage', () => {
+  it('previews a public-designated Staged record through authenticated delivery', async () => {
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('title\nSynthetic source', {
+        status: 200,
+        headers: { 'Content-Type': 'text/csv' },
+      }),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const deliveryUrl = 'http://localhost:4312/nodics/media/v0/download/draft-csv';
+    render(
+      <AxisThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <MediaPreview
+            access="PUBLIC"
+            accessToken="employee-token"
+            deliveryUrl={deliveryUrl}
+            enterpriseCode="testEnterprise"
+            fileName="draft.csv"
+            formatBytes={(size) => String(size)}
+            mimeType="text/csv"
+            requireAuthenticatedDelivery
+            sizeBytes={20}
+            source="record"
+            status="READY"
+          />
+        </QueryClientProvider>
+      </AxisThemeProvider>,
+    );
+    expect(await screen.findByText('Synthetic source')).toBeVisible();
+    const [url, options] = fetcher.mock.calls[0]!;
+    expect(url).toBe(deliveryUrl);
+    const headers = new Headers(options?.headers);
+    expect(headers.get('Authorization')).toBe('Bearer employee-token');
+    expect(headers.get('x-enterprise-code')).toBe('testEnterprise');
+    expect(options?.redirect).toBe('error');
+  });
+
+  it('binds discovery and folder reads to the authoring source when Online is listed first', async () => {
+    const source = {
+      ...mediaConnection,
+      server: 'source',
+      runtimeRole: { code: 'WCMS_STAGED', publication: 'STAGED' },
+    };
+    const online = {
+      ...mediaConnection,
+      instanceId: 'online',
+      endpoint: 'http://localhost:4314/nodics/media',
+      server: 'online',
+      runtimeRole: { code: 'WCMS_ONLINE', publication: 'ONLINE' },
+    };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.host !== 'localhost:3000')
+        throw new Error('Unexpected Online or foreign discovery');
+      if (url.pathname === '/nodics/media/v0/contexts')
+        return Promise.resolve(json({ contexts: [] }));
+      if (url.pathname === '/nodics/media/v0/schemas')
+        return Promise.resolve(
+          json({ moduleName: 'media', schemas: [mediaFolderSchema] }),
+        );
+      if (url.pathname === '/nodics/media/v0/mediaFolder/safe-search')
+        return Promise.resolve(
+          json({
+            records: [{ code: 'source-folder', name: 'Source folder' }],
+            totalCount: 1,
+            pageNumber: 1,
+            pageSize: 10,
+            sort: mediaFolderSchema.queryCapabilities.defaultSort,
+          }),
+        );
+      throw new Error('Unexpected route');
+    });
+    renderPage('/media/folders', {
+      ...bootstrap,
+      moduleConnections: { ...bootstrap.moduleConnections, media: [online, source] },
+    });
+    expect(
+      await screen.findByRole('row', { name: /Source folder source-folder/ }),
+    ).toBeVisible();
+    expect(screen.getByText('1 folders')).toBeVisible();
+    expect(
+      await screen.findByText(/This folder record has no configured intake policy/),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Save folder policy' })).toBeDisabled();
+    expect(
+      fetchMock.mock.calls.every(
+        ([input]) => fetchInputUrl(input).host === 'localhost:3000',
+      ),
+    ).toBe(true);
+  });
+  it.each(['denied', 'conflicting'])(
+    'holds intake policy updates when configured evidence is %s',
+    async (failure) => {
+      const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+        const url = fetchInputUrl(input);
+        if (url.pathname.endsWith('/schemas'))
+          return Promise.resolve(
+            json({
+              moduleName: 'media',
+              schemas: [
+                { ...mediaFolderSchema, operations: ['search', 'read', 'update'] },
+              ],
+            }),
+          );
+        if (url.pathname.endsWith('/mediaFolder/safe-search'))
+          return Promise.resolve(
+            json({
+              records: [{ code: 'cmsAssets', name: 'CMS assets', access: 'PUBLIC' }],
+              totalCount: 1,
+              pageNumber: 1,
+              pageSize: 10,
+              sort: mediaFolderSchema.queryCapabilities.defaultSort,
+            }),
+          );
+        if (failure === 'denied')
+          return Promise.resolve(new Response('{}', { status: 403 }));
+        return Promise.resolve(
+          json({
+            contexts: ['PRIVATE', 'PUBLIC'].map((access) => ({
+              code: access,
+              allowedFolders: [{ folderCode: 'cmsAssets', access, uploadPolicy: {} }],
+            })),
+          }),
+        );
+      });
+      renderPage('/media/folders');
+      expect(
+        await screen.findByText(/configured intake policy could not be verified/),
+      ).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Save folder policy' })).toBeDisabled();
+      expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(
+        false,
+      );
+    },
+  );
+
+  it('reports an unavailable count after a denial instead of zero folders', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = fetchInputUrl(input);
+      if (url.pathname.endsWith('/schemas'))
+        return Promise.resolve(
+          json({ moduleName: 'media', schemas: [mediaFolderSchema] }),
+        );
+      return Promise.resolve(
+        new Response(JSON.stringify({ message: 'Owner denied folder inspection' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    });
+    renderPage('/media/folders');
+    expect(await screen.findByText(/Owner denied folder inspection/)).toBeVisible();
+    expect(screen.getByText('Count unavailable')).toBeVisible();
+    expect(screen.queryByText('0 folders')).not.toBeInTheDocument();
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -776,6 +935,7 @@ describe('MediaManagementRoutePage', () => {
                 runId: 'importRun_media_1',
                 status: 'COMPLETED',
                 dataType: 'media',
+                sourceName: 'media:home-banner',
                 modules: ['cms'],
                 summary: {
                   recordsRead: 10,
@@ -1085,10 +1245,8 @@ describe('MediaManagementRoutePage', () => {
     renderPage('/media/folders');
 
     expect((await screen.findAllByText('CMS assets')).length).toBeGreaterThan(0);
-    expect(
-      screen.getByText(/Folder policy affects future uploads for cmsAssets/i),
-    ).toBeVisible();
-    expect(screen.getByText(/nMedia owns upload validation/i)).toBeVisible();
+    expect(screen.getByText(/Folder record for cmsAssets/i)).toBeVisible();
+    expect(screen.getByText(/The configured intake policy determines/i)).toBeVisible();
     expect(
       screen.getByText(
         /Editing is unavailable until nMedia exposes mediaFolder update/i,
@@ -1207,6 +1365,9 @@ describe('MediaManagementRoutePage', () => {
 
   it('updates effective media folder policy through nMedia policy operations', async () => {
     const user = userEvent.setup();
+    let policyAccess = 'PUBLIC';
+    let policyMaximum = 52428800;
+    let policyRetention = 0;
     const editableMediaFolderSchema: WorkbenchSchema = {
       ...mediaFolderSchema,
       operations: ['search', 'read', 'create', 'update'],
@@ -1252,6 +1413,14 @@ describe('MediaManagementRoutePage', () => {
           url.pathname === '/nodics/media/v0/folders/policy/cmsAssets' &&
           init?.method === 'PATCH'
         ) {
+          const changed = JSON.parse(fetchBodyText(init)) as {
+            access: string;
+            maximumFileSizeBytes: number;
+            retentionDays: number;
+          };
+          policyAccess = changed.access;
+          policyMaximum = changed.maximumFileSizeBytes;
+          policyRetention = changed.retentionDays;
           return Promise.resolve(
             json({
               folderCode: 'cmsAssets',
@@ -1270,7 +1439,24 @@ describe('MediaManagementRoutePage', () => {
           );
         }
         if (url.pathname === '/nodics/media/v0/contexts') {
-          return Promise.resolve(json({ contexts: [] }));
+          return Promise.resolve(
+            json({
+              contexts: [
+                {
+                  code: 'contentMedia',
+                  folderCodes: ['cmsAssets'],
+                  allowedFolders: [
+                    {
+                      folderCode: 'cmsAssets',
+                      access: policyAccess,
+                      retentionDays: policyRetention,
+                      uploadPolicy: { maximumFileSizeBytes: policyMaximum },
+                    },
+                  ],
+                },
+              ],
+            }),
+          );
         }
         return Promise.resolve(json({}));
       });
@@ -1278,7 +1464,9 @@ describe('MediaManagementRoutePage', () => {
     renderPage('/media/folders');
 
     expect((await screen.findAllByText('CMS assets')).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Axis submits changes through the nMedia/i)).toBeVisible();
+    expect(
+      screen.getByText(/Review visibility, upload size and retention/i),
+    ).toBeVisible();
     expect(
       screen.getAllByRole('button', { name: 'Create folder' }).length,
     ).toBeGreaterThan(0);

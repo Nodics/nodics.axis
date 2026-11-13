@@ -23,54 +23,84 @@ covers native sizing, contained scrolling, fit/zoom, keyboard/focus behavior,
 unsafe-source rejection and stale-viewer disposal. These component tests do not
 replace live desktop/mobile visual acceptance.
 
-Axis renders the authenticated BackOffice `documentationSources` contract.
-For a product URL, select the longest declared route boundary and use that
-source's Site and initialization profile. Unknown, absent or denied products
-show an unavailable state without contacting another product. `/docs` remains
-the aggregate dashboard. A matching source does not bypass publication readiness
-or the CMS delivery access policy.
+## Online reader
 
-Additional product links come from canonical `cmsDocumentationProduct` records
-read through the existing authenticated schema client on the registered Staged
-CMS connection. The reader joins exact Site identities to the existing bootstrap
-`DOCUMENTATION_BUNDLE` profiles for pack/publication binding and display order.
-Labels, routes, Site and catalog come from CMS records, not a configuration map.
-The CMS module's `llm/contracts/README.md` documents the ownership contract.
-Axis must not add a customer URL/Site registry, scan folders, infer a Site name,
-or perform content reads under a runtime service credential.
-Project frontend presentation extensions may wrap the source navigation or
-article renderer, but must retain backend identity, permissions, route boundaries
-and the existing typed clients.
+Guide landing views show the topic directory. An exact article view shows the
+delivered article and its own navigation, without repeating the full directory
+or another page heading above it. Source lifecycle, access, maturity and visual
+requirements remain in the collapsed **Article details** disclosure. Source
+metadata does not establish the live publication state. The route and article
+renderer tests protect the single article heading and disclosure behavior.
+Below the theme's large breakpoint, article navigation starts closed behind
+**Browse topics** and closes when a different topic is selected. Desktop retains
+its independent open/closed preference and resizable rail. The template tests
+cover reading first, opening the directory, topic selection and desktop resizing.
+The article page opts into `readerLayout`; shared authoring/embedded consumers
+retain visible editing navigation and their existing controls.
 
-Public products with reviewed STAGED, APPROVED or legacy ONLINE authoring metadata
-are discoverable. Discovery is not public article access: the existing owner
-initialization profile must report READY before Online delivery is contacted.
-DRAFT, retired, inactive and non-public products remain excluded. Missing,
-ambiguous or denied reads never select a different Site.
-Discovery follows advertised schema operations, bounded paging and the current
-employee's permissions; errors allow explicit retry without transport fallback.
-For missing links, inspect the owning record's publicRootPath and lifecycle,
-the authorized profile's Site binding and active Staged metadata connection. Correct
-record/route mismatches through a successor release, not a browser alias.
+The selected WCMS Online connection supplies the authenticated documentation guide
+catalogue. Render its delivered navigation, project choices, channel headings and
+topic links. A guide query selects a view within that catalogue. An article URL
+must match an exact delivered topic. Use its Site, locale, channel and access
+mode for delivery. Only authenticated topics send an employee bearer token.
+Navigation lists, adjacent articles, related topics and inline article links in
+the reader use the same published topic set.
 
-Product metadata is not publication evidence. Actual readiness remains owned by
-the initialization/publication APIs, and article content is resolved exclusively
-through Online delivery. Never enable Online generic schema APIs for discovery.
-Blocked, importing and Media-dependency-pending responses are valid owner states,
-not malformed contracts. They must retain locked Online links; only READY unlocks
-delivery. Explicit status refresh does not repeat approval or publication commands.
+An empty guide, absent article or failed catalogue read offers the publication
+center only to employees with an available BackOffice management grant. Other
+readers are directed to their documentation administrator. A lookup failure
+offers an explicit retry. The reader never searches Staged metadata, selects
+a broader source prefix, or substitutes a different Site.
 
-`test/documentation/DocumentationRoutePage.test.tsx` covers unknown and prefix-lookalike
-routes, nested customer delivery using the declared Site/profile, Framework and
-OpenAPI rendering, and governed publication controls. Run it with
-`npm run test -- test/documentation/DocumentationRoutePage.test.tsx`, then typecheck.
-Live browser and registration acceptance remain deployment verification.
-The employee login journey also verifies restoration of a documentation deep
-link and anchor within its backend-declared source route. Test fixtures must
-declare the same route boundary they request; do not restore cross-Site fallback
-to make legacy fixture URLs resolve.
+## Publication center
 
-`test/documentation/api/documentationProductClient.test.ts` additionally covers
-canonical identity projection, paging, authorization failures, ambiguous bindings
-and unsafe routes. A customer customizes its CMS records and existing profile,
-without adding source configuration or changing reusable reader code.
+An authorized BackOffice `/docs` entry exposes publication management. Its
+source registry and bounded Staged product discovery support installation and
+publication using the existing owner APIs. Source detail links select the
+managed source with `/docs?manage=<source id>`. The center pages through five
+sources at a time. OpenAPI references use their separately declared live
+contracts. A READY status or a setup source does not grant a CMS article link.
+
+Technical Overview passes its shared, owner-configured status queue into
+`createDocumentationPublicationClient`. Only `getStatus(signal)` enters that
+queue; cancellation reaches the HTTP read and retired reads cannot become fresh
+evidence. Installation, publication and repair commands retain their direct,
+single-attempt transport. Other authorized publication-center consumers may use
+the existing unqueued status transport. Preserve that distinction in typed client
+extensions; the client and Technical Overview focused tests protect it.
+
+Customize reader navigation, article labels and channel membership through the
+owner's published Online records. Project renderers may wrap the presentation
+while retaining the exact topic binding and access checks. Run the focused
+documentation route and CMS article/navigation renderer tests, then typecheck.
+
+Publication readiness retains validated exact Media dependency evidence through the client parser. The shared readiness panel groups affected assets into one checklist; it does not replace individual owner inspection or approval. Media-pending guidance names asset approval as the next action.
+
+Guide landing pages filter only the delivered, authorized topic catalogue by topic and section label. Accessible result counts and clear-search recovery accompany responsive topic links; searching never queries or infers unpublished topics.
+
+The article navigation search matches the complete inert `searchText` already
+delivered by the owning frozen Online publication, alongside topic labels and
+audiences. The 500-character display-label bound does not truncate that index.
+Normalized search text is prepared once with the parsed component metadata, not
+rebuilt for every keystroke; metadata is never rendered as HTML. The existing
+500-item limit, exact published-topic route filter and audience selection remain
+in force. Missing/non-string indexes add no inferred content, and no query reads
+Staged, latest records or another source. Backend CMS publication owns which
+current article text is indexed; renderer customization must preserve that
+source boundary. The navigation renderer regression searches a phrase beyond
+32,000 characters and keeps an unadmitted matching topic hidden.
+
+Candidate publication status describes the selected release only. An unimported
+candidate is presented neutrally, without claiming that an earlier Online guide
+is absent or awaiting review. Reader access still comes from the independently
+delivered Online catalogue. Only actual review states present approval work; no
+status display installs, retries, approves, or broadens access. Source names remain
+backend-owned metadata. Summary metrics are text and source/section titles use
+level-two headings beneath the page heading, with existing typography preserved.
+The route regression covers absent candidates and zero automatic commands; run
+`npm run verify` and native desktop/mobile publication-center checks after changes.
+
+On narrow publication-center views, candidate badges precede full wrapping source
+labels and descriptions; an odd final summary metric spans the available row.
+Source labels remain intact and backend-owned. Check both narrow and desktop
+layouts after customizing the existing theme tokens or row-grid presentation.

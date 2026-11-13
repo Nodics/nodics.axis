@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useMutation } from '@tanstack/react-query';
 import {
@@ -24,8 +24,15 @@ import { selectModuleConnection } from '../../bootstrap/publicBootstrap';
 import type { AxisRuntimeConfig } from '../../runtime/runtimeConfig';
 import {
   executeNavigationCompositionAction,
+  loadNavigationCompositionAuthoring,
+  type NavigationCompositionAuthoring,
   type NavigationCompositionAction,
 } from './api/navigationCompositionClient';
+
+import {
+  navigationCompositionOutcome,
+  type NavigationCompositionOutcome,
+} from './navigationCompositionOutcome';
 
 interface NavigationCompositionRoutePageProps {
   readonly accessToken: string;
@@ -106,11 +113,46 @@ function contributionOwner(item: AxisNavigationItem): string {
 export function NavigationCompositionRoutePage(
   props: NavigationCompositionRoutePageProps,
 ) {
+  const actor = useMemo(
+    () => (props.accessToken ? crypto.randomUUID() : 'anonymous'),
+    [props.accessToken],
+  );
+  const source = selectModuleConnection(props.bootstrap, 'backoffice');
+  const scope = JSON.stringify([
+    actor,
+    props.bootstrap.tenantCode,
+    props.runtime.enterpriseCode,
+    props.runtime.projectCode,
+    source?.instanceId,
+    source?.endpoint,
+    source?.environment,
+    source?.server,
+  ]);
+  return <NavigationCompositionWorkspace key={scope} {...props} />;
+}
+
+/** Retires private action evidence and downloads when the authenticated workspace changes. */
+function NavigationCompositionWorkspace(props: NavigationCompositionRoutePageProps) {
   const composition = props.bootstrap.effectiveNavigationComposition;
   const navigation = props.bootstrap.navigation;
   const connection = selectModuleConnection(props.bootstrap, 'backoffice');
   const [searchTerm, setSearchTerm] = useState('');
-  const [lastActionResult, setLastActionResult] = useState<string>();
+  const [lastActionResult, setLastActionResult] = useState<
+    NavigationCompositionOutcome & {
+      readonly downloadUrl?: string;
+      readonly downloadError?: boolean;
+    }
+  >();
+  const active = useRef(true);
+  const downloadUrl = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+      if (downloadUrl.current) URL.revokeObjectURL(downloadUrl.current);
+      downloadUrl.current = undefined;
+    };
+  }, []);
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -128,37 +170,123 @@ export function NavigationCompositionRoutePage(
       props.runtime.requestTimeoutMs,
     ],
   );
-  const candidateComposition = useMemo(() => {
-    const candidateNavigation = composition?.navigation ?? navigation;
-    const candidateGroups = new Map<string, NonNullable<AxisNavigationItem['group']>>();
-    candidateNavigation.forEach((item) => {
-      if (item.group) candidateGroups.set(item.group.id, item.group);
-    });
-    return {
-      groups: [...candidateGroups.values()],
-      navigation: candidateNavigation,
-    };
-  }, [composition?.navigation, navigation]);
+  const [lifecycle, setLifecycle] = useState<NavigationCompositionAuthoring>();
+  const [checkingLifecycle, setCheckingLifecycle] = useState(false);
+  const [lifecycleError, setLifecycleError] = useState<string>();
+  const lifecycleRead = useRef(0);
+  const refreshLifecycle = useCallback(async () => {
+    const sequence = ++lifecycleRead.current;
+    setLifecycle(undefined);
+    setLifecycleError(undefined);
+    setCheckingLifecycle(true);
+    try {
+      if (!connection)
+        throw new Error('BackOffice navigation lifecycle is unavailable');
+      const current = await loadNavigationCompositionAuthoring(
+        connection,
+        configuration,
+      );
+      if (active.current && sequence === lifecycleRead.current) setLifecycle(current);
+    } catch (error) {
+      if (active.current && sequence === lifecycleRead.current)
+        setLifecycleError(
+          error instanceof Error
+            ? error.message
+            : 'Navigation lifecycle status is unavailable',
+        );
+    } finally {
+      if (active.current && sequence === lifecycleRead.current)
+        setCheckingLifecycle(false);
+    }
+  }, [connection, configuration]);
+  useEffect(() => {
+    void refreshLifecycle();
+  }, [refreshLifecycle]);
   const lifecycleMutation = useMutation({
     mutationFn: async (action: NavigationCompositionAction) => {
       if (!connection)
         throw new Error('BackOffice navigation lifecycle is unavailable');
-      const candidate = ['preview', 'createDraft'].includes(action)
-        ? candidateComposition
-        : undefined;
-      return executeNavigationCompositionAction(
+      if (!lifecycle || !canExecute(action))
+        throw new Error(
+          'Refresh and review the current permitted navigation lifecycle before this action.',
+        );
+      let candidate: unknown;
+      if (action === 'preview' || action === 'createDraft') {
+        // Preserve the native owner DTO; normalized render metadata is not a
+        // lossless candidate and must never replace execution/permission fields.
+        const snapshot = await executeNavigationCompositionAction(
+          connection,
+          configuration,
+          'export',
+        );
+        navigationCompositionOutcome('export', snapshot, {
+          tenantCode: props.bootstrap.tenantCode,
+          enterpriseCode: props.runtime.enterpriseCode,
+          projectCode: props.runtime.projectCode,
+        });
+        candidate = (snapshot as { composition: unknown }).composition;
+      }
+      const result = await executeNavigationCompositionAction(
         connection,
         configuration,
         action,
         candidate,
+        fetch,
+        action === 'preview' || action === 'export'
+          ? undefined
+          : lifecycle
+            ? {
+                expectedVersion: lifecycle.version,
+                expectedChecksum: ['submit', 'approve', 'publish'].includes(action)
+                  ? (lifecycle.draft?.checksum ?? '')
+                  : lifecycle.checksum,
+                ...(lifecycle.draft
+                  ? { expectedDraftId: lifecycle.draft.draftId }
+                  : {}),
+              }
+            : undefined,
       );
+      return navigationCompositionOutcome(action, result, {
+        tenantCode: props.bootstrap.tenantCode,
+        enterpriseCode: props.runtime.enterpriseCode,
+        projectCode: props.runtime.projectCode,
+      });
     },
-    onSuccess: (_result, action) => {
-      setLastActionResult(
-        `${action} completed. Refresh Axis bootstrap to see a newly published effective composition.`,
-      );
+    onMutate: () => {
+      if (downloadUrl.current) URL.revokeObjectURL(downloadUrl.current);
+      downloadUrl.current = undefined;
+      setLastActionResult(undefined);
+    },
+    onSuccess: async (result, action) => {
+      if (!active.current) return;
+      if (!result.snapshot) {
+        setLastActionResult(result);
+        if (action !== 'preview') await refreshLifecycle();
+        return;
+      }
+      try {
+        const url = URL.createObjectURL(
+          new Blob([result.snapshot.json], { type: 'application/json' }),
+        );
+        downloadUrl.current = url;
+        setLastActionResult({ ...result, downloadUrl: url });
+      } catch {
+        setLastActionResult({ ...result, downloadError: true });
+      }
+    },
+    onError: () => {
+      setLifecycle(undefined);
     },
   });
+  const canExecute = (action: NavigationCompositionAction) => {
+    if (!lifecycle?.availableOperations.includes(action)) return false;
+    if (action === 'submit')
+      return ['DRAFT', 'REJECTED'].includes(lifecycle.draft?.lifecycleState ?? '');
+    if (action === 'approve') return lifecycle.draft?.lifecycleState === 'SUBMITTED';
+    if (action === 'publish') return lifecycle.draft?.lifecycleState === 'APPROVED';
+    if (action === 'rollback') return lifecycle.rollbackCandidates.length > 0;
+    return true;
+  };
   const normalizedSearchTerm = searchTerm.trim().toLowerCase();
   const filteredNavigation = useMemo(
     () =>
@@ -487,8 +615,58 @@ export function NavigationCompositionRoutePage(
                     : 'Navigation lifecycle action failed'}
                 </Alert>
               ) : null}
+              <Stack
+                direction="row"
+                spacing={1}
+                sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+              >
+                <Button
+                  disabled={
+                    !connection || checkingLifecycle || lifecycleMutation.isPending
+                  }
+                  onClick={() => {
+                    lifecycleMutation.reset();
+                    setLastActionResult(undefined);
+                    void refreshLifecycle();
+                  }}
+                >
+                  Refresh lifecycle
+                </Button>
+                {lifecycle ? (
+                  <Typography variant="body2">
+                    Version: {lifecycle.version} ·{' '}
+                    {lifecycle.draft
+                      ? `${lifecycle.draft.draftId} · ${lifecycle.draft.lifecycleState}`
+                      : 'No draft'}
+                  </Typography>
+                ) : null}
+              </Stack>
+              {checkingLifecycle ? (
+                <Alert severity="info">Checking current navigation lifecycle.</Alert>
+              ) : null}
+              {lifecycleError ? (
+                <Alert severity="warning">{lifecycleError}</Alert>
+              ) : null}
               {lastActionResult ? (
-                <Alert severity="success">{lastActionResult}</Alert>
+                <Stack spacing={1} role="status">
+                  <Alert severity={lastActionResult.severity}>
+                    {lastActionResult.message}
+                    {lastActionResult.issues?.length ? (
+                      <Box component="ul" sx={{ pl: 2.5, mb: 0 }}>
+                        {lastActionResult.issues.map((issue, index) => (
+                          <li key={index}>{issue}</li>
+                        ))}
+                      </Box>
+                    ) : null}
+                  </Alert>
+                  {lastActionResult.snapshot ? (
+                    <SnapshotDownload
+                      snapshot={lastActionResult.snapshot}
+                      url={lastActionResult.downloadUrl}
+                      error={lastActionResult.downloadError}
+                    />
+                  ) : null}
+                </Stack>
               ) : null}
               <Grid container spacing={1}>
                 {[
@@ -502,7 +680,12 @@ export function NavigationCompositionRoutePage(
                 ].map((item) => (
                   <Grid key={item.action} size={{ xs: 12, sm: 6, md: 3 }}>
                     <Button
-                      disabled={!connection || lifecycleMutation.isPending}
+                      disabled={
+                        !connection ||
+                        lifecycleMutation.isPending ||
+                        checkingLifecycle ||
+                        !canExecute(item.action as NavigationCompositionAction)
+                      }
                       fullWidth
                       onClick={() =>
                         lifecycleMutation.mutate(
@@ -889,5 +1072,42 @@ export function NavigationCompositionRoutePage(
         </Card>
       </Stack>
     </WorkspaceContainer>
+  );
+}
+
+/** Uses a session-local Blob URL for the unchanged owner DTO and revokes it on replacement or departure. */
+function SnapshotDownload({
+  snapshot,
+  url,
+  error,
+}: {
+  readonly snapshot: NonNullable<NavigationCompositionOutcome['snapshot']>;
+  readonly url?: string | undefined;
+  readonly error?: boolean | undefined;
+}) {
+  return (
+    <Stack spacing={1}>
+      <Typography variant="body2">
+        Version {snapshot.version} · {snapshot.itemCount} navigation items · Exported{' '}
+        {snapshot.exportedAt}
+      </Typography>
+      {error ? (
+        <Alert severity="error">
+          The browser could not prepare the download. Export the snapshot again to retry
+          this read.
+        </Alert>
+      ) : null}
+      {url ? (
+        <Button
+          component="a"
+          href={url}
+          download={snapshot.filename}
+          variant="outlined"
+          sx={{ alignSelf: 'flex-start' }}
+        >
+          Download snapshot
+        </Button>
+      ) : null}
+    </Stack>
   );
 }

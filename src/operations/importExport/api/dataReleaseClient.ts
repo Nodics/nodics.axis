@@ -6,6 +6,8 @@ import type {
   DataReleaseDryRunSummary,
   DataReleaseReadiness,
   DataReleaseOperationResult,
+  DataReleaseExecution,
+  DataReleaseOperationSelection,
   DataReleasePlan,
   DataReleaseStatus,
   DataReleaseType,
@@ -26,6 +28,7 @@ import type {
   DataExportResult,
   DataExportResultSummary,
   DataExportMediaSummary,
+  DataExportWorkspace,
 } from './dataReleaseContracts';
 
 export interface DataReleaseClientConfiguration {
@@ -33,6 +36,18 @@ export interface DataReleaseClientConfiguration {
   readonly accessToken: string;
   readonly enterpriseCode: string;
   readonly timeoutMs: number;
+}
+
+/** Structured transport evidence; callers never infer error meaning from English owner text. */
+export class DataAdministrationRequestError extends Error {
+  readonly status: number;
+  readonly code: string | undefined;
+  constructor(status: number, message: string, code?: string) {
+    super(message);
+    this.name = 'DataAdministrationRequestError';
+    this.status = status;
+    this.code = code;
+  }
 }
 
 const dataReleaseTypes: readonly DataReleaseType[] = Object.freeze([
@@ -193,6 +208,17 @@ function parseReleaseReadiness(value: unknown): DataReleaseReadiness | undefined
   });
 }
 
+function parseDataActions(value: unknown): readonly ('validate' | 'install')[] {
+  if (value === undefined) return Object.freeze([]);
+  if (
+    !Array.isArray(value) ||
+    value.some((action) => !['validate', 'install'].includes(action as string)) ||
+    new Set(value).size !== value.length
+  )
+    throw new Error('Data operation actions are incompatible');
+  return Object.freeze(value as ('validate' | 'install')[]);
+}
+
 function parseRelease(value: unknown): DataRelease {
   const source = record(value, 'Data release');
   const dataType = text(source.dataType, 'Data release type') as DataReleaseType;
@@ -211,6 +237,8 @@ function parseRelease(value: unknown): DataRelease {
     readiness: parseReleaseReadiness(source.readiness),
   };
   const optionalValues = {
+    continuationSupported: source.continuationSupported === true ? true : undefined,
+    allowedActions: parseDataActions(source.allowedActions),
     releaseCode: optionalText(source.releaseCode),
     sectionCode: optionalText(source.sectionCode),
     moduleIndex: optionalText(source.moduleIndex),
@@ -385,6 +413,7 @@ function parseInitializationProfile(value: unknown): InitializationProfile {
   const destinationRole = optionalText(source.destinationRole);
   const moduleIndex = optionalText(source.moduleIndex);
   return Object.freeze({
+    allowedActions: parseDataActions(source.allowedActions),
     profileCode: text(source.profileCode, 'Initialization profile code'),
     label: text(source.label, 'Initialization profile label'),
     description: text(source.description, 'Initialization profile description'),
@@ -477,7 +506,11 @@ function parseImportRunFailure(value: unknown): ImportRunFailure | undefined {
     operation: optionalText(source.operation),
     propertyName: optionalText(source.propertyName),
     rowNumber: optionalNumber(source.rowNumber),
-    error: parseImportRunError(source.error),
+    error:
+      parseImportRunError(source.error) ??
+      (source.code !== undefined || source.message !== undefined
+        ? parseImportRunError(source)
+        : undefined),
   };
   if (Object.values(optionalValues).every((item) => item === undefined)) {
     return undefined;
@@ -575,6 +608,8 @@ function parseImportRun(value: unknown): ImportRunSummary | undefined {
     summary: parseImportRunSummary(source.summary),
     failures: boundedArray(source.failures, parseImportRunFailure),
     validationErrors: boundedArray(source.validationErrors, parseImportRunFailure),
+    validationOnly:
+      typeof source.validationOnly === 'boolean' ? source.validationOnly : undefined,
   };
   return Object.freeze(
     Object.assign(
@@ -588,6 +623,19 @@ function parseImportRun(value: unknown): ImportRunSummary | undefined {
 
 function envelopeData(value: unknown): unknown {
   const envelope = record(value, 'Import response');
+  if (
+    envelope.success === false ||
+    envelope.acknowledged === false ||
+    envelope.error ||
+    (envelope.errors !== undefined &&
+      (!Array.isArray(envelope.errors) || envelope.errors.length > 0)) ||
+    [envelope.code, envelope.responseCode].some(
+      (code) => typeof code === 'string' && code.startsWith('ERR_'),
+    )
+  )
+    throw new Error(
+      'The owner response could not be confirmed. Inspect current owner state before another attempt.',
+    );
   if ('result' in envelope) return envelope.result;
   if ('data' in envelope) return envelope.data;
   if ('code' in envelope || 'responseCode' in envelope) return envelope;
@@ -627,9 +675,14 @@ function requestTimeoutMs(
 async function safeError(
   response: Response,
   context: ServiceErrorContext = importServiceErrorContext,
-): Promise<string> {
+): Promise<DataAdministrationRequestError> {
+  let code: string | undefined;
+  const error = (message: string) =>
+    new DataAdministrationRequestError(response.status, message, code);
   try {
     const value = record(await response.json(), `${context.serviceName} error`);
+    const suppliedCode = optionalText(value.code) ?? optionalText(value.responseCode);
+    if (suppliedCode && /^[A-Z0-9_]{1,64}$/.test(suppliedCode)) code = suppliedCode;
     const message = optionalText(value.message);
     const nested = boundedArray(value.errors, parseImportRunError, 3) ?? [];
     const nestedText = nested
@@ -637,14 +690,14 @@ async function safeError(
       .filter((item) => item.length > 0)
       .join(' | ');
     if (message && nestedText && `${message}: ${nestedText}`.length <= 500) {
-      return `${message}: ${nestedText}`;
+      return error(`${message}: ${nestedText}`);
     }
-    if (message && message.length <= 500) return message;
+    if (message && message.length <= 500) return error(message);
   } catch {
     // Preserve the bounded HTTP fallback.
   }
-  if (response.status === 403) return context.unauthorizedMessage;
-  return `${context.serviceName} returned HTTP ${String(response.status)}`;
+  if (response.status === 403) return error(context.unauthorizedMessage);
+  return error(`${context.serviceName} returned HTTP ${String(response.status)}`);
 }
 
 async function request(
@@ -693,7 +746,7 @@ async function request(
       throw new Error(
         'Your session has expired. Sign in again; refreshed import state has not been verified.',
       );
-    if (!response.ok) throw new Error(await safeError(response, context));
+    if (!response.ok) throw await safeError(response, context);
     return envelopeData(await response.json());
   } catch (error: unknown) {
     if (controller.signal.aborted)
@@ -738,8 +791,7 @@ async function multipartRequest(
         },
       },
     );
-    if (!response.ok)
-      throw new Error(await safeError(response, mediaServiceErrorContext));
+    if (!response.ok) throw await safeError(response, mediaServiceErrorContext);
     return envelopeData(await response.json());
   } catch (error: unknown) {
     if (controller.signal.aborted) throw new Error('Media upload timed out');
@@ -866,14 +918,37 @@ export async function loadImportHistory(
   );
 }
 
+/** Reads one exact run from its authorized owner, independent of list paging. */
+export async function loadImportRun(
+  connection: AxisModuleConnection,
+  configuration: DataReleaseClientConfiguration,
+  runId: string,
+  fetchImplementation: typeof fetch = fetch,
+): Promise<ImportRunSummary> {
+  if (!/^[A-Za-z0-9_.:-]{1,192}$/.test(runId))
+    throw new Error('The requested import run reference is invalid.');
+  const value = await request(
+    connection,
+    `/run/history/${encodeURIComponent(runId)}`,
+    configuration,
+    {},
+    fetchImplementation,
+  );
+  const run = parseImportRun(value);
+  if (run?.runId !== runId)
+    throw new Error('The exact import run is unavailable from the selected owner.');
+  return run;
+}
+
 export async function loadExportHistory(
   connection: AxisModuleConnection,
   configuration: DataReleaseClientConfiguration,
   fetchImplementation: typeof fetch = fetch,
+  mediaCode?: string,
 ): Promise<readonly ImportRunSummary[]> {
   const value = await request(
     connection,
-    '/history?limit=50&skip=0',
+    `/history?limit=50&skip=0${mediaCode ? `&mediaCode=${encodeURIComponent(mediaCode)}` : ''}`,
     configuration,
     {},
     fetchImplementation,
@@ -885,7 +960,12 @@ export async function loadExportHistory(
       const exportRun = parseImportRun(item);
       if (!exportRun || exportRun.runId === 'unknown')
         throw new Error('Export run identifier is invalid');
-      return exportRun;
+      const source = record(item, 'Export history entry');
+      const media =
+        source.media === undefined ? undefined : parseExportMedia(source.media);
+      if (media && media.mediaCode !== exportRun.runId)
+        throw new Error('Export history artifact identity is inconsistent');
+      return Object.freeze(media ? { ...exportRun, media } : exportRun);
     }),
   );
 }
@@ -913,6 +993,20 @@ export async function loadImportHistoryForMediaCode(
       const importRun = parseImportRun(item);
       if (!importRun || importRun.runId === 'unknown')
         throw new Error('Import run identifier is invalid');
+      const source = record(item, 'File import history entry');
+      const media =
+        source.mediaSource === undefined
+          ? undefined
+          : record(source.mediaSource, 'File import history source');
+      if (
+        (optionalText(media?.mediaCode) ??
+          optionalText(media?.code) ??
+          (typeof source.sourceName === 'string' &&
+          source.sourceName.startsWith('media:')
+            ? source.sourceName.slice('media:'.length)
+            : undefined)) !== normalizedMediaCode
+      )
+        throw new Error('Import history returned an unrelated file attempt');
       return importRun;
     }),
   );
@@ -1050,13 +1144,69 @@ export async function installMediaImport(
   );
 }
 
+/** Reads owner availability without probing or invoking a generation command. */
+export async function loadDataExportWorkspace(
+  connection: AxisModuleConnection,
+  configuration: DataReleaseClientConfiguration,
+  fetchImplementation: typeof fetch = fetch,
+): Promise<DataExportWorkspace> {
+  const source = record(
+    await request(
+      connection,
+      '/workspace',
+      configuration,
+      { method: 'GET' },
+      fetchImplementation,
+      exportServiceErrorContext,
+    ),
+    'Export availability',
+  );
+  const allowedKeys = new Set([
+    'contractVersion',
+    'kind',
+    'availability',
+    'formats',
+    'reason',
+  ]);
+  const state = source.availability;
+  const formats = source.formats;
+  const reason = source.reason;
+  if (
+    Object.keys(source).some((key) => !allowedKeys.has(key)) ||
+    source.contractVersion !== 1 ||
+    source.kind !== 'GOVERNED_EXPORT' ||
+    typeof state !== 'string' ||
+    !['AVAILABLE', 'DISABLED', 'UNAVAILABLE'].includes(state) ||
+    !Array.isArray(formats) ||
+    formats.length > 2 ||
+    formats.some(
+      (format) =>
+        typeof format !== 'string' ||
+        !exportFormats.has(format as DataExportFileFormat),
+    ) ||
+    new Set(formats).size !== formats.length ||
+    (state === 'AVAILABLE'
+      ? formats.length === 0 || reason !== undefined
+      : typeof reason !== 'string' || !reason.trim() || reason.length > 240)
+  ) {
+    throw new Error('Export availability contract is incompatible');
+  }
+  return Object.freeze({
+    contractVersion: 1,
+    kind: 'GOVERNED_EXPORT',
+    availability: state as DataExportWorkspace['availability'],
+    formats: Object.freeze(formats as DataExportFileFormat[]),
+    ...(typeof reason === 'string' ? { reason } : {}),
+  });
+}
+
 export async function generateDataExport(
   connection: AxisModuleConnection,
   configuration: DataReleaseClientConfiguration,
   requestBody: DataExportRequest,
   fetchImplementation: typeof fetch = fetch,
 ): Promise<DataExportResult> {
-  return parseDataExportResult(
+  const result = parseDataExportResult(
     await request(
       connection,
       '/export',
@@ -1066,6 +1216,16 @@ export async function generateDataExport(
       exportServiceErrorContext,
     ),
   );
+  if (
+    result.moduleName !== requestBody.moduleName ||
+    result.schemaName !== requestBody.schemaName ||
+    result.format !== requestBody.format
+  ) {
+    throw new Error(
+      'Export response does not match the selected model and format. Inspect owner history before another export.',
+    );
+  }
+  return result;
 }
 
 export interface DataExportDownload {
@@ -1101,8 +1261,7 @@ export async function downloadDataExportMedia(
         'x-enterprise-code': configuration.enterpriseCode,
       },
     });
-    if (!response.ok)
-      throw new Error(await safeError(response, mediaServiceErrorContext));
+    if (!response.ok) throw await safeError(response, mediaServiceErrorContext);
     return Object.freeze({
       blob: await response.blob(),
       fileName:
@@ -1144,6 +1303,55 @@ function contentDispositionFileName(value: string | null): string | undefined {
   return ascii?.[1]?.trim();
 }
 
+/** Parses bounded canonical owner membership without resolving dependency graphs in the browser. */
+function parseOperationSelection(
+  value: unknown,
+  dataType: DataReleaseType,
+): DataReleaseOperationSelection | undefined {
+  if (value === undefined) return undefined;
+  const selection = record(value, 'Data release selection');
+  const fail = (): never => {
+    throw new Error('Data release operation selection is incompatible');
+  };
+  if (
+    selection.contractVersion !== 1 ||
+    !Array.isArray(selection.requestedReleaseCodes) ||
+    !selection.requestedReleaseCodes.length ||
+    !Array.isArray(selection.prerequisites) ||
+    selection.requestedReleaseCodes.length + selection.prerequisites.length > 256
+  )
+    return fail();
+  const codePattern = /^[A-Za-z][A-Za-z0-9._-]{0,127}:[A-Za-z][A-Za-z0-9_-]{0,127}$/;
+  const requested = selection.requestedReleaseCodes.map((value) =>
+    text(value, 'Requested release'),
+  );
+  if (requested.some((code) => !codePattern.test(code))) return fail();
+  const seen = new Set(requested);
+  if (seen.size !== requested.length) return fail();
+  const prerequisites = selection.prerequisites.map((value) => {
+    const item = record(value, 'Prerequisite release');
+    const releaseCode = text(item.releaseCode, 'Prerequisite release code');
+    const moduleName = text(item.moduleName, 'Prerequisite owner');
+    const version = text(item.version, 'Prerequisite version');
+    const checksum = text(item.checksum, 'Prerequisite checksum');
+    if (
+      !codePattern.test(releaseCode) ||
+      !releaseCode.startsWith(moduleName + ':') ||
+      item.dataType !== dataType ||
+      !/^[a-f0-9]{64}$/.test(checksum) ||
+      seen.has(releaseCode)
+    )
+      return fail();
+    seen.add(releaseCode);
+    return Object.freeze({ releaseCode, moduleName, dataType, version, checksum });
+  });
+  return Object.freeze({
+    contractVersion: 1,
+    requestedReleaseCodes: Object.freeze(requested),
+    prerequisites: Object.freeze(prerequisites),
+  });
+}
+
 async function executeRequest(
   connection: AxisModuleConnection,
   path: string,
@@ -1165,7 +1373,12 @@ async function executeRequest(
   if (!types.has(dataType) || !Array.isArray(value.releases)) {
     throw new Error('Data release operation is incompatible');
   }
+  const selection = parseOperationSelection(value.selection, dataType);
   const result: DataReleaseOperationResult = {
+    ...(selection ? { selection } : {}),
+    ...(value.execution
+      ? { execution: parseDataReleaseExecution(value.execution) }
+      : {}),
     dataType,
     tenant: text(value.tenant, 'Tenant'),
     releases: Object.freeze(value.releases.map(parseRelease)),
@@ -1213,4 +1426,80 @@ async function executeMediaImport(
       ),
     ),
   );
+}
+
+/** Parses durable, original-actor execution evidence without deriving owner authority. */
+export function parseDataReleaseExecution(value: unknown): DataReleaseExecution {
+  const source = record(value, 'Recorded preparation');
+  const code = text(source.code, 'Preparation code');
+  const planHash = text(source.planHash, 'Preparation checksum');
+  const state = text(source.status, 'Preparation status');
+  const dataType = text(source.dataType, 'Preparation data type') as DataReleaseType;
+  const keys = source.releaseCodes;
+  const versions = record(source.expectedReleases, 'Preparation versions');
+  if (
+    !/^releaseExecution_[a-f0-9]{64}$/.test(code) ||
+    !/^[a-f0-9]{64}$/.test(planHash) ||
+    !['READY', 'RUNNING', 'UNCERTAIN', 'COMPLETED'].includes(state) ||
+    !types.has(dataType) ||
+    !Array.isArray(keys) ||
+    keys.length < 1 ||
+    keys.length > 256 ||
+    keys.some(
+      (key) =>
+        typeof key !== 'string' ||
+        !/^[A-Za-z][A-Za-z0-9._-]{0,127}:[A-Za-z][A-Za-z0-9_-]{0,127}$/.test(key),
+    ) ||
+    new Set(keys).size !== keys.length ||
+    Object.keys(versions).length !== keys.length ||
+    keys.some(
+      (key: unknown) =>
+        typeof key !== 'string' ||
+        typeof versions[key] !== 'string' ||
+        !/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/.test(String(versions[key])),
+    ) ||
+    !Number.isSafeInteger(source.revision) ||
+    Number(source.revision) < 1 ||
+    !Number.isSafeInteger(source.completed) ||
+    Number(source.completed) < 0 ||
+    source.total !== keys.length ||
+    Number(source.completed) > keys.length ||
+    (state === 'COMPLETED' && source.completed !== source.total) ||
+    source.automaticRetry !== false ||
+    typeof source.nextAction !== 'string' ||
+    source.nextAction.length > 512
+  )
+    throw new Error('Recorded preparation evidence is incompatible');
+  return Object.freeze({
+    code,
+    planHash,
+    status: state as DataReleaseExecution['status'],
+    dataType,
+    revision: Number(source.revision),
+    completed: Number(source.completed),
+    total: keys.length,
+    nextAction: source.nextAction,
+    canContinue: source.canContinue === true,
+    releaseCodes: Object.freeze(keys as string[]),
+    expectedReleases: Object.freeze(versions as Record<string, string>),
+  });
+}
+
+/** Reloads original-actor plans from the selected Import owner, with no automatic continuation. */
+export async function loadDataReleaseExecutions(
+  connection: AxisModuleConnection,
+  configuration: DataReleaseClientConfiguration,
+  dataType: DataReleaseType,
+  fetchImplementation: typeof fetch = fetch,
+): Promise<readonly DataReleaseExecution[]> {
+  const value = await request(
+    connection,
+    '/' + dataType + '/executions',
+    configuration,
+    {},
+    fetchImplementation,
+  );
+  if (!Array.isArray(value) || value.length > 100)
+    throw new Error('Recorded preparations are unavailable');
+  return Object.freeze(value.map(parseDataReleaseExecution));
 }

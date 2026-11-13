@@ -1,4 +1,8 @@
 import {
+  workbenchRelationshipLabelScope,
+  type WorkbenchReferenceLabelSnapshot,
+} from './WorkbenchRelationshipRuntime';
+import {
   Alert,
   Box,
   Button,
@@ -74,6 +78,7 @@ function editableFieldNames(
       .filter(
         (field) =>
           !field.readOnly &&
+          (creating || !field.readOnlyOnUpdate) &&
           !schema.form?.hiddenFields.includes(field.name) &&
           !(creating && schema.form?.managedCreateFields.includes(field.name)) &&
           !readonlyFields.has(field.name) &&
@@ -231,6 +236,9 @@ function constraintErrors(
 
 export function WorkbenchRecordForm(props: WorkbenchRecordFormProps) {
   const [activeStep, setActiveStep] = useState(0);
+  const [referenceViews, setReferenceViews] = useState<
+    Readonly<Record<string, WorkbenchReferenceLabelSnapshot>>
+  >({});
   const [discardOpen, setDiscardOpen] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [savedRelated, setSavedRelated] = useState(false);
@@ -340,6 +348,22 @@ export function WorkbenchRecordForm(props: WorkbenchRecordFormProps) {
       ),
     }))
     .filter((section) => section.fields.length > 0);
+  const reviewReferenceLabels: Record<string, ReadonlyMap<string, string>> = {};
+  if (relationshipRuntime)
+    for (const relationship of editableRelationships) {
+      const target = resolveWorkbenchRelationshipSchema(
+        relationshipRuntime.schemas,
+        props.schema,
+        relationship,
+      );
+      const snapshot = referenceViews[relationship.field];
+      if (
+        target &&
+        snapshot?.scope ===
+          workbenchRelationshipLabelScope(relationshipRuntime, relationship, target)
+      )
+        reviewReferenceLabels[relationship.field] = snapshot.labels;
+    }
   const guided = sections.length > 0;
   const review = guided && activeStep >= sections.length;
   const currentFields = new Set(sections[activeStep]?.fields ?? []);
@@ -375,7 +399,11 @@ export function WorkbenchRecordForm(props: WorkbenchRecordFormProps) {
     submitLock.current = true;
     setRelationshipError(undefined);
     setResolvingRelationships(true);
-    const model = compactWorkbenchDraft(draft);
+    const model = compactWorkbenchDraft(
+      draft,
+      props.initialModel ? 'update' : 'create',
+      props.initialModel,
+    );
     const resolvedDrafts = { ...relationshipDrafts };
     try {
       const editableSchema = { ...props.schema, relationships: editableRelationships };
@@ -478,6 +506,7 @@ export function WorkbenchRecordForm(props: WorkbenchRecordFormProps) {
           sections={sections}
           draft={draft}
           relationships={relationshipDrafts}
+          referenceLabels={reviewReferenceLabels}
           onEdit={goToStep}
         />
       ) : null}
@@ -546,13 +575,41 @@ export function WorkbenchRecordForm(props: WorkbenchRecordFormProps) {
                 );
                 if (!targetSchema)
                   return (
-                    <Alert key={relationship.field} severity="warning">
+                    <Alert
+                      key={relationship.field}
+                      severity="warning"
+                      action={
+                        relationshipRuntime.retrySchemas ? (
+                          <Button
+                            disabled={props.saving || resolvingRelationships}
+                            onClick={relationshipRuntime.retrySchemas}
+                          >
+                            {relationshipCopy.retryLabel ?? 'Retry'}
+                          </Button>
+                        ) : undefined
+                      }
+                    >
                       {relationship.label}: the referenced schema is unavailable.
                     </Alert>
                   );
                 return (
                   <RelationshipFieldRenderer
                     key={relationship.field}
+                    referenceView={referenceViews[relationship.field]}
+                    onReferenceLabel={(scope, reference, label) =>
+                      setReferenceViews((previous) => {
+                        const snapshot = previous[relationship.field];
+                        return {
+                          ...previous,
+                          [relationship.field]: {
+                            scope,
+                            labels: new Map(
+                              snapshot?.scope === scope ? snapshot.labels : [],
+                            ).set(reference, label),
+                          },
+                        };
+                      })
+                    }
                     copy={relationshipCopy}
                     disabled={props.saving || resolvingRelationships}
                     draft={

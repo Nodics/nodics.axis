@@ -9,7 +9,16 @@ export type FunctionalModuleRuntimeState =
   | 'DEGRADED'
   | 'INCOMPATIBLE';
 
+/** Backend permission eligibility only; runtime readiness and command authorization remain owner checks. */
+export type FunctionalModuleAllowedAction =
+  | 'register'
+  | 'activate'
+  | 'rollback'
+  | 'deactivate'
+  | 'deregister'
+  | 'installSampleData';
 export interface FunctionalModuleRegistration {
+  readonly allowedActions?: readonly FunctionalModuleAllowedAction[] | undefined;
   readonly project: string;
   readonly functionalModule: string;
   readonly displayName: string;
@@ -319,6 +328,26 @@ function runtimeState(value: unknown): FunctionalModuleRuntimeState {
   return value as FunctionalModuleRuntimeState;
 }
 
+/** Missing authority metadata is read-only; unknown or repeated actions reject the owner response. */
+function parseAllowedActions(value: unknown): readonly FunctionalModuleAllowedAction[] {
+  if (value === undefined) return Object.freeze([]);
+  const allowed = [
+    'register',
+    'activate',
+    'rollback',
+    'deactivate',
+    'deregister',
+    'installSampleData',
+  ];
+  if (
+    !Array.isArray(value) ||
+    value.some((action) => typeof action !== 'string' || !allowed.includes(action)) ||
+    new Set(value).size !== value.length
+  )
+    throw new Error('Module Registry action eligibility is invalid');
+  return Object.freeze(value as FunctionalModuleAllowedAction[]);
+}
+
 export function parseFunctionalModuleRegistration(
   value: unknown,
   name = 'Functional-module registration',
@@ -326,6 +355,7 @@ export function parseFunctionalModuleRegistration(
   const item = record(value, name);
   const functionalModule = text(item.functionalModule, `${name} module identity`);
   return Object.freeze({
+    allowedActions: parseAllowedActions(item.allowedActions),
     project: text(item.project, `${functionalModule} project`),
     functionalModule,
     displayName: text(item.displayName, `${functionalModule} display name`),

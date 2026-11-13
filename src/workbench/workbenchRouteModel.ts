@@ -33,6 +33,34 @@ export interface WorkbenchRouteConnectionPreference {
   readonly server?: string | undefined;
 }
 
+/**
+ * Keep the last qualified discovery mounted while unrelated sources join.
+ * A changed actor, route, or any removed/replaced source must discover afresh.
+ */
+export function canRetainWorkbenchDiscovery(
+  previousKey: readonly unknown[] | undefined,
+  scopeKey: string,
+  currentConnections: readonly string[],
+): boolean {
+  if (
+    previousKey?.[0] !== 'schema-workbench' ||
+    previousKey[1] !== 'schemas' ||
+    previousKey[2] !== scopeKey
+  )
+    return false;
+  const previousConnections = previousKey[3];
+  if (!Array.isArray(previousConnections)) return false;
+  const current = new Set(currentConnections);
+  return (
+    previousConnections.length > 0 &&
+    previousConnections.length < current.size &&
+    previousConnections.every(
+      (connection: unknown) =>
+        typeof connection === 'string' && current.has(connection),
+    )
+  );
+}
+
 /** An owner discovery refresh cannot reuse an older, broader schema descriptor. */
 export function currentDiscoveredWorkbenchSchema(
   selected: WorkbenchSchema | undefined,

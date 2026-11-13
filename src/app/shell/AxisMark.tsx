@@ -1,4 +1,4 @@
-import { Box, Stack, Typography } from '@mui/material';
+import { Box, Stack, Typography, useTheme } from '@mui/material';
 
 interface AxisMarkProps {
   readonly compact?: boolean;
@@ -47,7 +47,13 @@ function NodicsMark({ reverse, size }: NodicsMarkProps) {
   );
 }
 
-export function AxisMark({ compact = false, reverse = false }: AxisMarkProps) {
+/** Uses the approved reverse mark on Dark surfaces unless the caller explicitly selects a variant. */
+export function AxisMark({
+  compact = false,
+  reverse: requestedReverse,
+}: AxisMarkProps) {
+  const theme = useTheme();
+  const reverse = requestedReverse ?? theme.palette.mode === 'dark';
   return (
     <Stack
       aria-label="Nodics Axis"

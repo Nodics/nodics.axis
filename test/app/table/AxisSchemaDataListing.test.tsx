@@ -2,6 +2,8 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+import { AxisLocalizationBoundary } from '../../../src/localization/AxisLocalizationContext';
+import type { AxisLocalizationState } from '../../../src/localization/localizationContracts';
 import { AxisSchemaDataListing } from '../../../src/app/table/AxisSchemaDataListing';
 import type { WorkbenchSchema } from '../../../src/workbench/api/workbenchContracts';
 
@@ -60,7 +62,109 @@ const employeeSchema: WorkbenchSchema = {
   relationships: [],
 };
 
+it('changes displayed date language without changing the record identity', () => {
+  const value = '2026-11-09T16:15:00Z';
+  const record = { loginId: 'axis-employee-71', createdAt: value };
+  const schema: WorkbenchSchema = {
+    ...employeeSchema,
+    fields: [
+      employeeSchema.fields[0]!,
+      {
+        name: 'createdAt',
+        label: 'Created',
+        type: 'date',
+        required: false,
+        readOnly: true,
+        primary: false,
+        description: '',
+        searchable: false,
+      },
+    ],
+  };
+  const view = (locale: string) => (
+    <AxisLocalizationBoundary
+      value={
+        {
+          locale,
+          direction: locale === 'ar' ? 'rtl' : 'ltr',
+          supportedLocales: ['en', 'ar'],
+          stale: false,
+          setLocale: () => undefined,
+          format: (_key: string, fallback: string) => fallback,
+          formatError: (_error: unknown, fallback: string) => fallback,
+        } satisfies AxisLocalizationState
+      }
+    >
+      <AxisSchemaDataListing
+        ariaLabel="Employee records"
+        schema={schema}
+        records={[record]}
+        getRowKey={(row) => String(row.loginId)}
+        emptyMessage="No records"
+      />
+    </AxisLocalizationBoundary>
+  );
+  const expected = (locale: string) =>
+    new Intl.DateTimeFormat(locale, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      timeZoneName: 'short',
+    }).format(new Date(value));
+  const page = render(view('en'));
+  expect(screen.getByText(expected('en'))).toBeVisible();
+  const original = screen.getByText('axis-employee-71');
+  expect(original.tagName).toBe('BDI');
+  page.rerender(view('ar'));
+  expect(screen.getByText(expected('ar'))).toBeVisible();
+  expect(screen.getByText('axis-employee-71')).toBe(original);
+  expect(record.createdAt).toBe(value);
+});
+
 describe('AxisSchemaDataListing', () => {
+  it('resets stale column choices to the declared order while excluding unavailable fields', async () => {
+    const onColumnKeysChange = vi.fn();
+    render(
+      <AxisSchemaDataListing
+        ariaLabel="Employee records"
+        schema={employeeSchema}
+        records={[]}
+        getRowKey={(_, index) => String(index)}
+        emptyMessage="No records"
+        defaultVisibleColumnKeys={[
+          'name.firstName',
+          'loginId',
+          'name.lastName',
+          'missing',
+        ]}
+        excludedColumnKeys={['name.lastName']}
+        visibleColumnKeys={['loginId']}
+        onColumnKeysChange={onColumnKeysChange}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Columns' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Reset columns' }));
+    expect(onColumnKeysChange).toHaveBeenCalledExactlyOnceWith([
+      'name.firstName',
+      'loginId',
+    ]);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+  it('omits inert column controls when no presentation change handler is supplied', () => {
+    render(
+      <AxisSchemaDataListing
+        ariaLabel="Employee records"
+        schema={employeeSchema}
+        records={[]}
+        getRowKey={(_, index) => String(index)}
+        emptyMessage="No records"
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Columns' })).toBeNull();
+  });
   it('renders nested record values for dotted schema fields', () => {
     render(
       <AxisSchemaDataListing
@@ -325,4 +429,45 @@ describe('AxisSchemaDataListing', () => {
       0,
     );
   });
+});
+
+it('shows bounded inert structured summaries rather than claiming an unrelated value is a relationship', () => {
+  const copy = { en: 'Synthetic series', ar: 'سلسلة تجريبية', active: false, count: 0 };
+  const schema: WorkbenchSchema = {
+    ...employeeSchema,
+    fields: [
+      {
+        ...employeeSchema.fields[0]!,
+        name: 'description',
+        label: 'Description',
+        type: 'object',
+      },
+    ],
+    displayProperty: 'description',
+    displayProperties: ['description'],
+  };
+  const { rerender } = render(
+    <AxisSchemaDataListing
+      ariaLabel="Series"
+      schema={schema}
+      records={[{ description: copy }]}
+      getRowKey={() => 'series'}
+      emptyMessage="None"
+    />,
+  );
+  expect(screen.getByRole('cell', { name: JSON.stringify(copy) })).toBeVisible();
+  expect(screen.queryByText('Related data')).not.toBeInTheDocument();
+  const text = '<img src=x onerror=alert(1)>'.repeat(20);
+  rerender(
+    <AxisSchemaDataListing
+      ariaLabel="Series"
+      schema={schema}
+      records={[{ description: { en: text } }]}
+      getRowKey={() => 'series'}
+      emptyMessage="None"
+    />,
+  );
+  const summary = JSON.stringify({ en: text }).slice(0, 157) + '…';
+  expect(screen.getByRole('cell', { name: summary })).toBeVisible();
+  expect(screen.queryByRole('img')).not.toBeInTheDocument();
 });

@@ -28,6 +28,10 @@ interface Props {
   readonly capability: ScheduleLifecycleCapability;
   readonly initialCode?: string;
   readonly onChanged?: () => void;
+  readonly onPendingChange?: (pending: boolean) => void;
+  readonly commandsBlocked?: boolean;
+  readonly controlId?: string;
+  readonly selectionLabel?: string | undefined;
 }
 /** The parent session remounts on scope changes; this component only acts on explicitly inspected identities. */
 export function CronScheduleLifecyclePanel({
@@ -36,6 +40,10 @@ export function CronScheduleLifecyclePanel({
   capability,
   initialCode = '',
   onChanged,
+  onPendingChange,
+  commandsBlocked = false,
+  controlId,
+  selectionLabel,
 }: Props) {
   const [code, setCode] = useState(initialCode);
   const [receipt, setReceipt] = useState<ScheduleLifecycleReceipt>();
@@ -46,6 +54,10 @@ export function CronScheduleLifecyclePanel({
   const [failed, setFailed] = useState(false);
   const pending = useRef<AbortController | null>(null);
   useEffect(() => () => pending.current?.abort(), []);
+  useEffect(() => {
+    onPendingChange?.(busy || unknown);
+    return () => onPendingChange?.(false);
+  }, [busy, unknown, onPendingChange]);
   const copy = capability.presentation;
   /** Freezes the original identity before dispatch; response loss only exposes inspection/reconciliation. */
   async function send(
@@ -55,6 +67,9 @@ export function CronScheduleLifecyclePanel({
     if (
       pending.current ||
       !code ||
+      (commandsBlocked &&
+        (operation === 'preview' || operation === 'execute') &&
+        (intent || review?.intent) !== 'DEACTIVATE') ||
       (operation === 'execute' &&
         (!confirmed || !review || (unknown && review.intent !== 'DEACTIVATE'))) ||
       ((operation === 'preview' || operation === 'reconcile') && !receipt)
@@ -128,13 +143,25 @@ export function CronScheduleLifecyclePanel({
     }
   }
   return (
-    <Stack component="section" spacing={2} sx={{ py: 2, minWidth: 0 }}>
-      <Typography variant="h5">{copy.title}</Typography>
+    <Stack
+      component="section"
+      id={controlId}
+      spacing={2}
+      sx={{ py: 2, minWidth: 0, scrollMarginTop: 96 }}
+    >
+      <Typography component="h3" variant="h5">
+        {copy.title}
+      </Typography>
+      {selectionLabel ? (
+        <Typography component="p" variant="subtitle1" sx={{ overflowWrap: 'anywhere' }}>
+          {selectionLabel}
+        </Typography>
+      ) : null}
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
         <TextField
           label={copy.code}
           value={code}
-          disabled={busy || unknown}
+          disabled={busy || unknown || commandsBlocked}
           onChange={(event) => {
             setCode(event.target.value);
             setReceipt(undefined);
@@ -157,6 +184,35 @@ export function CronScheduleLifecyclePanel({
           {copy[unknown ? 'OUTCOME_UNKNOWN' : receipt!.state]}
         </Alert>
       ) : null}
+      {!unknown && receipt?.timing && capability.timingPresentation ? (
+        <Stack spacing={0.5}>
+          <Typography variant="body2">
+            {capability.timingPresentation.expression}{' '}
+            <code>{receipt.timing.expression}</code>
+          </Typography>
+          <Typography variant="body2">
+            {capability.timingPresentation.timeZone} {receipt.timing.timeZone}
+          </Typography>
+          <Typography variant="body2">
+            {receipt.timing.nextRunAt ? (
+              <>
+                {capability.timingPresentation.nextRun}{' '}
+                <time dateTime={receipt.timing.nextRunAt}>
+                  {receipt.timing.nextRunAt
+                    .replace('T', ' ')
+                    .replace(/\.\d{3}Z$/, ' UTC')}
+                </time>
+                {'. '}
+                {capability.timingPresentation.nextRunMeaning}
+              </>
+            ) : receipt.state === 'INACTIVE' || receipt.state === 'SAVED_INACTIVE' ? (
+              capability.timingPresentation.noNextRun
+            ) : (
+              capability.timingPresentation.nextRunUnknown
+            )}
+          </Typography>
+        </Stack>
+      ) : null}
       {failed ? <Alert severity="error">{copy.failed}</Alert> : null}
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
         {receipt &&
@@ -165,7 +221,7 @@ export function CronScheduleLifecyclePanel({
         capability.activationEnabled ? (
           <Button
             startIcon={<ShellIcon name="approve" />}
-            disabled={busy}
+            disabled={busy || commandsBlocked}
             onClick={() => void send('preview', 'ACTIVATE')}
           >
             {copy.activate}
@@ -212,7 +268,10 @@ export function CronScheduleLifecyclePanel({
               variant="contained"
               startIcon={<ShellIcon name="approve" />}
               disabled={
-                busy || !confirmed || (unknown && review.intent !== 'DEACTIVATE')
+                busy ||
+                !confirmed ||
+                (unknown && review.intent !== 'DEACTIVATE') ||
+                (commandsBlocked && review.intent !== 'DEACTIVATE')
               }
               onClick={() => void send('execute')}
             >

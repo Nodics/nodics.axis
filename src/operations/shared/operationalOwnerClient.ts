@@ -1,3 +1,6 @@
+import { parseAxisApiError } from '../../localization/axisApiError';
+import { observeEmployeeSessionResponse } from '../../auth/employeeSessionEvents';
+
 /** Single-attempt transport to discovered owning modules; explicit error envelopes are never successful DTOs. */
 import {
   selectModuleConnection,
@@ -8,6 +11,7 @@ export interface OperationalOwnerConfiguration {
   accessToken: string;
   enterpriseCode: string;
   timeoutMs: number;
+  sessionGeneration?: number | undefined;
   ownerSelector?: Parameters<typeof selectModuleConnection>[2];
 }
 /** Rejects explicit Nodics failure envelopes before projecting their nested data/result. */
@@ -80,13 +84,17 @@ export async function invokeOperationalOwner<T>(
       redirect: 'error',
       signal: controller.signal,
     });
-    const envelope = (await response.json()) as Record<string, unknown>;
+    observeEmployeeSessionResponse(
+      response,
+      configuration.accessToken,
+      configuration.sessionGeneration,
+    );
     if (!response.ok)
-      throw new Error(
-        typeof envelope.message === 'string'
-          ? envelope.message
-          : 'The owner request failed.',
+      throw await parseAxisApiError(
+        response,
+        'The owner request could not be confirmed.',
       );
+    const envelope = (await response.json()) as Record<string, unknown>;
     return unwrap(envelope) as T;
   } finally {
     options.signal?.removeEventListener('abort', abort);

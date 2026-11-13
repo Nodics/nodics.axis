@@ -3,7 +3,7 @@ import {
   parseBackendWorkspace,
   type AxisBackendWorkspace,
 } from '../bootstrap/publicBootstrap';
-import type { AxisRuntimeConfig } from '../runtime/runtimeConfig';
+import { MAXIMUM_TIMEOUT_MS, type AxisRuntimeConfig } from '../runtime/runtimeConfig';
 
 /** Transport helpers for the backend-owned enterprise workspace contract. */
 export function envelopeData(value: unknown): unknown {
@@ -88,7 +88,7 @@ export async function loadPublicBackendWorkspacePayload(
   if (
     !Number.isSafeInteger(runtime.requestTimeoutMs) ||
     runtime.requestTimeoutMs < 1 ||
-    runtime.requestTimeoutMs > 120000
+    runtime.requestTimeoutMs > MAXIMUM_TIMEOUT_MS
   ) {
     throw new Error('Backend workspace timeout is invalid');
   }

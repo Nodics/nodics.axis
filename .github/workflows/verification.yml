@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       AXIS_BACKOFFICE_BASE_URL: http://127.0.0.1:4300
-      AXIS_LOCATION_BASE_URL: http://127.0.0.1:4380/nodics/locationMap
+      AXIS_LOCATION_BASE_URL: http://127.0.0.1:4370/nodics/locationMap
       AXIS_WASTE_API_BASE_URL: http://127.0.0.1:4370/nodics/wasteApi
       AXIS_ENTERPRISE_CODE: default
       AXIS_PROJECT_CODE: nodics.kickoff

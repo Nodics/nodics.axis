@@ -1,5 +1,7 @@
+import { EnterpriseDisplayContext } from '../../src/app/EnterpriseDisplayContext';
+import type { CurrentEnterpriseDisplay } from '../../src/bootstrap/currentEnterpriseDisplay';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -152,19 +154,26 @@ const runtime: AxisRuntimeConfig = {
 function Location() {
   return <output aria-label="Current route">{useLocation().pathname}</output>;
 }
-function mount(value = bootstrap) {
+function mount(
+  value = bootstrap,
+  context: { site?: string; catalog?: string } = {},
+  display?: CurrentEnterpriseDisplay,
+) {
   return render(
     <AxisThemeProvider>
       <QueryClientProvider
         client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
       >
         <MemoryRouter>
-          <AxisFrameworkOverview
-            accessToken="test-principal"
-            bootstrap={value}
-            runtime={runtime}
-            sections={sections}
-          />
+          <EnterpriseDisplayContext.Provider value={display}>
+            <AxisFrameworkOverview
+              {...context}
+              accessToken="test-principal"
+              bootstrap={value}
+              runtime={runtime}
+              sections={sections}
+            />
+          </EnterpriseDisplayContext.Provider>
           <Location />
         </MemoryRouter>
       </QueryClientProvider>
@@ -208,6 +217,75 @@ beforeEach(() => {
     });
 });
 describe('Isolated Framework Overview', () => {
+  it('keeps initial reads distinct from failed reads and verified zero', async () => {
+    let resolveMetrics!: (
+      value: Awaited<ReturnType<typeof loadWorkbenchMetrics>>,
+    ) => void;
+    vi.mocked(loadWorkbenchMetrics).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveMetrics = resolve;
+        }),
+    );
+    mount();
+    const card = screen.getByRole('link', { name: /Orders/ });
+    expect(card).toHaveAttribute('aria-busy', 'true');
+    expect(card).not.toHaveTextContent('Data unavailable');
+    expect(card).not.toHaveTextContent('accessible records');
+    await act(async () => {
+      resolveMetrics([]);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(card).toHaveAttribute('aria-busy', 'false'));
+    expect(card).toHaveTextContent('Data unavailable');
+    expect(card).not.toHaveTextContent('0');
+  });
+  it('withholds old counts and work while refresh is in flight, then accepts verified zero', async () => {
+    const user = userEvent.setup();
+    mount();
+    await screen.findByText('42');
+    await screen.findByText('Review order');
+    let resolveMetrics!: (
+      value: Awaited<ReturnType<typeof loadWorkbenchMetrics>>,
+    ) => void;
+    let resolveProcess!: (
+      value: Awaited<ReturnType<typeof loadProcessOperationsSummary>>,
+    ) => void;
+    const result = await (vi.mocked(loadWorkbenchMetrics).mock.results[0]!
+      .value as ReturnType<typeof loadWorkbenchMetrics>);
+    const work = await (vi.mocked(loadProcessOperationsSummary).mock.results[0]!
+      .value as ReturnType<typeof loadProcessOperationsSummary>);
+    vi.mocked(loadWorkbenchMetrics).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveMetrics = resolve;
+        }),
+    );
+    vi.mocked(loadProcessOperationsSummary).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveProcess = resolve;
+        }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Refresh business overview' }));
+    const card = screen.getByRole('link', { name: /Orders/ });
+    expect(card).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByText('42')).not.toBeInTheDocument();
+    expect(screen.queryByText('Review order')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Updated/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Data unavailable')).not.toBeInTheDocument();
+    await act(async () => {
+      resolveMetrics(result.map((metric) => ({ ...metric, value: 0 })));
+      resolveProcess({ ...work, tasks: [] });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(card).toHaveAttribute('aria-busy', 'false'));
+    expect(card).toHaveTextContent('0');
+    expect(card).toHaveTextContent('accessible records');
+    expect(
+      await screen.findByText('No open tasks in the current sample'),
+    ).toBeInTheDocument();
+  });
   it('renders owner counts, bounded work and domain navigation without setup or repair controls', async () => {
     mount();
     expect(await screen.findByText('42')).toBeInTheDocument();
@@ -221,6 +299,37 @@ describe('Isolated Framework Overview', () => {
       screen.queryByRole('button', { name: /execute|install|publish|activate/i }),
     ).not.toBeInTheDocument();
   });
+  it.each([
+    { context: {}, visible: false },
+    { context: { site: 'site-a' }, visible: false },
+    { context: { site: 'site-a', catalog: 'catalog-a' }, visible: true },
+  ])(
+    'shows context-dependent Content only with complete current composition context: $visible',
+    ({ context, visible }) => {
+      mount(
+        {
+          ...bootstrap,
+          navigation: [
+            ...bootstrap.navigation,
+            {
+              ...nav,
+              id: 'content',
+              moduleName: 'cms',
+              label: 'Content workspace',
+              route: '/content',
+              group: { id: 'content', label: 'Content and Experience', order: 2 },
+              contexts: ['site', 'catalog'],
+              workbenchTarget: undefined,
+            },
+          ],
+        },
+        context,
+      );
+      const heading = screen.queryByRole('heading', { name: 'Content and Experience' });
+      if (visible) expect(heading).toBeVisible();
+      else expect(heading).not.toBeInTheDocument();
+    },
+  );
   it('supports search, full directory and one-click navigation', async () => {
     const user = userEvent.setup();
     mount();
@@ -243,8 +352,23 @@ describe('Isolated Framework Overview', () => {
   it('does not request inaccessible sources or restore their navigation', () => {
     mount({ ...bootstrap, navigation: [] });
     expect(screen.getByText('No business dashboards')).toBeInTheDocument();
-    expect(screen.getAllByText('Work summaries unavailable')).toHaveLength(3);
+    expect(screen.queryByText('Work summaries unavailable')).not.toBeInTheDocument();
+    for (const title of [
+      'Decisions & work',
+      'Work activity',
+      'Business process exceptions',
+    ])
+      expect(screen.queryByRole('heading', { name: title })).not.toBeInTheDocument();
     expect(loadWorkbenchMetrics).not.toHaveBeenCalled();
+    expect(loadProcessOperationsSummary).not.toHaveBeenCalled();
+  });
+  it('retains the admitted business directory without offering ungranted work summaries or retries', async () => {
+    mount({ ...bootstrap, navigation: [nav] });
+    expect(await screen.findByRole('heading', { name: 'Commerce' })).toBeVisible();
+    expect(screen.queryByText('Work summaries unavailable')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Decisions & work' }),
+    ).not.toBeInTheDocument();
     expect(loadProcessOperationsSummary).not.toHaveBeenCalled();
   });
   it('keeps source failure distinct from empty queues and refresh can recover', async () => {
@@ -262,4 +386,19 @@ describe('Isolated Framework Overview', () => {
     await user.click(screen.getByRole('button', { name: 'Refresh business overview' }));
     expect(await screen.findByText('Review order')).toBeInTheDocument();
   });
+});
+
+it('leads with the current owner name while metric requests retain the original identifier', async () => {
+  mount(bootstrap, {}, { code: 'example', displayName: 'GreenPerks Retail' });
+  expect(screen.getByText('GreenPerks Retail')).toBeVisible();
+  expect(screen.queryByText('example.project · example')).not.toBeInTheDocument();
+  await waitFor(() => expect(loadWorkbenchMetrics).toHaveBeenCalled());
+  expect(vi.mocked(loadWorkbenchMetrics).mock.calls[0]?.[2].enterpriseCode).toBe(
+    'example',
+  );
+});
+it('does not display a foreign owner name supplied to another current context', () => {
+  mount(bootstrap, {}, { code: 'OTHER', displayName: 'Foreign Enterprise' });
+  expect(screen.queryByText('Foreign Enterprise')).not.toBeInTheDocument();
+  expect(screen.getByText('example')).toBeVisible();
 });
