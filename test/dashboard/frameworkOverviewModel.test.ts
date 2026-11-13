@@ -117,6 +117,7 @@ describe('Framework overview discovery', () => {
     const target = {
       ...item,
       workbenchTarget: { moduleName: 'order', schemaName: 'commerceOrder' },
+      workbenchPresentation: { ownerSelector: { publicationRole: 'OPERATIONAL' } },
     };
     const definitions = overviewMetricDefinitions(
       [target],
@@ -127,6 +128,7 @@ describe('Framework overview discovery', () => {
       moduleName: 'order',
       schemaName: 'commerceOrder',
       route: '/commerce',
+      ownerSelector: { publicationRole: 'OPERATIONAL' },
     });
     expect(
       overviewMetricDefinitions(

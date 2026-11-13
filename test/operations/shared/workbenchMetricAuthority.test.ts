@@ -336,3 +336,69 @@ it('deduplicates exact metric schema reads and refuses foreign or denied descrip
   expect(denied[0]?.status).toBe('unavailable');
   expect(clients.loadWorkbenchSchemas).not.toHaveBeenCalled();
 });
+
+describe('publication-only business metric owner', () => {
+  const selected = {
+    ...definition,
+    ownerSelector: { publicationRole: 'OPERATIONAL' },
+    schemaDiscovery: {
+      moduleName: 'publish',
+      descriptor: { path: '/business/requests/schemas', apiVersion: 'v0' },
+    },
+  };
+  it('discovers only the declared operational source alongside a Staged copy', async () => {
+    const source = owner(
+      'custom-active',
+      'CUSTOM_OPERATIONS',
+      'tenant-commerce',
+      'OPERATIONAL',
+    );
+    const staged = owner('staged', 'CUSTOM_STAGED', 'commerceServer');
+    clients.loadWorkbenchSchemas.mockResolvedValueOnce([schema(source)]);
+    clients.loadWorkbenchRecords.mockResolvedValueOnce({
+      records: [],
+      totalCount: 0,
+      pageNumber: 1,
+      pageSize: 20,
+    });
+    const result = await loadWorkbenchMetrics(
+      [staged, source],
+      bootstrap([staged, source]),
+      config,
+      [selected],
+    );
+    expect(clients.loadWorkbenchSchemas).toHaveBeenCalledExactlyOnceWith(
+      [source],
+      config,
+      fetch,
+      selected.schemaDiscovery,
+    );
+    expect(clients.loadWorkbenchRecords.mock.calls[0]?.[0]).toBe(source);
+    expect(result[0]).toMatchObject({ status: 'ready', value: 0 });
+  });
+  it.each(['missing', 'duplicate', 'unknown-role'])(
+    'does not read records from %s owners',
+    async (scenario) => {
+      const source = owner(
+        'source',
+        'CUSTOM_OPERATIONS',
+        'tenant-commerce',
+        'OPERATIONAL',
+      );
+      const connections =
+        scenario === 'duplicate'
+          ? [source, { ...source, instanceId: 'duplicate' }]
+          : scenario === 'unknown-role'
+            ? [{ ...source, runtimeRole: undefined }]
+            : [owner('staged', 'CUSTOM_STAGED', 'commerceServer')];
+      const result = await loadWorkbenchMetric(
+        selected,
+        [schema(source)],
+        bootstrap(connections),
+        config,
+      );
+      expect(result.status).toBe('unavailable');
+      expect(clients.loadWorkbenchRecords).not.toHaveBeenCalled();
+    },
+  );
+});

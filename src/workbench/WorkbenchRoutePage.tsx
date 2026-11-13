@@ -65,6 +65,7 @@ import {
   resolveWorkbenchRouteTarget,
   schemaWithValidQueryCapabilities,
   selectWorkbenchReferencedRecord,
+  selectWorkbenchOwnerConnections,
   workbenchPresentationForbiddenFields,
   workbenchPresentationForSchema,
   workbenchFixedFilterGroup,
@@ -197,8 +198,15 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
     if (!props.routeSchema) return allConnections;
     const ownerConnections =
       props.bootstrap.moduleConnections[props.routeSchema.moduleName] ?? [];
+    const selector = props.routeNavigation?.workbenchPresentation?.ownerSelector;
+    if (selector)
+      return [...selectWorkbenchOwnerConnections(ownerConnections, selector)];
     return ownerConnections.length > 0 ? [...ownerConnections] : allConnections;
-  }, [props.bootstrap, props.routeSchema]);
+  }, [
+    props.bootstrap,
+    props.routeSchema,
+    props.routeNavigation?.workbenchPresentation?.ownerSelector,
+  ]);
   const connectionKeys = useMemo(
     () =>
       connections
@@ -234,6 +242,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
     props.routeSchema?.schemaName,
     ownerDiscovery?.path,
     ownerDiscovery?.apiVersion,
+    props.routeNavigation?.workbenchPresentation?.ownerSelector,
     ownerDiscovery ? props.routeNavigation?.moduleName : undefined,
   ]);
   const schemas = useQuery({
@@ -312,12 +321,15 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
   const recordConnection = normalizedSelectedSchema
     ? selectWorkbenchSchemaConnection(props.bootstrap, normalizedSelectedSchema)
     : undefined;
-  const routeOwnerConnection = props.routeNavigation
-    ? selectModuleConnection(
-        props.bootstrap,
-        props.routeSchema?.moduleName ?? props.routeNavigation.moduleName,
-      )
-    : undefined;
+  const routeOwnerConnection = props.routeNavigation?.workbenchPresentation
+    ?.ownerSelector
+    ? connections[0]
+    : props.routeNavigation
+      ? selectModuleConnection(
+          props.bootstrap,
+          props.routeSchema?.moduleName ?? props.routeNavigation.moduleName,
+        )
+      : undefined;
   const routeParentLabel =
     props.routeNavigation?.parentId !== undefined
       ? props.bootstrap.navigation.find(
@@ -700,6 +712,7 @@ export function WorkbenchRoutePage(props: WorkbenchRoutePageProps) {
           target: props.routeNavigation.workbenchTarget,
           fixedFilters: props.routeNavigation.workbenchPresentation?.fixedFilters ?? [],
           schemaDiscovery: props.routeNavigation.workbenchPresentation?.schemaDiscovery,
+          ownerSelector: props.routeNavigation.workbenchPresentation?.ownerSelector,
         })
       : undefined;
     return (

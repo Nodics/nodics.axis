@@ -116,6 +116,9 @@ export function overviewMetricDefinitions(
         description: item.help?.summary ?? item.label,
         route: item.route,
         icon: item.icon,
+        ...(item.workbenchPresentation?.ownerSelector
+          ? { ownerSelector: item.workbenchPresentation.ownerSelector }
+          : {}),
         ...(item.workbenchPresentation?.schemaDiscovery
           ? {
               schemaDiscovery: {

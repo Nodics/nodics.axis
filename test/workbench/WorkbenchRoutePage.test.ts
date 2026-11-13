@@ -21,7 +21,10 @@ import {
   workbenchReferenceLookupQuery,
   type WorkbenchDeepLinkTarget,
 } from '../../src/workbench/workbenchRouteModel';
-import { routePreferredServer } from '../../src/workbench/workbenchRouteModel';
+import {
+  routePreferredServer,
+  selectWorkbenchOwnerConnections,
+} from '../../src/workbench/workbenchRouteModel';
 import type { WorkbenchSchema } from '../../src/workbench/api/workbenchContracts';
 
 describe('Workbench discovery continuity', () => {
@@ -689,5 +692,55 @@ describe('relatedRecordPanelFilter', () => {
         },
       ],
     });
+  });
+});
+
+describe('declared Workbench runtime owner', () => {
+  const operational = {
+    moduleName: 'order',
+    instanceId: 'active',
+    endpoint: 'https://custom.test/order',
+    environment: 'local',
+    server: 'custom-orders',
+    state: 'UP' as const,
+    runtimeRole: { code: 'CUSTOM_OPERATIONS', publication: 'OPERATIONAL' },
+  };
+  const staged = {
+    ...operational,
+    instanceId: 'staged',
+    server: 'commerceServer',
+    runtimeRole: { code: 'CUSTOM_STAGED', publication: 'STAGED' },
+  };
+  const selector = { publicationRole: 'OPERATIONAL' };
+  it('selects the logical operational owner regardless of server name or ordering', () => {
+    expect(selectWorkbenchOwnerConnections([staged, operational], selector)).toEqual([
+      operational,
+    ]);
+    expect(
+      routePreferredServer(
+        {
+          id: 'orders',
+          moduleName: 'order',
+          label: 'Orders',
+          route: '/commerce/checkout/orders',
+          order: 1,
+          category: 'commerce',
+          icon: 'commerce',
+          availability: 'UP',
+          featureState: 'ACTIVE',
+          workbenchPresentation: { ownerSelector: selector },
+        },
+        operational,
+      ),
+    ).toBe('custom-orders');
+  });
+  it('refuses absent, missing-role, down and ambiguous sources', () => {
+    for (const connections of [
+      [staged],
+      [{ ...operational, runtimeRole: undefined }],
+      [{ ...operational, state: 'UNAVAILABLE' as const }],
+      [operational, { ...operational, instanceId: 'duplicate' }],
+    ])
+      expect(selectWorkbenchOwnerConnections(connections, selector)).toEqual([]);
   });
 });

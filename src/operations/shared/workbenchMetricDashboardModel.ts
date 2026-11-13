@@ -4,6 +4,8 @@ import {
   workspacePanelPadding,
 } from '../../app/shell/workspaceLayout';
 import {
+  moduleConnectionMatchesOwner,
+  type AxisRuntimeOwnerSelector,
   type AxisAuthenticatedBootstrap,
   type AxisModuleConnection,
   type AxisWorkbenchSchemaDiscovery,
@@ -40,12 +42,7 @@ export interface WorkbenchMetricDefinition {
   readonly schemaDiscovery?:
     | Readonly<{ moduleName: string; descriptor: AxisWorkbenchSchemaDiscovery }>
     | undefined;
-  readonly ownerSelector?:
-    | Readonly<{
-        runtimeRoleCode: string;
-        publicationRole: string;
-      }>
-    | undefined;
+  readonly ownerSelector?: AxisRuntimeOwnerSelector | undefined;
   readonly filter?: {
     readonly field: string;
     readonly value: string;
@@ -104,12 +101,10 @@ function findMetricSchema(
       schema.schemaName === definition.schemaName,
   );
   if (definition.ownerSelector) {
-    const { runtimeRoleCode, publicationRole } = definition.ownerSelector;
     const owners = (bootstrap.moduleConnections[definition.moduleName] ?? []).filter(
       (connection) =>
         ['UP', 'DEGRADED'].includes(connection.state) &&
-        connection.runtimeRole?.code === runtimeRoleCode &&
-        connection.runtimeRole.publication === publicationRole,
+        moduleConnectionMatchesOwner(connection, definition.ownerSelector!),
     );
     if (owners.length !== 1) return undefined;
     const owner = owners[0]!;
@@ -260,9 +255,7 @@ export async function loadWorkbenchMetrics(
     return owned.some(
       (definition) =>
         !definition.ownerSelector ||
-        (connection.runtimeRole?.code === definition.ownerSelector.runtimeRoleCode &&
-          connection.runtimeRole.publication ===
-            definition.ownerSelector.publicationRole),
+        moduleConnectionMatchesOwner(connection, definition.ownerSelector),
     );
   });
   // Discovery is grouped by its advertised owner contract, never retried through

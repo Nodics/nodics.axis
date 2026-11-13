@@ -4,6 +4,12 @@ Axis renders nImport-owned release readiness. It must not inspect module data
 folders, calculate release state, sequence imports, or repair manifests in the
 browser.
 
+History normalizes the owner's projected `createdAt`, persisted `created`, or
+legacy run `startedAt` into its display timestamp, in that order. Import and
+Export remain separate owner reads; this mapping supports combined newest-first
+presentation without inventing a timestamp or changing a receipt. The typed
+client tests cover all three shapes and explicit projection precedence.
+
 ## Source Journey And Verification Boundary
 
 Fresh employee admission uses the Platform baseline status through

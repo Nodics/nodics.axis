@@ -604,7 +604,10 @@ function parseImportRun(value: unknown): ImportRunSummary | undefined {
   const optionalValues = {
     dataType: optionalText(source.dataType),
     requestedBy: optionalText(source.requestedBy),
-    createdAt: optionalText(source.createdAt),
+    createdAt:
+      optionalText(source.createdAt) ??
+      optionalText(source.created) ??
+      optionalText(source.startedAt),
     summary: parseImportRunSummary(source.summary),
     failures: boundedArray(source.failures, parseImportRunFailure),
     validationErrors: boundedArray(source.validationErrors, parseImportRunFailure),

@@ -222,3 +222,12 @@ Date controls display the UTC calendar day from an owner ISO timestamp. Opening 
 Listings show bounded inert JSON summaries for admitted structured fields. Only advertised relationships render relationship controls; an ordinary localized/object value is not labelled as related data. Open the record to inspect the complete admitted value.
 
 A failed record transport read gives a bounded reconnection instruction instead of browser error jargon. It does not become an empty result or trigger a fallback/replay; explicit owner HTTP validation and permission errors keep their existing status/message handling.
+
+Navigation may declare the strict logical `workbenchPresentation.ownerSelector`.
+Route-bound discovery and deep links use its single live authorized match; absent
+or ambiguous owners remain unavailable without generic discovery or a physical
+server-name fallback. The selector is part of the private query scope so changing
+it retires prior discovery. It grants no permission. Generic schema browsing and
+legacy undeclared navigation retain their existing behavior. Extend this contract
+in the Framework owner contribution; test selection and refusal in
+`WorkbenchRoutePage.test.ts` and parsing in `publicBootstrap.test.ts`.

@@ -577,6 +577,38 @@ describe('data release client', () => {
     ).rejects.toThrow('not authorized');
   });
 
+  it.each([
+    {
+      source: { created: '2026-11-13T12:18:57.410Z' },
+      expected: '2026-11-13T12:18:57.410Z',
+    },
+    {
+      source: { startedAt: '2026-11-13T12:18:53.957Z' },
+      expected: '2026-11-13T12:18:53.957Z',
+    },
+    {
+      source: {
+        createdAt: '2026-11-13T12:00:00.000Z',
+        created: '2026-11-13T12:18:57.410Z',
+      },
+      expected: '2026-11-13T12:00:00.000Z',
+    },
+  ])(
+    'preserves owner history timestamps for display and combined ordering ($expected)',
+    async ({ source, expected }) => {
+      const result = await loadImportHistory(
+        connection,
+        configuration,
+        vi.fn<typeof fetch>().mockResolvedValue(
+          response({
+            data: [{ runId: 'recent-run', status: 'COMPLETED', ...source }],
+          }),
+        ),
+      );
+      expect(result[0]?.createdAt).toBe(expected);
+    },
+  );
+
   it('loads bounded import history without accepting diagnostic fields', async () => {
     const result = await loadImportHistory(
       connection,

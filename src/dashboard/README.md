@@ -432,3 +432,10 @@ Dashboard metrics carry the authenticated navigation item’s optional `schemaDi
 Dashboard count discovery reads only the visible target schemas through the existing canonical per-schema capability API. Explicit owner discovery descriptors retain their exact path and version; denial never falls back. Exact per-runtime schema requests are deduplicated, partial failures remain unavailable, and foreign descriptors are rejected. Initial detailed Axis status follows its fresh authenticated bootstrap without immediately downloading the same bootstrap again; later recovery and explicit setup/refresh still obtain a fresh bootstrap.
 
 Large optional workspaces load on navigation through React lazy imports. The authenticated shell remains available, a localized loading status is announced, and a bounded renderer boundary offers an explicit reload after a failed download. Changing route resets that boundary. Loading code never replays an owner command.
+
+Headline metrics retain the Workbench target's declared logical owner selector.
+A publication-only selector supports custom runtime names while keeping an
+operational source distinct from Staged. Missing, ambiguous or unauthorized owners
+remain unavailable; a valid empty owner result displays zero. Framework owns this
+declaration. `frameworkOverviewModel` and `workbenchMetricAuthority` tests cover
+projection, same-owner discovery and refusal without record reads.

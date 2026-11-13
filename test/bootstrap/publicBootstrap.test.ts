@@ -1765,3 +1765,37 @@ it('validates bounded session recovery guidance and accepts its absence from old
     ).toThrow();
   }
 });
+
+describe('Workbench navigation owner selection', () => {
+  async function readSelector(ownerSelector: unknown) {
+    const data = structuredClone(authenticatedData);
+    Object.assign(data.catalogue.cms.navigation[0]!.workbenchPresentation, {
+      ownerSelector,
+    });
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(JSON.stringify({ data }), { status: 200 }));
+    return loadAuthenticatedBootstrap(
+      'https://backoffice.example.com',
+      1,
+      'employee-access',
+      10_000,
+      request,
+    );
+  }
+  it('retains a publication-only selector without inventing a physical server', async () => {
+    const result = await readSelector({ publicationRole: 'OPERATIONAL' });
+    expect(result.navigation[0]?.workbenchPresentation?.ownerSelector).toEqual({
+      publicationRole: 'OPERATIONAL',
+    });
+  });
+  it.each([
+    {},
+    { publicationRole: 'UNKNOWN' },
+    { publicationRole: 'OPERATIONAL', server: 'commerceServer' },
+    { publicationRole: 'OPERATIONAL', tenant: 'foreign' },
+    { runtimeRoleCode: 'lower-case' },
+  ])('rejects invalid navigation owner selector %j', async (selector) => {
+    await expect(readSelector(selector)).rejects.toThrow();
+  });
+});

@@ -124,7 +124,14 @@ export function parseWorkbenchSchemaDiscovery(
   return Object.freeze({ path: discovery.path, apiVersion: discovery.apiVersion });
 }
 
+/** Inert owner facts from authenticated navigation; never endpoint or actor authority. */
+export interface AxisRuntimeOwnerSelector {
+  readonly runtimeRoleCode?: string;
+  readonly publicationRole?: string;
+}
+
 export interface AxisWorkbenchPresentation {
+  readonly ownerSelector?: AxisRuntimeOwnerSelector | undefined;
   readonly schemaDiscovery?: AxisWorkbenchSchemaDiscovery | undefined;
   readonly defaultColumns?: readonly string[] | undefined;
   readonly hiddenFields?: readonly string[] | undefined;
@@ -295,12 +302,7 @@ export interface AxisBackendWorkspaceTab {
 export interface AxisBackendWorkspace {
   readonly businessAccess?: BusinessAccessEditorContract | undefined;
   readonly setupContinuation?: EnterpriseSetupDescriptor | undefined;
-  readonly ownerSelector?:
-    | Readonly<{
-        runtimeRoleCode?: string;
-        publicationRole?: string;
-      }>
-    | undefined;
+  readonly ownerSelector?: AxisRuntimeOwnerSelector | undefined;
   readonly workspaceCode?: string | undefined;
   readonly viewCode?: string | undefined;
   readonly contractVersion: number;
@@ -640,6 +642,19 @@ export type AxisDocumentationSource = AxisDocumentationGuideMetadata &
         readonly dashboard: AxisDocumentationDashboardMetadata;
       }
   );
+
+/** Matches only declared runtime roles; a missing role never supplies a fallback. */
+export function moduleConnectionMatchesOwner(
+  connection: AxisModuleConnection,
+  selector: AxisRuntimeOwnerSelector,
+): boolean {
+  return (
+    (!selector.runtimeRoleCode ||
+      connection.runtimeRole?.code === selector.runtimeRoleCode) &&
+    (!selector.publicationRole ||
+      connection.runtimeRole?.publication === selector.publicationRole)
+  );
+}
 
 export function selectModuleConnection(
   bootstrap: AxisAuthenticatedBootstrap,
@@ -1204,6 +1219,11 @@ function workspaceOwnerSelector(value: unknown): AxisBackendWorkspace['ownerSele
     const code = text(source[key], 'Workspace owner role');
     if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(code))
       throw new Error('Workspace owner role is invalid');
+    if (
+      key === 'publicationRole' &&
+      !['STAGED', 'ONLINE', 'OPERATIONAL'].includes(code)
+    )
+      throw new Error('Workspace publication role is invalid');
     parsed[key] = code;
   }
   if (!Object.keys(parsed).length) throw new Error('Workspace owner selector is empty');
@@ -1758,6 +1778,7 @@ function parseWorkbenchPresentation(
 ): AxisWorkbenchPresentation | undefined {
   if (value === undefined) return undefined;
   const presentation = record(value, `${moduleName} workbench presentation`);
+  const ownerSelector = workspaceOwnerSelector(presentation.ownerSelector);
   const schemaDiscovery =
     presentation.schemaDiscovery === undefined
       ? undefined
@@ -1814,6 +1835,7 @@ function parseWorkbenchPresentation(
         );
   return Object.freeze({
     ...(schemaDiscovery === undefined ? {} : { schemaDiscovery }),
+    ...(ownerSelector === undefined ? {} : { ownerSelector }),
     ...(defaultColumns === undefined ? {} : { defaultColumns }),
     ...(hiddenFields === undefined ? {} : { hiddenFields }),
     ...(editableFields === undefined ? {} : { editableFields }),

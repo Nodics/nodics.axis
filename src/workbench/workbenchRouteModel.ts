@@ -1,9 +1,11 @@
 import type { AxisSort } from '../app/table/axisTableSorting';
+import { moduleConnectionMatchesOwner } from '../bootstrap/publicBootstrap';
 import type {
   AxisNavigationLifecycleAction,
   AxisNavigationItem,
   AxisModuleConnection,
   AxisWorkbenchPresentation,
+  AxisRuntimeOwnerSelector,
   AxisWorkbenchPresentationQuickFilter,
 } from '../bootstrap/publicBootstrap';
 import type {
@@ -434,11 +436,26 @@ export function relatedRecordPanelFilter(
   });
 }
 
+/** A declared source must resolve to one live owner before discovery or deep-link reads. */
+export function selectWorkbenchOwnerConnections(
+  connections: readonly AxisModuleConnection[],
+  selector: AxisRuntimeOwnerSelector,
+): readonly AxisModuleConnection[] {
+  const owners = connections.filter(
+    (connection) =>
+      ['UP', 'DEGRADED'].includes(connection.state) &&
+      moduleConnectionMatchesOwner(connection, selector),
+  );
+  return owners.length === 1 ? owners : [];
+}
+
 /** Selects the existing staged or operational server for an authorized route. */
 export function routePreferredServer(
   navigation: AxisNavigationItem | undefined,
   routeOwnerConnection: AxisModuleConnection | undefined,
 ): string | undefined {
+  if (navigation?.workbenchPresentation?.ownerSelector)
+    return routeOwnerConnection?.server;
   const groupId = navigation?.group?.id;
   const route = navigation?.route ?? '';
   if (
